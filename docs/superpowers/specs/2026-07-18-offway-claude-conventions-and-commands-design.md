@@ -148,6 +148,15 @@ core의 "전면 금지"는 대규모·다인 협업용이라 OffWay(1인·MVP·�
 ### 4.14 YAGNI / 가까운 미래
 - 가설적 먼 미래를 위한 추상화는 만들지 않음. 단, 합의된 가까운 후속(예: Nice-to-have 기능)과 충돌하지 않게 설계.
 
+### 4.15 객체지향 설계 · 상수화 원칙
+사용자 선호이자 프로젝트 컨벤션. 아래를 기본으로 지킨다.
+- **매직 값 금지 → 상수·enum.** 비즈니스 로직에 리터럴(숫자·문자열)을 직접 박지 않는다. 의미 있는 값은 `static final` 상수나 enum으로 승격한다. (예: LNT 계산 임계치·시간 단위, 캐시 TTL·키, 외부 API base URL·path·param key.)
+- **분류·상태·타입은 enum.** boolean 플래그·문자열 코드 대신 enum. OffWay 적용: `PolicyType`(7대 혜택), `TransportMode`(자가용·KTX·SRT·시외버스…), `RegionType`, 각종 상태값. 가능하면 **enum에 행위를 담아**(상수별 메서드) 다형성으로 분기를 없앤다.
+- **캡슐화 / rich domain.** 필드는 `private`, public setter 금지. 상태 변경·계산은 도메인 객체 메서드로 표현한다(§4.2 "도메인이 자기방어"와 결). 서비스에 분기가 쌓이면 도메인으로 내린다(anemic 지양).
+- **추상화 / DIP.** 외부 의존성은 도메인이 **port 인터페이스**에만 의존한다(`external`의 클라이언트 인터페이스). 구현(adapter)은 `external`에 격리해 프레임워크·외부 세부가 도메인에 새지 않게 한다.
+- **다형성 / 전략.** 변형되는 행위(교통수단별 소요시간, 정책별 매칭 규칙 등)는 `if/else` 타입 스위치 대신 다형성(인터페이스 구현 · enum 전략 · `sealed interface` + pattern matching)으로 표현한다.
+- **Java 25 활용.** 불변 값 객체는 `record`, 닫힌 계층은 `sealed interface` + `switch` 패턴 매칭, 상수 집합은 enum. Lombok은 보일러플레이트(`@Getter`·`@Builder`·`@Slf4j`)에 한정한다.
+
 ## 5. 공통 기반 코드 (`common` 패키지)
 
 컨벤션과 커맨드가 참조하므로 **먼저 만든다.** (없으면 `/entity`·`/api-client`가 존재하지 않는 클래스를 참조하는 코드를 생성.)
