@@ -1,30 +1,60 @@
-HELP.md
-.gradle
+### Gradle ###
+.gradle/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
 
-### STS ###
-.apt_generated
+### Java / 런타임 산출물 ###
+*.class
+*.log
+hs_err_pid*
+replay_pid*
+*.hprof
+
+### 시크릿 — 절대 커밋 금지 ###
+# 로컬 API 키/시크릿 (application-secret.properties.example 만 커밋)
+application-secret.properties
+application-*-secret.properties
+secret.properties
+.env
+.env.*
+!.env.example
+# 자격증명/키 파일
+*.pem
+*.p12
+*.jks
+*.keystore
+*.key
+credentials.json
+**/secrets/
+
+### 설계 과정 문서 (git 제외 — 로컬 참고용) ###
+docs/superpowers/
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### Eclipse / STS ###
+.apt_generated/
 .classpath
 .factorypath
 .project
-.settings
+.settings/
 .springBeans
-.sts4-cache
+.sts4-cache/
 bin/
 !**/src/main/**/bin/
 !**/src/test/**/bin/
 
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-out/
-!**/src/main/**/out/
-!**/src/test/**/out/
+### VS Code ###
+.vscode/
 
 ### NetBeans ###
 /nbproject/private/
@@ -33,5 +63,15 @@ out/
 /nbdist/
 /.nb-gradle/
 
-### VS Code ###
-.vscode/
+### OS ###
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+desktop.ini
+
+### 기타 ###
+HELP.md
+logs/
+tmp/
+*.tmp
