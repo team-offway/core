@@ -1,18 +1,48 @@
 package com.offway.core.external.probe;
 
+import com.offway.core.external.ExternalApiProperties;
+import java.net.URI;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
-/**
- * 코레일 열차운행정보(data.go.kr 15125762).
- * 오퍼레이션 URL 미확정이라 지금은 UNVERIFIED. KTX 시간표는 TAGO 열차정보로도 대체 가능.
- */
+/** 코레일 여객열차 운행정보 — 한국철도공사(B551457). 성공 포맷이 resultCode "0"/"정상"으로 다르다. */
 @Component
-class KorailProbe implements ExternalApiProbe {
+class KorailProbe extends AbstractDataGoKrProbe {
+
+    private static final String BASE =
+            "https://apis.data.go.kr/B551457/run/v2/travelerTrainRunInfo2";
+
+    KorailProbe(WebClient externalWebClient, ExternalApiProperties props) {
+        super(externalWebClient, props);
+    }
 
     @Override
-    public ProbeResult probe() {
-        return ProbeResult.unverified(
-                "코레일 열차운행정보", "공공데이터포털",
-                "활용신청 승인됨 · 클라이언트 연동 예정(여객열차 운행계획/운행정보)");
+    protected String name() {
+        return "코레일 열차운행정보";
+    }
+
+    @Override
+    protected URI uri(String serviceKey) {
+        return UriComponentsBuilder.fromUriString(BASE)
+                .queryParam("serviceKey", serviceKey)
+                .queryParam("_type", "json")
+                .queryParam("numOfRows", "1")
+                .queryParam("pageNo", "1")
+                .queryParam("dt", "20260710")
+                .encode()
+                .build()
+                .toUri();
+    }
+
+    @Override
+    protected boolean isSuccess(String body) {
+        if (body == null) {
+            return false;
+        }
+        // 코레일은 resultCode "0" + resultMsg "정상" 형식
+        return body.contains("\"resultCode\":\"0\"")
+                || body.contains("\"resultMsg\":\"정상\"")
+                || super.isSuccess(body);
     }
 }

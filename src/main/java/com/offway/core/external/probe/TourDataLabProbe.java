@@ -1,18 +1,40 @@
 package com.offway.core.external.probe;
 
+import com.offway.core.external.ExternalApiProperties;
+import java.net.URI;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
-/**
- * 관광빅데이터(집중률·방문자 예측, data.go.kr 15101972).
- * 오퍼레이션 명세가 아직 미확정(활용가이드 v4.1 확인 필요)이라, 지금은 UNVERIFIED로 표시만 한다.
- */
+/** 관광빅데이터(광역별 방문자수) — 한국관광공사 DataLabService. */
 @Component
-class TourDataLabProbe implements ExternalApiProbe {
+class TourDataLabProbe extends AbstractDataGoKrProbe {
+
+    private static final String BASE =
+            "https://apis.data.go.kr/B551011/DataLabService/metcoRegnVisitrDDList";
+
+    TourDataLabProbe(WebClient externalWebClient, ExternalApiProperties props) {
+        super(externalWebClient, props);
+    }
 
     @Override
-    public ProbeResult probe() {
-        return ProbeResult.unverified(
-                "관광빅데이터(방문자·집중률)", "공공데이터포털",
-                "활용신청 승인됨 · 클라이언트 연동 예정(지역별 방문자수·집중률·예측)");
+    protected String name() {
+        return "관광빅데이터(방문자·집중률)";
+    }
+
+    @Override
+    protected URI uri(String serviceKey) {
+        return UriComponentsBuilder.fromUriString(BASE)
+                .queryParam("serviceKey", serviceKey)
+                .queryParam("MobileOS", "ETC")
+                .queryParam("MobileApp", "offway")
+                .queryParam("_type", "json")
+                .queryParam("numOfRows", "1")
+                .queryParam("pageNo", "1")
+                .queryParam("startYmd", "20260601")
+                .queryParam("endYmd", "20260607")
+                .encode()
+                .build()
+                .toUri();
     }
 }
