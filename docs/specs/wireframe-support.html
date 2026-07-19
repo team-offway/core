@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OffWay · 와이어프레임 백엔드 지원 현황</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+  :root{--bg:#f5f6f8;--ink:#141922;--sub:#5b6472;--line:#e8eaee;--card:#fff;
+    --ok:#12a25f;--ok-bg:#e9f9f0;--proc:#e0930a;--proc-bg:#fdf4e3;--man:#d64545;--man-bg:#fdeaea;--fe:#8892a0;--fe-bg:#f0f1f3;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo',system-ui,sans-serif;line-height:1.5;letter-spacing:-.01em}
+  .wrap{max-width:1240px;margin:0 auto;padding:2.8rem 1.5rem 4.5rem}
+  .eyebrow{display:inline-block;font-size:.75rem;font-weight:700;letter-spacing:.14em;color:var(--ok);background:var(--ok-bg);padding:.3rem .65rem;border-radius:999px;text-transform:uppercase}
+  h1{font-size:1.85rem;font-weight:800;margin:.6rem 0 .3rem;letter-spacing:-.03em}
+  .lead{margin:0;color:var(--sub);max-width:62ch}
+  .legend{display:flex;gap:.6rem;flex-wrap:wrap;margin:1.3rem 0 .5rem}
+  .lg{display:inline-flex;align-items:center;gap:.4rem;font-size:.82rem;font-weight:600;padding:.3rem .7rem;border-radius:999px}
+  .lg.ok{background:var(--ok-bg);color:var(--ok)} .lg.proc{background:var(--proc-bg);color:var(--proc)}
+  .lg.man{background:var(--man-bg);color:var(--man)} .lg.fe{background:var(--fe-bg);color:var(--fe)}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-top:1rem}
+  @media(max-width:940px){.grid{grid-template-columns:1fr 1fr}} @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .screen{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:1.05rem 1.1rem;box-shadow:0 1px 2px rgba(20,25,34,.03)}
+  .sh{display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem}
+  .sid{font-size:.72rem;font-weight:800;color:#fff;background:var(--ink);padding:.14rem .5rem;border-radius:6px}
+  .sname{font-weight:800;font-size:1rem}
+  .row{display:flex;align-items:flex-start;gap:.5rem;padding:.42rem 0;border-top:1px solid #f1f2f4}
+  .row:first-of-type{border-top:none}
+  .dot{flex:none;width:.65rem;height:.65rem;border-radius:50%;margin-top:.32rem}
+  .dot.ok{background:var(--ok)} .dot.proc{background:var(--proc)} .dot.man{background:var(--man)} .dot.fe{background:var(--fe)}
+  .rc{flex:1}
+  .rt{font-size:.9rem;font-weight:600}
+  .rs{font-size:.76rem;color:var(--sub);margin-top:.05rem}
+  .summary{margin-top:1.8rem;background:linear-gradient(135deg,#12a25f,#0c7a47);color:#fff;border-radius:16px;padding:1.4rem 1.6rem}
+  .summary b{color:#eafff3}
+  .summary .lab{font-size:.75rem;letter-spacing:.12em;font-weight:700;opacity:.75;text-transform:uppercase}
+  .summary p{margin:.45rem 0 0;font-size:1.05rem;line-height:1.55}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">OffWay · Wireframe × Backend</div>
+  <h1>와이어프레임 — 백엔드 지원 현황</h1>
+  <p class="lead">각 화면 요소를 백엔드가 <b>지금 바로 지원 가능한지</b> 표시했습니다. (6개 외부 API·지역 89 시딩 완료 기준)</p>
+  <div class="legend">
+    <span class="lg ok">● 바로 가능 (데이터·API 확보)</span>
+    <span class="lg proc">● 가공/구현 필요</span>
+    <span class="lg man">● 수동·후속 (정책 등)</span>
+    <span class="lg fe">● FE 전용 (UI)</span>
+  </div>
+
+  <div class="grid">
+
+    <div class="screen">
+      <div class="sh"><span class="sid">S1</span><span class="sname">로그인</span></div>
+      <div class="row"><span class="dot proc"></span><div class="rc"><div class="rt">소셜 로그인 (카카오·애플·구글)</div><div class="rs">OAuth2 의존성 준비됨 · 구현 필요</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">게스트 시작</div><div class="rs">임시 유저 발급(권장)</div></div></div>
+    </div>
+
+    <div class="screen">
+      <div class="sh"><span class="sid">S2</span><span class="sname">연차 일수 입력</span></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">연차 일수 저장</div><div class="rs">user 테이블</div></div></div>
+    </div>
+
+    <div class="screen">
+      <div class="sh"><span class="sid">S3</span><span class="sname">홈</span></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">남은 연차 일수</div><div class="rs">user</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">개인화 배너(이름)</div><div class="rs">user.name</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">필터칩(관광지·숙박·체험·맛집)</div><div class="rs">lclsSystm 매핑</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">추천 지역 카드</div><div class="rs">region 89 시딩</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">한산도 뱃지</div><div class="rs">관광빅데이터 집중률</div></div></div>
+      <div class="row"><span class="dot proc"></span><div class="rc"><div class="rt">대표 이미지 / 설명</div><div class="rs">TourAPI + CDN·overview 요약</div></div></div>
+      <div class="row"><span class="dot man"></span><div class="rc"><div class="rt">혜택 뱃지("숙박비 30%")</div><div class="rs">정책 수동 시딩 (policy)</div></div></div>
+    </div>
+
+    <div class="screen">
+      <div class="sh"><span class="sid">S4</span><span class="sname">기간 스타일</span></div>
+      <div class="row"><span class="dot fe"></span><div class="rc"><div class="rt">당일/주말/연차 선택 UI</div><div class="rs">FE</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">선택→가용시간 계산</div><div class="rs">특일정보</div></div></div>
+    </div>
+
+    <div class="screen">
+      <div class="sh"><span class="sid">S5</span><span class="sname">이동수단</span></div>
+      <div class="row"><span class="dot fe"></span><div class="rc"><div class="rt">자차/대중교통 선택 UI</div><div class="rs">FE</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">이동시간 반영</div><div class="rs">TMAP(자차) · TAGO(대중교통)</div></div></div>
+    </div>
+
+    <div class="screen">
+      <div class="sh"><span class="sid">S6</span><span class="sname">일정 밀도</span></div>
+      <div class="row"><span class="dot fe"></span><div class="rc"><div class="rt">빡빡/널널 선택 UI</div><div class="rs">FE</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">코스 슬롯 개수 반영</div><div class="rs">코스 생성 로직</div></div></div>
+    </div>
+
+    <div class="screen">
+      <div class="sh"><span class="sid">S7</span><span class="sname">로딩</span></div>
+      <div class="row"><span class="dot fe"></span><div class="rc"><div class="rt">탐색 애니메이션</div><div class="rs">FE (백엔드 응답 대기)</div></div></div>
+    </div>
+
+    <div class="screen">
+      <div class="sh"><span class="sid">S8</span><span class="sname">후보 지역</span></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">가용시간(LNT) 산출</div><div class="rs">특일정보</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">도달 가능 지역 필터</div><div class="rs">TMAP 이동가능영역 + region</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">콘텐츠 부족→인접 50km</div><div class="rs">TourAPI totalCount</div></div></div>
+    </div>
+
+    <div class="screen">
+      <div class="sh"><span class="sid">S9</span><span class="sname">코스 확정 (지도·타임라인)</span></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">관광지·좌표</div><div class="rs">TourAPI 위치기반</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">동선·이동시간</div><div class="rs">TMAP 경유지 최적화</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">지도 마커 / Day탭·타임라인</div><div class="rs">좌표·순서 구성 (렌더는 FE)</div></div></div>
+      <div class="row"><span class="dot ok"></span><div class="rc"><div class="rt">코스 담기(저장)</div><div class="rs">user 저장</div></div></div>
+      <div class="row"><span class="dot proc"></span><div class="rc"><div class="rt">평일 오픈 뱃지</div><div class="rs">소개정보 휴무일 텍스트 파싱</div></div></div>
+      <div class="row"><span class="dot proc"></span><div class="rc"><div class="rt">공유 이미지</div><div class="rs">코스 이미지 생성</div></div></div>
+      <div class="row"><span class="dot man"></span><div class="rc"><div class="rt">혜택 뱃지 / 비용</div><div class="rs">정책 수동 시딩</div></div></div>
+    </div>
+
+  </div>
+
+  <div class="summary">
+    <div class="lab">Summary</div>
+    <p>화면의 <b>대부분은 지금 바로 지원 가능</b>해요 (연차·지역·도달시간·동선·한산도·필터칩).<br>
+    <b>수동(빨강)</b>은 <b>정책 혜택 뱃지</b> 하나뿐 — policy 테이블 수동 시딩으로 해결.<br>
+    <b>가공(주황)</b>은 이미지 CDN·설명 요약·평일오픈 파싱·소셜로그인 — 구현 이슈지 데이터 부재 아님.</p>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,4 +1,4 @@
-package com.offway.core.external;
+package com.offway.core.common.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

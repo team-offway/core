@@ -1,34 +1,34 @@
-package com.offway.core.external.probe;
+package com.offway.core.inventory.infrastructure.probe;
 
-import com.offway.core.external.ExternalApiProperties;
+import com.offway.core.common.config.ExternalApiProperties;
 import java.net.URI;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
-/** 특일 정보(공휴일·대체공휴일) — 한국천문연구원. */
+/** TAGO 대중교통(국토부) — 도시코드 목록으로 키·연결만 가볍게 확인. */
 @Component
-class HolidayProbe extends AbstractDataGoKrProbe {
+class TagoProbe extends AbstractDataGoKrProbe {
 
     private static final String BASE =
-            "https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo";
+            "https://apis.data.go.kr/1613000/ArvlInfoInqireService/getCtyCodeList";
 
-    HolidayProbe(WebClient externalWebClient, ExternalApiProperties props) {
+    TagoProbe(WebClient externalWebClient, ExternalApiProperties props) {
         super(externalWebClient, props);
     }
 
     @Override
     protected String name() {
-        return "특일정보(공휴일)";
+        return "TAGO 대중교통(버스)";
     }
 
     @Override
     protected URI uri(String serviceKey) {
         return UriComponentsBuilder.fromUriString(BASE)
                 .queryParam("serviceKey", serviceKey)
-                .queryParam("solYear", "2026")
-                .queryParam("solMonth", "07")
                 .queryParam("_type", "json")
+                .queryParam("numOfRows", "1")
+                .queryParam("pageNo", "1")
                 .encode()
                 .build()
                 .toUri();

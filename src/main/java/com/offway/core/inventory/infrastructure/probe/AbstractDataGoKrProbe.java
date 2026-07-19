@@ -1,6 +1,6 @@
-package com.offway.core.external.probe;
+package com.offway.core.inventory.infrastructure.probe;
 
-import com.offway.core.external.ExternalApiProperties;
+import com.offway.core.common.config.ExternalApiProperties;
 import java.net.URI;
 import java.time.Duration;
 import org.springframework.web.reactive.function.client.WebClient;

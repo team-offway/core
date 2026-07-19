@@ -1,19 +1,20 @@
-package com.offway.core.inventory;
+package com.offway.core.inventory.service;
 
-import com.offway.core.external.probe.ExternalApiProbe;
-import com.offway.core.external.probe.ProbeResult;
-import com.offway.core.region.RegionRepository;
+import com.offway.core.inventory.infrastructure.probe.ExternalApiProbe;
+import com.offway.core.inventory.infrastructure.probe.ProbeResult;
+import com.offway.core.inventory.service.dto.InventoryRow;
+import com.offway.core.inventory.service.dto.InventorySnapshot;
+import com.offway.core.region.repository.RegionRepository;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-/** 지금 가져올 수 있는 데이터 소스 현황을 표 형태로 취합한다. */
+/** 지금 가져올 수 있는 데이터 소스 현황을 표 형태로 취합한다(ops 헬스체크). */
 @Slf4j
 @Service
 public class InventoryService {
 
-    // 표시 순서 + 각 소스가 제공하는 내용(무엇을 주는지).
     private static final List<String> ORDER = List.of(
             "특일정보(공휴일)",
             "국문관광정보(TourAPI)",

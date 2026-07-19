@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OffWay 기능 명세</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+  :root{
+    --bg:#f5f6f8; --ink:#141922; --sub:#5b6472; --line:#e8eaee; --card:#fff;
+    --leave:#4361ee; --trip:#12a25f; --itin:#0ca6b8; --policy:#e0930a; --filter:#8b5cf6; --core:#141922;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo',system-ui,sans-serif;
+    line-height:1.55;-webkit-font-smoothing:antialiased;letter-spacing:-.01em}
+  .wrap{max-width:1180px;margin:0 auto;padding:3rem 1.6rem 4.5rem}
+  .eyebrow{display:inline-block;font-size:.76rem;font-weight:700;letter-spacing:.14em;color:var(--leave);
+    background:#eaefff;padding:.32rem .7rem;border-radius:999px;text-transform:uppercase}
+  h1{font-size:2rem;font-weight:800;margin:.7rem 0 .3rem;letter-spacing:-.03em}
+  .lead{margin:0;color:var(--sub);max-width:60ch}
+  .mvp{display:inline-block;margin-top:.6rem;font-size:.78rem;font-weight:700;color:#12a25f;background:#e9f9f0;padding:.25rem .6rem;border-radius:999px}
+
+  h2{font-size:1.15rem;font-weight:800;margin:2.6rem 0 1rem;display:flex;align-items:center;gap:.5rem}
+  h2 .bar{width:.28rem;height:1.1rem;background:var(--leave);border-radius:4px}
+
+  /* flow */
+  .flow{display:flex;gap:.5rem;align-items:stretch;flex-wrap:wrap}
+  .step{flex:1;min-width:150px;background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:.9rem 1rem;position:relative;box-shadow:0 1px 2px rgba(20,25,34,.03)}
+  .step .num{display:inline-grid;place-items:center;width:1.5rem;height:1.5rem;border-radius:50%;
+    background:var(--core);color:#fff;font-size:.8rem;font-weight:700;margin-bottom:.4rem}
+  .step .t{font-weight:700;font-size:.92rem}
+  .step .d{font-size:.78rem;color:var(--sub);margin-top:.15rem}
+  .arrow{align-self:center;color:#c2c8d0;font-size:1.2rem;font-weight:700}
+  @media(max-width:760px){.flow{flex-direction:column}.arrow{transform:rotate(90deg)}}
+
+  /* feature cards */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  .fcard{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--leave);
+    border-radius:14px;padding:1.1rem 1.15rem;box-shadow:0 1px 2px rgba(20,25,34,.03)}
+  .fcard.leave{border-left-color:var(--leave)} .fcard.trip{border-left-color:var(--trip)}
+  .fcard.itin{border-left-color:var(--itin)} .fcard.policy{border-left-color:var(--policy)}
+  .fcard.filter{border-left-color:var(--filter)}
+  .fhead{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
+  .fid{font-size:.75rem;font-weight:800;color:#fff;padding:.15rem .5rem;border-radius:6px;background:var(--leave)}
+  .trip .fid{background:var(--trip)} .itin .fid{background:var(--itin)} .policy .fid{background:var(--policy)} .filter .fid{background:var(--filter)}
+  .dom{margin-left:auto;font-size:.72rem;font-weight:700;color:var(--sub);background:#f0f1f3;padding:.15rem .5rem;border-radius:6px}
+  .fname{font-size:1.02rem;font-weight:800}
+  .fpurpose{font-size:.86rem;color:var(--sub);margin:.3rem 0 .7rem}
+  .io{font-size:.8rem;background:#f7f8fa;border-radius:8px;padding:.5rem .6rem;margin-bottom:.55rem}
+  .io b{color:var(--ink)}
+  .tags{display:flex;flex-wrap:wrap;gap:.3rem}
+  .tag{font-size:.72rem;color:#4a5261;background:#eef0f3;border:1px solid #e4e7ec;border-radius:6px;padding:.16rem .45rem}
+
+  /* bottom */
+  .two{display:grid;grid-template-columns:1.3fr 1fr;gap:1.2rem;margin-top:1rem}
+  @media(max-width:760px){.two{grid-template-columns:1fr}}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:1.1rem 1.2rem}
+  .panel h3{margin:0 0 .7rem;font-size:.95rem;font-weight:800}
+  .ob{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .ob .p{background:#eaefff;color:var(--leave);font-weight:700;font-size:.82rem;padding:.4rem .7rem;border-radius:10px}
+  .ob .ar{color:#c2c8d0;font-weight:700}
+  .chips{display:flex;flex-wrap:wrap;gap:.4rem}
+  .chip{font-size:.8rem;color:#7c848f;background:#f0f1f3;border-radius:999px;padding:.28rem .65rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">OffWay · Feature Spec</div>
+  <h1>기능 명세</h1>
+  <p class="lead">"며칠 쉴 수 있나" 하나로 연차·로컬 여행지·정부 혜택이 결합된 완성형 국내 여행 코스를 자동 생성한다.</p>
+  <span class="mvp">● MVP (1차 데모 범위)</span>
+
+  <h2><span class="bar"></span>핵심 플로우</h2>
+  <div class="flow">
+    <div class="step"><span class="num">1</span><div class="t">연차 입력</div><div class="d">연차일수·출발일·이동수단</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><span class="num">2</span><div class="t">가용시간(LNT)</div><div class="d">공휴일·주말 합산 → 총 가용시간·이동한계</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><span class="num">3</span><div class="t">후보 지역</div><div class="d">도달 가능한 인구감소지역 89곳</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><span class="num">4</span><div class="t">코스 생성</div><div class="d">관광지→동선→평일오픈·집중률</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><span class="num">5</span><div class="t">혜택 매칭</div><div class="d">정책 뱃지 + 종합비용</div></div>
+  </div>
+
+  <h2><span class="bar"></span>기능 6</h2>
+  <div class="grid">
+
+    <div class="fcard leave">
+      <div class="fhead"><span class="fid">F1</span><span class="dom">leave</span></div>
+      <div class="fname">가용시간(LNT) 산출</div>
+      <div class="fpurpose">이 연차로 실제 몇 시간 여행 가능한가</div>
+      <div class="io"><b>입력</b> 연차일수·출발일·반차 &nbsp;<b>→ 출력</b> 가용시간(h)·여행구간·이동한계</div>
+      <div class="tags"><span class="tag">특일정보 API</span></div>
+    </div>
+
+    <div class="fcard leave">
+      <div class="fhead"><span class="fid">F2</span><span class="dom">leave</span></div>
+      <div class="fname">샌드위치 연휴 탐지</div>
+      <div class="fpurpose">최소 연차로 최대 휴식 되는 황금 연차일 추천</div>
+      <div class="io"><b>입력</b> 향후 6개월·보유연차 &nbsp;<b>→ 출력</b> 연차사용일·휴식일수·효율</div>
+      <div class="tags"><span class="tag">특일정보 API</span></div>
+    </div>
+
+    <div class="fcard trip">
+      <div class="fhead"><span class="fid">F3</span><span class="dom">trip</span></div>
+      <div class="fname">인구감소지역 추천</div>
+      <div class="fpurpose">가용시간 내 갈 수 있는 로컬 여행지, 한산한 시점 우선</div>
+      <div class="io"><b>입력</b> LNT·출발지·무드칩 &nbsp;<b>→ 출력</b> 추천 지역 + 대표 관광지</div>
+      <div class="tags"><span class="tag">region 89</span><span class="tag">TourAPI</span><span class="tag">관광빅데이터</span><span class="tag">TMAP</span></div>
+    </div>
+
+    <div class="fcard itin">
+      <div class="fhead"><span class="fid">F4</span><span class="dom">itinerary</span></div>
+      <div class="fname">코스(동선) 자동 생성</div>
+      <div class="fpurpose">지역 안 관광지를 이어 하루/1박 코스로</div>
+      <div class="io"><b>입력</b> 지역·가용시간·무드 &nbsp;<b>→ 출력</b> 날짜별 타임라인·지도동선</div>
+      <div class="tags"><span class="tag">TourAPI 위치기반</span><span class="tag">소개정보(휴무일)</span><span class="tag">TMAP 경유지</span></div>
+    </div>
+
+    <div class="fcard policy">
+      <div class="fhead"><span class="fid">F5</span><span class="dom">policy</span></div>
+      <div class="fname">정책 혜택 매칭</div>
+      <div class="fpurpose">코스에 적용 가능한 혜택 자동 뱃지 + 종합비용</div>
+      <div class="io"><b>입력</b> 코스·사용자속성 &nbsp;<b>→ 출력</b> 혜택 뱃지 + 예상 절감액</div>
+      <div class="tags"><span class="tag">정책 seed(수동)</span><span class="tag">region 플래그</span></div>
+    </div>
+
+    <div class="fcard filter">
+      <div class="fhead"><span class="fid">F6</span><span class="dom">공통</span></div>
+      <div class="fname">테마/유형 필터</div>
+      <div class="fpurpose">무드칩으로 결과 안에서 우선순위 조정</div>
+      <div class="io"><b>입력</b> 무드칩 1~3개 &nbsp;<b>→</b> lclsSystm 코드 묶음으로 필터</div>
+      <div class="tags"><span class="tag">자연</span><span class="tag">역사</span><span class="tag">체험</span><span class="tag">맛</span><span class="tag">레저</span><span class="tag">축제</span></div>
+    </div>
+
+  </div>
+
+  <div class="two">
+    <div class="panel">
+      <h3>온보딩 — 입력 최소화</h3>
+      <div class="ob">
+        <span class="p">① 연차 며칠</span><span class="ar">→</span>
+        <span class="p">② 출발지 · 이동수단</span><span class="ar">→</span>
+        <span class="p">③ 무드칩(선택)</span><span class="ar">→</span>
+        <span class="p" style="background:#e9f9f0;color:#12a25f">완성형 코스</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Out of Scope <span style="font-weight:500;color:var(--sub);font-size:.8rem">(Nice-to-have)</span></h3>
+      <div class="chips">
+        <span class="chip">반차·0.5박 모드</span>
+        <span class="chip">연차 컨설팅</span>
+        <span class="chip">연인·가족 필터</span>
+        <span class="chip">커뮤니티·리뷰</span>
+        <span class="chip">예약 연동</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

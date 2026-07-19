@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OffWay · 트리플 벤치마킹</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+  :root{
+    --bg:#f5f6f8; --ink:#141922; --sub:#5b6472; --line:#e8eaee; --card:#ffffff;
+    --tri:#3a6df0; --tri-bg:#eef3ff; --tri-line:#d6e2ff;
+    --own:#12a25f; --own-bg:#e9f9f0; --own-line:#c9efd9;
+    --brw:#e0930a; --brw-bg:#fdf4e3; --brw-line:#f4e2bd;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo',system-ui,sans-serif;
+    line-height:1.55;-webkit-font-smoothing:antialiased;letter-spacing:-.01em}
+  .wrap{max-width:1180px;margin:0 auto;padding:3rem 1.6rem 4.5rem}
+
+  /* hero */
+  .hero{margin-bottom:2.4rem}
+  .eyebrow{display:inline-block;font-size:.78rem;font-weight:700;letter-spacing:.14em;
+    color:var(--tri);background:var(--tri-bg);padding:.32rem .7rem;border-radius:999px;text-transform:uppercase}
+  h1{font-size:2.1rem;font-weight:800;margin:.7rem 0 .4rem;letter-spacing:-.03em}
+  .hero p{margin:0;color:var(--sub);font-size:1rem;max-width:60ch}
+  .note{margin-top:.9rem;font-size:.82rem;color:var(--sub);background:#fff;border:1px solid var(--line);
+    border-radius:10px;padding:.55rem .8rem;display:inline-block}
+
+  /* columns */
+  .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:1.2rem}
+  @media(max-width:920px){.cols{grid-template-columns:1fr}}
+  .col{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:1.3rem 1.2rem 1.5rem;
+    box-shadow:0 1px 2px rgba(20,25,34,.03)}
+  .col-head{display:flex;align-items:center;gap:.6rem;padding-bottom:.9rem;margin-bottom:1rem;border-bottom:2px solid}
+  .col-head .emoji{font-size:1.5rem;line-height:1}
+  .col-head .t{font-size:1.12rem;font-weight:800}
+  .col-head .n{margin-left:auto;font-size:.78rem;font-weight:700;padding:.2rem .55rem;border-radius:999px}
+  .tri .col-head{border-color:var(--tri-line)} .tri .t{color:var(--tri)} .tri .n{background:var(--tri-bg);color:var(--tri)}
+  .own .col-head{border-color:var(--own-line)} .own .t{color:var(--own)} .own .n{background:var(--own-bg);color:var(--own)}
+  .brw .col-head{border-color:var(--brw-line)} .brw .t{color:var(--brw)} .brw .n{background:var(--brw-bg);color:var(--brw)}
+
+  .item{padding:.7rem .8rem;border-radius:12px;margin-bottom:.55rem;border:1px solid transparent}
+  .tri .item{background:var(--tri-bg)} .own .item{background:var(--own-bg)} .brw .item{background:var(--brw-bg)}
+  .item .h{font-weight:700;font-size:.95rem;margin-bottom:.15rem}
+  .item .d{font-size:.85rem;color:var(--sub)}
+  .item .d b{color:var(--ink);font-weight:600}
+  .star{color:var(--brw);font-weight:800}
+
+  /* summary */
+  .summary{margin-top:2rem;background:linear-gradient(135deg,#141922,#2b3446);color:#fff;
+    border-radius:18px;padding:1.6rem 1.8rem}
+  .summary .lab{font-size:.78rem;letter-spacing:.14em;font-weight:700;opacity:.6;text-transform:uppercase}
+  .summary p{margin:.5rem 0 0;font-size:1.15rem;font-weight:600;line-height:1.5}
+  .summary .hl{color:#7fe6b0}
+  .summary .hl2{color:#8fb6ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <span class="eyebrow">OffWay · Triple Benchmark</span>
+    <h1>트리플에서 배울 것 · 우리가 이길 것</h1>
+    <p>여행 계획 앱 '트리플'(야놀자·놀유니버스, 해외여행 중심)을 벤치마킹해, OffWay가 <b>그대로 배울 UX</b>와 <b>트리플이 비운 국내·연차·정부혜택 영역</b>을 갈라 정리했습니다.</p>
+    <div class="note">📌 디자이너 참고용 · 각 항목은 화면/기능 아이디어의 씨앗입니다</div>
+  </div>
+
+  <div class="cols">
+
+    <!-- Triple -->
+    <section class="col tri">
+      <div class="col-head"><span class="emoji">🔷</span><span class="t">트리플이 잘하는 것</span><span class="n">배울 점</span></div>
+      <div class="item"><div class="h">자동 동선 일정</div><div class="d">갈 곳만 고르면 <b>순서·동선이 자동 정렬</b>, 이동거리 실시간 표시</div></div>
+      <div class="item"><div class="h">3스텝 온보딩</div><div class="d">도시 → 날짜 → 스타일, <b>1분 내 AI 일정</b> 완성</div></div>
+      <div class="item"><div class="h">타임라인 + 지도</div><div class="d">카드형 하루 일정 ↔ <b>지도 동선</b> 토글</div></div>
+      <div class="item"><div class="h">데이터 큐레이션</div><div class="d">저장수·평점·최근 인기로 <b>검증된 정보만</b> 노출</div></div>
+      <div class="item"><div class="h">계획 → 예약</div><div class="d">일정 화면에서 <b>바로 예약(투어·티켓)</b> 전환</div></div>
+      <div class="item"><div class="h">남의 일정 담기</div><div class="d">라운지에서 <b>다른 사람 코스를 통째로</b> 내 일정으로</div></div>
+      <div class="item"><div class="h">raw 안 쓰는 규율</div><div class="d">상위 20%만 사람이 큐레이션 · <b>이미지 CDN 최적화</b></div></div>
+    </section>
+
+    <!-- OffWay -->
+    <section class="col own">
+      <div class="col-head"><span class="emoji">🟢</span><span class="t">우리가 해야 하는 것</span><span class="n">OffWay 차별점</span></div>
+      <div class="item"><div class="h">연차 역설계</div><div class="d">"<b>며칠 쉴 수 있나</b>"로 시작하는 역방향 플래너</div></div>
+      <div class="item"><div class="h">샌드위치 연휴</div><div class="d">최소 연차로 최대 휴식 <b>황금 연차일 자동 탐지</b></div></div>
+      <div class="item"><div class="h">소도시 큐레이션</div><div class="d"><b>인구감소지역 89곳</b> — 트리플이 비운 국내 소도시</div></div>
+      <div class="item"><div class="h">평일·한산 우선</div><div class="d">운영시간·집중률로 <b>"평일에 빛나는 곳"</b> 추천</div></div>
+      <div class="item"><div class="h">정부 혜택 매칭</div><div class="d">반값여행·근로자휴가지원을 <b>일정에 자동 연결</b></div></div>
+      <div class="item"><div class="h">도달시간 추천</div><div class="d">거리(km) 아닌 <b>실제 이동시간</b>(자차·대중교통)</div></div>
+      <div class="item"><div class="h">방문자수 랭킹</div><div class="d">리뷰 없이도 <b>인기순 추천</b>(콜드스타트 극복)</div></div>
+    </section>
+
+    <!-- Borrow -->
+    <section class="col brw">
+      <div class="col-head"><span class="emoji">🟡</span><span class="t">거기서 가져올 것</span><span class="n">차용·변형</span></div>
+      <div class="item"><div class="h">타임라인 + 지도 UX</div><div class="d">검증된 표준 문법 <span class="star">→ 그대로</span></div></div>
+      <div class="item"><div class="h">입력 플로우 변형</div><div class="d">"도시·날짜·스타일" → <b>"연차·출발지·무드"</b>로</div></div>
+      <div class="item"><div class="h">무드 칩</div><div class="d">복잡한 코드 246개 숨기고 <b>감성 칩 6~8개</b>만</div></div>
+      <div class="item"><div class="h">이미지 CDN</div><div class="d">원본 그대로 X → <b>온더플라이 리사이즈</b>·CDN</div></div>
+      <div class="item"><div class="h">저장 → 일정담기</div><div class="d">마음에 든 곳 <b>원클릭으로 코스에</b></div></div>
+      <div class="item"><div class="h">"혜택 있음" 뱃지</div><div class="d">트리플의 "예약상품 있음"을 <b>정책 혜택 뱃지</b>로</div></div>
+      <div class="item"><div class="h">실시간 인기 뱃지</div><div class="d">"계획 중 N명" → <b>"이번 연휴 뜨는 지역"</b></div></div>
+    </section>
+
+  </div>
+
+  <div class="summary">
+    <div class="lab">One-line</div>
+    <p>트리플의 <span class="hl2">계획 UX·계획→예약 패턴</span>은 그대로 배우고,<br>
+    트리플이 비운 <span class="hl">국내 소도시 × 연차 × 정부혜택</span> 교집합이 OffWay의 해자다.</p>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OffWay 정책 상세 · 목업</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+  :root{--ink:#17181c;--sub:#7a828d;--line:#eef0f2;--refund:#12864a;--refund-bg:#e9f9f0;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#e9ebef;font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo',system-ui,sans-serif;
+    letter-spacing:-.02em;display:flex;justify-content:center;padding:2.5rem 1rem;min-height:100vh}
+  .phone{width:402px;background:#fff;border-radius:38px;overflow:hidden;box-shadow:0 24px 60px rgba(20,25,34,.22);position:relative}
+  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;font-size:.8rem;font-weight:700}
+  .nav{display:flex;align-items:center;gap:.6rem;padding:.2rem 1.2rem .8rem}
+  .nav .back{font-size:1.3rem}
+  .nav .t{font-size:1rem;font-weight:800}
+  .scroll{padding:0 1.2rem 6rem;max-height:840px;overflow-y:auto}
+
+  .hero{background:var(--refund-bg);border-radius:18px;padding:1.3rem 1.2rem;margin-bottom:1.1rem}
+  .hero .badge{display:inline-flex;align-items:center;gap:.35rem;background:var(--refund);color:#fff;font-size:.8rem;font-weight:700;padding:.34rem .7rem;border-radius:999px}
+  .hero h1{font-size:1.35rem;font-weight:800;margin:.7rem 0 .2rem}
+  .hero .amt{font-size:.9rem;color:#2d6a49;font-weight:600}
+
+  .info{border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:1.1rem}
+  .info .r{display:flex;gap:.8rem;padding:.85rem 1rem;border-top:1px solid var(--line)}
+  .info .r:first-child{border-top:none}
+  .info .k{width:64px;flex:none;font-size:.85rem;color:var(--sub);font-weight:700}
+  .info .v{font-size:.88rem;font-weight:600;line-height:1.5}
+
+  .apply{display:block;text-align:center;background:var(--ink);color:#fff;font-weight:800;font-size:.95rem;
+    padding:.95rem;border-radius:14px;margin-bottom:1.6rem}
+
+  .sec{display:flex;align-items:baseline;margin-bottom:.8rem}
+  .sec h3{font-size:1.05rem;font-weight:800}
+  .sec .cnt{margin-left:.4rem;font-size:.85rem;font-weight:800;color:var(--refund)}
+  .sec .more{margin-left:auto;font-size:.8rem;color:var(--sub);font-weight:600}
+
+  .feat{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:.8rem}
+  .fc{border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .fc .im{height:96px;background-size:cover;background-position:center;background-color:#c9d6e5}
+  .fc .nm{font-size:.85rem;font-weight:800;padding:.5rem .6rem .1rem}
+  .fc .ds{font-size:.72rem;color:var(--sub);padding:0 .6rem .6rem}
+
+  .chips{display:flex;flex-wrap:wrap;gap:.4rem}
+  .rchip{font-size:.83rem;font-weight:700;color:#3a4250;background:#f3f4f6;border:1px solid var(--line);
+    padding:.4rem .7rem;border-radius:999px}
+  .note{font-size:.74rem;color:#9aa2ad;margin-top:1rem;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>● ● ● 📶 🔋</span></div>
+  <div class="nav"><span class="back">←</span><span class="t">혜택 상세</span></div>
+  <div class="scroll">
+
+    <div class="hero">
+      <span class="badge">💸 여행경비 50% 환급</span>
+      <h1>지역사랑 휴가지원<br>(반값여행)</h1>
+      <div class="amt">여행경비의 50%를 지역화폐로 환급 · 1인 최대 10만원(청년 70%)</div>
+    </div>
+
+    <div class="info">
+      <div class="r"><span class="k">혜택</span><span class="v">숙박·식사·체험 등 여행경비 <b>50% 환급</b><br>청년(19~34세) 70% · 가족 최대 50만원</span></div>
+      <div class="r"><span class="k">기간</span><span class="v">2026.4 ~ 8월 <span style="color:var(--sub)">(지자체별 상이)</span></span></div>
+      <div class="r"><span class="k">대상</span><span class="v">전 국민 (거주지와 다른 지역 여행 시)</span></div>
+      <div class="r"><span class="k">신청</span><span class="v">여행 전 지자체 신청·승인 → 여행 후 영수증 제출 → 지역화폐 환급</span></div>
+    </div>
+
+    <a class="apply">신청 방법 자세히 보기 →</a>
+
+    <div class="sec"><h3>이 혜택 되는 여행지</h3><span class="cnt">16곳</span><span class="more">지도로</span></div>
+
+    <div class="feat">
+      <div class="fc">
+        <div class="im" style="background-image:url('http://tong.visitkorea.or.kr/cms/resource/77/3591577_image2_1.jpg')"></div>
+        <div class="nm">완도 · 전남</div><div class="ds">청정 섬 여행</div>
+      </div>
+      <div class="fc">
+        <div class="im" style="background-image:url('http://tong.visitkorea.or.kr/cms/resource/04/3375904_image2_1.JPG')"></div>
+        <div class="nm">고흥 · 전남</div><div class="ds">우주·바다 로컬</div>
+      </div>
+    </div>
+
+    <div class="chips">
+      <span class="rchip">평창</span><span class="rchip">하동</span><span class="rchip">거창</span>
+      <span class="rchip">영월</span><span class="rchip">제천</span><span class="rchip">강진</span>
+      <span class="rchip">영광</span><span class="rchip">합천</span><span class="rchip">해남</span>
+      <span class="rchip">남해</span><span class="rchip">영암</span><span class="rchip">횡성</span>
+      <span class="rchip">밀양</span><span class="rchip">고창</span>
+    </div>
+
+    <div class="note">※ 정책 정보는 각 지자체 공고 기준이며, 정확한 기간·금액은 신청 전 확인이 필요합니다.</div>
+
+  </div>
+</div>
+</body>
+</html>

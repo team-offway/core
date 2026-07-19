@@ -1,4 +1,4 @@
-package com.offway.core.external.probe;
+package com.offway.core.inventory.infrastructure.probe;
 
 public record ProbeResult(
         String name, String provider, Status status, int httpStatus, String detail, String sample) {

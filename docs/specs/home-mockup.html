@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OffWay 홈 · 혜택 적용 목업</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+  :root{--ink:#17181c;--sub:#7a828d;--line:#eef0f2;--yellow:#ffe64d;--brand:#111;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#e9ebef;font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo',system-ui,sans-serif;
+    letter-spacing:-.02em;display:flex;justify-content:center;padding:2.5rem 1rem;min-height:100vh}
+  .phone{width:402px;background:#fff;border-radius:38px;overflow:hidden;box-shadow:0 24px 60px rgba(20,25,34,.22);position:relative}
+  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;font-size:.8rem;font-weight:700;color:var(--ink)}
+  .scroll{padding:0 1.2rem 6rem;max-height:860px;overflow-y:auto}
+
+  .logo{font-size:1.6rem;font-weight:800;color:var(--ink);margin:.2rem 0 1rem}
+
+  .leave{display:flex;align-items:center;gap:.7rem;background:#f6f7f9;border-radius:14px;padding:.85rem 1rem;margin-bottom:.9rem}
+  .leave .ic{width:2rem;height:2rem;border-radius:9px;background:#fff;display:grid;place-items:center;font-size:1.1rem;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  .leave .lab{font-size:.9rem;color:var(--sub);font-weight:600}
+  .leave .val{margin-left:auto;font-size:1.15rem;font-weight:800}
+
+  .banner{background:linear-gradient(135deg,#dcecff,#eaf2ff);border-radius:18px;padding:1.1rem 1.2rem;margin-bottom:1.4rem;position:relative;overflow:hidden}
+  .banner h2{font-size:1.15rem;font-weight:800}
+  .banner p{font-size:.82rem;color:#5a6b86;margin-top:.2rem}
+  .banner .cta{margin-top:.9rem;display:inline-flex;align-items:center;gap:.35rem;background:var(--brand);color:#fff;
+    font-size:.82rem;font-weight:700;padding:.5rem .9rem;border-radius:999px}
+  .banner .emoji{position:absolute;right:.8rem;bottom:.4rem;font-size:3.2rem;opacity:.9}
+
+  .sec{display:flex;align-items:baseline;margin-bottom:.7rem}
+  .sec h3{font-size:1.05rem;font-weight:800}
+  .sec .more{margin-left:auto;font-size:.8rem;color:var(--sub);font-weight:600}
+
+  .chips{display:flex;gap:.4rem;overflow-x:auto;padding-bottom:.9rem;margin-bottom:.3rem}
+  .chip{flex:none;font-size:.83rem;font-weight:700;padding:.42rem .85rem;border-radius:999px;background:#f1f2f4;color:#6b727c;border:1px solid transparent}
+  .chip.on{background:var(--ink);color:#fff}
+
+  .rcard{border:1px solid var(--line);border-radius:18px;overflow:hidden;margin-bottom:1rem;box-shadow:0 2px 8px rgba(20,25,34,.04)}
+  .rimg{height:172px;background:linear-gradient(135deg,#c9d6e5,#aab8cc);background-size:cover;background-position:center;position:relative}
+  .crowd{position:absolute;top:.7rem;left:.7rem;display:inline-flex;align-items:center;gap:.3rem;background:rgba(255,255,255,.94);
+    font-size:.74rem;font-weight:700;color:#12a25f;padding:.28rem .55rem;border-radius:999px}
+  .crowd .d{width:.5rem;height:.5rem;border-radius:50%;background:#12a25f}
+  .rbody{padding:.85rem 1rem 1rem}
+  .rname{font-size:1.08rem;font-weight:800}
+  .rdesc{font-size:.82rem;color:var(--sub);margin-top:.15rem}
+  .badges{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.7rem}
+  .b{display:inline-flex;align-items:center;gap:.3rem;font-size:.76rem;font-weight:700;padding:.3rem .55rem;border-radius:8px}
+  .b.card{background:#eef4ff;color:#2f5fe0}     /* 디지털관광주민증 */
+  .b.refund{background:#e9f9f0;color:#12864a}   /* 반값여행 */
+  .b.stay{background:#fff3e0;color:#c9770a}      /* 숙박세일 */
+
+  .tabbar{position:absolute;left:0;right:0;bottom:0;height:64px;background:#fff;border-top:1px solid var(--line);
+    display:flex;align-items:center;justify-content:space-around;padding-bottom:.4rem}
+  .tab{display:flex;flex-direction:column;align-items:center;gap:.15rem;font-size:.7rem;font-weight:700;color:#b6bcc4}
+  .tab.on{color:var(--ink)} .tab .ti{font-size:1.15rem}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>● ● ● 📶 🔋</span></div>
+  <div class="scroll">
+    <div class="logo">offway</div>
+
+    <div class="leave">
+      <span class="ic">🗓️</span>
+      <span class="lab">남은 연차 일수</span>
+      <span class="val">13일</span>
+    </div>
+
+    <div class="banner">
+      <h2>세빈님, 어디로 떠날까요?</h2>
+      <p>연차에 맞춘 추천 코스를 알려드려요!</p>
+      <span class="cta">바로 추천받기 →</span>
+      <span class="emoji">🧳</span>
+    </div>
+
+    <div class="sec"><h3>이번주 추천 여행지</h3><span class="more">더보기</span></div>
+    <div class="chips">
+      <span class="chip on">전체</span>
+      <span class="chip">관광지</span>
+      <span class="chip">숙박</span>
+      <span class="chip">체험</span>
+      <span class="chip">맛집</span>
+    </div>
+
+    <!-- 완도 : 뱃지 3개 -->
+    <div class="rcard">
+      <div class="rimg" style="background-image:url('http://tong.visitkorea.or.kr/cms/resource/77/3591577_image2_1.jpg')">
+        <span class="crowd"><span class="d"></span>평일 여유</span>
+      </div>
+      <div class="rbody">
+        <div class="rname">완도 · 전남</div>
+        <div class="rdesc">동백숲과 바다가 감싸는 청정 섬 여행</div>
+        <div class="badges">
+          <span class="b card">🎟 가맹점 할인</span>
+          <span class="b refund">💸 여행경비 50% 환급</span>
+          <span class="b stay">🛏 숙박 최대 7만원</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 정선 : 뱃지 2개 -->
+    <div class="rcard">
+      <div class="rimg" style="background-image:url('http://tong.visitkorea.or.kr/cms/resource/30/3533330_image2_1.jpg')">
+        <span class="crowd"><span class="d"></span>평일 여유</span>
+      </div>
+      <div class="rbody">
+        <div class="rname">정선 · 강원</div>
+        <div class="rdesc">폐광촌에서 다시 태어난 산악 여행지</div>
+        <div class="badges">
+          <span class="b card">🎟 가맹점 할인</span>
+          <span class="b stay">🛏 숙박 최대 7만원</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 고흥 : 뱃지 3개 -->
+    <div class="rcard">
+      <div class="rimg" style="background-image:url('http://tong.visitkorea.or.kr/cms/resource/04/3375904_image2_1.JPG')">
+        <span class="crowd"><span class="d"></span>평일 여유</span>
+      </div>
+      <div class="rbody">
+        <div class="rname">고흥 · 전남</div>
+        <div class="rdesc">우주와 바다가 만나는 남해안 로컬</div>
+        <div class="badges">
+          <span class="b card">🎟 가맹점 할인</span>
+          <span class="b refund">💸 여행경비 50% 환급</span>
+          <span class="b stay">🛏 숙박 최대 7만원</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="tabbar">
+    <div class="tab on"><span class="ti">🏠</span>홈</div>
+    <div class="tab"><span class="ti">🧭</span>내 코스</div>
+    <div class="tab"><span class="ti">👤</span>마이</div>
+  </div>
+</div>
+</body>
+</html>

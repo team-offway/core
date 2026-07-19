@@ -1,4 +1,4 @@
-package com.offway.core.external.probe;
+package com.offway.core.inventory.infrastructure.probe;
 
 final class ProbeSupport {
 

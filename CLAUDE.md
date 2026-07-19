@@ -11,22 +11,52 @@ OffWay `core` 백엔드의 개발 규약. 항상 로드되는 메인 문서다.
 
 ## 아키텍처 — package-by-feature
 
-`com.offway.core.<domain>` 하위를 도메인별로 나눈다. 각 도메인은 내부에 필요한 만큼 `controller / service / domain / repository / dto / exception` 을 둔다.
+`com.offway.core.<domain>` 하위를 아래 레이어로 **철저히 분리**한다 (PIKI 스타일 DDD). 안쪽(domain)이 바깥을 모르고, 바깥이 domain의 port를 구현한다.
 
 ```
-com.offway.core
-├── leave        # 연차·가용시간(LNT)·샌드위치 연휴·연차 컨설팅 (순수 도메인 로직 — 테스트 핵심)
-├── trip         # 인구감소지역·관광지 추천 (TourAPI)
-├── policy       # 7대 여행 지원 혜택 매칭 (수동 적재 데이터)
-├── transport    # 교통·동선 (TAGO·TMAP·코레일/SR)
-├── itinerary    # 일정표 자동 생성 (leave+trip+transport 조합)
-├── external     # 외부 API 클라이언트 격리 (WebClient). API별 서브패키지(external/tour, external/holiday …)
-├── user         # 사용자·인증 (Spring Security + OAuth2)
-└── common       # 응답 래퍼·예외 primitive·전역 핸들러·config
+<domain>/
+├── controller/          # presentation — HTTP 진입
+│   ├── <D>Controller     @RestController @RequestMapping("/api/v1/<복수형>")
+│   ├── <D>Api            # OpenAPI 인터페이스 (api-convention)
+│   └── dto/              # <X>Request · <X>Response (API 계약)
+├── service/             # application — 유스케이스 조율
+│   ├── <D>Service            @Transactional 경계, 흐름만
+│   ├── <D>PersistenceService # 외부호출 tx 밖 규칙용 (필요 시)
+│   └── dto/                  # Create<D>(command) · <D>Result (내부용)
+├── domain/              # domain — 핵심 (rich, 프레임워크 의존 최소)
+│   ├── <Entity> · <ValueObject> · <Status>(enum)
+│   └── <D>ErrorCode · <D>Exception
+├── repository/          # infrastructure(영속) — port + adapter
+│   ├── <E>Repository        # port(interface) — 도메인이 의존
+│   ├── <E>RepositoryImpl    # @Repository, JpaRepository에 위임
+│   └── <E>JpaRepository     # Spring Data
+├── infrastructure/      # infrastructure(외부) — 외부 API 어댑터
+│   └── <system>/  <Client>(port) + <Client>Impl(adapter) + config
+└── event/               # 도메인 이벤트 (선택)
 ```
 
-- 도메인 간 참조는 **raw ID + 서비스 계층 조회**로 한다 (세부는 `persistence-convention`).
-- 도메인 서비스는 `external` 의 **port 인터페이스**에만 의존한다. 실제 HTTP 호출 구현(adapter)은 `external` 에 격리한다.
+**의존 방향**: `controller → service → domain ← (repository·infrastructure가 domain의 port 구현)`
+- DTO 2계층: `controller/dto`(API 계약) vs `service/dto`(내부 command/result). domain은 DTO를 모른다.
+- 리포지토리 **port/adapter 분리**: `XxxRepository`(interface) ← `XxxRepositoryImpl`(@Repository) → `XxxJpaRepository`(Spring Data).
+
+### 도메인 & 외부 API 소유
+| 도메인 | 책임 | 소유 외부 API (`infrastructure/`) |
+|---|---|---|
+| `leave` | 연차·가용시간(LNT)·샌드위치 | 특일정보 |
+| `trip` | 인구감소지역·관광지 추천 (관광 데이터 소유) | TourAPI · 관광빅데이터 |
+| `transport` | 교통·동선 | TMAP · TAGO · 코레일 |
+| `policy` | 7대 혜택 매칭 (수동 seed) | — |
+| `itinerary` | 코스 생성 (trip+transport 조합) | — |
+| `region` | 인구감소지역 89 마스터·태그 | — |
+| `user` | 사용자·인증 | OAuth (후순위) |
+| `common` | 응답 래퍼·예외·config (도메인 아님) | — |
+
+- **외부 API는 소유 도메인의 `infrastructure/`** 에 port+adapter로 둔다. 다른 도메인이 필요하면 **소유 도메인의 service/port를 통해** 얻는다(직접 호출 X).
+- 도메인 간 참조는 **raw ID + 서비스 조회** (세부는 `persistence-convention`).
+
+### 엔드포인트 네이밍 (PIKI 준수)
+- 베이스 `@RequestMapping("/api/v1/<복수형 명사>")` — `/api/v1/regions` · `/api/v1/courses` · `/api/v1/policies`
+- 하위 리소스 `/{id}/sub`, 액션 POST `/{id}/action`, 다단어 **kebab-case**(`/available-time`)
 
 ## 로컬 실행성 (불변식)
 

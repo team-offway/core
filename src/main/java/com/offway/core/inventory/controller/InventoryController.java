@@ -1,5 +1,8 @@
-package com.offway.core.inventory;
+package com.offway.core.inventory.controller;
 
+import com.offway.core.inventory.service.InventoryService;
+import com.offway.core.inventory.service.dto.InventoryRow;
+import com.offway.core.inventory.service.dto.InventorySnapshot;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.http.MediaType;
@@ -7,7 +10,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
 
-/** 지금 가져올 수 있는 데이터 현황 — 심플한 정보공유용 표(HTML SSR). */
+/** 지금 가져올 수 있는 데이터 현황 — 정보공유용 표(HTML SSR). */
 @Controller
 public class InventoryController {
 

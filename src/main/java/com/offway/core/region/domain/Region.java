@@ -1,4 +1,4 @@
-package com.offway.core.region;
+package com.offway.core.region.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

@@ -1,4 +1,4 @@
-package com.offway.core.inventory;
+package com.offway.core.inventory.service.dto;
 
 import java.util.List;
 

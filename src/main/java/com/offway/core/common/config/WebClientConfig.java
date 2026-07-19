@@ -1,4 +1,4 @@
-package com.offway.core.external.config;
+package com.offway.core.common.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
