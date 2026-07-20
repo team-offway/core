@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git config core.hooksPath .githooks || { echo 'core.hooksPath 설정 실패 — commit-msg 훅이 설치되지 않았습니다. 커밋 형식 검사가 동작하지 않습니다.' >&2; exit 2; }"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/convention-check.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
