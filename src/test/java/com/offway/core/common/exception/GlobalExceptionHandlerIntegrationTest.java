@@ -84,6 +84,72 @@ class GlobalExceptionHandlerIntegrationTest {
                 .andExpect(jsonPath("$.code").value("OK"));
     }
 
+    @Test
+    void 깨진_JSON_본문은_400으로_응답한다() throws Exception {
+        mockMvc.perform(post("/test/exception/validated")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"annualLeaveDays\": "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("COMMON-400"));
+    }
+
+    @Test
+    void 본문_타입이_맞지_않으면_400으로_응답한다() throws Exception {
+        mockMvc.perform(post("/test/exception/validated")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"annualLeaveDays\": \"문자열\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-400"));
+    }
+
+    @Test
+    void 본문이_없으면_400으로_응답한다() throws Exception {
+        mockMvc.perform(post("/test/exception/validated").contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-400"));
+    }
+
+    @Test
+    void 지원하지_않는_메서드는_405로_응답한다() throws Exception {
+        mockMvc.perform(get("/test/exception/validated"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.status").value(405))
+                .andExpect(jsonPath("$.code").value("COMMON-405"));
+    }
+
+    @Test
+    void 지원하지_않는_미디어타입은_415로_응답한다() throws Exception {
+        mockMvc.perform(post("/test/exception/validated")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("plain"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.status").value(415))
+                .andExpect(jsonPath("$.code").value("COMMON-415"));
+    }
+
+    @Test
+    void 없는_경로는_404로_응답한다() throws Exception {
+        mockMvc.perform(get("/test/exception/nowhere"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.code").value("COMMON-404"));
+    }
+
+    @Test
+    void 프레임워크_4xx는_내부_정보를_노출하지_않는다() throws Exception {
+        String body = mockMvc.perform(post("/test/exception/validated")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"annualLeaveDays\": "))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        org.junit.jupiter.api.Assertions.assertFalse(
+                body.contains("JsonParseException") || body.contains("com.fasterxml"),
+                "파서 예외 원문이 응답에 노출됨: " + body);
+    }
+
     @TestConfiguration
     static class TestControllerConfig {
 

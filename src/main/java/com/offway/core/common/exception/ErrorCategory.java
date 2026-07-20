@@ -21,8 +21,14 @@ public enum ErrorCategory {
     /** 대상 리소스가 없음. */
     NOT_FOUND(HttpStatus.NOT_FOUND),
 
+    /** 지원하지 않는 HTTP 메서드. */
+    METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED),
+
     /** 현재 상태와 요청이 충돌함 (이미 확정된 일정 재확정 등). */
     CONFLICT(HttpStatus.CONFLICT),
+
+    /** 지원하지 않는 Content-Type. */
+    UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE),
 
     /** 외부 의존성(TourAPI·TAGO·TMAP·특일정보 등) 호출·파싱 실패. */
     EXTERNAL_API(HttpStatus.BAD_GATEWAY),
