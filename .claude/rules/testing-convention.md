@@ -58,7 +58,9 @@
 - **내부 컴포넌트는 모킹·stub 금지, 실제 빈으로 통합 테스트한다.**
 - **외부 호출 경계**(외부 HTTP API 등)만 **프로그래머블 stub** 으로 격리한다. `external` 의 port 인터페이스에 stub 구현을 만들어 `@TestConfiguration` + `@Primary` 로 등록하고, 응답을 람다로 받아 매 테스트가 교체한다.
 - **stub 의 default 람다는 throw** 로 둔다 — 명시 세팅을 빠뜨리면 즉시 깨지게 해 "이전 테스트 상태가 살아남는" 함정을 막는다.
-- `@MockBean`/`@SpyBean` 남용, `@DirtiesContext`·`@ActiveProfiles`·`@TestPropertySource` 로 컨텍스트 캐시를 깨는 패턴 지양(통합 테스트는 단일 컨텍스트 공유).
+- **`@MockBean`·`@SpyBean` 금지** — 내부 컴포넌트 모킹 금지의 구체적 수단이라 함께 막는다. PostToolUse 훅이 기계 강제한다.
+- **`@DirtiesContext`·`@ActiveProfiles`·`@TestPropertySource` 금지** — 컨텍스트 캐시를 깨 전체 테스트 시간을 늘린다(통합 테스트는 단일 컨텍스트 공유). 역시 훅이 강제한다.
+- **`@TestConfiguration` 은 금지 대상이 아니다** — 위 stub 등록(`@TestConfiguration` + `@Primary`)에 필요하다. `@AutoConfigureMockMvc` 도 정상.
 
 ## 네이밍 · 단언
 

@@ -127,3 +127,24 @@ OffWay `core` 백엔드의 개발 규약. 항상 로드되는 메인 문서다.
 | JPA 엔티티·연관관계, Flyway 마이그레이션, 트랜잭션 경계 | `.claude/rules/persistence-convention.md` |
 | 컨트롤러·`*Api` 인터페이스·OpenAPI 문서화 | `.claude/rules/api-convention.md` |
 | 테스트 작성 (단위·통합·E2E) | `.claude/rules/testing-convention.md` |
+
+## 기계 강제 규칙 (훅)
+
+아래는 문서가 아니라 **훅이 막는다.** 위반하면 편집이 즉시 차단된다.
+
+| 훅 | 막는 것 |
+|---|---|
+| `.githooks/commit-msg` | 커밋 메시지 타입·형식 (허용 타입의 정본도 이 파일) |
+| `.claude/hooks/convention-check.sh` (PostToolUse) | 아래 7종 |
+
+- **적용된 Flyway 마이그레이션 수정** — checksum 이 깨져 부팅이 실패한다. 새 timestamp 로 보정 마이그레이션을 추가한다.
+- **마이그레이션의 `FOREIGN KEY`** — UNIQUE·PRIMARY KEY 제약은 정상이므로 FK 만 막는다.
+- **`javax.{persistence,validation,servlet,annotation,transaction}` import** — Jakarta 로 옮겨간 것만. `javax.sql`·`javax.crypto` 등 JDK 표준은 통과.
+- **`FetchType.EAGER`**
+- **HTTP 204** (`HttpStatus.NO_CONTENT`·`noContent()`)
+- **`domain/` 의 public setter·`@Setter`·`@Data`**
+- **`controller/` 의 `@Transactional`**, **테스트의 `@MockBean`·`@SpyBean`·`@DirtiesContext`·`@ActiveProfiles`·`@TestPropertySource`**
+
+**훅에 넣지 않는 것**: 매직 값·rich domain·DIP·다형성·null 중첩 깊이처럼 **판단이 필요한 규칙**. 정규식으로 오탐이 나면 훅 자체가 무시당한다. 이들은 `/pre-pr` 의 self-audit 이 담당한다.
+
+규칙을 추가·변경할 땐 훅 스크립트를 고치고, `sh .claude/hooks/convention-check.sh --file <경로>` 로 기존 소스 전체에 오탐이 없는지 먼저 확인한다.
