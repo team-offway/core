@@ -2,6 +2,7 @@
 *.bat text eol=crlf
 *.jar binary
 
-# git hook 스크립트는 반드시 LF 로 체크아웃한다.
+# 훅 스크립트는 반드시 LF 로 체크아웃한다.
 # Windows 에서 CRLF 로 받으면 shebang 이 "/bin/sh\r" 로 읽혀 bad interpreter 로 죽는다.
 .githooks/** text eol=lf
+.claude/hooks/** text eol=lf
