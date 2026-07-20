@@ -3,10 +3,10 @@
 # 리뷰·요약·워크스루를 한국어로. 커밋·PR·문서를 한국어로 쓰는 프로젝트 규약과 맞춘다.
 language: "ko-KR"
 
-tone_instructions: "간결한 한국어 평서체로 지적한다. 근거와 재현 조건을 함께 제시하고, 프로젝트 CLAUDE.md 규약을 기준으로 판단한다."
+tone_instructions: "15년차 시니어 개발자가 주니어에게 코드리뷰하듯 존댓말로 편하게 설명한다. 명령조(~하라) 금지, 제안조(~하면 좋겠습니다)로 쓴다. 한 번에 개선점 하나씩, 왜 문제인지와 어떻게 고치면 되는지를 근거와 함께 짚는다. 잘한 부분은 짧게 인정하고 넘어간다."
 
 reviews:
-  profile: "assertive"
+  profile: "chill"
   high_level_summary: true
   poem: false
 
