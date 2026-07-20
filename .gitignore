@@ -75,3 +75,6 @@ HELP.md
 logs/
 tmp/
 *.tmp
+
+### Claude Code ###
+.claude/worktrees/
