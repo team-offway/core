@@ -1,0 +1,51 @@
+#!/bin/sh
+# 커밋 메시지 형식 강제 — 이 파일이 허용 타입의 정본(SSOT)이다.
+#
+# 형식: {타입}: {제목}
+#   - 타입과 콜론 사이 공백 없음, 콜론 뒤 공백 1개
+#   - 제목 비어 있으면 거부
+#
+# 타입을 바꾸려면 아래 ALLOWED_TYPES 만 고친다.
+# `.claude/commands/commit.md` 는 타입을 열거하지 않고 이 파일을 가리킨다.
+
+ALLOWED_TYPES="feat fix refactor perf chore docs test infra style"
+
+MSG_FILE="$1"
+[ -f "$MSG_FILE" ] || exit 0
+
+# 주석(#)·빈 줄을 건너뛴 첫 실질 라인이 제목이다.
+SUBJECT=$(grep -v '^#' "$MSG_FILE" | grep -v '^[[:space:]]*$' | head -1)
+
+# 제목이 없으면 git 이 알아서 빈 커밋 메시지로 중단시킨다.
+[ -n "$SUBJECT" ] || exit 0
+
+# merge·revert·fixup·squash 는 git 이 생성하는 메시지라 통과시킨다.
+# (piki 는 기본 머지 메시지를 거부해 매번 규격 메시지를 수동으로 넣어야 했다. 마찰만 있고 이득이 없어 허용한다.)
+case "$SUBJECT" in
+    "Merge "*|"Revert "*|"fixup! "*|"squash! "*)
+        exit 0
+        ;;
+esac
+
+TYPE_PATTERN=$(echo "$ALLOWED_TYPES" | tr ' ' '|')
+
+if echo "$SUBJECT" | grep -qE "^($TYPE_PATTERN)(\(.+\))?: .+"; then
+    exit 0
+fi
+
+cat >&2 <<EOF
+커밋 메시지 형식이 올바르지 않습니다.
+
+  받은 제목: $SUBJECT
+
+형식: {타입}: {제목}
+허용 타입: $ALLOWED_TYPES
+
+예시:
+  feat: 연차 기반 가용 시간 산출 API 추가
+  fix: 샌드위치 연휴 판정에서 주말 중복 계산 수정
+  chore: 개발 워크플로우 슬래시 커맨드 이식
+
+정본은 .githooks/commit-msg 입니다.
+EOF
+exit 1
