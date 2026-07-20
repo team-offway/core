@@ -9,6 +9,7 @@
 
 ## 원칙
 
+- **모든 reply 는 `@coderabbitai` 멘션으로 시작한다.** 예외 없다 — accept·reject·질문 전부. 절차 2 의 템플릿이 멘션을 붙여주므로 본문에는 내용만 적는다.
 - **commit + push 로 끝내지 않는다.** 각 review thread 에 reply 를 남겨 **어떤 commit 으로 반영했는지 / reject 한 이유가 무엇인지** 가 conversation 에 박혀야 다른 리뷰어가 처리 여부를 헷갈리지 않는다.
 - **CodeRabbit 은 코멘트를 두 곳에 나눠 단다 — 반드시 둘 다 본다.**
   - **인라인 review thread**: actionable 코멘트. `reviewThreads` 로 조회되고 개별 resolve 가능.
@@ -68,20 +69,37 @@ gh api --paginate "repos/$NWO/pulls/$PR/reviews" \
 
 ### 2. 각 CodeRabbit thread 에 reply
 
-**reply 본문은 반드시 `@coderabbitai` 멘션으로 시작한다.** 멘션이 없으면 CodeRabbit 이 그 reply 를 처리하지 않아 대댓글·재평가가 영영 오지 않는다 (accept 든 reject 든 무응답으로 끝난다).
-
-- **멘션은 댓글을 만들 때 넣어야 한다 — 나중에 편집으로 추가하면 소용없다.** 봇은 댓글 *생성* 이벤트에 반응하고 편집 이벤트는 무시하므로, 빠뜨렸다면 편집이 아니라 **멘션을 포함한 새 reply 를 추가로 단다.**
+**아래 템플릿을 그대로 쓴다.** `MENTION` 이 본문 맨 앞에 자동으로 붙으므로, `body` 에는 **내용만** 적고 멘션을 직접 쓰지 않는다.
 
 ```bash
-# reply 는 반드시 single quote 변수로 먼저 담는다 — accept reply 는 commit hash 를 backtick 으로
-# 감싸는데(`371b5ba`), double quote 안에 직접 넣으면 셸이 명령 치환으로 실행해버린다.
-reply='@coderabbitai <reply 내용>'
+# 1) 내용만 담는다. single quote 필수 — accept reply 는 commit hash 를 backtick 으로
+#    감싸는데(`371b5ba`), double quote 안에 직접 넣으면 셸이 명령 치환으로 실행해버린다.
+body='<reply 내용 — 멘션은 여기 쓰지 않는다>'
+
+# 2) 멘션은 템플릿이 붙인다. 이 두 줄을 지우거나 순서를 바꾸지 않는다.
+MENTION='@coderabbitai'
+reply="$MENTION"$'\n\n'"$body"
+
+# 3) 전송
 gh api graphql -f query='
   mutation($t: ID!, $b: String!) {
     addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $t, body: $b}) {
       comment { url }
     }
   }' -F t="<thread id>" -f b="$reply"
+```
+
+**왜 구조로 강제하나** — 멘션이 없으면 CodeRabbit 이 그 reply 를 처리하지 않아 대댓글·재평가가 영영 오지 않는다 (accept 든 reject 든 무응답으로 끝난다). 이건 "잊지 말자" 로 될 일이 아니다. 실제로 이 커맨드를 쓰기 전 수동 대응에서 첫 reply 의 멘션이 빠졌고, 그걸 계기로 템플릿이 멘션을 붙이는 형태로 바꿨다.
+
+**빠뜨렸다면 편집이 아니라 새 reply 를 단다.** 봇은 댓글 *생성* 이벤트에 반응하고 편집 이벤트는 무시하므로, 나중에 편집으로 멘션을 넣어도 소용없다.
+
+**전송 후 확인한다** — 방금 만든 코멘트 본문이 멘션으로 시작하는지 본다. 아니면 위 규칙대로 새 reply 를 단다.
+
+```bash
+gh api graphql -f query='
+  { node(id: "<thread id>") { ... on PullRequestReviewThread {
+      comments(last: 1) { nodes { author { login } body } } } } }' \
+  --jq '.data.node.comments.nodes[0].body | if startswith("@coderabbitai") then "OK 멘션 있음" else "누락 — 멘션 포함한 새 reply 필요" end'
 ```
 
 ### 3. 자동 resolve 안 된 thread 면 resolve
