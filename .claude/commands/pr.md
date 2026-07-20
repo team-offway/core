@@ -215,7 +215,8 @@ fi
 4. **제목 변경 필요 검토**: 추가 변경으로 작업 의도·스코프가 바뀌었거나 오타·부정확한 표현이 있으면 새 제목 제안. 그 외엔 유지.
 5. 갱신본을 `/tmp/pr_body_$SLUG.md` 에 저장(Write)한 뒤 IDE 로 열어 확인받는다.
 6. 확인 후 `gh pr edit --body-file /tmp/pr_body_$SLUG.md` 로 갱신 (별도 bash 호출이라 `SLUG` 를 다시 구한다). 제목 변경이 있으면 `--title "새 제목"` 추가.
-7. **메타데이터 보정** — 이전에 만든 PR 은 assignee·라벨이 비어 있을 수 있다. 멱등하게 보정한다:
+7. **CodeRabbit 리뷰 대응** — 이번 변경이 리뷰 대응이라면 commit + push 로 끝내지 않는다. 리뷰 조회·평가·reply·resolve 는 **`/coderabbit`** 이 담당한다. 사람 리뷰 thread 는 작성자가 직접 답하므로 `/coderabbit` 도 건드리지 않는다.
+8. **메타데이터 보정** — 이전에 만든 PR 은 assignee·라벨이 비어 있을 수 있다. 멱등하게 보정한다:
 
    ```bash
    ISSUE_LABELS="{1단계 echo 로 확인한 값. '없음'이면 빈 값}"
@@ -224,7 +225,7 @@ fi
    gh pr edit "${EDIT_ARGS[@]}"
    ```
 
-8. PR URL 을 재출력한다.
+9. PR URL 을 재출력한다.
 
 ### PR 제목 규칙
 

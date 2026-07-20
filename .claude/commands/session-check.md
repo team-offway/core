@@ -77,6 +77,7 @@ git diff origin/dev...HEAD -- ':(exclude).claude/**' | grep -nE '^\+[^+].*(TODO|
 ```
 
 - 이번 브랜치에서 새로 추가된 TODO·FIXME → 리포트만.
+- 현재 브랜치 PR 에 미해결 CodeRabbit thread 가 있으면 건수만 알리고 `/coderabbit` 으로 처리하라고 안내한다 (여기서 처리하지 않는다).
 
 ## 최종 리포트 형식
 
