@@ -64,13 +64,25 @@ gh pr list --author "@me" --state open --json number,title,headRefName,reviewDec
 - 다른 워크트리에 dirty·untracked → **정보성** 리포트 (거기서 정리하라고 안내).
 - prunable 워크트리 → **정리 안내**: `git worktree prune`.
 - 현재 브랜치가 아닌 다른 브랜치가 `[gone]` → **정리 안내**: `git branch -D <branch>`.
-  - **`-D` 를 권한다.** squash·rebase 머지된 브랜치는 커밋이 현재 HEAD 의 ancestor 가 아니라 `git branch -d`(안전 삭제)가 "not fully merged" 로 거부한다. `[gone]` 은 원격에서 이미 사라진 머지 완료 브랜치라 force 삭제가 안전하다. 확신이 필요하면 `gh pr list --state merged --json headRefName` 로 교차 확인하라고 함께 안내한다.
+  - **`[gone]` 만으로 삭제를 권하지 않는다.** upstream 이 사라졌다는 것은 "머지됨" 뿐 아니라 "버려져서 원격에서 지워짐" 일 수도 있다. 후자에 `-D` 를 권하면 아직 안 올린 작업이 사라진다. **머지된 PR 이 실제로 있는지 먼저 확인하고**, 확인된 것만 삭제를 안내한다:
+
+    ```bash
+    gh pr list --head "<branch>" --state merged --json number,headRefName \
+      --jq '[.[] | select(.headRefName == "<branch>")] | length'
+    ```
+
+    - **1 이상** → **정리 안내**: `git branch -D <branch>`. squash·rebase 머지는 커밋이 HEAD 의 ancestor 가 아니라 `git branch -d`(안전 삭제)가 "not fully merged" 로 거부하므로 `-D` 가 맞다.
+    - **0** → 삭제를 권하지 않는다. "머지된 PR 을 찾지 못함 — 수동 확인 필요" 로 리포트한다.
   - 단 그 브랜치가 어느 워크트리에 체크아웃돼 있으면 `git branch -D` 가 거부된다 → "그 워크트리부터 `/session-close` 로 정리" 안내.
 - 다른 브랜치의 upstream 없음·ahead → **정리 안내**: `git push`, 다른 워크트리에 물린 브랜치는 `git -C <path> push`.
 
 ### D. 작업 흔적 (공통, 정보성)
 
 ```bash
+# origin/dev 를 먼저 최신화한다. stale 한 참조로 세 점 diff 를 뜨면 이미 dev 에 들어간
+# 남의 TODO 가 "이번 브랜치가 추가한 것" 으로 잡히거나, 반대로 놓친다.
+# fetch 는 원격 ref 만 갱신하고 작업 트리·브랜치를 건드리지 않으므로 read-only 원칙과 어긋나지 않는다.
+git fetch origin dev -q || echo "(fetch 실패 — 아래 결과는 stale 할 수 있음)"
 # base 는 origin/dev (이 레포의 PR base). origin/main 이 아니다.
 # .claude/** 는 제외 — 커맨드 문서의 "TODO" 단어가 오탐되므로.
 git diff origin/dev...HEAD -- ':(exclude).claude/**' | grep -nE '^\+[^+].*(TODO|FIXME)'

@@ -87,12 +87,20 @@ gh issue list --search "{제목 키워드}" --state open --json number,title,lab
 
 ### A-4. 이슈 생성
 
+본문은 **반드시 heredoc 으로 stdin 에 넘긴다**(`--body-file -`). 제목·본문은 사용자가 쓴 자유 텍스트라 백틱·`$(...)`·따옴표·줄바꿈이 들어올 수 있고, 명령줄에 그대로 박으면 셸이 그걸 해석·실행한다.
+
 ```bash
+# 제목은 변수에 담아 인용부호로 감싼다 (명령 치환을 막으려면 single quote).
+title='{제목}'
+
+# 본문은 quoted heredoc('EOF')로 넘긴다 — quote 를 붙여야 $·백틱이 확장되지 않는다.
 gh issue create \
-  --title "{제목}" \
-  --body "{본문}" \
+  --title "$title" \
   --label "epic" \
-  --assignee @me
+  --assignee @me \
+  --body-file - <<'EOF'
+{본문}
+EOF
 ```
 
 ### A-5. 결과 출력
@@ -174,12 +182,18 @@ gh issue list --label epic --state open --json number,title --limit 20
 
 ### B-4. 이슈 생성
 
+A-4 와 같은 이유로 본문은 quoted heredoc 으로 넘긴다.
+
 ```bash
+title='{제목}'
+
 gh issue create \
-  --title "{제목}" \
-  --body "{본문}" \
+  --title "$title" \
   --label "{선택된 분류 라벨}" \
-  --assignee @me
+  --assignee @me \
+  --body-file - <<'EOF'
+{본문}
+EOF
 ```
 
 ### B-5. 작업 위치 선택 + 브랜치·워크트리 생성

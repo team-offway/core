@@ -36,6 +36,9 @@ PR=$(gh pr view --json number --jq '.number')   # 블록마다 재도출 — 셸
 read -r OWNER NAME <<<"$(gh repo view --json owner,name --jq '.owner.login + " " + .name')"
 # --paginate 가 커서 페이지네이션을 자동 처리한다 (변수명 $endCursor + pageInfo 선택이 규약).
 # 수동 루프를 두지 않는 이유: hasNext 신호를 놓치면 100개 초과 thread 가 조용히 누락된다.
+# comments(first: 20) — root 코멘트뿐 아니라 기존 reply 까지 가져온다.
+# first:1 로 두면 (a) 무엇을 지적했는지 본문을 못 봐서 별도 조회를 또 해야 하고,
+# (b) 이미 답한 thread 인지 몰라 중복 reply 를 달게 된다.
 gh api graphql --paginate -f owner="$OWNER" -f name="$NAME" -f query='
   query($endCursor: String, $owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
     pullRequest(number: '"$PR"') {
@@ -43,14 +46,20 @@ gh api graphql --paginate -f owner="$OWNER" -f name="$NAME" -f query='
         pageInfo { hasNextPage endCursor }
         nodes {
           id isResolved path line
-          comments(first: 1) { nodes { author { login } body } }
+          comments(first: 20) { nodes { author { login } body } }
         }
       }
     }
   }}' --jq '.data.repository.pullRequest.reviewThreads.nodes[]
             | select((.comments.nodes[0].author.login // "") | startswith("coderabbitai"))
-            | {id, isResolved, path, line}'
+            | {id, isResolved, path, line,
+               replies: [.comments.nodes[1:][] | .author.login],
+               body: .comments.nodes[0].body}'
 ```
+
+**출력이 길면 파일로 받아 읽는다.** 지적 본문에는 CodeRabbit 의 분석 로그(`<details>` 안의 웹 검색·스크립트 실행 기록)가 붙어 실제 결론보다 훨씬 길다. 채팅에 그대로 쏟지 말고 파일에 저장한 뒤 결론부만 추린다.
+
+**`replies` 가 비어 있지 않으면 이미 답한 thread 다.** 무엇을 답했는지 먼저 읽고, 중복 reply 를 달지 않는다.
 
 ### 1.5. review body 의 nitpick 조회 — reviewThreads 에 안 잡히므로 필수
 

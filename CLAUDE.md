@@ -147,4 +147,10 @@ OffWay `core` 백엔드의 개발 규약. 항상 로드되는 메인 문서다.
 
 **훅에 넣지 않는 것**: 매직 값·rich domain·DIP·다형성·null 중첩 깊이처럼 **판단이 필요한 규칙**. 정규식으로 오탐이 나면 훅 자체가 무시당한다. 이들은 `/pre-pr` 의 self-audit 이 담당한다.
 
-규칙을 추가·변경할 땐 훅 스크립트를 고치고, `sh .claude/hooks/convention-check.sh --file <경로>` 로 기존 소스 전체에 오탐이 없는지 먼저 확인한다.
+규칙을 추가·변경할 땐 훅 스크립트를 고치고, **기존 소스 전체에 오탐이 없는지 먼저 확인한다.** `--file` 은 파일 하나만 검사하므로 아래처럼 전체를 돌린다. 차단이 1건이라도 나오면 그 규칙은 오탐이다 — 훅에 넣지 않는다.
+
+```bash
+for f in $(git ls-files 'src/**/*.java' 'src/**/*.sql'); do
+  sh .claude/hooks/convention-check.sh --file "$f" >/dev/null 2>&1 || echo "차단: $f"
+done
+```

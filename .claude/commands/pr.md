@@ -16,6 +16,9 @@
 
 ```bash
 CURRENT_BRANCH=$(git branch --show-current)
+# detached HEAD 면 브랜치명이 빈 문자열이다. 빈 값은 base 와 "다르므로" 아래 가드를 그냥 통과해
+# 빈 슬러그·빈 임시경로·엉뚱한 push 로 이어진다. 여기서 끊는다.
+[ -n "$CURRENT_BRANCH" ] || { echo "detached HEAD 입니다. 작업 브랜치를 체크아웃한 뒤 다시 실행하세요."; exit 1; }
 # origin 최신화 — base 판정과 1단계 log·diff 가 전부 origin/$BASE 기준이라, fetch 없이는 stale 참조로 남의 커밋이 diff 에 섞인다.
 git fetch origin -q || { echo "git fetch 실패 — origin 이 stale 인 채 진행하지 않는다."; exit 1; }
 # 진입 정리: 7일 넘게 안 건드린 stale PR 본문 임시파일 제거 (session-close 를 안 거친 중단 작업의 누수 회수).
@@ -227,7 +230,8 @@ fi
    # 않아 "--label chore" 한 단어가 되어 unknown flag 로 터진다 (bash/zsh 양쪽 안전형).
    LABEL_ARGS=()
    [ -n "$ISSUE_LABELS" ] && LABEL_ARGS=(--label "$ISSUE_LABELS")
-   gh pr create --base dev \
+   BASE="{0-B 에서 결정한 값. 보통 dev, 사용자가 지정했으면 그 값}"
+   gh pr create --base "$BASE" \
      --title "{제목}" \
      --body-file /tmp/pr_body_$SLUG.md \
      --assignee @me \
@@ -249,7 +253,8 @@ fi
 2. **이번 추가 변경 내역을 `git log` 로 정확히 식별한다 — 기억·추측에 의존하지 않는다.**
 
    ```bash
-   git log origin/dev..HEAD --oneline   # PR 의 전체 커밋 (merge 있으면 --no-merges)
+   BASE="{0-B 에서 결정한 값}"
+   git log "origin/$BASE..HEAD" --oneline   # PR 의 전체 커밋 (merge 있으면 --no-merges)
    ```
 
    전체 커밋과 실제 변경을 기존 본문과 대조해 **본문이 낡은 자리**(이번 변경으로 거짓이 된 서술, 아직 반영 안 된 작업)를 가려낸다.

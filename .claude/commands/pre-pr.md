@@ -14,7 +14,10 @@ PR 올리기 전 최종 점검 — `origin/dev` 와 up-to-date 를 맞추고, �
 
 ```bash
 CURRENT_BRANCH=$(git branch --show-current)
-git fetch origin dev -q
+# detached HEAD 면 빈 문자열이라 아래 dev 비교를 그냥 통과한다. 여기서 끊는다.
+[ -n "$CURRENT_BRANCH" ] || { echo "detached HEAD 입니다. 작업 브랜치를 체크아웃한 뒤 다시 실행하세요."; exit 1; }
+# fetch 가 실패하면 이후 diff·머지가 stale 한 origin/dev 를 기준으로 돌아 조용히 틀린 결과를 낸다.
+git fetch origin dev -q || { echo "git fetch 실패 — origin/dev 가 stale 인 채 진행하지 않는다."; exit 1; }
 echo "CURRENT_BRANCH=$CURRENT_BRANCH"
 ```
 
@@ -139,12 +142,36 @@ git diff origin/dev...HEAD
 
 **`./gradlew build` 가 아니라 `./gradlew test`** 를 돌린다.
 
+Gradle 은 JDK 17 이상을 요구한다(빌드 자체는 `build.gradle.kts` 의 toolchain 을 따른다). `JAVA_HOME` 이 그보다 낮은 JDK 를 가리키면 `Gradle requires JVM 17 or later` 로 죽는다.
+
+**머신별 경로를 문서에 박지 않는다.** 아래는 현재 `JAVA_HOME` 을 검사하고, 낮으면 설치된 JDK 중 조건을 만족하는 것을 찾아 그 호출에서만 쓴다.
+
 ```bash
-# JDK 25 필요 — 이 머신의 JAVA_HOME 은 JDK 8 을 가리켜 gradle 이 "requires JVM 17 or later" 로 죽는다.
-# 영구 수정 전까지 매 호출마다 잡아준다.
-export JAVA_HOME="C:/Program Files/BellSoft/LibericaJDK-25-Full"
+MIN=17
+jdk_major() {  # $1 = JAVA_HOME 후보 → major 버전 출력 (판정 불가면 0)
+  [ -x "$1/bin/java" ] || return 1
+  "$1/bin/java" -version 2>&1 | sed -nE 's/.*version "([0-9]+).*/\1/p' | head -1
+}
+
+CUR=$(jdk_major "${JAVA_HOME:-}" 2>/dev/null || echo 0)
+if [ "${CUR:-0}" -lt "$MIN" ]; then
+  # PATH 의 java 가 조건을 만족하면 그 홈을 쓴는다 (JAVA_HOME 만 낡은 흔한 경우)
+  PATH_JAVA=$(command -v java 2>/dev/null) \
+    && CAND=$(cd "$(dirname "$(readlink -f "$PATH_JAVA" 2>/dev/null || echo "$PATH_JAVA")")/.." && pwd) \
+    && [ "$(jdk_major "$CAND" 2>/dev/null || echo 0)" -ge "$MIN" ] \
+    && export JAVA_HOME="$CAND"
+fi
+
+FOUND=$(jdk_major "${JAVA_HOME:-}" 2>/dev/null || echo 0)
+if [ "${FOUND:-0}" -lt "$MIN" ]; then
+  echo "JDK $MIN 이상을 찾지 못했습니다 (현재 JAVA_HOME=${JAVA_HOME:-미설정}). 설치 후 JAVA_HOME 을 잡아주세요." >&2
+  exit 1
+fi
+echo "JAVA_HOME=$JAVA_HOME (JDK $FOUND)"
 ./gradlew test --console=plain
 ```
+
+> 이 머신처럼 `java -version` 은 최신인데 `JAVA_HOME` 만 옛 JDK 를 가리키는 경우가 흔하다. 위 스크립트는 그 상황을 자동으로 넘기지만, **근본 해결은 `JAVA_HOME` 을 영구 수정하는 것**이다.
 
 - **실패** → 실패 테스트·오류를 출력하고 **즉시 중단**. PR 만들지 않는다. (수정 후 `/pre-pr` 재실행)
 - **성공** → 아래 형식으로 결과 출력:
