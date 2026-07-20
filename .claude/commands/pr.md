@@ -57,6 +57,18 @@ gh pr view --json url,number,body,baseRefName 2>/dev/null
 
 **임시파일 경로 규칙 (동시 세션 격리)** — PR 본문 임시파일은 고정 경로가 아니라 **브랜치별 경로** `/tmp/pr_body_$SLUG.md` 를 쓴다 (`SLUG` = 브랜치명의 `/` 를 `_` 로 치환, 예: `chore/36-workflow-commands` → `/tmp/pr_body_chore_36-workflow-commands.md`). 두 워크트리 세션이 동시에 `/pr` 을 돌려도 본문 파일이 안 겹친다.
 
+**Windows 에서 `/tmp` 를 넘길 때는 경로를 변환한다.** Git Bash 의 `/tmp` 는 실제로 Windows 임시 폴더(`cygpath -w /tmp` 로 확인)라 파일 자체는 잘 만들어진다. 문제는 그 **문자열을 Windows 도구에 그대로 넘길 때**다 — IntelliJ·Python·Write/Read 도구는 `/tmp/...` 를 드라이브 루트 `\tmp\...` 로 해석해 "파일 없음" 으로 실패한다.
+
+- **셸(bash) 안에서만 쓸 때**: `/tmp/pr_body_$SLUG.md` 그대로.
+- **Write·Read 도구로 본문을 저장·조회할 때**: `cygpath -w` 로 변환한 Windows 절대경로를 쓴다. 변환값을 `echo` 로 남겨 그 값을 도구 인자에 인라인으로 박는다.
+
+  ```bash
+  SLUG=$(git branch --show-current | tr '/' '_')
+  cygpath -w "/tmp/pr_body_$SLUG.md" 2>/dev/null || echo "/tmp/pr_body_$SLUG.md"
+  ```
+
+  (`cygpath` 가 없는 환경 = Windows 가 아니므로 원래 경로가 그대로 맞다.)
+
 **셸 변수는 bash 호출 간 유지되지 않는다.** 본문 파일을 다루는 각 블록은 `SLUG=$(git branch --show-current | tr '/' '_')` 를 자기 안에서 다시 구한다. 같은 이유로 `$BASE`·`$ISSUE_LABELS` 처럼 앞 블록에서 결정된 값도 뒤 블록에서 변수 참조로 기대지 않고, 결정 시점에 `echo` 로 남긴 실제 값을 인라인으로 박는다.
 
 ### 1단계: 정보 수집
@@ -79,18 +91,26 @@ gh pr view --json url,number,body,baseRefName 2>/dev/null
 
 ```bash
 # 한 블록에서 끝까지 계산하고 echo 로 값을 남긴다 — 셸 변수는 블록 간 유지되지 않는다.
-ISSUE_LABELS=$(gh issue view {번호} --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null)   # 이슈 미매칭이면 건너뜀
-if [ -z "$ISSUE_LABELS" ]; then
+# 분류 라벨 8종 (정의는 /issue 의 B-2). 이 목록에 없는 라벨은 분류가 아니다.
+CLASSIFICATION='feat fix refactor perf chore docs test infra'
+
+PICKED=""
+# 1순위: 연관 이슈의 라벨 중 분류 라벨
+for l in $(gh issue view {번호} --json labels --jq '.labels[].name' 2>/dev/null); do
+  case " $CLASSIFICATION " in *" $l "*) PICKED=$l; break ;; esac
+done
+# 2순위: 브랜치 prefix (오타·비표준 prefix 는 위 목록에 없으므로 자동으로 걸러진다)
+if [ -z "$PICKED" ]; then
   PREFIX=$(git branch --show-current | cut -d/ -f1)
-  # 레포에 실재하는 라벨만 채택 (오타·비표준 prefix 방어). --limit 명시: 기본 30이라 라벨이 늘면 조용히 놓친다.
-  gh label list --limit 100 --json name --jq '.[].name' | grep -Fqx "$PREFIX" && ISSUE_LABELS=$PREFIX
+  case " $CLASSIFICATION " in *" $PREFIX "*) PICKED=$PREFIX ;; esac
 fi
+ISSUE_LABELS=$PICKED
 echo "ISSUE_LABELS=${ISSUE_LABELS:-없음}"
 ```
 
-라벨이 있으면 `3-A`(LABEL_ARGS) / `3-B`(EDIT_ARGS) 에서 부여한다. fallback 까지 비면 그때만 라벨 없이 진행한다.
+라벨이 있으면 `3-A`(LABEL_ARGS) / `3-B`(EDIT_ARGS) 에서 부여한다. 둘 다 비면 그때만 라벨 없이 진행한다.
 
-> 이슈 라벨을 우선하는 이유: PR 은 연관 이슈와 같은 분류를 갖는 것이 자연스럽다. 이슈가 없으면 브랜치 prefix 가 곧 분류 라벨이다 (`/issue` 의 8개 prefix 는 라벨과 1:1). 이 fallback 이 없으면 이슈 없이 만든 브랜치의 PR 이 조용히 라벨 없이 올라간다.
+> **분류 라벨만 승계하는 이유.** PR 은 연관 이슈와 같은 분류를 갖는 것이 자연스러우므로 이슈 라벨을 우선한다. 다만 이슈에 붙은 라벨이 전부 *분류* 는 아니다 — 커맨드 도입 이전 이슈들이 달고 있는 `task`·`epic`, GitHub 기본 라벨(`bug`·`enhancement` 등)은 분류 축이 아니다. 이걸 그대로 승계하면 `feat` 브랜치의 PR 이 `task` 라벨을 달아 정보량이 오히려 준다(실제로 PR #35 에서 그렇게 됐다). 그래서 **8종에 속하는 라벨만** 승계하고, 없으면 브랜치 prefix 로 떨어진다. 이 fallback 이 없으면 이슈 없이 만든 브랜치의 PR 이 조용히 라벨 없이 올라간다.
 
 ### 2단계: STAR 본문 작성 — create 모드 한정
 
@@ -151,10 +171,40 @@ echo "ISSUE_LABELS=${ISSUE_LABELS:-없음}"
 ```bash
 SLUG=$(git branch --show-current | tr '/' '_')
 BODY=/tmp/pr_body_$SLUG.md
-if [ -z "${CI:-}" ] && command -v idea >/dev/null 2>&1; then
-  idea "$BODY"        # IntelliJ 로 본문 열기
+
+# IDE 열기 — macOS 를 1순위로, 안 되면 Windows 로 내려간다.
+# 순서를 뒤집지 않는다: Windows 분기는 powershell.exe 호출이라 macOS 에서는 무의미하고,
+# 먼저 시도하면 매번 실패 비용만 든다.
+open_in_ide() {
+  file=$1
+  [ -n "${CI:-}" ] && return 1                      # CI 등 GUI 없는 실행은 바로 폴백
+
+  # 1순위) macOS·Linux — PATH 의 idea 를 그대로 쓴다 (JetBrains Toolbox 가 심링크를 깔아둔다)
+  command -v idea >/dev/null 2>&1 && { idea "$file"; return 0; }
+
+  # 2) Windows: Git Bash PATH 에는 idea 가 없어도 PowerShell 은 찾는다 (App Paths·Windows PATH).
+  #    - 경로는 cygpath -w 로 변환한다. Git Bash 의 /tmp 는 실제로 Windows 임시 폴더지만,
+  #      "/tmp/..." 문자열을 그대로 넘기면 Windows 도구가 드라이브 루트 \tmp 로 해석해 못 찾는다.
+  #    - Start-Process 로 띄운다. 런처를 직접 부르면 포그라운드로 붙어 셸이 멈춘다(실측: 2분 타임아웃).
+  #    - 같은 폴더의 idea64.exe 를 우선한다. idea.bat 을 띄우면 콘솔 창이 함께 떠서
+  #      IntelliJ 기동 로그가 사용자 화면에 그대로 쏟아진다.
+  if command -v powershell.exe >/dev/null 2>&1; then
+    win=$(cygpath -w "$file" 2>/dev/null || printf '%s' "$file")
+    powershell.exe -NoProfile -Command "
+      \$c = Get-Command idea -ErrorAction SilentlyContinue
+      if (-not \$c) { exit 1 }
+      \$exe = Join-Path (Split-Path \$c.Source) 'idea64.exe'
+      if (-not (Test-Path \$exe)) { \$exe = \$c.Source }
+      Start-Process -FilePath \$exe -ArgumentList '$win' -WindowStyle Hidden
+      exit 0" >/dev/null 2>&1 && return 0
+  fi
+  return 1
+}
+
+if open_in_ide "$BODY"; then
+  echo "IntelliJ 로 열었습니다: $BODY"
 else
-  cat "$BODY"         # idea 가 없거나 CI 등 GUI 없는 실행: 인라인 출력 폴백
+  echo "IDE 를 못 열었습니다. 파일 경로: $BODY"   # 본문을 채팅에 통째로 쏟지 않는다
 fi
 ```
 
