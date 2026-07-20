@@ -85,16 +85,26 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         } else {
             log.info("프레임워크 예외 status={} type={}", status.value(), exception.getClass().getSimpleName());
         }
-        return ResponseEntity.status(status).body(ApiResponseBody.fail(resolve(status)));
+        // headers 를 그대로 넘긴다 — 405 의 Allow 처럼 부모가 채운 계약 헤더를 버리면 응답이 규격을 어긴다.
+        return new ResponseEntity<>(ApiResponseBody.fail(status, resolve(status)), headers, status);
     }
 
-    /** 프레임워크가 정한 status 를 우리 에러코드로 옮긴다. 매핑이 없는 4xx 는 계약 위반으로 뭉뚱그린다. */
+    /**
+     * 프레임워크가 정한 status 를 우리 에러코드로 옮긴다.
+     *
+     * <p>매핑이 없는 status(413·503 등)는 code 만 뭉뚱그리고 <b>status 는 프레임워크 값을 그대로 쓴다</b>
+     * ({@code ApiResponseBody.fail(status, errorCode)}). code 의 category 에서 status 를 파생하면 HTTP status 와
+     * body status 가 어긋난다.
+     */
     private static ErrorCode resolve(HttpStatusCode status) {
         if (status.equals(HttpStatus.NOT_FOUND)) {
             return CommonErrorCode.NOT_FOUND;
         }
         if (status.equals(HttpStatus.METHOD_NOT_ALLOWED)) {
             return CommonErrorCode.METHOD_NOT_ALLOWED;
+        }
+        if (status.equals(HttpStatus.NOT_ACCEPTABLE)) {
+            return CommonErrorCode.NOT_ACCEPTABLE;
         }
         if (status.equals(HttpStatus.UNSUPPORTED_MEDIA_TYPE)) {
             return CommonErrorCode.UNSUPPORTED_MEDIA_TYPE;

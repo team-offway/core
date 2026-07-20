@@ -16,6 +16,9 @@ public enum CommonErrorCode implements ErrorCode {
     /** 해당 경로가 지원하지 않는 HTTP 메서드. */
     METHOD_NOT_ALLOWED("COMMON-405", ErrorCategory.METHOD_NOT_ALLOWED, "지원하지 않는 요청 방식입니다."),
 
+    /** Accept 헤더가 요구하는 형식으로 응답할 수 없음. */
+    NOT_ACCEPTABLE("COMMON-406", ErrorCategory.NOT_ACCEPTABLE, "요청하신 형식으로 응답할 수 없습니다."),
+
     /** 지원하지 않는 Content-Type. */
     UNSUPPORTED_MEDIA_TYPE("COMMON-415", ErrorCategory.UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 요청 형식입니다."),
 

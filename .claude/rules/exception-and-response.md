@@ -90,6 +90,7 @@ public enum LeaveErrorCode implements ErrorCode {
 - 성공: `ApiResponseBody.ok(...)` / `ApiResponseBody.created(...)`. 실패: `GlobalExceptionHandler` 가 `ApiResponseBody.fail(...)` 로 매핑.
 - **HTTP 204 미사용** — 래퍼가 항상 body 를 만들므로 "body 없음"이 본질인 204 와 충돌한다. 내릴 데이터가 없으면 200 + `ok()`(data=null).
 - **3xx 리다이렉트는 예외** — body 가 아니라 `Location` 헤더를 소비하므로 `ResponseEntity<Void>` 를 직접 반환한다.
+- **406 Not Acceptable 도 예외** — 클라이언트가 `Accept` 로 JSON 을 거부한 상황이라 어떤 메시지 컨버터도 래퍼를 직렬화할 수 없다. 빈 본문으로 나간다. `Content-Type` 을 JSON 으로 강제해 밀어넣지 않는다(406 의 의미와 모순).
 - 비기본 status(`201` 등)는 컨트롤러 메서드에 `@ResponseStatus` 명시. body 의 `status` 와 HTTP status 를 항상 일치시킨다.
 
 ## 전역 예외 핸들러
@@ -99,3 +100,8 @@ public enum LeaveErrorCode implements ErrorCode {
 - `BaseException` → `errorCode` 의 status·code·detail 로 `fail`. 로그는 info(클라이언트 계약 위반은 서버 입장에서 정상).
 - `MethodArgumentNotValidException`(Bean Validation) → 400, `"필드명: 메시지"` detail.
 - 그 외 `Exception` → 500, 일반 code(`COMMON-500`). 스택 포함 error 로그. **일반 500 은 엔드포인트 계약이 아니므로 OpenAPI 문서화 대상에서 제외**(api-convention 참고).
+
+**`ResponseEntityExceptionHandler` 를 상속한다.** 깨진 JSON·잘못된 메서드·미지원 미디어타입·없는 경로 같은 프레임워크 예외는 Spring 이 이미 올바른 4xx 를 판정해 들고 있다. 상속하지 않고 `@ExceptionHandler(Exception.class)` 하나로 받으면 그 status 가 500 으로 덮여, 클라이언트 실수가 서버 오류로 둔갑하고 error 로그·스택까지 남는다.
+
+- `handleExceptionInternal` 에서 **부모가 채운 헤더를 그대로 넘긴다** — 405 의 `Allow` 처럼 버리면 응답이 규격을 어긴다.
+- 이 경로의 body status 는 **프레임워크 status 를 그대로 쓴다**(`ApiResponseBody.fail(status, errorCode)`). code 의 category 에서 파생하면 매핑 없는 status(413·503 등)마다 HTTP status 와 body status 가 어긋난다.

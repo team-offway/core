@@ -27,6 +27,9 @@ public enum ErrorCategory {
     /** 현재 상태와 요청이 충돌함 (이미 확정된 일정 재확정 등). */
     CONFLICT(HttpStatus.CONFLICT),
 
+    /** 클라이언트가 받을 수 있는 형식으로 응답할 수 없음 (Accept 헤더 불일치). */
+    NOT_ACCEPTABLE(HttpStatus.NOT_ACCEPTABLE),
+
     /** 지원하지 않는 Content-Type. */
     UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE),
 

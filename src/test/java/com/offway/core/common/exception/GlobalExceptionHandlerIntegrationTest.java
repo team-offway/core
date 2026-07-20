@@ -137,6 +137,55 @@ class GlobalExceptionHandlerIntegrationTest {
     }
 
     @Test
+    void 지원하지_않는_메서드_응답은_Allow_헤더를_보존한다() throws Exception {
+        mockMvc.perform(get("/test/exception/validated"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .header().exists("Allow"));
+    }
+
+    /**
+     * 406 은 래퍼를 실을 수 없는 구조적 예외다.
+     *
+     * <p>클라이언트가 Accept 로 "JSON 은 안 받는다" 고 선언한 상황이라 어떤 HttpMessageConverter 도 우리 JSON 바디를 쓸 수 없다.
+     * Content-Type 을 강제로 JSON 으로 덮어 밀어넣는 것은 406 의 의미와 모순되므로, 3xx·204 처럼 래퍼 예외로 둔다.
+     */
+    @Test
+    void 받을_수_없는_미디어타입은_406_빈_본문으로_응답한다() throws Exception {
+        String body = mockMvc.perform(post("/test/exception/validated")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_PDF)
+                        .content("{\"annualLeaveDays\": 3}"))
+                .andExpect(status().isNotAcceptable())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        org.junit.jupiter.api.Assertions.assertTrue(body.isEmpty(), "406 응답 본문이 비어있지 않음: " + body);
+    }
+
+    @Test
+    void 프레임워크_응답은_body_status와_HTTP_status가_일치한다() throws Exception {
+        record Case(String label, org.springframework.test.web.servlet.RequestBuilder request) {}
+        java.util.List<Case> cases = java.util.List.of(
+                new Case("깨진 JSON", post("/test/exception/validated")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"annualLeaveDays\": ")),
+                new Case("잘못된 메서드", get("/test/exception/validated")),
+                new Case("미디어타입", post("/test/exception/validated")
+                        .contentType(MediaType.TEXT_PLAIN).content("plain")),
+                // 406 은 제외 — 본문 자체를 실을 수 없다 (위 테스트 참고).
+                new Case("없는 경로", get("/test/exception/nowhere")));
+
+        for (Case c : cases) {
+            var response = mockMvc.perform(c.request()).andReturn().getResponse();
+            String body = response.getContentAsString();
+            org.junit.jupiter.api.Assertions.assertTrue(
+                    body.contains("\"status\":" + response.getStatus()),
+                    c.label() + " — HTTP " + response.getStatus() + " 와 body status 불일치: " + body);
+        }
+    }
+
+    @Test
     void 프레임워크_4xx는_내부_정보를_노출하지_않는다() throws Exception {
         String body = mockMvc.perform(post("/test/exception/validated")
                         .contentType(MediaType.APPLICATION_JSON)
