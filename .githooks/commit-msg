@@ -16,8 +16,14 @@ MSG_FILE="$1"
 # 주석(#)·빈 줄을 건너뛴 첫 실질 라인이 제목이다.
 SUBJECT=$(grep -v '^#' "$MSG_FILE" | grep -v '^[[:space:]]*$' | head -1)
 
-# 제목이 없으면 git 이 알아서 빈 커밋 메시지로 중단시킨다.
-[ -n "$SUBJECT" ] || exit 0
+# 제목이 없으면 거부한다 (fail closed).
+# git 은 보통 빈 메시지를 스스로 막지만 --allow-empty-message 로 우회된다.
+# 실측: 이 검사가 없을 때 `git commit --allow-empty-message -m ""` 로 빈 커밋이 만들어졌다.
+if [ -z "$SUBJECT" ]; then
+    echo "커밋 메시지가 비어 있습니다. '{타입}: {제목}' 형식으로 작성하세요." >&2
+    echo "허용 타입: $ALLOWED_TYPES" >&2
+    exit 1
+fi
 
 # merge·revert·fixup·squash 는 git 이 생성하는 메시지라 통과시킨다.
 # (piki 는 기본 머지 메시지를 거부해 매번 규격 메시지를 수동으로 넣어야 했다. 마찰만 있고 이득이 없어 허용한다.)
@@ -29,7 +35,10 @@ esac
 
 TYPE_PATTERN=$(echo "$ALLOWED_TYPES" | tr ' ' '|')
 
-if echo "$SUBJECT" | grep -qE "^($TYPE_PATTERN)(\(.+\))?: .+"; then
+# 콜론 뒤에 공백이 아닌 문자가 최소 하나 있어야 한다.
+# (`: .+` 만 쓰면 "feat:    " 처럼 공백뿐인 제목이 통과한다. git 이 후행 공백을 잘라
+#  실제로는 대부분 걸리지만, --cleanup=verbatim 등으로 보존되면 새어나간다.)
+if echo "$SUBJECT" | grep -qE "^($TYPE_PATTERN)(\(.+\))?: [^[:space:]].*"; then
     exit 0
 fi
 

@@ -9,14 +9,27 @@
 
 set -u
 
+# 파싱에 실패하면 통과시키지 않고 막는다(fail closed).
+# 실측: 이 가드가 없을 때 깨진 payload 를 주면 FILE 이 비고 exit 0 으로 빠져
+# 모든 컨벤션 검사가 조용히 건너뛰어졌다. 훅이 꺼진 줄 모르는 상태가 가장 나쁘다.
+abort() {
+    printf '컨벤션 훅을 실행할 수 없습니다 — %s\n' "$1" >&2
+    printf '훅이 조용히 꺼지지 않도록 통과 대신 차단합니다. 원인을 고친 뒤 다시 시도하세요.\n' >&2
+    exit 2
+}
+
 if [ "${1:-}" = "--file" ]; then
     FILE="${2:-}"
+    [ -n "$FILE" ] || abort "--file 뒤에 경로가 없습니다"
 else
+    command -v jq >/dev/null 2>&1 || abort "jq 가 설치돼 있지 않습니다"
     INPUT=$(cat)
-    FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+    FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null) \
+        || abort "훅 입력(JSON) 파싱 실패"
+    [ -n "$FILE" ] || abort "훅 입력에서 tool_input.file_path 를 찾지 못했습니다"
 fi
 
-[ -n "$FILE" ] || exit 0
+# 파일이 실제로 없는 것은 정상이다 — 삭제·이동 직후의 편집 이벤트가 여기 온다.
 [ -f "$FILE" ] || exit 0
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0

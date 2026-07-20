@@ -78,7 +78,16 @@ gh pr list --head "$BR" --state merged --json number,headRefName \
      ```
 
   3. `ExitWorktree({action: "remove"})` 를 호출한다.
-  4. 거부하면서 변경 목록을 돌려주면 — clean 은 이미 확인했으니 그 목록은 **squash 머지 커밋**(원래 브랜치가 dev 의 ancestor 가 아닌 것) 인 false alarm 이다. 이때만 `ExitWorktree({action: "remove", discard_changes: true})` 로 재호출한다. (clean·머지를 확인하기 **전에는 절대** `discard_changes: true` 를 주지 않는다.)
+  4. 거부하면서 변경 목록을 돌려주면 — 이론상 그 목록은 **squash 머지 커밋**(원래 브랜치가 dev 의 ancestor 가 아닌 것) 인 false alarm 이다. 하지만 **앞의 `git status` 결과는 이미 낡았다.** 그 사이에 다른 세션·에디터·빌드가 파일을 만들었을 수 있고, 그 상태에서 `discard_changes` 를 주면 그 작업이 사라진다.
+
+     **재확인 없이는 절대 `discard_changes: true` 를 주지 않는다.** 재호출 직전에 clean 을 다시 확인하고, 비어 있지 않으면 중단한다:
+
+     ```bash
+     git status --porcelain
+     ```
+
+     - **출력이 비어 있으면** → `ExitWorktree({action: "remove", discard_changes: true})` 로 재호출한다.
+     - **출력이 있으면** → **중단한다.** 무엇이 생겼는지 사용자에게 보여주고 판단을 맡긴다. 워크트리는 그대로 둔다 — 다음 세션에 `/session-close` 를 다시 부르면 된다. 워크트리가 하루 더 남는 비용보다 남의 작업을 지우는 비용이 비교할 수 없이 크다.
   5. `ExitWorktree` 가 **no-op** 이라고 하면 (이번 세션의 `EnterWorktree` 로 들어간 워크트리가 아님) **fallback** 으로 메인에서 ref 연산한다. 이건 이 커맨드의 **마지막 bash 호출**이어야 한다 (`$CUR` 삭제 시 cwd 가 사라짐 — 세 명령 모두 `-C "$MAIN"` 이라 cwd 비의존):
 
      ```bash
