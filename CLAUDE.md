@@ -77,6 +77,8 @@ OffWay `core` 백엔드의 개발 규약. 항상 로드되는 메인 문서다.
   - OffWay 예: `PolicyType`(7대 혜택 — 각 상수가 매칭조건·뱃지문구 보유), `TransportMode`(자가용·KTX·SRT·시외버스 — 상수별 소요시간 계산), `RegionType`.
 - **캡슐화 / rich domain.** 필드는 `private`, public setter 금지. 상태 변경·계산은 도메인 객체 메서드로 표현한다. 서비스에 분기가 쌓이면 도메인으로 내린다(anemic 지양).
   - 예: `AvailableTime`(LNT) 값객체가 계산·검증을 직접 소유하고, `SandwichHoliday` 가 "황금 연차인지"를 스스로 판단한다. 서비스는 조율만 한다.
+- **객체 생성은 빌더 패턴을 기본으로.** 여러 필드를 조립하는 엔티티·커맨드·응답 객체는 Lombok `@Builder` 로 만든다(생성자 인자 순서 실수 방지·가독성). new·telescoping 생성자 남발 금지.
+  - **예외 — 입력에서 계산되는 파생 값객체는 static 팩토리로.** `AvailableTime.of(start, end, transport)` 처럼 결과가 입력에서 도출되는 것은 빌더로 열지 않는다. 빌더로 열면 계산 결과(`travelDays` 등)를 외부가 직접 세팅해 불변식이 깨진다. 이 경계 기준: **조립이면 빌더, 계산이면 팩토리.**
 - **추상화 / DIP.** 외부 의존성은 도메인이 **port 인터페이스**에만 의존한다. 구현(adapter)은 `external` 에 격리해 프레임워크·외부 세부가 도메인에 새지 않게 한다.
 - **다형성 / 전략.** 변형되는 행위(교통수단별 소요시간, 정책별 매칭 규칙 등)는 `if/else` 타입 스위치 대신 다형성(인터페이스 구현 · enum 전략 · `sealed interface` + pattern matching)으로 표현한다.
 - **Java 25 활용.** 불변 값 객체는 `record`, 닫힌 계층은 `sealed interface` + `switch` 패턴 매칭, 상수 집합은 enum. Lombok 은 보일러플레이트(`@Getter`·`@Builder`·`@Slf4j`)에 한정한다.
