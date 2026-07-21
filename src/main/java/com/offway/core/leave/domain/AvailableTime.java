@@ -63,10 +63,13 @@ public record AvailableTime(int travelDays, int maxReachMinutes, double consumed
         if (end.isBefore(start)) {
             throw new IllegalArgumentException("종료일이 시작일보다 앞섭니다: start=%s end=%s".formatted(start, end));
         }
-        int days = (int) (end.toEpochDay() - start.toEpochDay()) + 1;
-        if (days > MAX_TRIP_DAYS) {
-            throw new IllegalArgumentException("여행일수가 상한(%d)을 넘습니다: %d일".formatted(MAX_TRIP_DAYS, days));
+        // 상한 검사는 int 캐스팅 전에 long 으로 한다 — 먼저 캐스팅하면 극단적 날짜 차이가
+        // 랩어라운드돼 상한 검사를 우연히 통과할 수 있다. 여기서 걸러야 아래 캐스팅이 안전하다.
+        long span = end.toEpochDay() - start.toEpochDay() + 1;
+        if (span > MAX_TRIP_DAYS) {
+            throw new IllegalArgumentException("여행일수가 상한(%d)을 넘습니다: %d일".formatted(MAX_TRIP_DAYS, span));
         }
+        int days = (int) span;
 
         int reach = transport.applyReach(BASE_REACH_MINUTES[days]);
         double leave = countLeaveDays(start, end, holidays, halfDayStart);
