@@ -26,7 +26,7 @@
 
 ## 엔티티 작성
 
-- 필드 `private`, public setter 금지(캡슐화). 생성은 static 팩토리 / 빌더로.
+- 필드 `private`, public setter 금지(캡슐화). **생성은 빌더 패턴 기본**(Lombok `@Builder`), 입력에서 계산되는 파생 값객체만 static 팩토리(`of`/`from`). 기준: 조립이면 빌더, 계산이면 팩토리(`CLAUDE.md` 객체지향 설계 참고).
 - **생성자·팩토리에서 불변식 검증**(`require`) — 엔티티는 누가 만들든 스스로 유효함을 보장하는 최후의 보루다.
 - 식별자 전략은 팀 표준(`@Id @GeneratedValue(strategy = IDENTITY)` 등)을 따른다.
 
