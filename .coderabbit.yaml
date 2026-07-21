@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+
+# 리뷰·요약·워크스루를 한국어로. 커밋·PR·문서를 한국어로 쓰는 프로젝트 규약과 맞춘다.
+language: "ko-KR"
+
+tone_instructions: "15년차 시니어 개발자가 주니어에게 코드리뷰하듯 존댓말로 편하게 설명한다. 명령조(~하라) 금지, 제안조(~하면 좋겠습니다)로 쓴다. 한 번에 개선점 하나씩, 왜 문제인지와 어떻게 고치면 되는지를 근거와 함께 짚는다. 잘한 부분은 짧게 인정하고 넘어간다."
+
+reviews:
+  profile: "chill"
+  high_level_summary: true
+  poem: false
+
+  pre_merge_checks:
+    # 이 프로젝트는 "왜" 가 필요한 곳에만 주석을 단다 (CLAUDE.md).
+    # 모든 메서드에 docstring 을 요구하면 자명한 위임·getter 에까지 주석이 붙어
+    # 신호 대 잡음비가 나빠진다. 임계값 게이트는 끄고 판단은 리뷰에 맡긴다.
+    docstrings:
+      mode: "off"
+    title:
+      mode: "warning"
+    description:
+      mode: "warning"
+
+  path_filters:
+    - "!**/build/**"
+    - "!**/.gradle/**"
+    - "!**/*.jar"
