@@ -48,27 +48,33 @@
 
 ---
 
-### 1️⃣ 가용시간(LNT) 산출 · `POST /leave/available-time`
+### 1️⃣ 가용시간(LNT) 산출 · `POST /api/v1/leaves/available-time`
 
-> 🎯 연차·날짜·기간스타일 → 실제 여행 가능 시간·일수·이동한계 · **기능 F1** · **데이터** 특일정보
+> 🎯 확정된 날짜 구간 → 여행일수·소모 연차·이동한계 · **기능 F1** · **데이터** 특일정보 · **구현** #17
+>
+> 📌 결정 #38 반영: "가용시간(시간 수) 72h" 큰 숫자와 `window`(18:00 등)는 폐기. 소모 연차는 **입력이 아니라 날짜에서 계산**(평일−공휴일). `periodStyle`(당일치기/주말포함/연차이어서)→실제 날짜 해석은 상위 2층(#46)이 맡고, 이 엔드포인트는 확정 날짜만 받는다.
 
 **요청**
 
 ```json
-{ "startDate": "2026-05-01", "endDate": "2026-05-03",
-  "leaveDays": 1, "periodStyle": "CONNECTED", "transport": "CAR" }
+{ "startDate": "2026-05-06", "endDate": "2026-05-08",
+  "transport": "CAR", "halfDayStart": false }
 ```
+
+- `startDate`·`endDate`·`transport` 필수. `halfDayStart` 선택(기본 false, 출발일 반차).
+- 종료일이 시작일보다 앞서거나 구간이 2박 3일(`MAX_TRIP_DAYS`)을 넘으면 400(`LEAVE-001`·`LEAVE-002`).
 
 **응답 `data`**
 
 ```json
 {
-  "availableHours": 72,
   "travelDays": 3,
-  "maxReachMinutes": 180,
-  "window": { "start": "2026-05-01T18:00", "end": "2026-05-03T23:00" }
+  "consumedLeaveDays": 3.0,
+  "maxReachMinutes": 420
 }
 ```
+
+- `travelDays` 1=당일치기·2=1박2일·3=2박3일 · `consumedLeaveDays` 평일−공휴일(반차 0.5) · `maxReachMinutes` 편도 도달 한계(분, 대중교통은 ×0.7).
 
 ---
 
