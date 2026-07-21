@@ -29,6 +29,7 @@ class HolidayClientImpl implements HolidayClient {
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
     private static final DateTimeFormatter LOCDATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final String HOLIDAY_FLAG = "Y";
+    private static final String SUCCESS_CODE = "00";
     private static final int MAX_ROWS = 100;
 
     private final WebClient webClient;
@@ -80,9 +81,17 @@ class HolidayClientImpl implements HolidayClient {
      * 트리로 순회한다. {@code isHoliday="Y"} 만 취한다.
      */
     private Set<LocalDate> parse(String body) throws Exception {
+        JsonNode response = objectMapper.readTree(body).path("response");
+
+        // 성공 코드가 아니면 빈결과로 두지 않는다. items 가 없는 실패 응답(키·쿼터·파라미터 오류나
+        // 게이트웨이 XML 오류)이 "공휴일 없음" 으로 둔갑하면 연차 계산이 조용히 틀린다.
+        String resultCode = response.path("header").path("resultCode").asText();
+        if (!SUCCESS_CODE.equals(resultCode)) {
+            throw new IllegalStateException("특일정보 응답이 성공이 아닙니다: resultCode=" + resultCode);
+        }
+
         Set<LocalDate> holidays = new LinkedHashSet<>();
-        JsonNode item = objectMapper.readTree(body)
-                .path("response").path("body").path("items").path("item");
+        JsonNode item = response.path("body").path("items").path("item");
         if (item.isMissingNode() || item.isNull()) {
             return holidays;
         }

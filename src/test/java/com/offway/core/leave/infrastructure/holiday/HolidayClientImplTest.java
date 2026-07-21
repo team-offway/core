@@ -120,6 +120,17 @@ class HolidayClientImplTest {
     }
 
     @Test
+    void resultCode가_00이_아니면_빈결과가_아니라_502_예외로_올린다() {
+        // 키·쿼터·파라미터 오류가 "공휴일 없음"으로 둔갑하면 연차 계산이 틀린다.
+        String body = """
+                {"response":{"header":{"resultCode":"30","resultMsg":"SERVICE KEY IS NOT REGISTERED ERROR"},
+                "body":""}}""";
+        HolidayClient client = new HolidayClientImpl(stubbing(json(body)), WITH_KEY);
+
+        assertThrows(HolidayException.class, () -> client.getHolidays(2026, 1));
+    }
+
+    @Test
     void 응답이_깨진_JSON이면_502_예외로_올린다() {
         HolidayClient client = new HolidayClientImpl(stubbing(json("<html>not json</html>")), WITH_KEY);
 
