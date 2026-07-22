@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.offway.core.leave.domain.HolidayException;
-import com.offway.core.leave.infrastructure.holiday.HolidayClient;
 import com.offway.core.leave.infrastructure.holiday.StubHolidayClient;
 import java.time.LocalDate;
 import java.util.Set;
@@ -36,7 +35,7 @@ class LeaveAvailableTimeIntegrationTest {
 
         @Bean
         @Primary
-        HolidayClient stubHolidayClient() {
+        StubHolidayClient stubHolidayClient() {
             return new StubHolidayClient();
         }
     }
