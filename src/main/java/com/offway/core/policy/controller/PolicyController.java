@@ -18,7 +18,7 @@ public class PolicyController implements PolicyApi {
 
     @Override
     @GetMapping("/{policyId}")
-    public ApiResponseBody<PolicyResponse> getPolicy(@PathVariable Long policyId) {
+    public ApiResponseBody<PolicyResponse> getPolicy(@PathVariable("policyId") Long policyId) {
         return ApiResponseBody.ok(PolicyResponse.from(policyService.getPolicyDetail(policyId)));
     }
 }
