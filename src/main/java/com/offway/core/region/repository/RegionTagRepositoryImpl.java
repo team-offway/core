@@ -23,4 +23,9 @@ public class RegionTagRepositoryImpl implements RegionTagRepository {
     public List<Long> findRegionIdsByTag(RegionTagType tag) {
         return regionTagJpaRepository.findRegionIdsByTag(tag);
     }
+
+    @Override
+    public List<RegionTagType> findTagsByRegionId(Long regionId) {
+        return regionTagJpaRepository.findTagsByRegionId(regionId);
+    }
 }
