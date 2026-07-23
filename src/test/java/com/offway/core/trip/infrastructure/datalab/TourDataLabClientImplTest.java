@@ -102,6 +102,23 @@ class TourDataLabClientImplTest {
     }
 
     @Test
+    void 날짜나_방문자수_형식이_잘못된_항목은_그_한건만_건너뛴다() {
+        // 한 건의 이상 데이터가 전체 요청을 502로 터뜨리거나 집계를 오염시키면 안 된다.
+        String body = """
+                {"response":{"header":{"resultCode":"0000"},
+                "body":{"items":{"item":[
+                  {"signguCode":"11110","signguNm":"종로구","touDivCd":"2","touNum":"100.0","baseYmd":"20260601"},
+                  {"signguCode":"11110","signguNm":"종로구","touDivCd":"2","touNum":"100.0","baseYmd":"엉터리날짜"},
+                  {"signguCode":"11110","signguNm":"종로구","touDivCd":"2","touNum":"숫자아님","baseYmd":"20260601"}
+                ]},"totalCount":3}}}""";
+
+        TourVisitorResult result = client(body).findRegionVisitors(FROM, TO, 1, 10);
+
+        assertEquals(1, result.items().size()); // 정상 1건만, 날짜·숫자 형식 오류는 스킵
+        assertEquals(100.0, result.items().get(0).count(), 0.001);
+    }
+
+    @Test
     void 결과가_1건이면_item이_단일객체로_와도_파싱한다() {
         String body = """
                 {"response":{"header":{"resultCode":"0000"},

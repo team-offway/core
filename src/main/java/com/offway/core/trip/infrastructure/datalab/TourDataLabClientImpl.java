@@ -11,6 +11,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -101,21 +102,30 @@ class TourDataLabClientImpl implements TourDataLabClient {
         return new TourVisitorResult(items, totalCount);
     }
 
-    /** 알 수 없는 방문자 구분(touDivCd)이나 파싱 불가한 값은 건너뛴다(빈 Optional). */
+    /**
+     * 한 건을 방문자 레코드로 변환한다. 이상 데이터(알 수 없는 구분, 필수값 누락, 날짜·숫자 형식 오류)는 <b>그 한 건만</b> 건너뛴다(빈
+     * Optional). 한 건이 전체 요청을 502로 터뜨리거나(잘못된 날짜) 0명으로 집계를 오염시키지(잘못된 방문자수) 않게 국소화한다.
+     */
     private Optional<RegionVisitor> toVisitor(JsonNode node) {
         Optional<VisitorType> type = VisitorType.fromCode(node.path("touDivCd").asText());
         if (type.isEmpty()) {
             return Optional.empty();
         }
+        String signguName = node.path("signguNm").asText();
         String baseYmd = node.path("baseYmd").asText();
-        if (baseYmd.isBlank()) {
+        String touNum = node.path("touNum").asText();
+        if (signguName.isBlank() || baseYmd.isBlank() || touNum.isBlank()) {
             return Optional.empty();
         }
-        return Optional.of(new RegionVisitor(
-                node.path("signguCode").asText(),
-                node.path("signguNm").asText(),
-                LocalDate.parse(baseYmd, YMD),
-                type.get(),
-                node.path("touNum").asDouble(0)));
+        try {
+            return Optional.of(new RegionVisitor(
+                    node.path("signguCode").asText(),
+                    signguName,
+                    LocalDate.parse(baseYmd, YMD),
+                    type.get(),
+                    Double.parseDouble(touNum)));
+        } catch (DateTimeParseException | NumberFormatException e) {
+            return Optional.empty();
+        }
     }
 }
