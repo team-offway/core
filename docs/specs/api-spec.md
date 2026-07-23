@@ -10,8 +10,8 @@
 
 | # | Method | Path | 화면 | 기능 |
 | --- | --- | --- | --- | --- |
-| 1 | `POST` | `/leave/available-time` | 연차 입력 | 가용시간(LNT) 산출 |
-| 2 | `GET` | `/leave/sandwich` | (샌드위치) | 황금 연차 추천 |
+| 1 | `POST` | `/leaves/available-time` | 연차 입력 | 가용시간(LNT) 산출 |
+| 2 | `GET` | `/leaves/sandwich` | (샌드위치) | 황금 연차 추천 |
 | 3 | `GET` | `/home` | 홈 | 남은연차·추천지역·혜택 |
 | 4 | `POST` | `/regions/recommend` | 후보 지역 | 도달 가능 지역 추천 |
 | 5 | `POST` | `/courses/generate` | 코스 확정 | **코스 타임라인 생성** |
@@ -78,20 +78,25 @@
 
 ---
 
-### 2️⃣ 샌드위치 연휴 추천 · `GET /leave/sandwich`
+### 2️⃣ 샌드위치 연휴 추천 · `GET /api/v1/leaves/sandwich`
 
-> 🎯 향후 N개월 황금 연차일 추천 · **기능 F2** · **데이터** 특일정보
+> 🎯 향후 N개월 황금 연차일 추천 · **기능 F2** · **데이터** 특일정보 · **구현** #18
 
 **쿼리** `?fromDate=2026-05-01&months=6&remainingLeave=8`
+
+- `fromDate` 필수. `months` 1~12(기본 6, 벗어나면 400 `LEAVE-003`). `remainingLeave` 선택 — 있으면 그 이하 연차로 가능한 연휴만.
+- 효율(연차 1일당 휴식) 높은 순 정렬. 없으면 `items` 빈 배열(200). 공휴일 조회 실패 시 502.
 
 **응답 `data`**
 
 ```json
 { "items": [
-  { "leaveDates": ["2026-05-02"], "totalRestDays": 5, "efficiency": "1일=5일",
+  { "leaveDates": ["2026-05-04"], "totalRestDays": 5, "efficiency": "1일=5일",
     "window": { "start": "2026-05-01", "end": "2026-05-05" } }
 ] }
 ```
+
+> 예시: 5/1(금·노동절) + 5/2~3(주말) + **5/4(연차)** + 5/5(화·어린이날) = 5일 휴식. (연차일은 창 안의 평일 하나 = 5/4)
 
 ---
 
