@@ -19,4 +19,9 @@ public final class LeaveException extends BaseException {
     public static LeaveException tripTooLong() {
         return new LeaveException(LeaveErrorCode.TRIP_TOO_LONG);
     }
+
+    /** 샌드위치 조회 개월 수가 허용 범위(1~12)를 벗어남. */
+    public static LeaveException invalidLookupMonths() {
+        return new LeaveException(LeaveErrorCode.INVALID_LOOKUP_RANGE);
+    }
 }

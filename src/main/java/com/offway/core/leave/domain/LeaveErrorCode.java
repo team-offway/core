@@ -14,7 +14,10 @@ public enum LeaveErrorCode implements ErrorCode {
     INVALID_DATE_RANGE("LEAVE-001", ErrorCategory.BAD_REQUEST, "여행 종료일은 시작일과 같거나 이후여야 합니다."),
 
     /** 여행 구간이 상한(2박 3일)을 넘음 — 코스 생성이 Day1~3 만 지원한다(결정 #38). */
-    TRIP_TOO_LONG("LEAVE-002", ErrorCategory.BAD_REQUEST, "여행 구간은 최대 2박 3일까지 가능합니다.");
+    TRIP_TOO_LONG("LEAVE-002", ErrorCategory.BAD_REQUEST, "여행 구간은 최대 2박 3일까지 가능합니다."),
+
+    /** 샌드위치 조회 개월 수가 허용 범위(1~12)를 벗어남 — 요청 쿼리 계약 위반. */
+    INVALID_LOOKUP_RANGE("LEAVE-003", ErrorCategory.BAD_REQUEST, "조회 기간은 1~12개월 사이여야 합니다.");
 
     private final String code;
     private final ErrorCategory category;
