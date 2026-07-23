@@ -43,14 +43,16 @@
 - **⚠️ 최대 함정 — 지역코드**: `sigunguCode`는 KTO 전용 순번(법정 시군구 코드 아님)이고 `areaCode`와 **함께만** 유효. → **먼저 `areaCode2`로 (areaCode,sigunguCode)↔지명 매핑 테이블을 확보**한 뒤 인구감소지역 89곳 지명과 매칭. 지명 기준 조인.
 - **OffWay 용도**: 인구감소지역 관광지·숙박·음식점 표출, 운영시간/휴무 기반 일정 생성.
 
-### 1-3. 관광빅데이터(집중률·방문자 추이 예측) — 한국관광공사
+### 1-3. 관광빅데이터(방문자수) — 한국관광공사 · **실호출 확인(#20)**
 - **발급**: data.go.kr 데이터셋 **15101972** `한국관광공사_관광빅데이터 정보서비스_GW` → [활용신청](https://www.data.go.kr/data/15101972/openapi.do) (**15101578과 별개 신청**)
-- **Base**: `https://apis.data.go.kr/B551011/DataLabService` (추정)
-- **제공**: 광역/기초 방문자수, 관광지 방문자수, **관광지 집중률**, **향후 5주(≈30일) 방문자 추이 예측**
-- **파라미터/응답**: 지역코드·기간·관광지 식별자 → 날짜별 방문자비율(%) (정확 명세는 활용가이드 v4.1 확인 — 추정)
+- **Base**: `https://apis.data.go.kr/B551011/DataLabService` ✅ 확인
+- **오퍼레이션**: `metcoRegnVisitrDDList`(광역별 일별 방문자수) · `locgoRegnVisitrDDList`(**기초 시군구별 — OffWay 89에 사용**). 둘 다 실호출 성공(resultCode `0000`).
+- **파라미터**: `serviceKey`·`MobileOS`(ETC)·`MobileApp`(offway)·`_type=json`·`startYmd`/`endYmd`(YYYYMMDD)·`pageNo`·`numOfRows`. (지역 필터 param 없이 기간 전체 반환 → 클라가 시군구로 매칭)
+- **응답 필드(locgo)**: `signguCode`(11110)·`signguNm`(종로구)·`daywkDivCd`/`daywkDivNm`(요일)·`touDivCd`/`touDivNm`(**1=현지인·2=외지인·3=외국인**)·`touNum`(방문자수, 문자열)·`baseYmd`
 - **한도**: 무료, 개발계정 일 1,000건
-- **함정**: 지역코드 체계가 TourAPI(15101578)와 **다를 수 있음**(행정표준코드 계열) → 지명 기준 매핑. "방문자≠관광객", 기초·광역 단순합산 불가.
-- **OffWay 용도**: "평일에 한산한 시점" 우선 추천 — 차별화 핵심 데이터.
+- **함정**: `signguCode`는 **법정 시군구코드**(행정표준코드)라 TourAPI KTO 코드와 다름 → **`signguNm`(지명)으로 region 매칭**(고성군 중복만 코드로 후속 처리). "방문자≠관광객" → 랭킹엔 **외지인+외국인**만.
+- **OffWay 용도**: "평일에 한산한 시점" 한산도 뱃지·지역 랭킹 — 차별화 핵심 데이터.
+- **미확인(후속)**: 관광지별 **집중률**·향후 방문자 **예측**은 별도 오퍼레이션(#21+ 필요 시 확인).
 
 ### 1-4. TAGO 대중교통 — 국토교통부 (여러 서비스, 동일 계정)
 - **Base 공통**: `http://apis.data.go.kr/1613000/...` · 응답 래퍼 `resultCode`/`items>item[]`
