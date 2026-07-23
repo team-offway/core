@@ -7,8 +7,8 @@ import java.util.Objects;
 /**
  * 샌드위치 연휴 조회 커맨드 — 서비스 내부용.
  *
- * <p>조회 개월 수 계약(1~12)은 {@link #of} 경계에서 검증한 뒤 넘어온다. {@code remainingLeave} 는 선택 — 있으면 그 이하 연차로
- * 가능한 연휴만 남긴다.
+ * <p>조회 개월 수 계약(1~12)은 compact constructor 에서 모든 생성 경로에 강제한다. {@code remainingLeave} 는 선택 — 있으면 그
+ * 이하 연차로 가능한 연휴만 남긴다.
  *
  * @param fromDate 조회 시작일
  * @param months 조회 개월 수 (1~12)
@@ -19,13 +19,12 @@ public record SandwichQuery(LocalDate fromDate, int months, Double remainingLeav
     private static final int MIN_MONTHS = 1;
     private static final int MAX_MONTHS = 12;
 
-    /** 계약(개월 수 범위)을 검증하며 커맨드를 만든다. */
-    public static SandwichQuery of(LocalDate fromDate, int months, Double remainingLeave) {
+    /** 조회 개월 수(1~12) 계약을 모든 생성 경로에서 강제한다 — {@code new} 직접 생성도 우회 못 하게 compact constructor 에 둔다. */
+    public SandwichQuery {
         Objects.requireNonNull(fromDate, "fromDate 는 null 일 수 없습니다.");
         if (months < MIN_MONTHS || months > MAX_MONTHS) {
             throw LeaveException.invalidLookupMonths();
         }
-        return new SandwichQuery(fromDate, months, remainingLeave);
     }
 
     /** 조회 종료일(포함). {@code fromDate} 부터 {@code months} 개월. */

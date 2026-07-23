@@ -36,7 +36,7 @@ public class LeaveController implements LeaveApi {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(defaultValue = "6") int months,
             @RequestParam(required = false) Double remainingLeave) {
-        SandwichQuery query = SandwichQuery.of(fromDate, months, remainingLeave);
+        SandwichQuery query = new SandwichQuery(fromDate, months, remainingLeave);
         return ApiResponseBody.ok(SandwichResponse.from(leaveService.findSandwiches(query)));
     }
 }
