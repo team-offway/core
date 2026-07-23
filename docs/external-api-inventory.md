@@ -133,3 +133,36 @@
 - [ ] (선택) SGIS 개발지원센터 key/secret
 - [ ] 정적 데이터 다운로드: 인구감소지역 89곳 · 생활인구 XLSX · 로컬100 리스트 · 관광두레 목록
 - [ ] 7대 혜택 정보 수동 정리(정책명·운영기간·대상지·할인율)
+
+---
+
+## 6. 볼거리 보강 후보 (k-skill 참고 · 미연동)
+
+> 출처: `NomaDamas/k-skill` 조사(2026-07-21). TourAPI만으론 볼거리가 부족한 소도시(영양 10개급) 보강용 **추가** 소스. 아래는 후보이며 아직 클라이언트 미구현. **이미 우리가 쓰는 소스(특일정보·TourAPI·관광빅데이터·TAGO·코레일·TMAP)는 그대로 유지**한다. 관련 이슈 #44.
+
+### 6-1. 국가유산 정보 (문화재) — 국가유산청 ⭐ 키 불필요, 즉시 사용 가능
+- **인증**: 없음 (API key·로그인·프록시 불필요). GET · **XML 응답** · `User-Agent` 헤더 필요 · timeout ~20s
+- **목록**: `https://www.khs.go.kr/cha/SearchKindOpenapiList.do`
+  - params: `ccbaMnm1`(유산명 검색어) · `ccbaCtcd`(시도코드 2자리) · `pageUnit`(1~100) · `pageIndex` · `ccbaCncl=N`(지정해제 제외)
+  - item 필드: `ccbaMnm1`(명) · `ccbaMnm2`(한자) · `ccbaCtcdNm`(시도명) · `ccbaAdmin`(관리기관) · `latitude` · `longitude` · `ccbaKdcd`(종목코드) · `ccbaAsno`(관리번호) · `ccbaCtcd`(시도코드)
+- **상세**: `https://www.khs.go.kr/cha/SearchKindOpenapiDt.do` — params `ccbaKdcd`+`ccbaAsno`+`ccbaCtcd` → 설명(`content`)·주소·좌표·이미지
+- **행사**: `https://www.khs.go.kr/cha/openapi/selectEventListOpenapi.do` — params 연도(YYYY)·월(1~12) → 행사명·기간·지역·본문(`subContent`)·링크(`subPath`)
+- **⭐ 좌표 제공** → 지명·좌표로 우리 region/POI에 매핑. TourAPI `contentTypeId=14`(문화시설) 계열 볼거리 보강.
+- **함정**: 공식 페이지 명시 한도 확인 필요. 지명↔시도코드 매핑 테이블 선구축(우리 89 지명 기준).
+- **OffWay 용도**: 콘텐츠 충분성(#21)에서 인접 50km 확장 전 자체 볼거리 확대 · 지역 상세에 문화재·이달의 행사.
+
+### 6-2. 날씨 (기상청 단기예보) — 후보, 우리 키로 직접 호출
+- **upstream**: 공공데이터포털 기상청 단기예보 조회서비스(`VilageFcstInfoService`). k-skill은 자기 프록시를 쓰나 우리는 **기존 `DATA_GO_KR` 키로 직접** 호출.
+- **입력**: 격자 `nx`/`ny` (위경도만 있으면 격자 변환 필요) · 선택 `baseDate`/`baseTime`(생략 시 최신 발표시각).
+- **용도**: 지역 카드/코스에 여행일 날씨(우천 시 실내 대안). Nice-to-have.
+
+### 6-3. 미세먼지 (에어코리아) — 후보, 우리 키로 직접 호출
+- **upstream**: 에어코리아(한국환경공단) 대기오염정보. 측정소명(행정구역) 기반 조회.
+- **용도**: 지역 카드에 대기질 뱃지. Nice-to-have.
+
+### 6-4. (검토) 공연/전시·자연휴양림 — 추가 키/스크래핑 필요
+- **KOPIS** 공연예술통합전산망: 공연·전시(체험거리). **별도 KOPIS 키 발급 필요** → 우선순위 낮음.
+- **숲나들e**(자연휴양림, foresttrip.go.kr): 7대 혜택 농촌체험/치유관광과 매핑되나 **공식 API 없이 스크래핑** → 백엔드 안정성 낮아 보류.
+
+### 참고: KTX/SRT 예매 — 채택 안 함
+- k-skill의 ktx/srt는 비공식 라이브러리(`korail2-ncard`/`SRTrain`) + **개인 로그인 계정** + anti-bot 토큰 기반이라 공개 서비스 백엔드에 부적합. 열차는 §1-4 TAGO(KTX 포함)·§1-5 코레일 공식 API를 유지한다. (§4의 "SRT 공공API 없음" 재확인.)
