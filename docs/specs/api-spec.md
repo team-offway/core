@@ -207,23 +207,27 @@
 
 ---
 
-### 6️⃣ 정책 상세 · `GET /policies/{policyId}`
+### 6️⃣ 정책 상세 · `GET /api/v1/policies/{policyId}`
 
-> 🎯 정책 정보 + **이 혜택 되는 여행지**(정책→지역 역방향) · **기능 F5** · **데이터** policy · region_tag · TourAPI
+> 🎯 정책 정보 + **이 혜택 되는 여행지**(정책→지역 역방향) · **기능 F5** · **데이터** policy · region_tag · TourAPI · **구현** #13
+
+- **미검증(verified=false)·없는 정책은 404**(`POLICY-001`) — 노출 대상만 조회.
+- `regions` = 정책 `PolicyType.targetTag` 가 붙은 지역(MVP 는 `POPULATION_DECLINE` → 89). 참여지역 리스트 확보 시 좁혀짐.
+- `imageUrl` 은 TourAPI 연동 전이라 현재 `null`. `period` 는 시작·종료가 모두 없으면 `null`(상시).
 
 **응답 `data`**
 
 ```json
 {
-  "id": 3, "type": "REGIONAL_VOUCHER",
+  "id": 1, "type": "REGIONAL_VOUCHER",
   "name": "지역사랑 휴가지원(반값여행)",
   "badgeText": "여행경비 50% 환급",
   "benefitDetail": "여행경비의 50%를 지역화폐로 환급 · 1인 최대 10만원(청년 70%)",
   "period": { "start": "2026-04-01", "end": "2026-08-31" },
-  "target": "전 국민(거주지 비인접)",
-  "applyUrl": "https://...",
+  "target": "전 국민(거주지와 다른 지역 여행 시)",
+  "applyUrl": null,
   "regions": [
-    { "regionId": 42, "name": "완도 · 전남", "imageUrl": "https://cdn.offway.app/.../xxx.jpg" }
+    { "regionId": 42, "name": "완도군 · 전라남도", "imageUrl": null }
   ]
 }
 ```

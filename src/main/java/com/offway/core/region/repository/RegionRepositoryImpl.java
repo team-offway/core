@@ -23,4 +23,9 @@ public class RegionRepositoryImpl implements RegionRepository {
     public List<Region> findAll() {
         return regionJpaRepository.findAll();
     }
+
+    @Override
+    public List<Region> findByIds(List<Long> ids) {
+        return regionJpaRepository.findAllById(ids);
+    }
 }

@@ -9,4 +9,7 @@ public interface RegionRepository {
     long count();
 
     List<Region> findAll();
+
+    /** ID 다건 조회 (정책→되는 지역 목록 등). */
+    List<Region> findByIds(List<Long> ids);
 }
