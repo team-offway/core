@@ -100,7 +100,7 @@ class TourApiClientImpl implements TourApiClient {
             String body = call(builder);
             return parseIntro(body, contentId);
         } catch (Exception e) {
-            log.warn("TourAPI 소개정보 조회 실패 contentId={} cause={}", contentId, e.getClass().getSimpleName());
+            log.warn("TourAPI 소개정보 조회 실패 cause={}", e.getClass().getSimpleName());
             throw TourApiException.lookupFailed(e);
         }
     }

@@ -10,6 +10,11 @@ import java.util.List;
  */
 public record TourPoiResult(List<TourPoi> items, int totalCount) {
 
+    /** 외부에서 넘어온 가변 리스트가 바뀌어도 결과가 안 흔들리게 방어적 복사. */
+    public TourPoiResult {
+        items = List.copyOf(items);
+    }
+
     private static final TourPoiResult EMPTY = new TourPoiResult(List.of(), 0);
 
     /** 키 없음·결과 없음 등 비어있는 결과. */
