@@ -10,8 +10,11 @@ import com.offway.core.common.exception.ErrorCode;
  */
 public enum TourApiErrorCode implements ErrorCode {
 
-    /** TourAPI 호출·응답 파싱 실패. 외부 의존성이라 502. */
-    TOUR_LOOKUP_FAILED("TOUR-001", ErrorCategory.EXTERNAL_API, "관광 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    /** TourAPI(KorService2) 호출·응답 파싱 실패. 외부 의존성이라 502. */
+    TOUR_LOOKUP_FAILED("TOUR-001", ErrorCategory.EXTERNAL_API, "관광 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."),
+
+    /** 관광빅데이터(방문자 통계) 호출·응답 파싱 실패. 외부 의존성이라 502. */
+    DATALAB_LOOKUP_FAILED("TOUR-002", ErrorCategory.EXTERNAL_API, "관광 방문자 통계를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
 
     private final String code;
     private final ErrorCategory category;

@@ -10,8 +10,13 @@ public final class TourApiException extends BaseException {
         super(errorCode, cause);
     }
 
-    /** 외부 API 호출·파싱 실패 — 원인은 cause 체인·로그에만 남기고 응답엔 고정 문구가 나간다. */
+    /** TourAPI(KorService2) 호출·파싱 실패 — 원인은 cause 체인·로그에만 남기고 응답엔 고정 문구가 나간다. */
     public static TourApiException lookupFailed(Throwable cause) {
         return new TourApiException(TourApiErrorCode.TOUR_LOOKUP_FAILED, cause);
+    }
+
+    /** 관광빅데이터(방문자 통계) 호출·파싱 실패. */
+    public static TourApiException dataLabLookupFailed(Throwable cause) {
+        return new TourApiException(TourApiErrorCode.DATALAB_LOOKUP_FAILED, cause);
     }
 }
