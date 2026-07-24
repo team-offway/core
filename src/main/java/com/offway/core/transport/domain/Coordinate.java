@@ -1,5 +1,7 @@
 package com.offway.core.transport.domain;
 
+import java.util.Objects;
+
 /**
  * 위경도 좌표(WGS84) 값객체. 두 좌표 사이 대권거리(haversine)를 스스로 계산한다.
  */
@@ -25,11 +27,14 @@ public record Coordinate(double lat, double lng) {
 
     /** 이 좌표에서 대상 좌표까지 대권거리(㎞). */
     public double haversineKmTo(Coordinate other) {
+        Objects.requireNonNull(other, "other 는 null 일 수 없습니다.");
         double dLat = Math.toRadians(other.lat - lat);
         double dLng = Math.toRadians(other.lng - lng);
         double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
                 + Math.cos(Math.toRadians(lat)) * Math.cos(Math.toRadians(other.lat))
                         * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-        return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        // 부동소수점 오차로 a 가 1을 살짝 넘으면 sqrt(1-a) 가 NaN 이 된다(대척점 근처). [0,1] 로 clamp.
+        double clamped = Math.min(1.0, Math.max(0.0, a));
+        return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(clamped), Math.sqrt(1 - clamped));
     }
 }

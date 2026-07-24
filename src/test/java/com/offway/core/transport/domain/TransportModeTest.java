@@ -1,6 +1,7 @@
 package com.offway.core.transport.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -24,5 +25,15 @@ class TransportModeTest {
     @Test
     void 같은_거리면_대중교통이_자차보다_오래_걸린다() {
         assertTrue(TransportMode.TRANSIT.travelMinutes(100) > TransportMode.CAR.travelMinutes(100));
+    }
+
+    @Test
+    void 음수_기준반경이나_비유한_음수_거리는_불변식_위반이다() {
+        assertThrows(IllegalArgumentException.class, () -> TransportMode.CAR.applyReach(-1));
+        assertThrows(IllegalArgumentException.class, () -> TransportMode.CAR.travelMinutes(-1));
+        assertThrows(IllegalArgumentException.class, () -> TransportMode.CAR.travelMinutes(Double.NaN));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> TransportMode.TRANSIT.travelMinutes(Double.POSITIVE_INFINITY));
     }
 }

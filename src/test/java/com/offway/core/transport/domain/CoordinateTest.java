@@ -2,6 +2,7 @@ package com.offway.core.transport.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -52,5 +53,15 @@ class CoordinateTest {
         Coordinate a = new Coordinate(37.5665, 126.9780);
         Coordinate b = new Coordinate(35.1796, 129.0756);
         assertEquals(a.haversineKmTo(b), b.haversineKmTo(a), 0.0001);
+    }
+
+    @Test
+    void 대척점_거리도_유한하고_지구_반바퀴에_가깝다() {
+        // 대척점: 부동소수점 오차로 a 가 1을 넘어 NaN 이 나던 케이스. clamp 회귀.
+        Coordinate p = new Coordinate(37.5, 127.0);
+        Coordinate antipode = new Coordinate(-37.5, -53.0); // 위도 부호 반전 · 경도 +180
+        double km = p.haversineKmTo(antipode);
+        assertTrue(Double.isFinite(km), "대척점 거리가 유한하지 않음: " + km);
+        assertEquals(Math.PI * 6371.0, km, 50.0); // 지구 반바퀴 ≈ 20015㎞
     }
 }
