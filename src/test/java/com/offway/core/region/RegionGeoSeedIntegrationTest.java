@@ -48,10 +48,38 @@ class RegionGeoSeedIntegrationTest {
     void 시딩된_좌표는_전부_한국_위경도_범위다() {
         for (Region region : regionRepository.findAll()) {
             String where = region.getSido() + " " + region.getSigungu();
+            // 범위 단언보다 먼저 — null 이면 언박싱 NPE 로 원인이 가려진다.
+            assertNotNull(region.getLat(), where + " lat 누락");
+            assertNotNull(region.getLng(), where + " lng 누락");
             assertTrue(region.getLat() >= MIN_LAT && region.getLat() <= MAX_LAT,
                     where + " lat 범위 밖: " + region.getLat());
             assertTrue(region.getLng() >= MIN_LNG && region.getLng() <= MAX_LNG,
                     where + " lng 범위 밖: " + region.getLng());
+        }
+    }
+
+    @Test
+    void 검증된_스팟_지역의_시군구코드가_잠긴값과_일치한다() {
+        // sigunguCode 89 전수의 독립 오라클은 없다(기대값 출처가 같은 areaCode2 호출이라 전수 대조는
+        // 전사(transcription)일 뿐). 대신 수집 시 사람이 위치까지 확인한 스팟 6곳을 잠가,
+        // 이후 마이그레이션이 코드를 잘못 덮는 회귀를 잡는다.
+        record Spot(String sigungu, int areaCode, int sigunguCode) {}
+        List<Spot> spots = List.of(
+                new Spot("완도군", 38, 18),
+                new Spot("울릉군", 35, 17),
+                new Spot("강화군", 2, 1),
+                new Spot("정선군", 32, 11),
+                new Spot("괴산군", 33, 1),
+                new Spot("합천군", 36, 21));
+
+        List<Region> regions = regionRepository.findAll();
+        for (Spot spot : spots) {
+            Region region = regions.stream()
+                    .filter(r -> r.getSigungu().equals(spot.sigungu()))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("스팟 지역 없음: " + spot.sigungu()));
+            assertEquals(spot.areaCode(), region.getAreaCode(), spot.sigungu() + " areaCode");
+            assertEquals(spot.sigunguCode(), region.getSigunguCode(), spot.sigungu() + " sigunguCode");
         }
     }
 
