@@ -28,7 +28,7 @@ public final class RegionRanking {
         if (stats.isEmpty()) {
             return List.of();
         }
-        double priorMean = stats.stream().mapToDouble(RegionVisitorStat::meanDaily).average().orElse(0);
+        double priorMean = pooledMeanDaily(stats);
         return stats.stream()
                 .map(stat -> new RegionScore(
                         stat.regionId(), score(stat, priorMean), CrowdLevel.of(stat.meanDaily())))
@@ -36,6 +36,20 @@ public final class RegionRanking {
                         .reversed()
                         .thenComparingLong(RegionScore::regionId))
                 .toList();
+    }
+
+    /**
+     * 글로벌 prior — 전체 방문자 합을 전체 관측일수 합으로 나눈 pooled 일평균. 지역별 일평균을 동일 비중으로 평균내면
+     * 1일 관측 지역과 100일 관측 지역이 prior 에 똑같이 반영돼, 소표본 fluke 가 prior 자체를 흔든다. 표본으로
+     * 보정한다는 계약에 맞게 관측일수로 가중한다.
+     */
+    private static double pooledMeanDaily(List<RegionVisitorStat> stats) {
+        long totalObservedDays = stats.stream().mapToLong(RegionVisitorStat::observedDays).sum();
+        if (totalObservedDays == 0) {
+            return 0;
+        }
+        double totalVisitors = stats.stream().mapToDouble(RegionVisitorStat::touristVisitorsTotal).sum();
+        return totalVisitors / totalObservedDays;
     }
 
     /**

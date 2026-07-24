@@ -51,6 +51,19 @@ class RegionRankingTest {
     }
 
     @Test
+    void 글로벌_prior는_관측일수로_가중한_pooled_평균이다() {
+        // 동일가중 평균이면 소표본(smallLow)이 prior 를 부풀려 bigSteady 가 smallLow 밑으로 가지만,
+        // pooled(총방문자/총관측일수) prior 에선 bigSteady 가 smallLow 위로 온다.
+        RegionVisitorStat bigSteady = new RegionVisitorStat(11L, 300000, 100, true); // 일 3000, 100일
+        RegionVisitorStat smallHigh = new RegionVisitorStat(10L, 20000, 2, true); // 일 10000, 2일
+        RegionVisitorStat smallLow = new RegionVisitorStat(12L, 2000, 2, true); // 일 1000, 2일
+
+        List<RegionScore> ranked = RegionRanking.rank(List.of(bigSteady, smallHigh, smallLow));
+
+        assertEquals(List.of(10L, 11L, 12L), ranked.stream().map(RegionScore::regionId).toList());
+    }
+
+    @Test
     void 인구감소_가점은_동일조건에서_상위로_올린다() {
         RegionVisitorStat decline = new RegionVisitorStat(6L, 60000, 30, true);
         RegionVisitorStat notDecline = new RegionVisitorStat(7L, 60000, 30, false);
