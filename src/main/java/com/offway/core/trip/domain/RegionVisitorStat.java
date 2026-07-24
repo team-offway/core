@@ -12,12 +12,18 @@ public record RegionVisitorStat(
         long regionId, double touristVisitorsTotal, int observedDays, boolean populationDecline) {
 
     public RegionVisitorStat {
-        // 불변식 — 파싱·집계가 보장한다. 여기 닿는 음수는 상류 버그다.
-        if (touristVisitorsTotal < 0) {
-            throw new IllegalArgumentException("방문자수는 음수일 수 없습니다: " + touristVisitorsTotal);
+        // 불변식 — 파싱·집계가 보장한다. 여기 닿는 위반은 상류 버그다.
+        // NaN·무한대는 음수 검사를 통과하므로 함께 막는다 — 점수·정렬로 전파되면 NaN 이 정상 지역보다
+        // 앞서는 등 랭킹이 깨진다.
+        if (!Double.isFinite(touristVisitorsTotal) || touristVisitorsTotal < 0) {
+            throw new IllegalArgumentException("방문자수는 유한한 음이 아닌 값이어야 합니다: " + touristVisitorsTotal);
         }
         if (observedDays < 0) {
             throw new IllegalArgumentException("관측 일수는 음수일 수 없습니다: " + observedDays);
+        }
+        // 관측 구간의 누적값이므로, 관측이 0일이면 누적도 0이어야 한다. 아니면 raw 누적값이 랭킹 점수로 샌다.
+        if (observedDays == 0 && touristVisitorsTotal != 0) {
+            throw new IllegalArgumentException("관측 일수가 0이면 누적 방문자수도 0이어야 합니다: " + touristVisitorsTotal);
         }
     }
 

@@ -24,4 +24,17 @@ class RegionVisitorStatTest {
         assertThrows(IllegalArgumentException.class, () -> new RegionVisitorStat(1L, -1, 30, true));
         assertThrows(IllegalArgumentException.class, () -> new RegionVisitorStat(1L, 100, -1, true));
     }
+
+    @Test
+    void 비유한_방문자수는_불변식_위반이다() {
+        assertThrows(IllegalArgumentException.class, () -> new RegionVisitorStat(1L, Double.NaN, 30, true));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new RegionVisitorStat(1L, Double.POSITIVE_INFINITY, 30, true));
+    }
+
+    @Test
+    void 관측일수가_0인데_방문자수가_0이_아니면_불변식_위반이다() {
+        assertThrows(IllegalArgumentException.class, () -> new RegionVisitorStat(1L, 120000, 0, true));
+    }
 }
