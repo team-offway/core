@@ -1,0 +1,50 @@
+package com.offway.core.trip.domain;
+
+import java.util.Set;
+
+/**
+ * 무드/유형 필터 칩. 칩 하나가 lclsSystm(TourAPI 분류체계) 대분류 코드 묶음에 대응한다(F6).
+ *
+ * <p>api-spec 공통 enum {@code category} 와 값이 일치한다. 각 상수가 자기 코드 묶음을 들고 {@link #includes} 로 스스로
+ * 판정하는 다형성 — 서비스는 타입 스위치 없이 칩에게 물어본다. {@code ALL} 은 필터 없음(전부 통과).
+ *
+ * <p>코드는 TourAPI {@code lclsSystm1}(대분류)다. 이 코드를 실제 호출에 싣는 배선은 첫 소비자(#23)에서 한다.
+ */
+public enum Category {
+
+    /** 전체 — 필터 없음. */
+    ALL(Set.of()) {
+        @Override
+        public boolean includes(String lclsSystm1) {
+            return true;
+        }
+    },
+
+    /** 관광지 — lclsSystm 대분류 NA·HS·VE·LS·EV 묶음(자연·역사·레포츠·행사 계열, #21 정의). */
+    SIGHT(Set.of("NA", "HS", "VE", "LS", "EV")),
+
+    /** 숙박(AC). */
+    STAY(Set.of("AC")),
+
+    /** 체험(EX). */
+    EXPERIENCE(Set.of("EX")),
+
+    /** 맛집(FD). */
+    FOOD(Set.of("FD"));
+
+    private final Set<String> lclsSystm1Codes;
+
+    Category(Set<String> lclsSystm1Codes) {
+        this.lclsSystm1Codes = lclsSystm1Codes;
+    }
+
+    /** 이 칩이 주어진 lclsSystm 대분류 코드를 포함하는가. {@code ALL} 은 항상 참. */
+    public boolean includes(String lclsSystm1) {
+        return lclsSystm1Codes.contains(lclsSystm1);
+    }
+
+    /** TourAPI 필터에 실을 lclsSystm 대분류 코드들(불변). {@code ALL} 은 빈 집합(필터 없음). */
+    public Set<String> lclsSystm1Codes() {
+        return lclsSystm1Codes;
+    }
+}
