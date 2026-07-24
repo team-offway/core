@@ -1,6 +1,6 @@
 package com.offway.core.leave.service.dto;
 
-import com.offway.core.leave.domain.TransportMode;
+import com.offway.core.transport.domain.TransportMode;
 import java.time.LocalDate;
 
 /**
