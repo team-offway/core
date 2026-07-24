@@ -28,7 +28,7 @@ class TransportModeTest {
     }
 
     @Test
-    void 음수_기준반경이나_비유한_음수_거리는_불변식_위반이다() {
+    void 음수_반경이나_비유한_또는_음수_거리는_불변식_위반이다() {
         assertThrows(IllegalArgumentException.class, () -> TransportMode.CAR.applyReach(-1));
         assertThrows(IllegalArgumentException.class, () -> TransportMode.CAR.travelMinutes(-1));
         assertThrows(IllegalArgumentException.class, () -> TransportMode.CAR.travelMinutes(Double.NaN));
