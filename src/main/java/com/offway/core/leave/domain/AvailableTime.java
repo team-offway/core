@@ -1,5 +1,6 @@
 package com.offway.core.leave.domain;
 
+import com.offway.core.transport.domain.TransportMode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.EnumSet;

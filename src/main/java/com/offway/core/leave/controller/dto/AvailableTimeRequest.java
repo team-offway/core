@@ -2,7 +2,7 @@ package com.offway.core.leave.controller.dto;
 
 import com.offway.core.leave.domain.AvailableTime;
 import com.offway.core.leave.domain.LeaveException;
-import com.offway.core.leave.domain.TransportMode;
+import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.leave.service.dto.CreateAvailableTime;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
