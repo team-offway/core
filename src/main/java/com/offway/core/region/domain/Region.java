@@ -35,17 +35,17 @@ public class Region {
     private String sourceUrl;
 
     /** 대표 좌표(관청, WGS84) — 도달시간 계산·주변 조회의 기준점. */
-    @Column(name = "lat")
+    @Column(name = "lat", nullable = false)
     private Double lat;
 
-    @Column(name = "lng")
+    @Column(name = "lng", nullable = false)
     private Double lng;
 
     /** TourAPI KorService2 시도 코드 (areaBasedList2 areaCode). */
-    @Column(name = "area_code")
+    @Column(name = "area_code", nullable = false)
     private Integer areaCode;
 
     /** TourAPI KorService2 시군구 코드 (areaBasedList2 sigunguCode). */
-    @Column(name = "sigungu_code")
+    @Column(name = "sigungu_code", nullable = false)
     private Integer sigunguCode;
 }
