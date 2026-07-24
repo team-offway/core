@@ -1,17 +1,20 @@
 package com.offway.core.trip.domain;
 
+import java.util.Objects;
+
 /**
  * 랭킹 입력 — 한 지역의 관광객(외지인·외국인) 방문 통계. 서비스가 관광빅데이터 응답을 지역별로 집계해 만든다.
  *
  * @param regionId 지역 식별자
  * @param touristVisitorsTotal 관측 구간의 관광객 방문자수 합
  * @param observedDays 데이터가 있는 관측 일수 — 베이지안 표본 크기(콜드스타트 보정용)
- * @param populationDecline 인구감소지역 가점 대상 여부
+ * @param populationDecline 인구감소지역 가점 상태
  */
 public record RegionVisitorStat(
-        long regionId, double touristVisitorsTotal, int observedDays, boolean populationDecline) {
+        long regionId, double touristVisitorsTotal, int observedDays, PopulationDeclineStatus populationDecline) {
 
     public RegionVisitorStat {
+        Objects.requireNonNull(populationDecline, "populationDecline 는 null 일 수 없습니다.");
         // 불변식 — 파싱·집계가 보장한다. 여기 닿는 위반은 상류 버그다.
         // NaN·무한대는 음수 검사를 통과하므로 함께 막는다 — 점수·정렬로 전파되면 NaN 이 정상 지역보다
         // 앞서는 등 랭킹이 깨진다.

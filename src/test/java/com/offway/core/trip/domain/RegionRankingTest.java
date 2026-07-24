@@ -15,8 +15,8 @@ class RegionRankingTest {
 
     @Test
     void 방문자가_많은_지역이_상위다() {
-        RegionVisitorStat many = new RegionVisitorStat(1L, 300000, 30, true); // 일 10000
-        RegionVisitorStat few = new RegionVisitorStat(2L, 60000, 30, true); // 일 2000
+        RegionVisitorStat many = new RegionVisitorStat(1L, 300000, 30, PopulationDeclineStatus.TARGET); // 일 10000
+        RegionVisitorStat few = new RegionVisitorStat(2L, 60000, 30, PopulationDeclineStatus.TARGET); // 일 2000
 
         List<RegionScore> ranked = RegionRanking.rank(List.of(few, many));
 
@@ -26,8 +26,8 @@ class RegionRankingTest {
 
     @Test
     void 혼잡도_뱃지는_실측_일평균으로_붙는다() {
-        RegionVisitorStat crowded = new RegionVisitorStat(1L, 300000, 30, true); // 일 10000 → HIGH
-        RegionVisitorStat quiet = new RegionVisitorStat(2L, 60000, 30, true); // 일 2000 → LOW
+        RegionVisitorStat crowded = new RegionVisitorStat(1L, 300000, 30, PopulationDeclineStatus.TARGET); // 일 10000 → HIGH
+        RegionVisitorStat quiet = new RegionVisitorStat(2L, 60000, 30, PopulationDeclineStatus.TARGET); // 일 2000 → LOW
 
         List<RegionScore> ranked = RegionRanking.rank(List.of(crowded, quiet));
 
@@ -41,9 +41,9 @@ class RegionRankingTest {
     void 베이지안_보정은_표본이_적은_로컬을_묻지_않는다() {
         // sparseLocal·steadyLow 는 실측 일평균이 500 으로 같지만 표본이 다르다(2일 vs 30일).
         // 표본이 적은 sparseLocal 이 글로벌 평균 쪽으로 더 당겨져 steadyLow 위로 올라온다.
-        RegionVisitorStat sparseLocal = new RegionVisitorStat(3L, 1000, 2, true); // 일 500, 2일
-        RegionVisitorStat steadyLow = new RegionVisitorStat(5L, 15000, 30, true); // 일 500, 30일
-        RegionVisitorStat popular = new RegionVisitorStat(4L, 120000, 30, true); // 일 4000
+        RegionVisitorStat sparseLocal = new RegionVisitorStat(3L, 1000, 2, PopulationDeclineStatus.TARGET); // 일 500, 2일
+        RegionVisitorStat steadyLow = new RegionVisitorStat(5L, 15000, 30, PopulationDeclineStatus.TARGET); // 일 500, 30일
+        RegionVisitorStat popular = new RegionVisitorStat(4L, 120000, 30, PopulationDeclineStatus.TARGET); // 일 4000
 
         List<RegionScore> ranked = RegionRanking.rank(List.of(steadyLow, sparseLocal, popular));
 
@@ -54,9 +54,9 @@ class RegionRankingTest {
     void 글로벌_prior는_관측일수로_가중한_pooled_평균이다() {
         // 동일가중 평균이면 소표본(smallLow)이 prior 를 부풀려 bigSteady 가 smallLow 밑으로 가지만,
         // pooled(총방문자/총관측일수) prior 에선 bigSteady 가 smallLow 위로 온다.
-        RegionVisitorStat bigSteady = new RegionVisitorStat(11L, 300000, 100, true); // 일 3000, 100일
-        RegionVisitorStat smallHigh = new RegionVisitorStat(10L, 20000, 2, true); // 일 10000, 2일
-        RegionVisitorStat smallLow = new RegionVisitorStat(12L, 2000, 2, true); // 일 1000, 2일
+        RegionVisitorStat bigSteady = new RegionVisitorStat(11L, 300000, 100, PopulationDeclineStatus.TARGET); // 일 3000, 100일
+        RegionVisitorStat smallHigh = new RegionVisitorStat(10L, 20000, 2, PopulationDeclineStatus.TARGET); // 일 10000, 2일
+        RegionVisitorStat smallLow = new RegionVisitorStat(12L, 2000, 2, PopulationDeclineStatus.TARGET); // 일 1000, 2일
 
         List<RegionScore> ranked = RegionRanking.rank(List.of(bigSteady, smallHigh, smallLow));
 
@@ -65,8 +65,8 @@ class RegionRankingTest {
 
     @Test
     void 인구감소_가점은_동일조건에서_상위로_올린다() {
-        RegionVisitorStat decline = new RegionVisitorStat(6L, 60000, 30, true);
-        RegionVisitorStat notDecline = new RegionVisitorStat(7L, 60000, 30, false);
+        RegionVisitorStat decline = new RegionVisitorStat(6L, 60000, 30, PopulationDeclineStatus.TARGET);
+        RegionVisitorStat notDecline = new RegionVisitorStat(7L, 60000, 30, PopulationDeclineStatus.NON_TARGET);
 
         List<RegionScore> ranked = RegionRanking.rank(List.of(notDecline, decline));
 

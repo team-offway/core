@@ -17,9 +17,6 @@ public final class RegionRanking {
      */
     private static final double PRIOR_STRENGTH = 7.0;
 
-    /** 인구감소지역 가점률 — 동일 방문자면 인구감소지역을 이 비율만큼 위로 올린다. */
-    private static final double POPULATION_BONUS_RATE = 0.1;
-
     private RegionRanking() {
     }
 
@@ -61,7 +58,6 @@ public final class RegionRanking {
     private static double score(RegionVisitorStat stat, double priorMean) {
         double adjusted = (stat.touristVisitorsTotal() + PRIOR_STRENGTH * priorMean)
                 / (stat.observedDays() + PRIOR_STRENGTH);
-        double bonus = stat.populationDecline() ? 1 + POPULATION_BONUS_RATE : 1;
-        return adjusted * bonus;
+        return stat.populationDecline().applyBonus(adjusted);
     }
 }
