@@ -100,11 +100,14 @@
 
 ---
 
-### 3️⃣ 홈 · `GET /home`
+### 3️⃣ 홈 · `GET /api/v1/home`
 
-> 🎯 남은 연차 + 이번주 추천 지역(혜택·한산도) + 필터칩 · **기능 F3·F6** · **데이터** region89 · 관광빅데이터 · TourAPI · policy
+> 🎯 남은 연차 + 이번주 추천 지역(혜택·한산도) + 필터칩 · **기능 F3·F6** · **데이터** region89 · 관광빅데이터 · policy · **구현** #22(MVP)
 
-**쿼리** `?category=ALL&originLat=37.49&originLng=127.02&remainingLeave=13`
+**쿼리** `?remainingLeave=13`
+
+- 추천 지역은 **랭킹 top-N**(덜 붐비는 로컬 우선). `remainingLeave` 는 게스트 보유값을 그대로 담아준다(없으면 `null`).
+- `imageUrl`·`summary`·`categories`·무드(`category`) 필터는 후속(#61). 관광빅데이터 실패 시 502.
 
 **응답 `data`**
 
@@ -118,18 +121,15 @@
   ],
   "recommendedRegions": [
     {
-      "regionId": 42, "name": "완도 · 전남",
-      "imageUrl": "https://cdn.offway.app/.../w_512/xxx.jpg",
-      "summary": "동백숲과 바다가 감싸는 청정 섬",
+      "regionId": 42, "name": "완도군 · 전라남도",
       "crowdLevel": "LOW",
-      "categories": ["SIGHT", "FOOD"],
-      "benefit": { "text": "여행경비 50% 환급", "policyType": "REGIONAL_VOUCHER", "policyId": 3 }
+      "benefit": { "text": "여행경비 50% 환급", "policyType": "REGIONAL_VOUCHER", "policyId": 1 }
     }
   ]
 }
 ```
 
-> 💡 `benefit`=null이면 뱃지 없음.
+> 💡 `benefit`=null이면 뱃지 없음. `imageUrl`·`summary`·`categories` 는 #61에서 추가.
 
 ---
 
