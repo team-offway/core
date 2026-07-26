@@ -133,36 +133,35 @@
 
 ---
 
-### 4️⃣ 후보 지역 추천 · `POST /regions/recommend`
+### 4️⃣ 후보 지역 추천 · `POST /api/v1/regions/recommendations`
 
-> 🎯 추천 플로우 입력 → 도달 가능 후보 지역 · **기능 F3** · **데이터** region89 · TMAP · TourAPI · 관광빅데이터 · policy
+> 🎯 도달 가능 후보 지역 추천 · **기능 F3** · **데이터** region89 · 관광빅데이터 · policy · **구현** #23(MVP)
+
+- **요청은 `maxReachMinutes`** 를 받는다 — `/leaves/available-time` 응답의 값을 그대로 넘긴다(availableHours/travelDays 는 결정 #38로 폐기).
+- 좌표 범위 초과·이동수단 누락·도달 한계가 양수 아님 → 400. 관광빅데이터 실패 → 502.
 
 **요청**
 
 ```json
-{ "originLat": 37.49, "originLng": 127.02,
-  "transport": "CAR", "availableHours": 72, "travelDays": 3,
-  "mood": ["SIGHT", "FOOD"] }
+{ "originLat": 37.49, "originLng": 127.02, "transport": "CAR", "maxReachMinutes": 420 }
 ```
 
-**응답 `data`**
+**응답 `data`** (랭킹 내림차순)
 
 ```json
 { "regions": [
   {
-    "regionId": 42, "name": "완도 · 전남",
-    "imageUrl": "https://cdn.offway.app/.../xxx.jpg",
-    "summary": "청정 섬 여행",
+    "regionId": 42, "name": "완도군 · 전라남도",
     "reachMinutes": 160,
     "crowdLevel": "LOW",
-    "contentCount": 38,
-    "categories": ["SIGHT", "FOOD"],
-    "benefits": [ { "text": "여행경비 50% 환급", "policyId": 3 } ]
+    "benefits": [ { "policyId": 1, "text": "여행경비 50% 환급" } ]
   }
 ] }
 ```
 
-> 📊 **로직** 도달시간 ≤ maxReach 필터 → 콘텐츠 충분성(부족 시 인접 50km) → 방문자수/집중률 랭킹 → 무드 필터
+> 📊 **로직(MVP)** 도달시간 ≤ maxReach 필터 → 방문자 랭킹(덜 붐비는 로컬 우선, 베이지안 보정) → 한산도·혜택 뱃지
+>
+> 🔜 **후속(#61)** `imageUrl`·`summary`·`contentCount`·`categories`(TourAPI 지역별 콘텐츠) + `mood` 무드 필터 + 콘텐츠 충분성 50km 확장
 
 ---
 
