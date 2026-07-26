@@ -1,5 +1,7 @@
 package com.offway.core.trip.domain;
 
+import java.util.Arrays;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -48,6 +50,20 @@ public enum Category {
     /** 이 칩이 주어진 lclsSystm 대분류 코드를 포함하는가. {@code ALL} 은 항상 참. */
     public boolean includes(String lclsSystm1) {
         return lclsSystm1Codes.contains(lclsSystm1);
+    }
+
+    /**
+     * lclsSystm 대분류 코드를 그 코드를 소유한 구체 칩으로 되돌린다(콘텐츠 categories 산출용). {@code ALL} 은 필터가 아니라 전체
+     * 표지라 매핑 대상이 아니므로 제외한다. 미지의 코드(null 포함)는 어떤 칩에도 안 들어가 빈 결과.
+     */
+    public static Optional<Category> fromLclsSystm1(String lclsSystm1) {
+        if (lclsSystm1 == null) {
+            return Optional.empty();
+        }
+        return Arrays.stream(values())
+                .filter(category -> category != ALL)
+                .filter(category -> category.includes(lclsSystm1))
+                .findFirst();
     }
 
     /** TourAPI 필터에 실을 lclsSystm 대분류 코드들(불변). {@code ALL} 은 빈 집합(필터 없음). */

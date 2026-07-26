@@ -1,6 +1,7 @@
 package com.offway.core.trip.controller.dto;
 
 import com.offway.core.transport.domain.TransportMode;
+import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.service.dto.RecommendRegions;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMax;
@@ -15,6 +16,7 @@ import jakarta.validation.constraints.Positive;
  * @param originLng 출발지 경도
  * @param transport 이동수단 (CAR·TRANSIT)
  * @param maxReachMinutes 편도 도달 한계(분) — 가용시간(LNT) 산출 응답에서 받아 넘긴다
+ * @param mood 무드칩(선택) — 지정 시 해당 볼거리가 있는 지역을 앞세운다. 미지정·ALL 은 필터 없음
  */
 public record RegionRecommendRequest(
         @Schema(example = "37.49", requiredMode = Schema.RequiredMode.REQUIRED)
@@ -23,9 +25,10 @@ public record RegionRecommendRequest(
                 @NotNull @DecimalMin("-180") @DecimalMax("180") Double originLng,
         @Schema(example = "CAR", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull TransportMode transport,
         @Schema(description = "편도 도달 한계(분)", example = "420", requiredMode = Schema.RequiredMode.REQUIRED)
-                @NotNull @Positive Integer maxReachMinutes) {
+                @NotNull @Positive Integer maxReachMinutes,
+        @Schema(description = "무드칩(선택) — SIGHT·STAY·EXPERIENCE·FOOD", example = "FOOD") Category mood) {
 
     public RecommendRegions toCommand() {
-        return new RecommendRegions(originLat, originLng, transport, maxReachMinutes);
+        return new RecommendRegions(originLat, originLng, transport, maxReachMinutes, mood);
     }
 }

@@ -186,6 +186,7 @@ class TourApiClientImpl implements TourApiClient {
         return new TourPoi(
                 emptyToNull(text(node, "contentid")),
                 intOrNull(node, "contenttypeid"),
+                emptyToNull(text(node, "lclsSystm1")),
                 emptyToNull(text(node, "title")),
                 emptyToNull(text(node, "addr1")),
                 doubleOrNull(node, "mapy"),
@@ -194,13 +195,15 @@ class TourApiClientImpl implements TourApiClient {
                 emptyToNull(text(node, "tel")));
     }
 
+    /** JSON 명시적 {@code null}·미존재는 문자열 {@code "null"}/{@code ""} 이 아니라 {@code null} 로 돌려준다(빈값 판정 오염 방지). */
     private static String text(JsonNode node, String field) {
-        return node.path(field).asText();
+        JsonNode value = node.path(field);
+        return (value.isNull() || value.isMissingNode()) ? null : value.asText();
     }
 
     private static String firstText(JsonNode node, String... fields) {
         for (String field : fields) {
-            String value = emptyToNull(node.path(field).asText());
+            String value = emptyToNull(text(node, field));
             if (value != null) {
                 return value;
             }

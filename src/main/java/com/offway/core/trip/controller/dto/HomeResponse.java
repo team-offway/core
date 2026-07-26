@@ -7,9 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
- * 홈 응답 — API 계약. 남은 연차 + 필터칩 + 이번주 추천 지역.
- *
- * <p>MVP: 추천 지역은 랭킹 top-N(한산도·대표 혜택). 이미지·요약·categories·무드 필터는 후속(#61).
+ * 홈 응답 — API 계약. 남은 연차 + 필터칩 + 이번주 추천 지역(랭킹 top-N, 대표 이미지·categories·한산도·대표 혜택).
  */
 public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<RegionCard> recommendedRegions) {
 
@@ -33,12 +31,16 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
      * @param regionId 지역 ID
      * @param name 지역명 (시군구 · 시도)
      * @param crowdLevel 한산도 뱃지
+     * @param imageUrl 대표 이미지 URL (없으면 null)
+     * @param categories 볼거리 카테고리 칩
      * @param benefit 대표 혜택 (없으면 null)
      */
     public record RegionCard(
             long regionId,
             @Schema(example = "완도군 · 전라남도") String name,
             CrowdLevel crowdLevel,
+            @Schema(example = "http://tong.visitkorea.or.kr/cms/resource/83/1234583_image2_1.jpg") String imageUrl,
+            List<CategoryResponse.Item> categories,
             @Schema(description = "대표 혜택 (없으면 null)") Benefit benefit) {
 
         static RegionCard from(HomeResult.RegionCard card) {
@@ -46,6 +48,8 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
                     card.regionId(),
                     card.sigungu() + " · " + card.sido(),
                     card.crowdLevel(),
+                    card.imageUrl(),
+                    card.categories().stream().map(CategoryResponse.Item::from).toList(),
                     card.benefit() == null ? null : Benefit.from(card.benefit()));
         }
     }
