@@ -41,6 +41,7 @@ public class RegionRecommendationService {
     /** 관광빅데이터는 약 15일 지연되므로, 그 이전 1주를 관측 창으로 쓴다. */
     private static final int DATA_LAG_DAYS = 15;
     private static final int OBSERVE_SPAN_DAYS = 7;
+    private static final int FIRST_PAGE_NUMBER = 1;
     private static final int VISITOR_PAGE_SIZE = 10_000;
 
     private final RegionRepository regionRepository;
@@ -94,7 +95,7 @@ public class RegionRecommendationService {
     private Map<String, VisitorAgg> aggregateTourists() {
         LocalDate to = LocalDate.now().minusDays(DATA_LAG_DAYS);
         LocalDate from = to.minusDays(OBSERVE_SPAN_DAYS - 1);
-        var result = tourDataLabClient.findRegionVisitors(from, to, 1, VISITOR_PAGE_SIZE);
+        var result = tourDataLabClient.findRegionVisitors(from, to, FIRST_PAGE_NUMBER, VISITOR_PAGE_SIZE);
         if (result.totalCount() > result.items().size()) {
             log.warn("관광빅데이터 일부만 조회됨 total={} fetched={} — 랭킹이 부분 데이터 기반", result.totalCount(), result.items().size());
         }
