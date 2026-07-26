@@ -1,5 +1,6 @@
 package com.offway.core.trip.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -65,6 +66,7 @@ class HomeIntegrationTest {
         mockMvc.perform(get(URL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.user.name").value("게스트"))
+                .andExpect(jsonPath("$.data.user.remainingLeaveDays").value(nullValue()))
                 .andExpect(jsonPath("$.data.recommendedRegions.length()").value(6));
     }
 

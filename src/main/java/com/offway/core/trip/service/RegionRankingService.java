@@ -33,6 +33,8 @@ public class RegionRankingService {
     private static final int OBSERVE_SPAN_DAYS = 7;
     private static final int FIRST_PAGE_NUMBER = 1;
     private static final int VISITOR_PAGE_SIZE = 10_000;
+    /** 페이지 폭주 안전장치 — total 이 잘못 크거나 페이지가 안 줄어도 무한 루프에 빠지지 않게 상한을 둔다. */
+    private static final int MAX_PAGES = 50;
 
     private final TourDataLabClient tourDataLabClient;
 
@@ -46,21 +48,33 @@ public class RegionRankingService {
         return RegionRanking.rank(stats);
     }
 
-    /** 관측 창의 관광빅데이터를 시군구명으로 집계한다(관광객 합·관측 일수). 키 없으면 빈 결과. */
+    /**
+     * 관측 창의 관광빅데이터를 <b>전 페이지</b> 모아 시군구명으로 집계한다(관광객 합·관측 일수). 부분 페이지로 랭킹하면 뒷페이지 지역이
+     * 0으로 과소집계돼 순위가 틀어지므로, totalCount 까지 페이지를 끝까지 읽는다. 키 없으면 빈 결과(로컬 실행성).
+     */
     private Map<String, VisitorAgg> aggregateTourists() {
         LocalDate to = LocalDate.now().minusDays(DATA_LAG_DAYS);
         LocalDate from = to.minusDays(OBSERVE_SPAN_DAYS - 1);
-        var result = tourDataLabClient.findRegionVisitors(from, to, FIRST_PAGE_NUMBER, VISITOR_PAGE_SIZE);
-        if (result.totalCount() > result.items().size()) {
-            log.warn("관광빅데이터 일부만 조회됨 total={} fetched={} — 랭킹이 부분 데이터 기반", result.totalCount(), result.items().size());
-        }
+
         Map<String, VisitorAgg> byName = new HashMap<>();
-        for (RegionVisitor visitor : result.items()) {
-            if (!visitor.type().isTourist()) {
-                continue; // 현지인 제외
+        int fetched = 0;
+        int total = 0;
+        for (int page = FIRST_PAGE_NUMBER; page < FIRST_PAGE_NUMBER + MAX_PAGES; page++) {
+            var result = tourDataLabClient.findRegionVisitors(from, to, page, VISITOR_PAGE_SIZE);
+            total = result.totalCount();
+            for (RegionVisitor visitor : result.items()) {
+                if (!visitor.type().isTourist()) {
+                    continue; // 현지인 제외
+                }
+                byName.computeIfAbsent(visitor.signguName(), name -> new VisitorAgg())
+                        .add(visitor.baseDate(), visitor.count());
             }
-            byName.computeIfAbsent(visitor.signguName(), name -> new VisitorAgg()).add(visitor.baseDate(), visitor.count());
+            fetched += result.items().size();
+            if (result.items().isEmpty() || fetched >= total) {
+                return byName;
+            }
         }
+        log.warn("관광빅데이터 페이지 상한({}) 도달 — fetched={} total={}. 랭킹이 부분 데이터 기반일 수 있음", MAX_PAGES, fetched, total);
         return byName;
     }
 
