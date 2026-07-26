@@ -31,6 +31,12 @@ class SlotTest {
                 () -> Slot.of(1, TimeOfDay.MORNING, SlotKind.SIGHT, "c", "장소", 34.0, 126.0, -1));
     }
 
+    @Test
+    void 하루_첫_슬롯의_이동시간이_0이_아니면_거부한다() {
+        assertThrows(IllegalArgumentException.class,
+                () -> Slot.of(1, TimeOfDay.MORNING, SlotKind.SIGHT, "c", "장소", 34.0, 126.0, 10));
+    }
+
     @ParameterizedTest
     @CsvSource({"91.0,126.0", "-91.0,126.0", "34.0,181.0", "34.0,-181.0"})
     void 좌표가_범위를_벗어나면_거부한다(double lat, double lng) {

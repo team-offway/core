@@ -25,6 +25,11 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Slot {
 
+    private static final double MIN_LATITUDE = -90.0;
+    private static final double MAX_LATITUDE = 90.0;
+    private static final double MIN_LONGITUDE = -180.0;
+    private static final double MAX_LONGITUDE = 180.0;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -66,8 +71,11 @@ public class Slot {
         if (travelMinutesFromPrev < 0) {
             throw new IllegalArgumentException("이동시간은 음수일 수 없습니다: " + travelMinutesFromPrev);
         }
-        requireCoordinate(lat, -90, 90, "위도");
-        requireCoordinate(lng, -180, 180, "경도");
+        if (orderInDay == 1 && travelMinutesFromPrev != 0) {
+            throw new IllegalArgumentException("하루 첫 슬롯의 이동시간은 0이어야 합니다: " + travelMinutesFromPrev);
+        }
+        requireCoordinate(lat, MIN_LATITUDE, MAX_LATITUDE, "위도");
+        requireCoordinate(lng, MIN_LONGITUDE, MAX_LONGITUDE, "경도");
         this.orderInDay = orderInDay;
         this.timeOfDay = Objects.requireNonNull(timeOfDay, "시간대는 필수입니다");
         this.kind = Objects.requireNonNull(kind, "슬롯 종류는 필수입니다");
