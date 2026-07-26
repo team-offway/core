@@ -19,4 +19,10 @@ public final class TourApiException extends BaseException {
     public static TourApiException dataLabLookupFailed(Throwable cause) {
         return new TourApiException(TourApiErrorCode.DATALAB_LOOKUP_FAILED, cause);
     }
+
+    /** 요청한 장소(POI)가 관광정보에 없음 — 404. */
+    public static TourApiException poiNotFound() {
+        return new TourApiException(TourApiErrorCode.POI_NOT_FOUND, null);
+    }
 }
+

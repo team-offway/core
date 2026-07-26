@@ -14,7 +14,10 @@ public enum TourApiErrorCode implements ErrorCode {
     TOUR_LOOKUP_FAILED("TOUR-001", ErrorCategory.EXTERNAL_API, "관광 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."),
 
     /** 관광빅데이터(방문자 통계) 호출·응답 파싱 실패. 외부 의존성이라 502. */
-    DATALAB_LOOKUP_FAILED("TOUR-002", ErrorCategory.EXTERNAL_API, "관광 방문자 통계를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    DATALAB_LOOKUP_FAILED("TOUR-002", ErrorCategory.EXTERNAL_API, "관광 방문자 통계를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."),
+
+    /** 요청한 장소(POI)가 관광정보에 없음. 정상 요청이 닿을 수 있는 계약이라 404. */
+    POI_NOT_FOUND("TOUR-003", ErrorCategory.NOT_FOUND, "요청한 장소를 찾을 수 없습니다.");
 
     private final String code;
     private final ErrorCategory category;

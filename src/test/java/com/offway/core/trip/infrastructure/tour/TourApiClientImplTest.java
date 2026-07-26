@@ -9,6 +9,7 @@ import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
+import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -175,5 +176,32 @@ class TourApiClientImplTest {
                 {"response":{"header":{"resultCode":"0000"},"body":{"items":"","totalCount":0}}}""";
 
         assertTrue(client(body).findIntro("999", 12).isEmpty());
+    }
+
+    @Test
+    void 공통상세를_파싱한다() {
+        String body = """
+                {"response":{"header":{"resultCode":"0000"},
+                "body":{"items":{"item":[
+                  {"contentid":"126508","contenttypeid":"12","title":"완도타워","addr1":"전남 완도군","tel":"061-1",
+                   "mapx":"126.7","mapy":"34.3","firstimage":"http://img/1.jpg","overview":"전망대 소개"}
+                ]},"totalCount":1}}}""";
+
+        Optional<TourPoiDetail> detail = client(body).findDetail("126508");
+
+        assertTrue(detail.isPresent());
+        assertEquals("완도타워", detail.get().title());
+        assertEquals(12, detail.get().contentTypeId());
+        assertEquals("전남 완도군", detail.get().address());
+        assertEquals("전망대 소개", detail.get().overview());
+        assertEquals(34.3, detail.get().lat(), 0.0001); // mapy
+    }
+
+    @Test
+    void 공통상세가_없으면_빈Optional을_돌려준다() {
+        String body = """
+                {"response":{"header":{"resultCode":"0000"},"body":{"items":"","totalCount":0}}}""";
+
+        assertTrue(client(body).findDetail("999").isEmpty());
     }
 }

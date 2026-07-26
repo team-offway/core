@@ -1,6 +1,7 @@
 package com.offway.core.trip.infrastructure.tour;
 
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
+import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import java.util.Optional;
 
@@ -35,4 +36,7 @@ public interface TourApiClient {
 
     /** 소개정보(detailIntro2) — 운영시간·휴무일. 없으면 빈 Optional. */
     Optional<TourIntro> findIntro(String contentId, int contentTypeId);
+
+    /** 공통 상세(detailCommon2) — 장소 기본정보(이름·주소·이미지·소개). 없으면 빈 Optional. */
+    Optional<TourPoiDetail> findDetail(String contentId);
 }

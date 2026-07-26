@@ -1,6 +1,7 @@
 package com.offway.core.trip.infrastructure.tour;
 
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
+import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -16,9 +17,22 @@ public class StubTourApiClient implements TourApiClient {
         throw new IllegalStateException("StubTourApiClient 미설정 — 테스트가 respond(...) 로 지역기반 조회 동작을 지정해야 합니다.");
     };
 
+    private Supplier<Optional<TourPoiDetail>> detailBehavior = Optional::empty;
+    private Supplier<Optional<TourIntro>> introBehavior = Optional::empty;
+
     /** 모든 지역기반 조회에 같은 결과를 돌려준다. */
     public void respond(Supplier<TourPoiResult> areaBehavior) {
         this.areaBehavior = areaBehavior;
+    }
+
+    /** 공통상세(detailCommon2) 응답을 지정한다. */
+    public void respondDetail(Supplier<Optional<TourPoiDetail>> detailBehavior) {
+        this.detailBehavior = detailBehavior;
+    }
+
+    /** 소개정보(detailIntro2) 응답을 지정한다. */
+    public void respondIntro(Supplier<Optional<TourIntro>> introBehavior) {
+        this.introBehavior = introBehavior;
     }
 
     @Override
@@ -33,6 +47,11 @@ public class StubTourApiClient implements TourApiClient {
 
     @Override
     public Optional<TourIntro> findIntro(String contentId, int contentTypeId) {
-        return Optional.empty();
+        return introBehavior.get();
+    }
+
+    @Override
+    public Optional<TourPoiDetail> findDetail(String contentId) {
+        return detailBehavior.get();
     }
 }
