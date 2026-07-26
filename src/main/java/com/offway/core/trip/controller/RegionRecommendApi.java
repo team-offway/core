@@ -1,0 +1,21 @@
+package com.offway.core.trip.controller;
+
+import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.trip.controller.dto.RegionRecommendRequest;
+import com.offway.core.trip.controller.dto.RegionRecommendResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+/** 여행지 추천 API 문서 계약. 매핑·검증은 구현체({@link RegionRecommendController})가 소유한다. */
+@Tag(name = "여행지 추천", description = "도달 가능한 인구감소지역 추천")
+public interface RegionRecommendApi {
+
+    @Operation(
+            summary = "후보 지역 추천",
+            description = "도달 한계 안의 인구감소지역을 방문자 랭킹(덜 붐비는 로컬 우선)으로 추천한다. 한산도·혜택 뱃지 포함.")
+    @ApiResponse(responseCode = "200", description = "추천 성공 (없으면 빈 목록)")
+    @ApiResponse(responseCode = "400", description = "좌표 범위 초과 · 이동수단 누락 · 도달 한계가 양수가 아님")
+    @ApiResponse(responseCode = "502", description = "관광빅데이터(방문자 통계) 조회 실패")
+    ApiResponseBody<RegionRecommendResponse> recommend(RegionRecommendRequest request);
+}
