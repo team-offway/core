@@ -27,6 +27,10 @@ class CategoryIntegrationTest {
                 .andExpect(jsonPath("$.data.categories[0].label").value("전체"))
                 .andExpect(jsonPath("$.data.categories[1].key").value("SIGHT"))
                 .andExpect(jsonPath("$.data.categories[1].label").value("관광지"))
+                .andExpect(jsonPath("$.data.categories[2].key").value("STAY"))
+                .andExpect(jsonPath("$.data.categories[2].label").value("숙박"))
+                .andExpect(jsonPath("$.data.categories[3].key").value("EXPERIENCE"))
+                .andExpect(jsonPath("$.data.categories[3].label").value("체험"))
                 .andExpect(jsonPath("$.data.categories[4].key").value("FOOD"))
                 .andExpect(jsonPath("$.data.categories[4].label").value("맛집"));
     }
