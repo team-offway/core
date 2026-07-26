@@ -52,7 +52,7 @@ class TourApiClientImplTest {
                 "body":{"items":{"item":[
                   {"contentid":"126508","contenttypeid":"12","lclsSystm1":"NA","title":"가사동백숲해변","addr1":"전남 완도군",
                    "mapx":"126.9277","mapy":"34.3698","firstimage":"http://img/1.jpg","tel":"061-1"},
-                  {"contentid":"200","contenttypeid":"39","lclsSystm1":"FD","title":"완도 전복집","addr1":"전남 완도군",
+                  {"contentid":"200","contenttypeid":"39","lclsSystm1":"FD","title":"완도 전복집","addr1":null,
                    "mapx":"126.7","mapy":"34.3","firstimage":"","tel":""}
                 ]},"numOfRows":10,"pageNo":1,"totalCount":38}}}""";
 
@@ -69,6 +69,7 @@ class TourApiClientImplTest {
         assertEquals(34.3698, first.lat(), 0.0001); // mapy
         assertEquals(126.9277, first.lng(), 0.0001); // mapx
         assertEquals("http://img/1.jpg", first.firstImage());
+        assertNull(result.items().get(1).address()); // JSON 명시적 null → null(문자열 "null" 아님)
         assertNull(result.items().get(1).firstImage()); // 빈 문자열 → null
         assertNull(result.items().get(1).tel());
     }
