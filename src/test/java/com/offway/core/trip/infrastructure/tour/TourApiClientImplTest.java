@@ -50,9 +50,9 @@ class TourApiClientImplTest {
         String body = """
                 {"response":{"header":{"resultCode":"0000","resultMsg":"OK"},
                 "body":{"items":{"item":[
-                  {"contentid":"126508","contenttypeid":"12","title":"가사동백숲해변","addr1":"전남 완도군",
+                  {"contentid":"126508","contenttypeid":"12","lclsSystm1":"NA","title":"가사동백숲해변","addr1":"전남 완도군",
                    "mapx":"126.9277","mapy":"34.3698","firstimage":"http://img/1.jpg","tel":"061-1"},
-                  {"contentid":"200","contenttypeid":"39","title":"완도 전복집","addr1":"전남 완도군",
+                  {"contentid":"200","contenttypeid":"39","lclsSystm1":"FD","title":"완도 전복집","addr1":"전남 완도군",
                    "mapx":"126.7","mapy":"34.3","firstimage":"","tel":""}
                 ]},"numOfRows":10,"pageNo":1,"totalCount":38}}}""";
 
@@ -63,6 +63,8 @@ class TourApiClientImplTest {
         TourPoi first = result.items().get(0);
         assertEquals("126508", first.contentId());
         assertEquals(12, first.contentTypeId());
+        assertEquals("NA", first.lclsSystm1());
+        assertEquals("FD", result.items().get(1).lclsSystm1());
         assertEquals("가사동백숲해변", first.title());
         assertEquals(34.3698, first.lat(), 0.0001); // mapy
         assertEquals(126.9277, first.lng(), 0.0001); // mapx

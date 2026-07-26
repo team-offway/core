@@ -186,6 +186,7 @@ class TourApiClientImpl implements TourApiClient {
         return new TourPoi(
                 emptyToNull(text(node, "contentid")),
                 intOrNull(node, "contenttypeid"),
+                emptyToNull(text(node, "lclsSystm1")),
                 emptyToNull(text(node, "title")),
                 emptyToNull(text(node, "addr1")),
                 doubleOrNull(node, "mapy"),

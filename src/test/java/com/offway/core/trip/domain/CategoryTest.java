@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class CategoryTest {
@@ -44,5 +46,17 @@ class CategoryTest {
         assertEquals(Set.of("NA", "HS", "VE", "LS", "EV"), Category.SIGHT.lclsSystm1Codes());
         assertEquals(Set.of("AC"), Category.STAY.lclsSystm1Codes());
         assertTrue(Category.ALL.lclsSystm1Codes().isEmpty());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"NA,SIGHT", "HS,SIGHT", "EV,SIGHT", "AC,STAY", "EX,EXPERIENCE", "FD,FOOD"})
+    void fromLclsSystm1은_코드를_소유한_구체칩으로_되돌린다(String code, Category expected) {
+        assertEquals(Optional.of(expected), Category.fromLclsSystm1(code));
+    }
+
+    @Test
+    void fromLclsSystm1은_미지의코드나_null이면_빈Optional이고_ALL로는_매핑하지_않는다() {
+        assertEquals(Optional.empty(), Category.fromLclsSystm1("ZZ"));
+        assertEquals(Optional.empty(), Category.fromLclsSystm1(null));
     }
 }
