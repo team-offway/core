@@ -13,7 +13,7 @@ import java.util.Set;
 public enum Category {
 
     /** 전체 — 필터 없음. */
-    ALL(Set.of()) {
+    ALL("전체", Set.of()) {
         @Override
         public boolean includes(String lclsSystm1) {
             return true;
@@ -21,21 +21,28 @@ public enum Category {
     },
 
     /** 관광지 — lclsSystm 대분류 NA·HS·VE·LS·EV 묶음(자연·역사·레포츠·행사 계열, #21 정의). */
-    SIGHT(Set.of("NA", "HS", "VE", "LS", "EV")),
+    SIGHT("관광지", Set.of("NA", "HS", "VE", "LS", "EV")),
 
     /** 숙박(AC). */
-    STAY(Set.of("AC")),
+    STAY("숙박", Set.of("AC")),
 
     /** 체험(EX). */
-    EXPERIENCE(Set.of("EX")),
+    EXPERIENCE("체험", Set.of("EX")),
 
     /** 맛집(FD). */
-    FOOD(Set.of("FD"));
+    FOOD("맛집", Set.of("FD"));
 
+    private final String label;
     private final Set<String> lclsSystm1Codes;
 
-    Category(Set<String> lclsSystm1Codes) {
+    Category(String label, Set<String> lclsSystm1Codes) {
+        this.label = label;
         this.lclsSystm1Codes = lclsSystm1Codes;
+    }
+
+    /** 필터칩에 노출하는 한글 라벨. */
+    public String label() {
+        return label;
     }
 
     /** 이 칩이 주어진 lclsSystm 대분류 코드를 포함하는가. {@code ALL} 은 항상 참. */
