@@ -19,6 +19,7 @@ import datetime
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -26,20 +27,34 @@ NOTION_VERSION = "2022-06-28"
 API = "https://api.notion.com/v1"
 # 클라이언트 대상 공개 API 만 렌더한다(어드민 SSR /inventory 등 제외).
 PATH_PREFIX = "/api/"
-APPEND_CHUNK = 100  # Notion children append 상한
+APPEND_CHUNK = 100  # Notion children append 상한(상위 children 배열 기준)
+REQUEST_TIMEOUT = 30  # 초 — 무한 대기 방지(CI 잡이 물리지 않게)
+MAX_RETRIES = 4
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
 def _req(method, url, token, body=None):
+    """Notion API 호출. timeout·바운드 재시도(429 Retry-After·5xx·연결오류)로 CI 무인 실행에서 견고하게."""
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method)
-    req.add_header("Authorization", f"Bearer {token}")
-    req.add_header("Notion-Version", NOTION_VERSION)
-    req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req) as resp:
-            return json.load(resp)
-    except urllib.error.HTTPError as e:
-        sys.exit(f"Notion API {method} {url} 실패: {e.code} {e.read().decode()[:300]}")
+    for attempt in range(MAX_RETRIES):
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Notion-Version", NOTION_VERSION)
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as e:
+            if e.code in RETRYABLE_STATUS and attempt < MAX_RETRIES - 1:
+                time.sleep(int(e.headers.get("Retry-After", 2 ** attempt)))
+                continue
+            sys.exit(f"Notion API {method} {url} 실패: {e.code} {e.read().decode()[:300]}")
+        except urllib.error.URLError as e:
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(2 ** attempt)
+                continue
+            sys.exit(f"Notion API {method} {url} 연결 실패: {e.reason}")
+    sys.exit(f"Notion API {method} {url} 재시도 초과")
 
 
 # ---- Notion 블록 빌더 ---------------------------------------------------------
@@ -171,18 +186,24 @@ def build_blocks(spec, commit, repo, when):
 
 # ---- 페이지 갱신(싹 지우고 새로) ------------------------------------------------
 
-def clear_page(page_id, token):
+def list_child_ids(page_id, token):
+    ids = []
     cursor = None
     while True:
         url = f"{API}/blocks/{page_id}/children?page_size=100"
         if cursor:
             url += f"&start_cursor={cursor}"
         data = _req("GET", url, token)
-        for b in data.get("results", []):
-            _req("DELETE", f"{API}/blocks/{b['id']}", token)
+        ids += [b["id"] for b in data.get("results", [])]
         if not data.get("has_more"):
             break
         cursor = data.get("next_cursor")
+    return ids
+
+
+def delete_blocks(block_ids, token):
+    for bid in block_ids:
+        _req("DELETE", f"{API}/blocks/{bid}", token)
 
 
 def append_blocks(page_id, token, blocks):
@@ -209,10 +230,13 @@ def main():
     when = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).strftime("%Y-%m-%d %H:%M KST")
     blocks = build_blocks(spec, args.commit, args.repo, when)
 
-    print(f"페이지 {page_id} 갱신 — 블록 {len(blocks)}개")
-    clear_page(page_id, token)
+    # 새 블록을 먼저 붙이고, 성공한 뒤에 기존 블록을 지운다. 중간에 실패해도 페이지가 텅 비지 않고
+    # (기존 or 기존+신규 중복) 콘텐츠가 남는다. 삭제 먼저면 append 실패 시 빈 페이지가 된다.
+    print(f"페이지 {page_id} 갱신 — 신규 블록 {len(blocks)}개")
+    old_ids = list_child_ids(page_id, token)
     append_blocks(page_id, token, blocks)
-    print("완료")
+    delete_blocks(old_ids, token)
+    print(f"완료 — 기존 {len(old_ids)}개 교체")
 
 
 if __name__ == "__main__":

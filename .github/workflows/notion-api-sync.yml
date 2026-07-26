@@ -25,6 +25,10 @@ jobs:
     steps:
       - name: 체크아웃
         uses: actions/checkout@v7
+        with:
+          # 이 잡은 git push 가 필요 없고 뒤에서 서드파티 코드(gradle bootRun)를 돌린다.
+          # GITHUB_TOKEN 을 디스크에 남기지 않아 그 코드가 자격증명을 못 읽게 한다(zizmor).
+          persist-credentials: false
 
       - name: JDK 설치
         uses: actions/setup-java@v5
