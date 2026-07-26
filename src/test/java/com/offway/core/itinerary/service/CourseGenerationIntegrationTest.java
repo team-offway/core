@@ -72,9 +72,12 @@ class CourseGenerationIntegrationTest {
         return new TourPoiResult(items, items.size());
     }
 
+    /** 시드된 반값여행 정책 기간(2026-04-01~08-31) 안의 고정 날짜 — 혜택 매칭이 실행일에 흔들리지 않게. */
+    private static final LocalDate TRAVEL_DATE = LocalDate.of(2026, 5, 1);
+
     private static GenerateCourse command(int travelDays, Density density) {
         return new GenerateCourse(SEEDED_REGION_ID, travelDays, density, TransportMode.CAR, 35.10, 129.03,
-                LocalDate.now());
+                TRAVEL_DATE);
     }
 
     @Test
@@ -116,5 +119,13 @@ class CourseGenerationIntegrationTest {
         tourApiClient.respond(TourPoiResult::empty);
 
         assertThrows(ItineraryException.class, () -> courseGenerationService.generate(command(2, Density.PACKED)));
+    }
+
+    @Test
+    void 관광지없이_맛집만_있으면_코스를_만들_수_없다() {
+        tourApiClient.respond(() -> new TourPoiResult(
+                List.of(poi("f0", 39, 35.11, 129.04), poi("f1", 39, 35.12, 129.05)), 2));
+
+        assertThrows(ItineraryException.class, () -> courseGenerationService.generate(command(1, Density.RELAXED)));
     }
 }

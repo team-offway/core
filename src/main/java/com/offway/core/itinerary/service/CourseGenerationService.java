@@ -50,8 +50,8 @@ public class CourseGenerationService {
         List<PoiCandidate> sights = take(pois.sights(), needs.sights());
         List<PoiCandidate> foods = take(pois.foods(), needs.foods());
         List<PoiCandidate> stays = take(pois.stays(), needs.stays());
-        if (sights.isEmpty() && foods.isEmpty()) {
-            throw ItineraryException.courseNotBuildable(); // 배치할 장소가 없음
+        if (sights.isEmpty()) {
+            throw ItineraryException.courseNotBuildable(); // 볼거리가 없으면 코스가 아니다(식사만 있는 코스 방지)
         }
 
         // ⑤⑦ interim: 출발지 기준 최근접 정렬(동선) → 하루씩 순서대로 슬라이스하면 가까운 곳끼리 묶인다

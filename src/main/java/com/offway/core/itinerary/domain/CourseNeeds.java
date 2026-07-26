@@ -16,8 +16,8 @@ public record CourseNeeds(int sights, int foods, int stays) {
         if (density == null) {
             throw new IllegalArgumentException("일정 밀도는 필수입니다");
         }
-        if (travelDays < 1) {
-            throw new IllegalArgumentException("여행 일수는 1 이상이어야 합니다: " + travelDays);
+        if (travelDays < 1 || travelDays > Course.MAX_TRAVEL_DAYS) {
+            throw new IllegalArgumentException("여행 일수는 1~" + Course.MAX_TRAVEL_DAYS + "일이어야 합니다: " + travelDays);
         }
         return new CourseNeeds(
                 density.sightsPerDay() * travelDays,

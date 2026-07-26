@@ -31,8 +31,9 @@ class CourseNeedsTest {
     }
 
     @Test
-    void 밀도가_없거나_일수가_1미만이면_거부한다() {
+    void 밀도가_없거나_일수가_1미만_또는_2박3일_초과면_거부한다() {
         assertThrows(IllegalArgumentException.class, () -> CourseNeeds.of(null, 2));
         assertThrows(IllegalArgumentException.class, () -> CourseNeeds.of(Density.PACKED, 0));
+        assertThrows(IllegalArgumentException.class, () -> CourseNeeds.of(Density.PACKED, 4)); // 최대 2박3일
     }
 }
