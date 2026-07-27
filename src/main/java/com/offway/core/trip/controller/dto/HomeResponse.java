@@ -24,7 +24,9 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
      * @param name 사용자명 (게스트)
      * @param remainingLeaveDays 남은 연차 (없으면 null)
      */
-    public record User(@Schema(example = "게스트") String name, @Schema(example = "13") Integer remainingLeaveDays) {
+    public record User(
+            @Schema(example = "게스트") String name,
+            @Schema(example = "13", nullable = true) Integer remainingLeaveDays) {
     }
 
     /**
@@ -39,9 +41,12 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
             long regionId,
             @Schema(example = "완도군 · 전라남도") String name,
             CrowdLevel crowdLevel,
-            @Schema(example = "http://tong.visitkorea.or.kr/cms/resource/83/1234583_image2_1.jpg") String imageUrl,
+            @Schema(
+                            example = "http://tong.visitkorea.or.kr/cms/resource/83/1234583_image2_1.jpg",
+                            nullable = true)
+                    String imageUrl,
             List<CategoryResponse.Item> categories,
-            @Schema(description = "대표 혜택 (없으면 null)") Benefit benefit) {
+            @Schema(description = "대표 혜택 (없으면 null)", nullable = true) Benefit benefit) {
 
         static RegionCard from(HomeResult.RegionCard card) {
             return new RegionCard(

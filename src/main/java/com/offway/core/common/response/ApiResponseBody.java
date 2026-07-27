@@ -1,6 +1,7 @@
 package com.offway.core.common.response;
 
 import com.offway.core.common.exception.ErrorCode;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 
@@ -16,7 +17,12 @@ import org.springframework.http.HttpStatusCode;
  * @param code 성공은 {@code OK}, 실패는 도메인 에러코드.
  * @param pageResponse 페이지네이션 메타. 없으면 null.
  */
-public record ApiResponseBody<T>(int status, T data, String detail, String code, PageResponse pageResponse) {
+public record ApiResponseBody<T>(
+        int status,
+        @Schema(nullable = true) T data,
+        String detail,
+        String code,
+        @Schema(nullable = true) PageResponse pageResponse) {
 
     private static final String SUCCESS_CODE = "OK";
     private static final String SUCCESS_DETAIL = "요청이 정상 처리되었습니다.";
