@@ -307,62 +307,55 @@ PR 이 컨트롤러/엔드포인트를 건드렸으면 OpenAPI 스펙을 apidog 
 >
 > **앱은 사용자가 직접 띄운다.** /pr 은 서버를 기동·관리하지 않는다 — 스펙을 못 잡으면 안내만 하고 이 단계만 보류한다(PR 은 이미 생성됨).
 
-1. **엔드포인트 변경 감지 → 없으면 스킵.**
+**한 번에 가드로 흐른다.** 각 사전조건(엔드포인트 변경·좌표·앱 기동)이 안 맞으면 사유를 찍고 **그 자리에서 멈춘다**(이후 단계 실행 안 함). 서브셸(`( … )`)로 감싸 `exit` 가 세션이 아니라 이 블록만 끝내게 한다.
 
-   ```bash
-   ENDPOINT_CHANGED=$(git diff origin/dev...HEAD --name-only | grep -E 'controller/.*(Controller|Api)\.java$' || true)
-   [ -z "$ENDPOINT_CHANGED" ] && echo "엔드포인트 변경 없음 — apidog 동기화 스킵 (여기서 끝)"
-   ```
-   비어 있으면 종료. 아래는 변경이 있을 때만.
+```bash
+(
+  set -e
+  # base 는 하드코딩하지 않는다 — 방금 만든/갱신한 PR 의 실제 base 를 쓴다(로컬 비교는 origin/$BASE).
+  BASE=$(gh pr view --json baseRefName --jq '.baseRefName')
+  SLUG=$(git branch --show-current | tr '/' '_')
+  SECRET=src/main/resources/application-secret.properties
 
-2. **apidog 좌표 로드 → 없으면 스킵 + 안내.**
+  # ① 엔드포인트 변경 없으면 스킵
+  ENDPOINT_CHANGED=$(git diff "origin/$BASE...HEAD" --name-only | grep -E 'controller/.*(Controller|Api)\.java$' || true)
+  [ -n "$ENDPOINT_CHANGED" ] || { echo "엔드포인트 변경 없음 — apidog 동기화 스킵"; exit 0; }
 
-   ```bash
-   SECRET=src/main/resources/application-secret.properties
-   TOKEN=$(grep -E '^APIDOG_ACCESS_TOKEN=' "$SECRET" 2>/dev/null | cut -d= -f2-)
-   PROJECT=$(grep -E '^APIDOG_PROJECT_ID=' "$SECRET" 2>/dev/null | cut -d= -f2-)
-   if [ -z "$TOKEN" ] || [ -z "$PROJECT" ]; then
-     echo "apidog 좌표 없음 — application-secret.properties 에 APIDOG_ACCESS_TOKEN·APIDOG_PROJECT_ID 를 채운 뒤 이 단계 재실행 (application-secret.properties.example 참고)"
-   fi
-   ```
+  # ② apidog 좌표 없으면 스킵 + 안내
+  TOKEN=$(grep -E '^APIDOG_ACCESS_TOKEN=' "$SECRET" 2>/dev/null | cut -d= -f2-)
+  PROJECT=$(grep -E '^APIDOG_PROJECT_ID=' "$SECRET" 2>/dev/null | cut -d= -f2-)
+  if [ -z "$TOKEN" ] || [ -z "$PROJECT" ]; then
+    echo "apidog 좌표 없음 — application-secret.properties 에 APIDOG_ACCESS_TOKEN·APIDOG_PROJECT_ID 채운 뒤 3-C 재실행 (.example 참고)"; exit 0
+  fi
 
-3. **앱 기동 확인 → 스펙 확보.** localhost:8080 에서 못 잡으면 안내만 하고 보류.
+  # ③ 앱 안 떠 있으면 안내만 하고 보류(사용자가 직접 기동)
+  if ! curl -sf http://localhost:8080/v3/api-docs -o "/tmp/openapi_$SLUG.json"; then
+    echo "앱이 안 떠 있습니다 — 먼저: ! SPRING_PROFILES_ACTIVE=local ./gradlew bootRun  (뜬 뒤 3-C 재실행)"; exit 0
+  fi
 
-   ```bash
-   SLUG=$(git branch --show-current | tr '/' '_')
-   if ! curl -sf http://localhost:8080/v3/api-docs -o "/tmp/openapi_$SLUG.json"; then
-     echo "앱이 안 떠 있습니다. 먼저 로컬 실행 후 3-C 를 다시 돌리세요:"
-     echo "  ! SPRING_PROFILES_ACTIVE=local ./gradlew bootRun"
-   fi
-   ```
+  # ④ 스펙 내용을 문자열로 실어 push(클라우드가 localhost URL 을 못 잡으므로 URL 아닌 내용). 기존 덮어쓰기.
+  #    --data @file 로 넘겨 셸에 본문·토큰을 노출하지 않는다.
+  jq -Rs --argjson opt '{"endpointOverwriteBehavior":"OVERWRITE_EXISTING","schemaOverwriteBehavior":"OVERWRITE_EXISTING","updateFolderOfChangedEndpoint":true,"prependBasePath":false}' \
+    '{input: ., options: $opt}' < "/tmp/openapi_$SLUG.json" > "/tmp/apidog_body_$SLUG.json"
+  HTTP=$(curl -s -o "/tmp/apidog_resp_$SLUG.json" -w '%{http_code}' \
+    "https://api.apidog.com/v1/projects/$PROJECT/import-openapi?locale=en-US" \
+    -H "X-Apidog-Api-Version: 2024-03-28" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    --data "@/tmp/apidog_body_$SLUG.json")
+  [ "$HTTP" = "200" ] || { echo "apidog 동기화 실패(HTTP $HTTP):"; cat "/tmp/apidog_resp_$SLUG.json"; exit 1; }
+  echo "apidog 동기화 완료"
 
-4. **apidog 로 push.** 스펙 내용을 문자열로 실어 import(클라우드가 localhost URL 을 못 잡으므로 URL 아닌 내용 전송). 기존 엔드포인트는 덮어쓴다. `--data @file` 로 넘겨 셸에 본문·토큰을 노출하지 않는다.
-
-   ```bash
-   SLUG=$(git branch --show-current | tr '/' '_')
-   SECRET=src/main/resources/application-secret.properties
-   TOKEN=$(grep -E '^APIDOG_ACCESS_TOKEN=' "$SECRET" | cut -d= -f2-)
-   PROJECT=$(grep -E '^APIDOG_PROJECT_ID=' "$SECRET" | cut -d= -f2-)
-   jq -Rs --argjson opt '{"endpointOverwriteBehavior":"OVERWRITE_EXISTING","schemaOverwriteBehavior":"OVERWRITE_EXISTING","updateFolderOfChangedEndpoint":true,"prependBasePath":false}' \
-     '{input: ., options: $opt}' < "/tmp/openapi_$SLUG.json" > "/tmp/apidog_body_$SLUG.json"
-   HTTP=$(curl -s -o "/tmp/apidog_resp_$SLUG.json" -w '%{http_code}' \
-     "https://api.apidog.com/v1/projects/$PROJECT/import-openapi?locale=en-US" \
-     -H "X-Apidog-Api-Version: 2024-03-28" \
-     -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
-     --data "@/tmp/apidog_body_$SLUG.json")
-   [ "$HTTP" = "200" ] && echo "apidog 동기화 완료" || { echo "apidog 동기화 실패(HTTP $HTTP):"; cat "/tmp/apidog_resp_$SLUG.json"; }
-   ```
-
-5. **이번 PR 이 바꾼 엔드포인트를 짚어준다** — 사용자가 무엇을 테스트할지 바로 알게, 변경된 컨트롤러의 매핑을 뽑는다.
-
-   ```bash
-   for f in $ENDPOINT_CHANGED; do
-     echo "── $f"
-     grep -nE '@RequestMapping|@(Get|Post|Put|Delete|Patch)Mapping' "$f" | sed 's/^/   /'
-   done
-   echo "→ apidog 프로젝트에 최신 스펙 반영됨. 위 엔드포인트를 apidog 또는 localhost:8080 에서 실호출 테스트하세요."
-   ```
+  # ⑤ 바뀐 엔드포인트를 full 경로(클래스 @RequestMapping base + 메서드 path)로 조합해 짚어준다
+  for f in $ENDPOINT_CHANGED; do
+    base=$(grep -oE '@RequestMapping\(("[^"]+"|value ?= ?"[^"]+")' "$f" | grep -oE '/[^"]*' | head -1)
+    echo "── ${f##*/} (base: ${base:-/})"
+    grep -oE '@(Get|Post|Put|Delete|Patch)Mapping\("[^"]*"' "$f" \
+      | sed -E 's#@([A-Za-z]+)Mapping\("([^"]*)"#  \1 '"${base}"'\2#'
+  done
+  echo "→ apidog 에 최신 스펙 반영됨. 위 전체 경로를 apidog·localhost:8080 에서 실호출 테스트하세요."
+)
+```
 
 ## 주의 사항
 
