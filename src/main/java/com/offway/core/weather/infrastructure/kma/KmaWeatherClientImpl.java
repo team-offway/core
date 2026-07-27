@@ -10,6 +10,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
@@ -29,9 +30,10 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
 
     private static final String URL = "https://apis.data.go.kr/1360000/VilageFcstInfoService/getVilageFcst";
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
-    private static final int ROWS = 300; // 하루치 카테고리 예보를 넉넉히
+    private static final int ROWS = 1000; // 3일치 카테고리 예보가 수백 건이라 잘리지 않게 KMA 예시대로 1000
     private static final int[] BASE_HOURS = {23, 20, 17, 14, 11, 8, 5, 2};
     private static final int PUBLISH_DELAY_MIN = 10; // 발표 후 제공까지 지연
+    private static final ZoneId KMA_ZONE = ZoneId.of("Asia/Seoul"); // 발표일·발표시각은 KST 기준
     private static final DateTimeFormatter YMD = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private final WebClient webClient;
@@ -49,7 +51,7 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
             return Optional.empty();
         }
         Grid grid = Grid.from(lat, lng);
-        String[] base = baseDateTime(LocalDateTime.now());
+        String[] base = baseDateTime(LocalDateTime.now(KMA_ZONE));
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(URL)
                 .queryParam("serviceKey", props.dataGoKr().serviceKey())
                 .queryParam("dataType", "JSON")
@@ -99,19 +101,28 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
             if (!target.equals(item.path("fcstDate").asText())) {
                 continue;
             }
-            any = true;
             String category = item.path("category").asText();
             String value = item.path("fcstValue").asText();
             switch (category) {
-                case "TMN" -> minTemp = toInt(value);
-                case "TMX" -> maxTemp = toInt(value);
-                case "POP" -> rainProb = maxOf(rainProb, toInt(value));
+                case "TMN" -> {
+                    minTemp = toInt(value);
+                    any = true;
+                }
+                case "TMX" -> {
+                    maxTemp = toInt(value);
+                    any = true;
+                }
+                case "POP" -> {
+                    rainProb = maxOf(rainProb, toInt(value));
+                    any = true;
+                }
                 case "SKY" -> {
                     if (sky == SkyState.UNKNOWN || "1200".equals(item.path("fcstTime").asText())) {
                         sky = SkyState.fromCode(value); // 정오값을 대표로
                     }
+                    any = true;
                 }
-                default -> { /* 그 외 카테고리는 사용하지 않음 */ }
+                default -> { /* 사용하지 않는 카테고리(TMP 등)는 결과 유무에 영향 없음 */ }
             }
         }
         return any ? Optional.of(new DailyWeather(date, minTemp, maxTemp, sky, rainProb)) : Optional.empty();
