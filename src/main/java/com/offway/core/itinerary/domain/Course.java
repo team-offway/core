@@ -57,6 +57,10 @@ public class Course {
     @Enumerated(EnumType.STRING)
     private TransportMode transport;
 
+    /** 소유 게스트 ID(저장된 코스만) — 로그인 전이라 클라이언트 게스트 식별자로 "내 코스"를 묶는다. 생성만 된 코스는 null. */
+    @Column(name = "guest_id", length = 64)
+    private String guestId;
+
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(
             name = "course_id",
@@ -65,7 +69,7 @@ public class Course {
     @OrderBy("dayNumber")
     private List<DaySchedule> days;
 
-    private Course(Long regionId, Density density, TransportMode transport, List<DaySchedule> days) {
+    private Course(String guestId, Long regionId, Density density, TransportMode transport, List<DaySchedule> days) {
         if (days == null || days.isEmpty()) {
             throw new IllegalArgumentException("코스에는 하루 이상이 있어야 합니다");
         }
@@ -73,6 +77,7 @@ public class Course {
             throw new IllegalArgumentException("코스는 최대 " + MAX_TRAVEL_DAYS + "일까지입니다: " + days.size());
         }
         requireSequentialDays(days);
+        this.guestId = guestId;
         this.regionId = Objects.requireNonNull(regionId, "지역 ID는 필수입니다");
         this.density = Objects.requireNonNull(density, "일정 밀도는 필수입니다");
         this.transport = Objects.requireNonNull(transport, "이동수단은 필수입니다");
@@ -80,9 +85,16 @@ public class Course {
         this.travelDays = days.size();
     }
 
-    /** 하루 일정들을 묶어 코스를 만든다. 일수 상한(2박3일)과 일차 연속성을 스스로 검증한다. */
+    /** 하루 일정들을 묶어 코스를 만든다(생성용, 소유자 없음). 일수 상한(2박3일)과 일차 연속성을 스스로 검증한다. */
     public static Course of(Long regionId, Density density, TransportMode transport, List<DaySchedule> days) {
-        return new Course(regionId, density, transport, days);
+        return new Course(null, regionId, density, transport, days);
+    }
+
+    /** 게스트 소유로 코스를 만든다(저장용). */
+    public static Course ownedBy(
+            String guestId, Long regionId, Density density, TransportMode transport, List<DaySchedule> days) {
+        Objects.requireNonNull(guestId, "게스트 ID는 필수입니다");
+        return new Course(guestId, regionId, density, transport, days);
     }
 
     /** 코스 전체 슬롯(장소) 수. */

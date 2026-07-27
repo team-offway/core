@@ -1,0 +1,93 @@
+package com.offway.core.itinerary.controller;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.jayway.jsonpath.JsonPath;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+
+// DB 격리: 롤백 대신 테스트마다 고유 게스트 ID 를 써서 "내 코스" 목록이 섞이지 않게 한다.
+@SpringBootTest
+@AutoConfigureMockMvc
+class CourseStorageIntegrationTest {
+
+    private static final String URL = "/api/v1/courses";
+
+    // 정선(16) 당일치기 · 유효한 코스(첫 슬롯 이동 0, 순서 연속)
+    private static final String VALID_BODY = """
+            { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [
+              { "day": 1, "items": [
+                {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":0},
+                {"order":2,"timeOfDay":"LUNCH","kind":"FOOD","poiContentId":"c2","title":"맛집1","lat":37.51,"lng":128.61,"travelMinutes":15}
+              ]}
+            ]}""";
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    void 코스를_저장하면_201로_courseId를_준다() throws Exception {
+        mockMvc.perform(post(URL).header("X-Guest-Id", "guest-save").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value(201))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.courseId").isNumber())
+                .andExpect(jsonPath("$.data.regionId").value(16))
+                .andExpect(jsonPath("$.data.days[0].items[0].travelMinutes").value(0));
+    }
+
+    @Test
+    void 저장한_코스가_내_코스_목록과_상세에_나온다() throws Exception {
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", "guest-list")
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        mockMvc.perform(get(URL).header("X-Guest-Id", "guest-list"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].courseId").value(courseId))
+                .andExpect(jsonPath("$.data[0].placeCount").value(2));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.courseId").value(courseId))
+                .andExpect(jsonPath("$.data.days[0].items.length()").value(2));
+    }
+
+    @Test
+    void 게스트_헤더가_없으면_400() throws Exception {
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 슬롯_순서가_불연속이면_400_ITINERARY_002() throws Exception {
+        String invalid = """
+                { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.5,"lng":128.6,"travelMinutes":0},
+                    {"order":3,"timeOfDay":"LUNCH","kind":"FOOD","poiContentId":"c2","title":"맛집1","lat":37.51,"lng":128.61,"travelMinutes":15}
+                  ]}
+                ]}""";
+
+        mockMvc.perform(post(URL).header("X-Guest-Id", "guest-inv").contentType(MediaType.APPLICATION_JSON).content(invalid))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    @Test
+    void 없는_코스_상세는_404_ITINERARY_003() throws Exception {
+        mockMvc.perform(get(URL + "/{id}", 999999))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ITINERARY-003"));
+    }
+}
