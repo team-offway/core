@@ -240,6 +240,7 @@ fi
 
    - 라벨이 레포에 없어 실패하면 라벨 없이 재시도하고 사용자에게 보고한다.
 4. PR URL 과 부여된 assignee·라벨을 사용자에게 전달한다.
+5. **apidog 동기화** — 엔드포인트를 건드린 PR 이면 `3-C` 를 수행한다(순수 도메인·문서 PR 이면 스킵).
 
 ### 3-B. Update 모드 — 기존 PR 본문 갱신
 
@@ -281,6 +282,7 @@ fi
    ```
 
 9. PR URL 을 재출력한다.
+10. **apidog 동기화** — 엔드포인트를 건드린 PR 이면 `3-C` 를 수행한다(순수 도메인·문서 PR 이면 스킵).
 
 ### PR 제목 규칙
 
@@ -292,6 +294,68 @@ fi
 > **왜 커밋과 같은 형식인가.** 이 레포는 **squash 머지만 허용**한다. 커밋이 2개 이상인 PR 은 스쿼시 커밋 제목이 PR 제목으로 떨어지므로, PR 제목이 곧 `dev` 히스토리의 커밋 제목이 된다. 타입을 빼면 dev 에 타입 없는 커밋이 쌓여 커밋 컨벤션과 어긋난다.
 >
 > (piki 원본은 "PR 제목에 타입 prefix 를 붙이지 않는다" 였다. 그쪽도 squash 머지라 같은 어긋남이 생기는데, 이식하면서 이 레포는 반대로 정했다.)
+
+### 3-C. apidog 스펙 동기화 — 엔드포인트 PR 한정 (create·update 공통)
+
+PR 이 컨트롤러/엔드포인트를 건드렸으면 OpenAPI 스펙을 apidog 프로젝트로 밀어넣어, 사용자가 apidog·localhost:8080 에서 바로 실호출 테스트하게 한다. **순수 도메인·문서·설정 PR 이면 이 단계를 통째로 건너뛴다.**
+
+> **전제 — apidog 좌표.** gitignored `application-secret.properties` 에 아래가 있어야 한다(없으면 스킵 + 안내). 앱 런타임과 무관한 개발도구 시크릿이라 Spring 은 무시한다. 값은 절대 로그에 찍지 않는다.
+> ```
+> APIDOG_ACCESS_TOKEN=...   # apidog 아바타 > Account Settings > API Access Token
+> APIDOG_PROJECT_ID=...     # apidog 프로젝트 > Project Settings > Basic Settings
+> ```
+>
+> **앱은 사용자가 직접 띄운다.** /pr 은 서버를 기동·관리하지 않는다 — 스펙을 못 잡으면 안내만 하고 이 단계만 보류한다(PR 은 이미 생성됨).
+
+**한 번에 가드로 흐른다.** 각 사전조건(엔드포인트 변경·좌표·앱 기동)이 안 맞으면 사유를 찍고 **그 자리에서 멈춘다**(이후 단계 실행 안 함). 서브셸(`( … )`)로 감싸 `exit` 가 세션이 아니라 이 블록만 끝내게 한다.
+
+```bash
+(
+  set -e
+  # base 는 하드코딩하지 않는다 — 방금 만든/갱신한 PR 의 실제 base 를 쓴다(로컬 비교는 origin/$BASE).
+  BASE=$(gh pr view --json baseRefName --jq '.baseRefName')
+  SLUG=$(git branch --show-current | tr '/' '_')
+  SECRET=src/main/resources/application-secret.properties
+
+  # ① 엔드포인트 변경 없으면 스킵
+  ENDPOINT_CHANGED=$(git diff "origin/$BASE...HEAD" --name-only | grep -E 'controller/.*(Controller|Api)\.java$' || true)
+  [ -n "$ENDPOINT_CHANGED" ] || { echo "엔드포인트 변경 없음 — apidog 동기화 스킵"; exit 0; }
+
+  # ② apidog 좌표 없으면 스킵 + 안내
+  TOKEN=$(grep -E '^APIDOG_ACCESS_TOKEN=' "$SECRET" 2>/dev/null | cut -d= -f2-)
+  PROJECT=$(grep -E '^APIDOG_PROJECT_ID=' "$SECRET" 2>/dev/null | cut -d= -f2-)
+  if [ -z "$TOKEN" ] || [ -z "$PROJECT" ]; then
+    echo "apidog 좌표 없음 — application-secret.properties 에 APIDOG_ACCESS_TOKEN·APIDOG_PROJECT_ID 채운 뒤 3-C 재실행 (.example 참고)"; exit 0
+  fi
+
+  # ③ 앱 안 떠 있으면 안내만 하고 보류(사용자가 직접 기동)
+  if ! curl -sf http://localhost:8080/v3/api-docs -o "/tmp/openapi_$SLUG.json"; then
+    echo "앱이 안 떠 있습니다 — 먼저: ! SPRING_PROFILES_ACTIVE=local ./gradlew bootRun  (뜬 뒤 3-C 재실행)"; exit 0
+  fi
+
+  # ④ 스펙 내용을 문자열로 실어 push(클라우드가 localhost URL 을 못 잡으므로 URL 아닌 내용). 기존 덮어쓰기.
+  #    --data @file 로 넘겨 셸에 본문·토큰을 노출하지 않는다.
+  jq -Rs --argjson opt '{"endpointOverwriteBehavior":"OVERWRITE_EXISTING","schemaOverwriteBehavior":"OVERWRITE_EXISTING","updateFolderOfChangedEndpoint":true,"prependBasePath":false}' \
+    '{input: ., options: $opt}' < "/tmp/openapi_$SLUG.json" > "/tmp/apidog_body_$SLUG.json"
+  HTTP=$(curl -s -o "/tmp/apidog_resp_$SLUG.json" -w '%{http_code}' \
+    "https://api.apidog.com/v1/projects/$PROJECT/import-openapi?locale=en-US" \
+    -H "X-Apidog-Api-Version: 2024-03-28" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    --data "@/tmp/apidog_body_$SLUG.json")
+  [ "$HTTP" = "200" ] || { echo "apidog 동기화 실패(HTTP $HTTP):"; cat "/tmp/apidog_resp_$SLUG.json"; exit 1; }
+  echo "apidog 동기화 완료"
+
+  # ⑤ 바뀐 엔드포인트를 full 경로(클래스 @RequestMapping base + 메서드 path)로 조합해 짚어준다
+  for f in $ENDPOINT_CHANGED; do
+    base=$(grep -oE '@RequestMapping\(("[^"]+"|value ?= ?"[^"]+")' "$f" | grep -oE '/[^"]*' | head -1)
+    echo "── ${f##*/} (base: ${base:-/})"
+    grep -oE '@(Get|Post|Put|Delete|Patch)Mapping\("[^"]*"' "$f" \
+      | sed -E 's#@([A-Za-z]+)Mapping\("([^"]*)"#  \1 '"${base}"'\2#'
+  done
+  echo "→ apidog 에 최신 스펙 반영됨. 위 전체 경로를 apidog·localhost:8080 에서 실호출 테스트하세요."
+)
+```
 
 ## 주의 사항
 
