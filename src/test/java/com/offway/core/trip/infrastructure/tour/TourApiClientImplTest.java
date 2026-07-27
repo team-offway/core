@@ -88,6 +88,21 @@ class TourApiClientImplTest {
     }
 
     @Test
+    void 키가_없으면_상세조회는_빈결과가_아니라_502로_올린다() {
+        // 빈결과로 돌려주면 PoiDetailService 가 "장소 없음(404)"으로 오인한다 — 조회 불가(502)로 분리.
+        WebClient neverCalled = WebClient.builder()
+                .exchangeFunction(request -> {
+                    throw new AssertionError("키가 없는데 외부 호출이 일어났다");
+                })
+                .build();
+        TourApiClient client = new TourApiClientImpl(neverCalled, NO_KEY);
+
+        TourApiException detailEx = assertThrows(TourApiException.class, () -> client.findDetail("126508"));
+        assertEquals(HttpStatus.BAD_GATEWAY, detailEx.httpStatus());
+        assertThrows(TourApiException.class, () -> client.findIntro("126508", 12));
+    }
+
+    @Test
     void 결과_1건이면_item이_단일객체로_와도_파싱한다() {
         // data.go.kr 함정: 1건일 때 item 이 배열이 아니라 단일 객체.
         String body = """

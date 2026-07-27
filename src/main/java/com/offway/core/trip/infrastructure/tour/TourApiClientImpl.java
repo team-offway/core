@@ -93,7 +93,8 @@ class TourApiClientImpl implements TourApiClient {
     @Override
     public Optional<TourIntro> findIntro(String contentId, int contentTypeId) {
         if (!hasKey()) {
-            return Optional.empty();
+            // 키 없음을 빈 결과로 돌려주면 상세 조회가 "장소 없음(404)"으로 둔갑한다 — 조회 불가(502)로 분리한다.
+            throw TourApiException.serviceUnavailable();
         }
         UriComponentsBuilder builder = base(DETAIL_INTRO)
                 .queryParam("contentId", contentId)
@@ -110,7 +111,8 @@ class TourApiClientImpl implements TourApiClient {
     @Override
     public Optional<TourPoiDetail> findDetail(String contentId) {
         if (!hasKey()) {
-            return Optional.empty();
+            // 키 없음을 빈 결과로 돌려주면 상세 조회가 "장소 없음(404)"으로 둔갑한다 — 조회 불가(502)로 분리한다.
+            throw TourApiException.serviceUnavailable();
         }
         UriComponentsBuilder builder = base(DETAIL_COMMON).queryParam("contentId", contentId);
         try {
