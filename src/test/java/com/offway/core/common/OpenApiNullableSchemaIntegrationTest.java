@@ -50,4 +50,27 @@ class OpenApiNullableSchemaIntegrationTest {
                 .andExpect(jsonPath("$.components.schemas.PolicyResponse.properties.period.allOf[0]['$ref']")
                         .value("#/components/schemas/Period"));
     }
+
+    @Test
+    void 공통래퍼_data_pageResponse_도_nullable_allOf로_보정된다() throws Exception {
+        // 실패 시 data=null · 비페이지 pageResponse=null — 전 ApiResponseBody* 공통. 대표로 한 인스턴스 검증.
+        String wrapper = "$.components.schemas.ApiResponseBodyPolicyResponse.properties";
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(wrapper + ".data.nullable").value(true))
+                .andExpect(jsonPath(wrapper + ".data.allOf[0]['$ref']").value("#/components/schemas/PolicyResponse"))
+                .andExpect(jsonPath(wrapper + ".pageResponse.nullable").value(true))
+                .andExpect(jsonPath(wrapper + ".pageResponse.allOf[0]['$ref']")
+                        .value("#/components/schemas/PageResponse"));
+    }
+
+    @Test
+    void 홈_대표혜택_benefit_도_nullable_allOf로_보정된다() throws Exception {
+        // 대표 혜택 없으면 null
+        mockMvc.perform(get(API_DOCS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.components.schemas.RegionCard.properties.benefit.nullable").value(true))
+                .andExpect(jsonPath("$.components.schemas.RegionCard.properties.benefit.allOf[0]['$ref']")
+                        .value("#/components/schemas/Benefit"));
+    }
 }
