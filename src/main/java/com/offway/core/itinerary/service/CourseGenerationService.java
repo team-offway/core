@@ -12,6 +12,7 @@ import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
+import com.offway.core.transport.service.RouteTimeProvider;
 import com.offway.core.transport.service.TravelTimeProvider;
 import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.dto.PoiCandidate;
@@ -28,9 +29,9 @@ import org.springframework.stereotype.Service;
  * transport({@link TravelTimeProvider}), 혜택은 policy({@link PolicyService}) 에서 얻고, 슬롯 배치·조립은
  * itinerary 도메인({@link Course}·{@link Slot})으로 표현한다. 외부(TourAPI) 호출은 trip service 안에서 tx 밖에 끝난다.
  *
- * <p><b>Interim</b>: ② POI 랭킹은 TourAPI 정렬 순서, ⑦ 동선은 직선거리(Haversine) 최근접 정렬을 쓴다 — 관광빅데이터는
- * 지역 단위라 POI 별 방문자 랭킹이 없고, TMAP 경유지 최적화(#25)는 아직이라 도달시간 provider(직선거리 interim)로 대체한다.
- * ③ 평일오픈 필터는 후속(detailIntro2 호출량 최적화 뒤).
+ * <p>⑦ 동선: 방문 순서는 직선거리 최근접(대량 O(n²)이라 근사), 이웃 구간의 <b>실제 이동시간은 자차 기준 TMAP 실측</b>
+ * ({@link RouteTimeProvider}, 키·한도 불가 시 직선거리 폴백)으로 채운다. 대중교통 실이동(버스·기차)은 #26·#27 연동 뒤.
+ * <b>Interim</b>: ② POI 랭킹은 TourAPI 정렬 순서(관광빅데이터가 지역 단위라 POI 별 방문자 랭킹 부재), ③ 평일오픈 필터는 후속.
  */
 @Slf4j
 @Service
@@ -39,6 +40,7 @@ public class CourseGenerationService {
 
     private final RegionPoiService regionPoiService;
     private final TravelTimeProvider travelTimeProvider;
+    private final RouteTimeProvider routeTimeProvider;
     private final PolicyService policyService;
 
     public GeneratedCourse generate(GenerateCourse command) {
@@ -145,7 +147,7 @@ public class CourseGenerationService {
         Coordinate prev = null;
         for (int i = 0; i < entries.size(); i++) {
             Entry e = entries.get(i);
-            int travel = prev == null ? 0 : travelTimeProvider.reachMinutes(prev, coord(e.poi()), transport);
+            int travel = prev == null ? 0 : legMinutes(prev, coord(e.poi()), transport);
             slots.add(Slot.of(i + 1, e.timeOfDay(), e.kind(), e.poi().contentId(), e.poi().title(),
                     e.poi().lat(), e.poi().lng(), travel));
             prev = coord(e.poi());
@@ -155,6 +157,16 @@ public class CourseGenerationService {
 
     private int travelMinutes(Coordinate from, PoiCandidate to, TransportMode transport) {
         return travelTimeProvider.reachMinutes(from, coord(to), transport);
+    }
+
+    /**
+     * 이웃 슬롯 간 이동시간 — 자차는 TMAP 실측(불가 시 직선거리 폴백), 대중교통은 직선거리 근사(#26·#27 연동 전까지). 최근접
+     * 정렬(대량 O(n²))은 계속 직선거리를 쓰고, TMAP 실측은 여기(하루 이웃 구간 소수)에서만 호출해 한도를 지킨다.
+     */
+    private int legMinutes(Coordinate from, Coordinate to, TransportMode transport) {
+        return transport == TransportMode.CAR
+                ? routeTimeProvider.drivingMinutes(from, to)
+                : travelTimeProvider.reachMinutes(from, to, transport);
     }
 
     private static Coordinate coord(PoiCandidate poi) {
