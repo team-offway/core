@@ -6,6 +6,7 @@ import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
+import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import java.net.URI;
 import java.time.Duration;
@@ -32,6 +33,7 @@ class TourApiClientImpl implements TourApiClient {
     private static final String AREA_BASED = "/areaBasedList2";
     private static final String LOCATION_BASED = "/locationBasedList2";
     private static final String DETAIL_INTRO = "/detailIntro2";
+    private static final String DETAIL_COMMON = "/detailCommon2";
 
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
     private static final String MOBILE_OS = "ETC";
@@ -91,7 +93,8 @@ class TourApiClientImpl implements TourApiClient {
     @Override
     public Optional<TourIntro> findIntro(String contentId, int contentTypeId) {
         if (!hasKey()) {
-            return Optional.empty();
+            // 키 없음을 빈 결과로 돌려주면 상세 조회가 "장소 없음(404)"으로 둔갑한다 — 조회 불가(502)로 분리한다.
+            throw TourApiException.serviceUnavailable();
         }
         UriComponentsBuilder builder = base(DETAIL_INTRO)
                 .queryParam("contentId", contentId)
@@ -101,6 +104,21 @@ class TourApiClientImpl implements TourApiClient {
             return parseIntro(body, contentId);
         } catch (Exception e) {
             log.warn("TourAPI 소개정보 조회 실패 cause={}", e.getClass().getSimpleName());
+            throw TourApiException.lookupFailed(e);
+        }
+    }
+
+    @Override
+    public Optional<TourPoiDetail> findDetail(String contentId) {
+        if (!hasKey()) {
+            // 키 없음을 빈 결과로 돌려주면 상세 조회가 "장소 없음(404)"으로 둔갑한다 — 조회 불가(502)로 분리한다.
+            throw TourApiException.serviceUnavailable();
+        }
+        UriComponentsBuilder builder = base(DETAIL_COMMON).queryParam("contentId", contentId);
+        try {
+            return parseDetail(call(builder));
+        } catch (Exception e) {
+            log.warn("TourAPI 공통상세 조회 실패 cause={}", e.getClass().getSimpleName());
             throw TourApiException.lookupFailed(e);
         }
     }
@@ -169,6 +187,30 @@ class TourApiClientImpl implements TourApiClient {
             return Optional.empty();
         }
         return Optional.of(new TourIntro(contentId, firstText(node, USE_TIME_FIELDS), firstText(node, REST_DATE_FIELDS)));
+    }
+
+    private Optional<TourPoiDetail> parseDetail(String body) throws Exception {
+        JsonNode response = objectMapper.readTree(body).path("response");
+        requireSuccess(response);
+
+        JsonNode item = response.path("body").path("items").path("item");
+        if (item.isMissingNode() || item.isNull()) {
+            return Optional.empty();
+        }
+        JsonNode node = item.isArray() ? (item.isEmpty() ? null : item.get(0)) : item;
+        if (node == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new TourPoiDetail(
+                emptyToNull(text(node, "contentid")),
+                intOrNull(node, "contenttypeid"),
+                emptyToNull(text(node, "title")),
+                emptyToNull(text(node, "addr1")),
+                emptyToNull(text(node, "tel")),
+                doubleOrNull(node, "mapy"),
+                doubleOrNull(node, "mapx"),
+                emptyToNull(text(node, "firstimage")),
+                emptyToNull(text(node, "overview"))));
     }
 
     /**
