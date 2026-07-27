@@ -12,6 +12,7 @@ import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
+import com.offway.core.transport.service.RouteOptimizer;
 import com.offway.core.transport.service.RouteTimeProvider;
 import com.offway.core.transport.service.TravelTimeProvider;
 import com.offway.core.trip.service.RegionPoiService;
@@ -41,6 +42,7 @@ public class CourseGenerationService {
     private final RegionPoiService regionPoiService;
     private final TravelTimeProvider travelTimeProvider;
     private final RouteTimeProvider routeTimeProvider;
+    private final RouteOptimizer routeOptimizer;
     private final PolicyService policyService;
 
     public GeneratedCourse generate(GenerateCourse command) {
@@ -108,6 +110,10 @@ public class CourseGenerationService {
         for (int day = 1; day <= command.travelDays(); day++) {
             List<PoiCandidate> daySights = slice(sights, si, perDaySights);
             si += daySights.size();
+            if (command.transport() == TransportMode.CAR) {
+                // 하루 볼거리 순서를 실도로 기준 최적화(자차). 대중교통은 #26·#27 전까지 근사 순서 유지.
+                daySights = reorder(daySights, routeOptimizer.optimalOrder(coords(daySights)));
+            }
             List<PoiCandidate> dayFoods = slice(foods, fi, 2);
             fi += dayFoods.size();
             boolean lastDay = day == command.travelDays();
@@ -171,6 +177,15 @@ public class CourseGenerationService {
 
     private static Coordinate coord(PoiCandidate poi) {
         return new Coordinate(poi.lat(), poi.lng());
+    }
+
+    private static List<Coordinate> coords(List<PoiCandidate> pois) {
+        return pois.stream().map(CourseGenerationService::coord).toList();
+    }
+
+    /** 최적화가 돌려준 인덱스 순서로 POI 를 재배열한다. */
+    private static List<PoiCandidate> reorder(List<PoiCandidate> pois, List<Integer> order) {
+        return order.stream().map(pois::get).toList();
     }
 
     private static <T> List<T> slice(List<T> list, int from, int count) {
