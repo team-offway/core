@@ -9,6 +9,7 @@ import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
+import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -84,6 +85,22 @@ class TourApiClientImplTest {
         TourApiClient client = new TourApiClientImpl(neverCalled, NO_KEY);
 
         assertTrue(client.findByArea(1, null, null, 10).items().isEmpty());
+    }
+
+    @Test
+    void 키가_없으면_상세조회는_빈결과가_아니라_502로_올린다() {
+        // 빈결과로 돌려주면 PoiDetailService 가 "장소 없음(404)"으로 오인한다 — 조회 불가(502)로 분리.
+        WebClient neverCalled = WebClient.builder()
+                .exchangeFunction(request -> {
+                    throw new AssertionError("키가 없는데 외부 호출이 일어났다");
+                })
+                .build();
+        TourApiClient client = new TourApiClientImpl(neverCalled, NO_KEY);
+
+        TourApiException detailEx = assertThrows(TourApiException.class, () -> client.findDetail("126508"));
+        assertEquals(HttpStatus.BAD_GATEWAY, detailEx.httpStatus());
+        TourApiException introEx = assertThrows(TourApiException.class, () -> client.findIntro("126508", 12));
+        assertEquals(HttpStatus.BAD_GATEWAY, introEx.httpStatus());
     }
 
     @Test
@@ -175,5 +192,32 @@ class TourApiClientImplTest {
                 {"response":{"header":{"resultCode":"0000"},"body":{"items":"","totalCount":0}}}""";
 
         assertTrue(client(body).findIntro("999", 12).isEmpty());
+    }
+
+    @Test
+    void 공통상세를_파싱한다() {
+        String body = """
+                {"response":{"header":{"resultCode":"0000"},
+                "body":{"items":{"item":[
+                  {"contentid":"126508","contenttypeid":"12","title":"완도타워","addr1":"전남 완도군","tel":"061-1",
+                   "mapx":"126.7","mapy":"34.3","firstimage":"http://img/1.jpg","overview":"전망대 소개"}
+                ]},"totalCount":1}}}""";
+
+        Optional<TourPoiDetail> detail = client(body).findDetail("126508");
+
+        assertTrue(detail.isPresent());
+        assertEquals("완도타워", detail.get().title());
+        assertEquals(12, detail.get().contentTypeId());
+        assertEquals("전남 완도군", detail.get().address());
+        assertEquals("전망대 소개", detail.get().overview());
+        assertEquals(34.3, detail.get().lat(), 0.0001); // mapy
+    }
+
+    @Test
+    void 공통상세가_없으면_빈Optional을_돌려준다() {
+        String body = """
+                {"response":{"header":{"resultCode":"0000"},"body":{"items":"","totalCount":0}}}""";
+
+        assertTrue(client(body).findDetail("999").isEmpty());
     }
 }
