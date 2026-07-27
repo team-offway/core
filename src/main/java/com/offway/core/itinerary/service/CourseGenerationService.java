@@ -3,6 +3,7 @@ package com.offway.core.itinerary.service;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseNeeds;
 import com.offway.core.itinerary.domain.DaySchedule;
+import com.offway.core.itinerary.domain.GeoCluster;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
@@ -49,14 +50,19 @@ public class CourseGenerationService {
         // ① POI 수집 (trip)
         RegionPois pois = regionPoiService.collect(command.regionId());
 
-        // ④ 필요 개수 (밀도×일수) + ② interim 랭킹(TourAPI 순서) 상위 선택
+        // ④ 필요 개수 (밀도×일수)
         CourseNeeds needs = CourseNeeds.of(command.density(), command.travelDays());
-        List<PoiCandidate> sights = take(pois.sights(), needs.sights());
-        List<PoiCandidate> foods = take(pois.foods(), needs.foods());
-        List<PoiCandidate> stays = take(pois.stays(), needs.stays());
-        if (sights.isEmpty()) {
+        if (pois.sights().isEmpty()) {
             throw ItineraryException.courseNotBuildable(); // 볼거리가 없으면 코스가 아니다(식사만 있는 코스 방지)
         }
+
+        // ⑤ 지리 클러스터링: 흩어진 후보 대신 밀집한 볼거리를 고르고(아웃라이어 배제), 맛집·숙소는 그 코스 중심 근처로 →
+        // 순서 최적화만으로는 못 줄이는 이동시간을 선택 단계에서 줄인다.
+        List<PoiCandidate> sights =
+                reorder(pois.sights(), GeoCluster.selectCompact(coords(pois.sights()), needs.sights()));
+        Coordinate hub = GeoCluster.centroid(coords(sights));
+        List<PoiCandidate> foods = reorder(pois.foods(), GeoCluster.nearest(coords(pois.foods()), hub, needs.foods()));
+        List<PoiCandidate> stays = reorder(pois.stays(), GeoCluster.nearest(coords(pois.stays()), hub, needs.stays()));
 
         // ⑤⑦ interim: 출발지 기준 최근접 정렬(동선) → 하루씩 순서대로 슬라이스하면 가까운 곳끼리 묶인다
         List<PoiCandidate> orderedSights =
@@ -77,11 +83,7 @@ public class CourseGenerationService {
         return new GeneratedCourse(course, benefits);
     }
 
-    private static List<PoiCandidate> take(List<PoiCandidate> pool, int count) {
-        return pool.stream().limit(Math.max(0, count)).toList();
-    }
-
-    /** 출발지에서 가장 가까운 곳부터 이어붙이는 그리디 정렬(TSP 근사). TMAP(#25) 오면 경유지 최적화로 교체. */
+    /** 출발지에서 가장 가까운 곳부터 이어붙이는 그리디 정렬(하루 묶기용). 하루 내부 순서는 TMAP 경유지 최적화로 다시 다듬는다. */
     private List<PoiCandidate> nearestNeighborOrder(
             List<PoiCandidate> pois, TransportMode transport, double originLat, double originLng) {
         List<PoiCandidate> remaining = new ArrayList<>(pois);
