@@ -99,7 +99,8 @@ class TourApiClientImplTest {
 
         TourApiException detailEx = assertThrows(TourApiException.class, () -> client.findDetail("126508"));
         assertEquals(HttpStatus.BAD_GATEWAY, detailEx.httpStatus());
-        assertThrows(TourApiException.class, () -> client.findIntro("126508", 12));
+        TourApiException introEx = assertThrows(TourApiException.class, () -> client.findIntro("126508", 12));
+        assertEquals(HttpStatus.BAD_GATEWAY, introEx.httpStatus());
     }
 
     @Test
