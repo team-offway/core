@@ -24,6 +24,12 @@ public class OpenApiNullableRefConfig {
     private static final String FIELD_DATA = "data";
     private static final String FIELD_PAGE_RESPONSE = "pageResponse";
 
+    /** 도메인 개별 nullable 참조 대상 (스키마명·필드명 — 이름 변경 시 수정 지점 한곳으로). */
+    private static final String POLICY_RESPONSE_SCHEMA = "PolicyResponse";
+    private static final String FIELD_PERIOD = "period";
+    private static final String REGION_CARD_SCHEMA = "RegionCard";
+    private static final String FIELD_BENEFIT = "benefit";
+
     @Bean
     OpenApiCustomizer nullableRefCustomizer() {
         return openApi -> {
@@ -39,8 +45,8 @@ public class OpenApiNullableRefConfig {
                 }
             });
             // 도메인 개별 nullable 참조
-            wrapNullable(schemas.get("PolicyResponse"), "period"); // 상시운영이면 null
-            wrapNullable(schemas.get("RegionCard"), "benefit"); // 대표 혜택 없으면 null
+            wrapNullable(schemas.get(POLICY_RESPONSE_SCHEMA), FIELD_PERIOD); // 상시운영이면 null
+            wrapNullable(schemas.get(REGION_CARD_SCHEMA), FIELD_BENEFIT); // 대표 혜택 없으면 null
         };
     }
 
