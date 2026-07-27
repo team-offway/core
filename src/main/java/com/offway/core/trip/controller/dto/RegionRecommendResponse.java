@@ -32,7 +32,10 @@ public record RegionRecommendResponse(List<Item> regions) {
             @Schema(example = "완도군 · 전라남도") String name,
             @Schema(example = "160") int reachMinutes,
             CrowdLevel crowdLevel,
-            @Schema(example = "http://tong.visitkorea.or.kr/cms/resource/83/1234583_image2_1.jpg") String imageUrl,
+            @Schema(
+                            example = "http://tong.visitkorea.or.kr/cms/resource/83/1234583_image2_1.jpg",
+                            nullable = true)
+                    String imageUrl,
             @Schema(example = "38") int contentCount,
             List<CategoryResponse.Item> categories,
             @Schema(example = "false") boolean neighborIncluded,

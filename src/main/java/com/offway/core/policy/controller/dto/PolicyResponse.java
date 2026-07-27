@@ -17,7 +17,7 @@ public record PolicyResponse(
         @Schema(example = "지역사랑 휴가지원(반값여행)") String name,
         @Schema(description = "지역 카드용 짧은 뱃지 문구", example = "여행경비 50% 환급") String badgeText,
         @Schema(example = "여행경비의 50%를 지역화폐로 환급 · 1인 최대 10만원(청년 70%)") String benefitDetail,
-        @Schema(description = "운영 기간 (없으면 null = 상시)") Period period,
+        @Schema(description = "운영 기간 (없으면 null = 상시)", nullable = true) Period period,
         @Schema(description = "지원 대상", example = "전 국민(거주지와 다른 지역 여행 시)") String target,
         String applyUrl,
         @Schema(description = "이 혜택이 되는 여행지") List<RegionSummary> regions) {
