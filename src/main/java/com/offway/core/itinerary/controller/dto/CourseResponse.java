@@ -5,6 +5,7 @@ import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.domain.PolicyType;
+import com.offway.core.transport.service.dto.TrainAccess;
 import com.offway.core.weather.domain.DailyWeather;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
@@ -21,6 +22,7 @@ import java.util.List;
  * @param days 날짜별 일정
  * @param benefits 적용 혜택 뱃지
  * @param weather 여행 날짜의 코스 지역 날씨(생성 시점만 — 저장 코스·예보범위 밖·미조회면 null)
+ * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근(자차·저장 코스는 null)
  */
 public record CourseResponse(
         Long courseId,
@@ -29,7 +31,9 @@ public record CourseResponse(
         String density,
         List<Day> days,
         List<Benefit> benefits,
-        @Schema(description = "여행 날짜의 코스 지역 날씨 (없으면 null)", nullable = true) Weather weather) {
+        @Schema(description = "여행 날짜의 코스 지역 날씨 (없으면 null)", nullable = true) Weather weather,
+        @Schema(description = "대중교통 코스의 출발지→지역 열차 접근 (자차·저장 코스는 null)", nullable = true)
+                TrainAccessResponse trainAccess) {
 
     public static CourseResponse from(GeneratedCourse generated) {
         Course course = generated.course();
@@ -40,7 +44,8 @@ public record CourseResponse(
                 course.getDensity().name(),
                 course.getDays().stream().map(Day::from).toList(),
                 generated.benefits().stream().map(Benefit::from).toList(),
-                generated.weather() == null ? null : Weather.from(generated.weather()));
+                generated.weather() == null ? null : Weather.from(generated.weather()),
+                generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()));
     }
 
     /**
@@ -120,6 +125,33 @@ public record CourseResponse(
                     weather.maxTemp(),
                     weather.sky().label(),
                     weather.rainProbability());
+        }
+    }
+
+    /**
+     * 출발지→지역 열차 접근.
+     *
+     * @param status AVAILABLE(운행 있음) · NO_STATION(역 없음, 열차로 못 감) · NO_SERVICE_ON_DATE(그날 미운행) · UNAVAILABLE(조회 실패)
+     * @param fromStation 출발역명(없으면 null)
+     * @param toStation 도착역명(없으면 null)
+     * @param trainType 가장 빠른 열차 등급(AVAILABLE 일 때만, 예: KTX)
+     * @param durationMinutes 소요시간(분, AVAILABLE 일 때만)
+     */
+    public record TrainAccessResponse(
+            @Schema(example = "AVAILABLE") String status,
+            @Schema(example = "서울", nullable = true) String fromStation,
+            @Schema(example = "정선", nullable = true) String toStation,
+            @Schema(example = "KTX", nullable = true) String trainType,
+            @Schema(example = "150", nullable = true) Integer durationMinutes) {
+
+        static TrainAccessResponse from(TrainAccess access) {
+            boolean hasTrain = access.fastest() != null;
+            return new TrainAccessResponse(
+                    access.status().name(),
+                    access.fromStation(),
+                    access.toStation(),
+                    hasTrain ? access.fastest().trainType() : null,
+                    hasTrain ? access.fastest().durationMinutes() : null);
         }
     }
 }

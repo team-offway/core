@@ -11,11 +11,14 @@ import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.service.PolicyService;
+import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.transport.service.RouteOptimizer;
 import com.offway.core.transport.service.RouteTimeProvider;
+import com.offway.core.transport.service.TrainAccessService;
 import com.offway.core.transport.service.TravelTimeProvider;
+import com.offway.core.transport.service.dto.TrainAccess;
 import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.service.dto.RegionPois;
@@ -48,6 +51,8 @@ public class CourseGenerationService {
     private final RouteOptimizer routeOptimizer;
     private final PolicyService policyService;
     private final WeatherService weatherService;
+    private final RegionRepository regionRepository;
+    private final TrainAccessService trainAccessService;
 
     public GeneratedCourse generate(GenerateCourse command) {
         // ① POI 수집 (trip)
@@ -85,9 +90,23 @@ public class CourseGenerationService {
         DailyWeather weather =
                 weatherService.dailyWeather(hub.lat(), hub.lng(), command.travelDate()).orElse(null);
 
-        log.info("코스 생성 regionId={} days={} slots={} benefits={} weather={}",
-                command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(), weather != null);
-        return new GeneratedCourse(course, benefits, weather);
+        // 대중교통 코스면 출발지→지역 열차 접근 조회(자차는 TMAP 실측이라 불필요). 부가 정보라 실패해도 코스는 그대로.
+        TrainAccess trainAccess = command.transport() == TransportMode.TRANSIT ? trainAccessFor(command) : null;
+
+        log.info("코스 생성 regionId={} days={} slots={} benefits={} weather={} trainAccess={}",
+                command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
+                weather != null, trainAccess != null ? trainAccess.status() : "N/A");
+        return new GeneratedCourse(course, benefits, weather, trainAccess);
+    }
+
+    /** 대중교통 코스의 출발지→지역 열차 접근. 지역 좌표가 아니라 지역명(시도·시군구)으로 역을 해석한다. */
+    private TrainAccess trainAccessFor(GenerateCourse command) {
+        return regionRepository.findByIds(List.of(command.regionId())).stream()
+                .findFirst()
+                .map(region -> trainAccessService.accessTo(
+                        command.originLat(), command.originLng(),
+                        region.getSido(), region.getSigungu(), command.travelDate()))
+                .orElse(null);
     }
 
     /** 출발지에서 가장 가까운 곳부터 이어붙이는 그리디 정렬(하루 묶기용). 하루 내부 순서는 TMAP 경유지 최적화로 다시 다듬는다. */
