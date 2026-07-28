@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,8 @@ public class AirQualityService {
 
     private final AirKoreaClient airKoreaClient;
     private final Map<String, CachedAir> cache = new ConcurrentHashMap<>();
+    /** 시도별 single-flight 게이트 — 만료 시 시도당 한 스레드만 재조회하고 나머지는 stale 값을 즉시 받는다. */
+    private final Set<String> refreshing = ConcurrentHashMap.newKeySet();
 
     /** 지역 시도명(정식/축약 모두)에 대한 실시간 대기질. 없으면 빈 Optional. 시도별로 캐시한다. */
     public Optional<AirQuality> byRegionSido(String sido) {
@@ -37,9 +40,17 @@ public class AirQualityService {
         if (cached != null && cached.isFresh()) {
             return cached.value();
         }
-        Optional<AirQuality> fresh = airKoreaClient.realtimeBySido(key);
-        cache.put(key, CachedAir.of(fresh, fresh.isPresent() ? CACHE_TTL : EMPTY_TTL));
-        return fresh;
+        // single-flight: 이 시도를 이미 다른 스레드가 갱신 중이면 stale 값(없으면 빈 Optional)을 즉시 반환해 중복 외부 호출을 막는다.
+        if (!refreshing.add(key)) {
+            return cached != null ? cached.value() : Optional.empty();
+        }
+        try {
+            Optional<AirQuality> fresh = airKoreaClient.realtimeBySido(key);
+            cache.put(key, CachedAir.of(fresh, fresh.isPresent() ? CACHE_TTL : EMPTY_TTL));
+            return fresh;
+        } finally {
+            refreshing.remove(key);
+        }
     }
 
     /** 캐시 무효화 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트 격리용. */

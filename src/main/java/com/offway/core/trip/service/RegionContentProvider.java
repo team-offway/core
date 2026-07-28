@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,8 @@ public class RegionContentProvider {
 
     private final TourApiClient tourApiClient;
     private final Map<Long, CachedContent> cache = new ConcurrentHashMap<>();
+    /** 지역별 single-flight 게이트 — 만료 시 지역당 한 스레드만 재조회하고 나머지는 stale 값을 즉시 받는다. */
+    private final Set<Long> refreshing = ConcurrentHashMap.newKeySet();
 
     /**
      * 한 지역의 콘텐츠. 볼거리가 충분하면 그대로, 부족하면 인접 50km 지역(가까운 순, 최대 {@value #MAX_NEIGHBORS}곳)을 충분해질
@@ -74,22 +77,29 @@ public class RegionContentProvider {
      * degrade 하고 짧게 캐시해 실패 동안 요청이 몰리지 않게 한다.
      */
     private RegionContent fetch(Region region) {
-        CachedContent cached = cache.get(region.getId());
+        Long id = region.getId();
+        CachedContent cached = cache.get(id);
         if (cached != null && cached.isFresh()) {
             return cached.content();
+        }
+        // single-flight: 이 지역을 이미 다른 스레드가 갱신 중이면 stale 값(없으면 빈 콘텐츠)을 즉시 반환해 중복 외부 호출을 막는다.
+        if (!refreshing.add(id)) {
+            return cached != null ? cached.content() : RegionContent.EMPTY;
         }
         try {
             RegionContent fresh = tourApiClient
                     .findByArea(region.getAreaCode(), region.getSigunguCode(), null, SAMPLE_ROWS)
                     .toRegionContent();
-            cache.put(region.getId(), CachedContent.of(fresh, CACHE_TTL));
+            cache.put(id, CachedContent.of(fresh, CACHE_TTL));
             return fresh;
         } catch (TourApiException e) {
             RegionContent fallback = cached != null ? cached.content() : RegionContent.EMPTY;
-            cache.put(region.getId(), CachedContent.of(fallback, FAILURE_CACHE_TTL));
+            cache.put(id, CachedContent.of(fallback, FAILURE_CACHE_TTL));
             log.warn("지역 콘텐츠 조회 실패 — {} 로 degrade region={}",
-                    cached != null ? "마지막 성공값" : "빈 콘텐츠", region.getId(), e);
+                    cached != null ? "마지막 성공값" : "빈 콘텐츠", id, e);
             return fallback;
+        } finally {
+            refreshing.remove(id);
         }
     }
 

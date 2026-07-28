@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +49,8 @@ public class RegionRankingService {
 
     private final TourDataLabClient tourDataLabClient;
     private final AtomicReference<CachedVisitors> cache = new AtomicReference<>();
+    /** single-flight 게이트 — 캐시 만료 시 한 스레드만 재조회하고 나머지는 stale 값을 즉시 받게 해 외부 폭주를 막는다. */
+    private final AtomicBoolean refreshing = new AtomicBoolean(false);
 
     /** 방문자 집계 캐시를 비운다 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트의 격리(캐시가 이전 시나리오를 물고 가지 않게)용. */
     public void evictCache() {
@@ -73,6 +76,11 @@ public class RegionRankingService {
         if (cached != null && cached.isFresh()) {
             return cached.data();
         }
+        // single-flight: 게이트를 잡은 한 스레드만 재조회한다. 나머지는 stale 값(없으면 빈 값)을 즉시 받아, 만료 순간
+        // 여러 스레드가 동시에 50페이지 호출로 외부를 때리는 것을 막는다(잠금은 I/O 동안 잡지 않는다).
+        if (!refreshing.compareAndSet(false, true)) {
+            return cached != null ? cached.data() : Map.of();
+        }
         try {
             Map<String, VisitorAgg> fresh = fetchTourists();
             cache.set(CachedVisitors.of(fresh, CACHE_TTL));
@@ -83,6 +91,8 @@ public class RegionRankingService {
             log.warn("관광빅데이터 조회 실패 — {} 로 폴백 랭킹(홈·추천은 유지)",
                     cached != null ? "마지막 성공값" : "빈 가중치", e);
             return fallback;
+        } finally {
+            refreshing.set(false);
         }
     }
 
