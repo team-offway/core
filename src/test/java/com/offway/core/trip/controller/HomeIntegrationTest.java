@@ -46,6 +46,23 @@ class HomeIntegrationTest {
     @Autowired
     private StubAirKoreaClient airKoreaClient;
 
+    @Autowired
+    private com.offway.core.trip.service.RegionRankingService regionRankingService;
+
+    @Autowired
+    private com.offway.core.trip.service.RegionContentProvider regionContentProvider;
+
+    @Autowired
+    private com.offway.core.weather.service.AirQualityService airQualityService;
+
+    // 랭킹·콘텐츠·대기질 캐시는 공유 싱글톤 — 각 테스트가 자기 stub 시나리오를 타도록 캐시를 비운다(DB 롤백에 준하는 격리).
+    @org.junit.jupiter.api.BeforeEach
+    void evictCaches() {
+        regionRankingService.evictCache();
+        regionContentProvider.evictCache();
+        airQualityService.evictCache();
+    }
+
     @TestConfiguration
     static class StubConfig {
 
@@ -117,13 +134,17 @@ class HomeIntegrationTest {
     }
 
     @Test
-    void 관광빅데이터_조회_실패는_502() throws Exception {
+    void 관광빅데이터_조회가_실패해도_홈은_200으로_추천을_내린다() throws Exception {
+        // 생활인구는 랭킹 가중치일 뿐 — 조회가 실패해도 방문자 0 폴백 랭킹으로 홈은 떠야 한다(502 금지)
         dataLabClient.respond(() -> {
             throw TourApiException.dataLabLookupFailed(new RuntimeException("upstream down"));
         });
+        tourApiClient.respond(HomeIntegrationTest::content);
+        airKoreaClient.respond(Optional::empty);
 
         mockMvc.perform(get(URL).param("remainingLeave", "13"))
-                .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.code").value("TOUR-002"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.recommendedRegions.length()").value(6));
     }
 }
