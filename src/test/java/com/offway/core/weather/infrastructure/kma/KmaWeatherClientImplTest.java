@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.weather.domain.SkyState;
-import com.offway.core.weather.infrastructure.kma.dto.DailyWeather;
+import com.offway.core.weather.domain.DailyWeather;
 import java.time.LocalDate;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;

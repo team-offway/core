@@ -54,6 +54,6 @@ public class CourseStorageService {
                 .stream()
                 .map(policy -> new GeneratedCourse.Benefit(policy.getId(), policy.getType(), policy.badgeText()))
                 .toList();
-        return new GeneratedCourse(course, benefits);
+        return GeneratedCourse.of(course, benefits); // 저장 코스는 여행 날짜가 없어 날씨 미부착
     }
 }

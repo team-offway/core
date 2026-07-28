@@ -19,6 +19,8 @@ import com.offway.core.transport.service.TravelTimeProvider;
 import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.service.dto.RegionPois;
+import com.offway.core.weather.domain.DailyWeather;
+import com.offway.core.weather.service.WeatherService;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -45,6 +47,7 @@ public class CourseGenerationService {
     private final RouteTimeProvider routeTimeProvider;
     private final RouteOptimizer routeOptimizer;
     private final PolicyService policyService;
+    private final WeatherService weatherService;
 
     public GeneratedCourse generate(GenerateCourse command) {
         // ① POI 수집 (trip)
@@ -78,9 +81,13 @@ public class CourseGenerationService {
                 .map(policy -> new GeneratedCourse.Benefit(policy.getId(), policy.getType(), policy.badgeText()))
                 .toList();
 
-        log.info("코스 생성 regionId={} days={} slots={} benefits={}",
-                command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size());
-        return new GeneratedCourse(course, benefits);
+        // 여행 날짜의 코스 지역 날씨 — 코스 중심(hub) 좌표로 조회. 부가 정보라 미조회·실패·예보범위 밖이면 null.
+        DailyWeather weather =
+                weatherService.dailyWeather(hub.lat(), hub.lng(), command.travelDate()).orElse(null);
+
+        log.info("코스 생성 regionId={} days={} slots={} benefits={} weather={}",
+                command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(), weather != null);
+        return new GeneratedCourse(course, benefits, weather);
     }
 
     /** 출발지에서 가장 가까운 곳부터 이어붙이는 그리디 정렬(하루 묶기용). 하루 내부 순서는 TMAP 경유지 최적화로 다시 다듬는다. */

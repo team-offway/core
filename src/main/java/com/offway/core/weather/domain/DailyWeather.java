@@ -1,6 +1,5 @@
-package com.offway.core.weather.infrastructure.kma.dto;
+package com.offway.core.weather.domain;
 
-import com.offway.core.weather.domain.SkyState;
 import java.time.LocalDate;
 
 /**

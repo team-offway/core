@@ -1,7 +1,7 @@
 package com.offway.core.weather.service;
 
 import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
-import com.offway.core.weather.infrastructure.kma.dto.DailyWeather;
+import com.offway.core.weather.domain.DailyWeather;
 import java.time.LocalDate;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
