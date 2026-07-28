@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.trip.domain.TourApiException;
+import com.offway.core.trip.infrastructure.tour.dto.TourAccessibility;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
@@ -30,10 +31,12 @@ import org.springframework.web.util.UriComponentsBuilder;
 class TourApiClientImpl implements TourApiClient {
 
     private static final String BASE = "https://apis.data.go.kr/B551011/KorService2";
+    private static final String WITH_BASE = "https://apis.data.go.kr/B551011/KorWithService2";
     private static final String AREA_BASED = "/areaBasedList2";
     private static final String LOCATION_BASED = "/locationBasedList2";
     private static final String DETAIL_INTRO = "/detailIntro2";
     private static final String DETAIL_COMMON = "/detailCommon2";
+    private static final String DETAIL_WITH_TOUR = "/detailWithTour2";
 
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
     private static final String MOBILE_OS = "ETC";
@@ -123,13 +126,33 @@ class TourApiClientImpl implements TourApiClient {
         }
     }
 
+    @Override
+    public Optional<TourAccessibility> findAccessibility(String contentId) {
+        if (!hasKey()) {
+            // 키 없음을 빈 결과로 돌려주면 "등록된 무장애 정보 없음(정상 200)"으로 둔갑한다 — 조회 불가(502)로 분리한다.
+            throw TourApiException.serviceUnavailable();
+        }
+        UriComponentsBuilder builder = base(WITH_BASE, DETAIL_WITH_TOUR).queryParam("contentId", contentId);
+        try {
+            return parseAccessibility(call(builder), contentId);
+        } catch (Exception e) {
+            log.warn("TourAPI 무장애정보 조회 실패 cause={}", e.getClass().getSimpleName());
+            throw TourApiException.lookupFailed(e);
+        }
+    }
+
     private boolean hasKey() {
         return props.dataGoKr().hasKey();
     }
 
-    /** 공통 파라미터를 채운 URI 빌더. serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(build(true)). */
+    /** 공통 상세(detailCommon2) 와 같은 KorService2 기반 빌더. */
     private UriComponentsBuilder base(String path) {
-        return UriComponentsBuilder.fromUriString(BASE + path)
+        return base(BASE, path);
+    }
+
+    /** 공통 파라미터를 채운 URI 빌더. serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(build(true)). */
+    private UriComponentsBuilder base(String baseUrl, String path) {
+        return UriComponentsBuilder.fromUriString(baseUrl + path)
                 .queryParam("serviceKey", props.dataGoKr().serviceKey())
                 .queryParam("MobileOS", MOBILE_OS)
                 .queryParam("MobileApp", MOBILE_APP)
@@ -211,6 +234,50 @@ class TourApiClientImpl implements TourApiClient {
                 doubleOrNull(node, "mapx"),
                 emptyToNull(text(node, "firstimage")),
                 emptyToNull(text(node, "overview"))));
+    }
+
+    private Optional<TourAccessibility> parseAccessibility(String body, String contentId) throws Exception {
+        JsonNode response = objectMapper.readTree(body).path("response");
+        requireSuccess(response);
+
+        JsonNode item = response.path("body").path("items").path("item");
+        if (item.isMissingNode() || item.isNull()) {
+            return Optional.empty();
+        }
+        JsonNode node = item.isArray() ? (item.isEmpty() ? null : item.get(0)) : item;
+        if (node == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new TourAccessibility(
+                contentId,
+                text(node, "parking"),
+                text(node, "publictransport"),
+                text(node, "route"),
+                text(node, "ticketoffice"),
+                text(node, "promotion"),
+                text(node, "wheelchair"),
+                text(node, "exit"),
+                text(node, "elevator"),
+                text(node, "restroom"),
+                text(node, "auditorium"),
+                text(node, "room"),
+                text(node, "handicapetc"),
+                text(node, "braileblock"),
+                text(node, "helpdog"),
+                text(node, "guidehuman"),
+                text(node, "audioguide"),
+                text(node, "bigprint"),
+                text(node, "brailepromotion"),
+                text(node, "guidesystem"),
+                text(node, "blindhandicapetc"),
+                text(node, "signguide"),
+                text(node, "videoguide"),
+                text(node, "hearingroom"),
+                text(node, "hearinghandicapetc"),
+                text(node, "stroller"),
+                text(node, "lactationroom"),
+                text(node, "babysparechair"),
+                text(node, "infantsfamilyetc")));
     }
 
     /**

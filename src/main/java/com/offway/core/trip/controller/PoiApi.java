@@ -1,6 +1,7 @@
 package com.offway.core.trip.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.trip.controller.dto.AccessibilityResponse;
 import com.offway.core.trip.controller.dto.PoiDetailResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -16,4 +17,12 @@ public interface PoiApi {
     @ApiResponse(responseCode = "404", description = "요청한 장소를 관광정보에서 찾을 수 없음")
     @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")
     ApiResponseBody<PoiDetailResponse> detail(@Parameter(description = "TourAPI 콘텐츠 ID", example = "126508") String contentId);
+
+    @Operation(
+            summary = "장소 무장애(배리어프리) 정보",
+            description = "이용약자 편의(주차·휠체어·점자·수어·수유실 등)를 분류별로 내린다. 등록 정보가 없으면 빈 배열로 200.")
+    @ApiResponse(responseCode = "200", description = "조회 성공(등록 정보 없으면 빈 배열)")
+    @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")
+    ApiResponseBody<AccessibilityResponse> accessibility(
+            @Parameter(description = "TourAPI 콘텐츠 ID", example = "126508") String contentId);
 }

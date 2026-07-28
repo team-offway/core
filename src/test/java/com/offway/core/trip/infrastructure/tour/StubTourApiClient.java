@@ -1,5 +1,6 @@
 package com.offway.core.trip.infrastructure.tour;
 
+import com.offway.core.trip.infrastructure.tour.dto.TourAccessibility;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
@@ -19,6 +20,7 @@ public class StubTourApiClient implements TourApiClient {
 
     private Supplier<Optional<TourPoiDetail>> detailBehavior = Optional::empty;
     private Supplier<Optional<TourIntro>> introBehavior = Optional::empty;
+    private Supplier<Optional<TourAccessibility>> accessibilityBehavior = Optional::empty;
 
     /** 모든 지역기반 조회에 같은 결과를 돌려준다. */
     public void respond(Supplier<TourPoiResult> areaBehavior) {
@@ -33,6 +35,11 @@ public class StubTourApiClient implements TourApiClient {
     /** 소개정보(detailIntro2) 응답을 지정한다. */
     public void respondIntro(Supplier<Optional<TourIntro>> introBehavior) {
         this.introBehavior = introBehavior;
+    }
+
+    /** 무장애정보(detailWithTour2) 응답을 지정한다. */
+    public void respondAccessibility(Supplier<Optional<TourAccessibility>> accessibilityBehavior) {
+        this.accessibilityBehavior = accessibilityBehavior;
     }
 
     @Override
@@ -53,5 +60,10 @@ public class StubTourApiClient implements TourApiClient {
     @Override
     public Optional<TourPoiDetail> findDetail(String contentId) {
         return detailBehavior.get();
+    }
+
+    @Override
+    public Optional<TourAccessibility> findAccessibility(String contentId) {
+        return accessibilityBehavior.get();
     }
 }
