@@ -1,17 +1,16 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.cache.ExternalDataCache;
+import com.offway.core.common.cache.ExternalDataCache.Loaded;
 import com.offway.core.region.domain.Region;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.trip.domain.RegionContent;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -41,9 +40,7 @@ public class RegionContentProvider {
     private static final Duration FAILURE_CACHE_TTL = Duration.ofMinutes(5);
 
     private final TourApiClient tourApiClient;
-    private final Map<Long, CachedContent> cache = new ConcurrentHashMap<>();
-    /** 지역별 single-flight 게이트 — 만료 시 지역당 한 스레드만 재조회하고 나머지는 stale 값을 즉시 받는다. */
-    private final Set<Long> refreshing = ConcurrentHashMap.newKeySet();
+    private final ExternalDataCache<Long, RegionContent> cache = new ExternalDataCache<>();
 
     /**
      * 한 지역의 콘텐츠. 볼거리가 충분하면 그대로, 부족하면 인접 50km 지역(가까운 순, 최대 {@value #MAX_NEIGHBORS}곳)을 충분해질
@@ -69,43 +66,27 @@ public class RegionContentProvider {
 
     /** 캐시 무효화 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트 격리용(캐시가 이전 시나리오를 물지 않게). */
     public void evictCache() {
-        cache.clear();
+        cache.evictAll();
     }
 
     /**
-     * 지역 콘텐츠 조회 — 캐시 우선. 실패하면 콘텐츠는 부가 정보라 예외를 올리지 않고 마지막 성공값(있으면), 없으면 빈 콘텐츠로
-     * degrade 하고 짧게 캐시해 실패 동안 요청이 몰리지 않게 한다.
+     * 지역 콘텐츠 조회 — 캐시(single-flight) 우선. 실패하면 콘텐츠는 부가 정보라 예외를 올리지 않고 마지막 성공값(있으면), 없으면
+     * 빈 콘텐츠로 degrade 하고 짧게 캐시해 실패 동안 요청이 몰리지 않게 한다.
      */
     private RegionContent fetch(Region region) {
-        Long id = region.getId();
-        CachedContent cached = cache.get(id);
-        if (cached != null && cached.isFresh()) {
-            return cached.content();
-        }
-        // single-flight: 이 지역을 이미 다른 스레드가 갱신 중이면 stale 값(없으면 빈 콘텐츠)을 즉시 반환해 중복 외부 호출을 막는다.
-        if (!refreshing.add(id)) {
-            return cached != null ? cached.content() : RegionContent.EMPTY;
-        }
-        try {
-            // 게이트 획득 사이 다른 스레드가 이미 갱신했을 수 있다 — 재확인해 직렬 중복 호출을 막는다.
-            CachedContent latest = cache.get(id);
-            if (latest != null && latest.isFresh()) {
-                return latest.content();
+        return cache.get(region.getId(), (id, stale) -> {
+            try {
+                RegionContent fresh = tourApiClient
+                        .findByArea(region.getAreaCode(), region.getSigunguCode(), null, SAMPLE_ROWS)
+                        .toRegionContent();
+                return new Loaded<>(fresh, CACHE_TTL);
+            } catch (TourApiException e) {
+                RegionContent fallback = stale != null ? stale : RegionContent.EMPTY;
+                log.warn("지역 콘텐츠 조회 실패 — {} 로 degrade region={}",
+                        stale != null ? "마지막 성공값" : "빈 콘텐츠", id, e);
+                return new Loaded<>(fallback, FAILURE_CACHE_TTL);
             }
-            RegionContent fresh = tourApiClient
-                    .findByArea(region.getAreaCode(), region.getSigunguCode(), null, SAMPLE_ROWS)
-                    .toRegionContent();
-            cache.put(id, CachedContent.of(fresh, CACHE_TTL));
-            return fresh;
-        } catch (TourApiException e) {
-            RegionContent fallback = cached != null ? cached.content() : RegionContent.EMPTY;
-            cache.put(id, CachedContent.of(fallback, FAILURE_CACHE_TTL));
-            log.warn("지역 콘텐츠 조회 실패 — {} 로 degrade region={}",
-                    cached != null ? "마지막 성공값" : "빈 콘텐츠", id, e);
-            return fallback;
-        } finally {
-            refreshing.remove(id);
-        }
+        }, RegionContent.EMPTY);
     }
 
     /** 반경 50km 안의 다른 지역을 가까운 순으로 상한만큼. */
@@ -120,16 +101,5 @@ public class RegionContentProvider {
                 .limit(MAX_NEIGHBORS)
                 .map(Map.Entry::getKey)
                 .toList();
-    }
-
-    /** 지역 콘텐츠 캐시 한 칸 — 만료 시각까지 재사용. RegionContent 는 불변이라 공유해도 안전. */
-    private record CachedContent(RegionContent content, Instant expiresAt) {
-        static CachedContent of(RegionContent content, Duration ttl) {
-            return new CachedContent(content, Instant.now().plus(ttl));
-        }
-
-        boolean isFresh() {
-            return Instant.now().isBefore(expiresAt);
-        }
     }
 }
