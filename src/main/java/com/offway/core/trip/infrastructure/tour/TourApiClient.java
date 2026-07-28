@@ -1,5 +1,6 @@
 package com.offway.core.trip.infrastructure.tour;
 
+import com.offway.core.trip.infrastructure.tour.dto.TourAccessibility;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
@@ -39,4 +40,10 @@ public interface TourApiClient {
 
     /** 공통 상세(detailCommon2) — 장소 기본정보(이름·주소·이미지·소개). 없으면 빈 Optional. */
     Optional<TourPoiDetail> findDetail(String contentId);
+
+    /**
+     * 무장애정보(KorWithService2 · detailWithTour2) — 이용약자 편의. 등록 정보가 없으면 빈 Optional
+     * (TourAPI 는 정상 응답으로 0건을 준다 — 조회 실패와 구분한다).
+     */
+    Optional<TourAccessibility> findAccessibility(String contentId);
 }

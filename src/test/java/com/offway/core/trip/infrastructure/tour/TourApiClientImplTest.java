@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.trip.domain.TourApiException;
+import com.offway.core.trip.infrastructure.tour.dto.TourAccessibility;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
@@ -219,5 +220,30 @@ class TourApiClientImplTest {
                 {"response":{"header":{"resultCode":"0000"},"body":{"items":"","totalCount":0}}}""";
 
         assertTrue(client(body).findDetail("999").isEmpty());
+    }
+
+    @Test
+    void 무장애정보를_파싱한다() {
+        String body = """
+                {"response":{"header":{"resultCode":"0000"},
+                "body":{"items":{"item":[
+                  {"contentid":"126508","wheelchair":"대여가능","restroom":"장애인 화장실 있음",
+                   "audioguide":"음성안내 있음","exit":"","parking":"   "}
+                ]},"totalCount":1}}}""";
+
+        Optional<TourAccessibility> accessibility = client(body).findAccessibility("126508");
+
+        assertTrue(accessibility.isPresent());
+        assertEquals("대여가능", accessibility.get().wheelchair());
+        // 빈/공백 필드는 편의로 접히지 않는다(exit·parking 제외 → 3건).
+        assertEquals(3, accessibility.get().toPoiAccessibility().features().size());
+    }
+
+    @Test
+    void 무장애정보가_없으면_빈Optional을_돌려준다() {
+        String body = """
+                {"response":{"header":{"resultCode":"0000"},"body":{"items":"","totalCount":0}}}""";
+
+        assertTrue(client(body).findAccessibility("999").isEmpty());
     }
 }
