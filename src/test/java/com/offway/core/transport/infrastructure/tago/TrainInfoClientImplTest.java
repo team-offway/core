@@ -73,6 +73,18 @@ class TrainInfoClientImplTest {
     }
 
     @Test
+    void 편은_있는데_전부_파싱실패면_Unavailable이다() {
+        // 미운행(빈 items)과 달리, 편이 있는데 시각 결측이면 스키마 변경 신호 → 잘못된 "없음" 안내 대신 Unavailable.
+        String body = """
+                {"response":{"header":{"resultCode":"00"},"body":{"items":{"item":[
+                  {"traingradename":"KTX","depplandtime":"","arrplandtime":""}
+                ]}}}}""";
+
+        assertInstanceOf(
+                TrainAvailability.Unavailable.class, client(body).fastestTrain("NAT010000", "NAT013271", DATE));
+    }
+
+    @Test
     void 비정상_resultCode는_Unavailable이다() {
         String body = """
                 {"response":{"header":{"resultCode":"99"},"body":{}}}""";

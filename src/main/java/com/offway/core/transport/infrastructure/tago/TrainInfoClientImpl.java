@@ -94,14 +94,15 @@ class TrainInfoClientImpl implements TrainInfoClient {
                 .map(Optional::get)
                 .min(Comparator.comparingInt(TrainLeg::durationMinutes))
                 .<TrainAvailability>map(TrainAvailability.Available::new)
-                .orElseGet(TrainAvailability.NoServiceOnDate::new); // 전 편이 파싱 결측이면 운행 없음으로
+                // items 에 편이 있는데 전부 파싱 실패면 미운행이 아니라 스키마 변경·결측 신호 → Unavailable(잘못된 "없음" 안내 방지).
+                .orElseGet(TrainAvailability.Unavailable::new);
     }
 
     private static Optional<TrainLeg> toLeg(JsonNode train) {
         LocalDateTime depart = toTime(train.path("depplandtime").asText());
         LocalDateTime arrive = toTime(train.path("arrplandtime").asText());
-        if (depart == null || arrive == null || arrive.isBefore(depart)) {
-            return Optional.empty(); // 시각 파싱 실패·역전은 건너뛴다(부분 결측 방어)
+        if (depart == null || arrive == null || !arrive.isAfter(depart)) {
+            return Optional.empty(); // 시각 파싱 실패·역전·0분은 건너뛴다(부분 결측 방어)
         }
         String type = train.path("traingradename").asText(null);
         return Optional.of(TrainLeg.of(type, depart, arrive));

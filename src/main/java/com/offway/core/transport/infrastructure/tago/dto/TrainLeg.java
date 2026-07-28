@@ -20,8 +20,8 @@ public record TrainLeg(String trainType, LocalDateTime departAt, LocalDateTime a
         if (departAt == null || arriveAt == null) {
             throw new IllegalArgumentException("출발·도착 시각은 필수입니다");
         }
-        if (arriveAt.isBefore(departAt)) {
-            throw new IllegalArgumentException("도착이 출발보다 앞설 수 없습니다");
+        if (!arriveAt.isAfter(departAt)) {
+            throw new IllegalArgumentException("도착이 출발보다 엄격히 이후여야 합니다(0분 이동 불가)");
         }
     }
 

@@ -55,10 +55,10 @@
 - **미확인(후속)**: 관광지별 **집중률**·향후 방문자 **예측**은 별도 오퍼레이션(#21+ 필요 시 확인).
 
 ### 1-4. TAGO 대중교통 — 국토교통부 (여러 서비스, 동일 계정)
-- **Base 공통**: `http://apis.data.go.kr/1613000/...` · 응답 래퍼 `resultCode`/`items>item[]`
+- **Base 공통**: `https://apis.data.go.kr/1613000/...` (serviceKey 가 URL 에 실리므로 **HTTPS 필수** — 평문 전송 금지) · 응답 래퍼 `resultCode`/`items>item[]`
 - **한도**: 무료, 개발계정 일 10,000건
 
-> **⚠️ 경로 명명 — 서비스마다 다르다(실측 확정)**: data.go.kr TAGO 는 서비스마다 base·op casing 이 제각각이다. 버스류는 `...InqireService` + **소문자** op(`getCtyCodeList`), **열차·지하철은 짧은 base(`TrainInfo`) + 대문자 G** op(`GetCtyCodeList`)다. 틀린 조합은 게이트웨이가 `404 "API not found"` — 404 의 태반이 미구독이 아니라 **경로·casing 오타**였다.
+> **⚠️ 경로 명명 — 서비스마다 다르다**: data.go.kr TAGO 는 서비스마다 base·op casing 이 제각각이다. 버스류는 `...InqireService` + **소문자** op(`getCtyCodeList`)다. **열차는 실측 확정**: 짧은 base(`TrainInfo`) + **대문자 G** op(`GetStrtpntAlocFndTrainInfo`). 고속버스·시외버스·지하철은 **아직 추정**(열차와 같은 규칙일 것으로 보이나 실호출 미확인). 틀린 조합은 게이트웨이가 `404 "API not found"` — 404 의 태반이 미구독이 아니라 **경로·casing 오타**였다.
 
 | 서비스 | 데이터셋 | base | 핵심 op / 필드 | 비고 |
 |---|---|---|---|---|

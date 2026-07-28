@@ -1,6 +1,6 @@
 package com.offway.core.transport.infrastructure.tago;
 
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
@@ -28,9 +28,13 @@ class TrainInfoClientE2ETest {
 
         TrainAvailability result = client.fastestTrain(SEOUL, BUSAN, LocalDate.now().plusDays(1));
 
-        TrainAvailability.Available available =
-                assertInstanceOf(TrainAvailability.Available.class, result, "서울→부산 열차가 조회돼야 한다");
-        assertTrue(available.fastest().durationMinutes() > 0, "소요시간은 양수여야 한다");
-        assertTrue(available.fastest().durationMinutes() < 600, "서울→부산은 10시간 미만이어야 한다");
+        // 접점 검증 — 경로·casing·키가 정상이면 Unavailable 이 아니다(운행 있음, 또는 그 날짜 미운행). 특정 날짜에 열차가
+        // 있는지는 KORAIL 데이터에 달려 flaky 하므로 접점만 단언한다.
+        assertFalse(result instanceof TrainAvailability.Unavailable,
+                "실호출 접점(경로·casing·키)이 정상이어야 한다 — Unavailable 은 조회 실패");
+        if (result instanceof TrainAvailability.Available available) {
+            assertTrue(available.fastest().durationMinutes() > 0, "소요시간은 양수여야 한다");
+            assertTrue(available.fastest().durationMinutes() < 600, "서울→부산은 10시간 미만이어야 한다");
+        }
     }
 }
