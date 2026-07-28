@@ -2,8 +2,8 @@ package com.offway.core.transport.service;
 
 import com.offway.core.common.cache.ExternalDataCache;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
+import com.offway.core.transport.domain.TrainAvailability;
 import com.offway.core.transport.infrastructure.tago.TrainInfoClient;
-import com.offway.core.transport.infrastructure.tago.dto.TrainAvailability;
 import java.time.Duration;
 import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;

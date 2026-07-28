@@ -1,11 +1,11 @@
 package com.offway.core.transport.infrastructure.tago;
 
-import com.offway.core.transport.infrastructure.tago.dto.TrainAvailability;
+import com.offway.core.transport.domain.TrainAvailability;
 import java.time.LocalDate;
 
 /**
  * TAGO 열차정보(국토교통부, base {@code TrainInfo}) 조회 port. 출발역→도착역·날짜로 그 날 운행 열차 중 가장 빠른 편을 준다
- * (KTX 포함).
+ * (KTX 포함). 역 코드는 기차역 마스터(시드)에서 얻는다.
  *
  * <p>결과는 세 상태를 구분한다({@link TrainAvailability}): 운행 있음 / 그 날짜 운행 없음 / 조회 불가. "없음"과 "실패"는
  * UX 가 달라 뭉뚱그리지 않는다.

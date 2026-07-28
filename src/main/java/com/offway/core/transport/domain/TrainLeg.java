@@ -1,4 +1,4 @@
-package com.offway.core.transport.infrastructure.tago.dto;
+package com.offway.core.transport.domain;
 
 import java.time.Duration;
 import java.time.LocalDateTime;

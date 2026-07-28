@@ -1,4 +1,4 @@
-package com.offway.core.transport.infrastructure.tago.dto;
+package com.offway.core.transport.domain;
 
 /**
  * (출발역·도착역·날짜)에 대한 열차 조회 결과 — 세 상태를 <b>구분</b>한다. "그 날짜에 운행이 없음"과 "조회 자체가 실패"는 UX 가

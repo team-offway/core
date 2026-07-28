@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import com.offway.core.common.config.ExternalApiProperties;
-import com.offway.core.transport.infrastructure.tago.dto.TrainAvailability;
+import com.offway.core.transport.domain.TrainAvailability;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
