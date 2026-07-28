@@ -58,13 +58,19 @@
 - **Base 공통**: `http://apis.data.go.kr/1613000/...` · 응답 래퍼 `resultCode`/`items>item[]`
 - **한도**: 무료, 개발계정 일 10,000건
 
+> **경로 명명 규칙(실측)**: TAGO 서비스명은 전부 `...InqireService` 로 끝난다(오타 아님 — 정부 API 원문 표기). 틀린 이름은 게이트웨이가 `404 "API not found"`, 맞는 이름은 `500 "Unexpected errors"`(전파 전) 또는 `200`. 아래는 그 규칙으로 확정한 값.
+
 | 서비스 | 데이터셋 | 경로 | 핵심 op / 필드 | 비고 |
 |---|---|---|---|---|
-| 버스도착정보(시내) | 15098530 | `ArvlInfoInqireService` | `getSttnAcctoArvlPrearngeInfoList` → `arrtime`(초 단위 잔여) | `nodeId` 선조회 필요, 실시간 |
-| 고속버스정보 | 15098522 | `ExpBusInfoService`(추정) | 출발/도착시간 · 요금 | 터미널ID 선조회 |
-| 시외버스정보 | 15098541 | `SuburbsBusInfoService`(추정) | 출발/도착/**소요시간**·요금 | ⚠️ **당일 배차만** (미래날짜 불가) |
-| 열차정보 | 15098552 | `TrainInfoService` | `getStrtpntAlocFndTrainInfo`(출발/도착역+날짜) | **KTX 포함, SRT 미포함** |
+| 버스도착정보(시내) | 15098530 | `ArvlInfoInqireService` ✅ | `getSttnAcctoArvlPrearngeInfoList` → `arrtime`(초 단위 잔여) | `nodeId` 선조회 필요, 실시간 |
+| 버스정류소정보 | 15098534 | `BusSttnInfoInqireService` ✅ | `getCtyCodeList` 등 | 200 확인 |
+| 버스노선정보 | 15098529 | `BusRouteInfoInqireService` ✅ | 노선·경유정류소 | 200 확인 |
+| 버스위치정보 | 15098531 | `BusLcInfoInqireService` ✅ | 실시간 차량 위치 | 200 확인 |
+| 고속버스정보 | 15098522 | `ExpBusInfoInqireService` ✅ | 출발/도착시간 · 요금 | 터미널ID 선조회 (경로 확정: 500=경로존재) |
+| 시외버스정보 | 15098541 | `SuburbsBusInfoInqireService`(추정) | 출발/도착/**소요시간**·요금 | ⚠️ **당일 배차만** (미래날짜 불가) |
+| 열차정보 | 15098552 | `TrainInfoInqireService` ✅ | `getStrtpntAlocFndTrainInfo`(출발/도착역+날짜) | **KTX 포함, SRT 미포함** (경로 확정) |
 
+- **경로 확정 근거**: 승인된 버스 4종은 `200`. 열차·고속버스는 올바른 `...InqireService` 이름에서 `500`(경로 존재·전파 진행 중), 틀린 이름(`TrainInfoService`·`ExpBusInfo`)에선 `404`. 즉 **이름은 확정, 남은 500 은 data.go.kr 응답 준비(전파) 대기** — 완료되면 자동 200.
 - **역/정류소/터미널 ID**는 각 목록 오퍼레이션(`getCtyCodeList`, 역목록 등)으로 선조회.
 - **OffWay 용도**: 반차·퇴근후 모드 도착시각, 교통수단별 동선.
 
