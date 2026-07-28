@@ -32,7 +32,7 @@ public class CourseStorageController implements CourseStorageApi {
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponseBody<CourseResponse> save(
             @RequestHeader(GUEST_HEADER) String guestId, @Valid @RequestBody CourseSaveRequest request) {
-        return ApiResponseBody.created(CourseResponse.from(courseStorageService.save(guestId, request)));
+        return ApiResponseBody.created(CourseResponse.from(courseStorageService.save(request.toCourse(guestId))));
     }
 
     @Override
@@ -44,7 +44,8 @@ public class CourseStorageController implements CourseStorageApi {
 
     @Override
     @GetMapping("/{courseId}")
-    public ApiResponseBody<CourseResponse> course(@PathVariable long courseId) {
-        return ApiResponseBody.ok(CourseResponse.from(courseStorageService.get(courseId)));
+    public ApiResponseBody<CourseResponse> course(
+            @RequestHeader(GUEST_HEADER) String guestId, @PathVariable long courseId) {
+        return ApiResponseBody.ok(CourseResponse.from(courseStorageService.get(guestId, courseId)));
     }
 }

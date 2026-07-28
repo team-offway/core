@@ -1,6 +1,5 @@
 package com.offway.core.itinerary.service;
 
-import com.offway.core.itinerary.controller.dto.CourseSaveRequest;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
@@ -23,15 +22,9 @@ public class CourseStorageService {
     private final CourseRepository courseRepository;
     private final PolicyService policyService;
 
-    /** 게스트 코스를 저장하고, 혜택을 붙여 돌려준다. 코스 구성이 불변식을 어기면 400. */
+    /** 이미 조립된 게스트 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
     @Transactional
-    public GeneratedCourse save(String guestId, CourseSaveRequest request) {
-        Course course;
-        try {
-            course = request.toCourse(guestId);
-        } catch (IllegalArgumentException e) {
-            throw ItineraryException.invalidCourse();
-        }
+    public GeneratedCourse save(Course course) {
         return withBenefits(courseRepository.save(course));
     }
 
@@ -43,10 +36,15 @@ public class CourseStorageService {
         return courses;
     }
 
-    /** 저장 코스 상세(혜택 포함). 없으면 404. */
+    /**
+     * 게스트 소유의 저장 코스 상세(혜택 포함). 소유자 범위로만 조회해 남의 코스를 ID 만으로 볼 수 없게 한다. 없거나 소유자가
+     * 아니면 존재 여부를 흘리지 않도록 똑같이 404.
+     */
     @Transactional(readOnly = true)
-    public GeneratedCourse get(long courseId) {
-        Course course = courseRepository.findById(courseId).orElseThrow(ItineraryException::courseNotFound);
+    public GeneratedCourse get(String guestId, long courseId) {
+        Course course = courseRepository
+                .findByIdAndGuestId(courseId, guestId)
+                .orElseThrow(ItineraryException::courseNotFound);
         course.totalSlots(); // tx 안에서 days·slots 초기화(직렬화는 tx 밖)
         return withBenefits(course);
     }

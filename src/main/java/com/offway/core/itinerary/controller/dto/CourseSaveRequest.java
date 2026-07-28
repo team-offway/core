@@ -3,6 +3,7 @@ package com.offway.core.itinerary.controller.dto;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
+import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.TimeOfDay;
@@ -30,12 +31,19 @@ public record CourseSaveRequest(
         @Schema(example = "CAR", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull TransportMode transport,
         @NotEmpty @Valid List<Day> days) {
 
-    /** 게스트 소유의 도메인 코스로 변환한다(불변식은 도메인 팩토리가 검증). */
+    /**
+     * 게스트 소유의 도메인 코스로 변환한다. Bean Validation 이 못 잡는 도메인 불변식(일차·슬롯 순서 연속성, 게스트 ID 규칙 등)은
+     * 도메인 팩토리가 던지고, 여기서 계약 예외(400)로 번역한다 — 입력 경계가 계약 검증을 소유하므로 이 매핑에서 400 을 확정한다.
+     */
     public Course toCourse(String guestId) {
-        List<DaySchedule> schedules = days.stream()
-                .map(day -> DaySchedule.of(day.day(), day.items().stream().map(Item::toSlot).toList()))
-                .toList();
-        return Course.ownedBy(guestId, regionId, density, transport, schedules);
+        try {
+            List<DaySchedule> schedules = days.stream()
+                    .map(day -> DaySchedule.of(day.day(), day.items().stream().map(Item::toSlot).toList()))
+                    .toList();
+            return Course.ownedBy(guestId, regionId, density, transport, schedules);
+        } catch (IllegalArgumentException e) {
+            throw ItineraryException.invalidCourse();
+        }
     }
 
     /**

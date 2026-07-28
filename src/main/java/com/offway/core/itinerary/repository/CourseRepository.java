@@ -12,5 +12,6 @@ public interface CourseRepository {
     /** 게스트의 코스 목록(최신 저장 순). */
     List<Course> findByGuestId(String guestId);
 
-    Optional<Course> findById(Long id);
+    /** 소유자 범위 상세 조회 — 남의 코스를 ID 만으로 못 보게 게스트 소유로 제한한다. */
+    Optional<Course> findByIdAndGuestId(Long id, String guestId);
 }

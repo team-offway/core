@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -32,9 +33,14 @@ class CourseStorageIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    /** 테스트마다 고유한 게스트 ID — 롤백 없이 "내 코스" 목록이 이전 실행과 섞이지 않게. */
+    private static String uniqueGuest() {
+        return "guest-" + UUID.randomUUID();
+    }
+
     @Test
     void 코스를_저장하면_201로_courseId를_준다() throws Exception {
-        mockMvc.perform(post(URL).header("X-Guest-Id", "guest-save").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest()).contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value(201))
                 .andExpect(jsonPath("$.code").value("OK"))
@@ -45,28 +51,52 @@ class CourseStorageIntegrationTest {
 
     @Test
     void 저장한_코스가_내_코스_목록과_상세에_나온다() throws Exception {
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", "guest-list")
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         int courseId = JsonPath.read(saved, "$.data.courseId");
 
-        mockMvc.perform(get(URL).header("X-Guest-Id", "guest-list"))
+        mockMvc.perform(get(URL).header("X-Guest-Id", guest))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].courseId").value(courseId))
                 .andExpect(jsonPath("$.data[0].placeCount").value(2));
 
-        mockMvc.perform(get(URL + "/{id}", courseId))
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.courseId").value(courseId))
                 .andExpect(jsonPath("$.data.days[0].items.length()").value(2));
     }
 
     @Test
+    void 남의_코스는_상세로_볼_수_없다_404() throws Exception {
+        String owner = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", owner)
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        // 다른 게스트가 같은 courseId 를 조회 → 존재 여부를 흘리지 않도록 404
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", uniqueGuest()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ITINERARY-003"));
+    }
+
+    @Test
     void 게스트_헤더가_없으면_400() throws Exception {
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 게스트_ID가_공백이면_400() throws Exception {
+        // 빈 게스트 ID 를 허용하면 모든 요청이 한 묶음을 공유 → 도메인이 막고 400
+        mockMvc.perform(post(URL).header("X-Guest-Id", "  ").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
     }
 
     @Test
@@ -79,14 +109,14 @@ class CourseStorageIntegrationTest {
                   ]}
                 ]}""";
 
-        mockMvc.perform(post(URL).header("X-Guest-Id", "guest-inv").contentType(MediaType.APPLICATION_JSON).content(invalid))
+        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest()).contentType(MediaType.APPLICATION_JSON).content(invalid))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ITINERARY-002"));
     }
 
     @Test
     void 없는_코스_상세는_404_ITINERARY_003() throws Exception {
-        mockMvc.perform(get(URL + "/{id}", 999999))
+        mockMvc.perform(get(URL + "/{id}", 999999).header("X-Guest-Id", uniqueGuest()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-003"));
     }

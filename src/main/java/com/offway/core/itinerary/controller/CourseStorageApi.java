@@ -28,6 +28,9 @@ public interface CourseStorageApi {
 
     @Operation(summary = "코스 상세", description = "저장 코스의 날짜별 타임라인과 혜택.")
     @ApiResponse(responseCode = "200", description = "조회 성공")
-    @ApiResponse(responseCode = "404", description = "요청한 코스를 찾을 수 없음")
-    ApiResponseBody<CourseResponse> course(@Parameter(description = "코스 ID", example = "1") long courseId);
+    @ApiResponse(responseCode = "400", description = "게스트 ID 누락")
+    @ApiResponse(responseCode = "404", description = "요청한 코스가 없거나 소유자가 아님")
+    ApiResponseBody<CourseResponse> course(
+            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
+            @Parameter(description = "코스 ID", example = "1") long courseId);
 }

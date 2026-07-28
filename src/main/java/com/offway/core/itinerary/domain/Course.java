@@ -37,6 +37,9 @@ public class Course {
     /** 코스 상한 — 최대 2박3일(feature-spec F4 · 와이어프레임 캘린더 정책). */
     public static final int MAX_TRAVEL_DAYS = 3;
 
+    /** 게스트 ID 최대 길이 — {@code guest_id} 컬럼 폭과 일치시켜, 초과 입력이 저장 단계 서버 오류로 새지 않게 경계에서 거른다. */
+    public static final int MAX_GUEST_ID_LENGTH = 64;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -58,7 +61,7 @@ public class Course {
     private TransportMode transport;
 
     /** 소유 게스트 ID(저장된 코스만) — 로그인 전이라 클라이언트 게스트 식별자로 "내 코스"를 묶는다. 생성만 된 코스는 null. */
-    @Column(name = "guest_id", length = 64)
+    @Column(name = "guest_id", length = MAX_GUEST_ID_LENGTH)
     private String guestId;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
@@ -90,10 +93,16 @@ public class Course {
         return new Course(null, regionId, density, transport, days);
     }
 
-    /** 게스트 소유로 코스를 만든다(저장용). */
+    /** 게스트 소유로 코스를 만든다(저장용). 게스트 ID 는 공백일 수 없고 길이 상한을 넘지 않는다(빈 값이면 모든 요청이 한 묶음을 공유). */
     public static Course ownedBy(
             String guestId, Long regionId, Density density, TransportMode transport, List<DaySchedule> days) {
         Objects.requireNonNull(guestId, "게스트 ID는 필수입니다");
+        if (guestId.isBlank()) {
+            throw new IllegalArgumentException("게스트 ID는 비어 있을 수 없습니다");
+        }
+        if (guestId.length() > MAX_GUEST_ID_LENGTH) {
+            throw new IllegalArgumentException("게스트 ID가 너무 깁니다: " + guestId.length());
+        }
         return new Course(guestId, regionId, density, transport, days);
     }
 
