@@ -1,4 +1,4 @@
-package com.offway.core.transport.infrastructure.tago.dto;
+package com.offway.core.transport.domain;
 
 /**
  * 기차역 한 곳 — TAGO 역 코드와 역명. 지역(시군구명)·출발지를 역으로 해석할 때 쓴다.

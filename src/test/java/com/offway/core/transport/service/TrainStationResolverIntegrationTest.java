@@ -3,7 +3,7 @@ package com.offway.core.transport.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.offway.core.transport.infrastructure.tago.dto.Station;
+import com.offway.core.transport.domain.Station;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

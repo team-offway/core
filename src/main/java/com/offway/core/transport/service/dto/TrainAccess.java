@@ -1,6 +1,6 @@
 package com.offway.core.transport.service.dto;
 
-import com.offway.core.transport.infrastructure.tago.dto.TrainLeg;
+import com.offway.core.transport.domain.TrainLeg;
 
 /**
  * 지역까지의 열차 접근 결과 — transport 가 itinerary(코스)에 주는 값. 네 상태를 구분해 UI 가 정확히 안내하게 한다.

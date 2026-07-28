@@ -6,6 +6,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -36,8 +37,9 @@ public class TrainStation {
     private Double lng;
 
     private TrainStation(String code, String name, Double lat, Double lng) {
-        this.code = code;
-        this.name = name;
+        // 역코드·역명은 누가 만들든 반드시 있어야 하는 불변식(좌표만 결측 허용) — DB flush 까지 미루지 않고 생성 시점에 막는다.
+        this.code = Objects.requireNonNull(code, "역코드는 null 일 수 없습니다.");
+        this.name = Objects.requireNonNull(name, "역명은 null 일 수 없습니다.");
         this.lat = lat;
         this.lng = lng;
     }

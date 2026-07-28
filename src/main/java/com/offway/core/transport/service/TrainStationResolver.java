@@ -1,8 +1,8 @@
 package com.offway.core.transport.service;
 
 import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.transport.domain.Station;
 import com.offway.core.transport.domain.TrainStation;
-import com.offway.core.transport.infrastructure.tago.dto.Station;
 import com.offway.core.transport.repository.TrainStationRepository;
 import java.util.Comparator;
 import java.util.List;

@@ -1,6 +1,6 @@
 package com.offway.core.transport.infrastructure.tago;
 
-import com.offway.core.transport.infrastructure.tago.dto.TrainAvailability;
+import com.offway.core.transport.domain.TrainAvailability;
 import java.time.LocalDate;
 
 /**

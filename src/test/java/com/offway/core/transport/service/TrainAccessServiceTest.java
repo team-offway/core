@@ -2,10 +2,10 @@ package com.offway.core.transport.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.offway.core.transport.domain.TrainAvailability;
+import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.transport.domain.TrainStation;
 import com.offway.core.transport.infrastructure.tago.StubTrainInfoClient;
-import com.offway.core.transport.infrastructure.tago.dto.TrainAvailability;
-import com.offway.core.transport.infrastructure.tago.dto.TrainLeg;
 import com.offway.core.transport.repository.TrainStationRepository;
 import com.offway.core.transport.service.dto.TrainAccess;
 import java.time.LocalDate;
@@ -26,7 +26,7 @@ class TrainAccessServiceTest {
     private static final List<TrainStation> MASTER = List.of(
             TrainStation.of("NAT010000", "서울", 37.5547, 126.9707),
             TrainStation.of("NATH13421", "경주", 35.7980, 129.1405),
-            TrainStation.of("NAT770658", "정선", 37.3878, 128.6716));
+            TrainStation.of("NAT610226", "정선", 37.3878, 128.6716)); // 코드는 시드 마스터와 일치
 
     private static TrainAccessService service(StubTrainInfoClient stub) {
         TrainStationRepository repo = () -> MASTER; // findAll 단일 메서드 → 람다
