@@ -1,5 +1,7 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.cache.ExternalDataCache;
+import com.offway.core.common.cache.ExternalDataCache.Loaded;
 import com.offway.core.region.domain.Region;
 import com.offway.core.trip.domain.PopulationDeclineStatus;
 import com.offway.core.trip.domain.RegionRanking;
@@ -9,15 +11,12 @@ import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.datalab.TourDataLabClient;
 import com.offway.core.trip.infrastructure.datalab.dto.RegionVisitor;
 import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -46,15 +45,15 @@ public class RegionRankingService {
     private static final Duration CACHE_TTL = Duration.ofHours(6);
     /** 실패 캐시 TTL — 조회가 계속 실패해도 매 요청이 6초씩 재시도하지 않게 짧게 폴백값을 눌러둔다. */
     private static final Duration FAILURE_CACHE_TTL = Duration.ofMinutes(5);
+    /** 방문자 집계는 전 지역 공통 단일 값이라 상수 키 하나로 캐시한다. */
+    private static final String VISITORS_KEY = "tourists";
 
     private final TourDataLabClient tourDataLabClient;
-    private final AtomicReference<CachedVisitors> cache = new AtomicReference<>();
-    /** single-flight 게이트 — 캐시 만료 시 한 스레드만 재조회하고 나머지는 stale 값을 즉시 받게 해 외부 폭주를 막는다. */
-    private final AtomicBoolean refreshing = new AtomicBoolean(false);
+    private final ExternalDataCache<String, Map<String, VisitorAgg>> cache = new ExternalDataCache<>();
 
     /** 방문자 집계 캐시를 비운다 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트의 격리(캐시가 이전 시나리오를 물고 가지 않게)용. */
     public void evictCache() {
-        cache.set(null);
+        cache.evictAll();
     }
 
     /** 주어진 지역들을 방문자 랭킹(점수 내림차순)으로 돌려준다. 키 없으면 방문자 0으로 랭킹(로컬 실행성). */
@@ -68,37 +67,20 @@ public class RegionRankingService {
     }
 
     /**
-     * 시군구별 관광객 집계 — 캐시 우선. 신선하면 캐시값을, 아니면 재조회한다. 조회가 실패하면 마지막 성공값(있으면)을, 없으면 빈 가중치를
-     * 폴백으로 쓰고 짧게 캐시해 실패 동안 요청이 몰리지 않게 한다. 어느 경우든 예외를 위로 던지지 않아 홈·추천이 502 로 죽지 않는다.
+     * 시군구별 관광객 집계 — 캐시(single-flight) 우선. 조회가 실패하면 마지막 성공값(있으면)을, 없으면 빈 가중치를 폴백으로 쓰고 짧게
+     * 캐시해 실패 동안 요청이 몰리지 않게 한다. 어느 경우든 예외를 위로 던지지 않아 홈·추천이 502 로 죽지 않는다.
      */
     private Map<String, VisitorAgg> aggregateTourists() {
-        CachedVisitors cached = cache.get();
-        if (cached != null && cached.isFresh()) {
-            return cached.data();
-        }
-        // single-flight: 게이트를 잡은 한 스레드만 재조회한다. 나머지는 stale 값(없으면 빈 값)을 즉시 받아, 만료 순간
-        // 여러 스레드가 동시에 50페이지 호출로 외부를 때리는 것을 막는다(잠금은 I/O 동안 잡지 않는다).
-        if (!refreshing.compareAndSet(false, true)) {
-            return cached != null ? cached.data() : Map.of();
-        }
-        try {
-            // 게이트 획득 사이 다른 스레드가 이미 갱신했을 수 있다 — 재확인해 직렬 중복 호출을 막는다.
-            CachedVisitors latest = cache.get();
-            if (latest != null && latest.isFresh()) {
-                return latest.data();
+        return cache.get(VISITORS_KEY, (key, stale) -> {
+            try {
+                return new Loaded<>(fetchTourists(), CACHE_TTL);
+            } catch (TourApiException e) {
+                Map<String, VisitorAgg> fallback = stale != null ? stale : Map.of();
+                log.warn("관광빅데이터 조회 실패 — {} 로 폴백 랭킹(홈·추천은 유지)",
+                        stale != null ? "마지막 성공값" : "빈 가중치", e);
+                return new Loaded<>(fallback, FAILURE_CACHE_TTL);
             }
-            Map<String, VisitorAgg> fresh = fetchTourists();
-            cache.set(CachedVisitors.of(fresh, CACHE_TTL));
-            return fresh;
-        } catch (TourApiException e) {
-            Map<String, VisitorAgg> fallback = cached != null ? cached.data() : Map.of();
-            cache.set(CachedVisitors.of(fallback, FAILURE_CACHE_TTL));
-            log.warn("관광빅데이터 조회 실패 — {} 로 폴백 랭킹(홈·추천은 유지)",
-                    cached != null ? "마지막 성공값" : "빈 가중치", e);
-            return fallback;
-        } finally {
-            refreshing.set(false);
-        }
+        }, Map.of());
     }
 
     /**
@@ -147,17 +129,6 @@ public class RegionRankingService {
         void add(LocalDate date, double count) {
             total += count;
             dates.add(date);
-        }
-    }
-
-    /** 방문자 집계 캐시 한 칸 — 만료 시각까지 재사용. 캐시된 map 은 이후 읽기 전용이라 공유해도 안전. */
-    private record CachedVisitors(Map<String, VisitorAgg> data, Instant expiresAt) {
-        static CachedVisitors of(Map<String, VisitorAgg> data, Duration ttl) {
-            return new CachedVisitors(data, Instant.now().plus(ttl));
-        }
-
-        boolean isFresh() {
-            return Instant.now().isBefore(expiresAt);
         }
     }
 }
