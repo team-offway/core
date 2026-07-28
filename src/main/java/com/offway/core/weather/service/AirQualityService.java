@@ -2,7 +2,7 @@ package com.offway.core.weather.service;
 
 import com.offway.core.weather.domain.SidoName;
 import com.offway.core.weather.infrastructure.airkorea.AirKoreaClient;
-import com.offway.core.weather.infrastructure.airkorea.dto.AirQuality;
+import com.offway.core.weather.domain.AirQuality;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

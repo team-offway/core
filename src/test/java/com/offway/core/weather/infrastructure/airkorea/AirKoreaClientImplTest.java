@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.weather.domain.AirGrade;
-import com.offway.core.weather.infrastructure.airkorea.dto.AirQuality;
+import com.offway.core.weather.domain.AirQuality;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;

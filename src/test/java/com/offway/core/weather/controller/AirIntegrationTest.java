@@ -1,12 +1,13 @@
 package com.offway.core.weather.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.offway.core.weather.domain.AirGrade;
+import com.offway.core.weather.domain.AirQuality;
 import com.offway.core.weather.infrastructure.airkorea.AirKoreaClient;
-import com.offway.core.weather.infrastructure.airkorea.dto.AirQuality;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,6 +54,6 @@ class AirIntegrationTest {
         mockMvc.perform(get("/api/v1/air").param("region", "제주특별자치도"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
-                .andExpect(jsonPath("$.data").doesNotExist());
+                .andExpect(jsonPath("$.data").value(nullValue())); // 계약대로 data=null
     }
 }

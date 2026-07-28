@@ -12,8 +12,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 public interface AirApi {
 
     @Operation(summary = "지역 대기질", description = "지역 시도의 실시간 미세먼지·초미세먼지·통합등급. 데이터가 없으면 data=null.")
-    @ApiResponse(responseCode = "200", description = "조회 성공 (없으면 data=null)")
-    @ApiResponse(responseCode = "502", description = "대기오염정보(에어코리아) 조회 실패")
+    @ApiResponse(responseCode = "200", description = "조회 성공 (데이터 없거나 조회 실패 시 data=null)")
     ApiResponseBody<AirResponse> air(
             @Parameter(description = "지역 시도명(정식/축약)", example = "강원특별자치도") String region);
 }

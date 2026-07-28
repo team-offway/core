@@ -1,6 +1,6 @@
 package com.offway.core.weather.controller.dto;
 
-import com.offway.core.weather.infrastructure.airkorea.dto.AirQuality;
+import com.offway.core.weather.domain.AirQuality;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**

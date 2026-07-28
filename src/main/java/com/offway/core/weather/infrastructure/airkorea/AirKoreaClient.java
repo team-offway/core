@@ -1,6 +1,6 @@
 package com.offway.core.weather.infrastructure.airkorea;
 
-import com.offway.core.weather.infrastructure.airkorea.dto.AirQuality;
+import com.offway.core.weather.domain.AirQuality;
 import java.util.Optional;
 
 /**
