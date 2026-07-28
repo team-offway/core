@@ -14,6 +14,7 @@ package com.offway.core.trip.service.dto;
  * @param overview 소개 문구(없으면 null)
  * @param useTime 이용/영업 시간(없으면 null)
  * @param restDate 휴무일(없으면 null)
+ * @param catchphrase 구석구석 캐치프레이즈(감성 한 줄, 없으면 null)
  */
 public record PoiDetail(
         String contentId,
@@ -26,5 +27,6 @@ public record PoiDetail(
         String imageUrl,
         String overview,
         String useTime,
-        String restDate) {
+        String restDate,
+        String catchphrase) {
 }

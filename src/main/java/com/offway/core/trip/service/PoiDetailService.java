@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 public class PoiDetailService {
 
     private final TourApiClient tourApiClient;
+    private final CatchphraseProvider catchphraseProvider;
 
     public PoiDetail detail(String contentId) {
         TourPoiDetail detail = tourApiClient.findDetail(contentId).orElseThrow(TourApiException::poiNotFound);
@@ -39,6 +40,7 @@ public class PoiDetailService {
                 detail.imageUrl(),
                 detail.overview(),
                 intro == null ? null : intro.useTime(),
-                intro == null ? null : intro.restDate());
+                intro == null ? null : intro.restDate(),
+                catchphraseProvider.forContentId(contentId).orElse(null));
     }
 }
