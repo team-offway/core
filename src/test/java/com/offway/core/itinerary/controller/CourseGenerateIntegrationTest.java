@@ -8,8 +8,14 @@ import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
+import com.offway.core.weather.domain.DailyWeather;
+import com.offway.core.weather.domain.SkyState;
+import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
+import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -32,6 +38,9 @@ class CourseGenerateIntegrationTest {
     @Autowired
     private StubTourApiClient tourApiClient;
 
+    @Autowired
+    private StubKmaWeatherClient weatherClient;
+
     @TestConfiguration
     static class StubConfig {
 
@@ -39,6 +48,12 @@ class CourseGenerateIntegrationTest {
         @Primary
         TourApiClient stubTourApiClient() {
             return new StubTourApiClient();
+        }
+
+        @Bean
+        @Primary
+        KmaWeatherClient stubKmaWeatherClient() {
+            return new StubKmaWeatherClient();
         }
     }
 
@@ -78,6 +93,25 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.days[0].items[0].lat").exists())
                 // 인구감소지역(부산 동구) + 시드 정책 기간 내 → 반값여행 혜택
                 .andExpect(jsonPath("$.data.benefits[0].text").value("여행경비 50% 환급"));
+    }
+
+    @Test
+    void 코스에_여행날짜_날씨를_함께_내린다() throws Exception {
+        tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
+        LocalDate date = LocalDate.of(2026, 5, 1);
+        weatherClient.respond(() -> Optional.of(new DailyWeather(date, 18, 27, SkyState.CLEAR, 20)));
+
+        String body = """
+                { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-05-01" }""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.weather.date").value("2026-05-01"))
+                .andExpect(jsonPath("$.data.weather.minTemp").value(18))
+                .andExpect(jsonPath("$.data.weather.maxTemp").value(27))
+                .andExpect(jsonPath("$.data.weather.sky").value("맑음"))
+                .andExpect(jsonPath("$.data.weather.rainProbability").value(20));
     }
 
     @Test

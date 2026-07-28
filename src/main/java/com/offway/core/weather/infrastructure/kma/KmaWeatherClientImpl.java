@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.weather.domain.Grid;
 import com.offway.core.weather.domain.SkyState;
-import com.offway.core.weather.infrastructure.kma.dto.DailyWeather;
+import com.offway.core.weather.domain.DailyWeather;
 import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDate;

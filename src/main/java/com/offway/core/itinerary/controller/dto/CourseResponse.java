@@ -5,11 +5,13 @@ import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.domain.PolicyType;
+import com.offway.core.weather.domain.DailyWeather;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
- * 코스 생성 응답 — API 계약. 날짜별 타임라인(Day 탭)과 지도 핀 좌표·이동시간, 적용 혜택을 담는다.
+ * 코스 생성 응답 — API 계약. 날짜별 타임라인(Day 탭)과 지도 핀 좌표·이동시간, 적용 혜택·여행 날씨를 담는다.
  *
  * <p>POI 이미지·운영시간은 장소 상세({@code GET /pois/{id}}, #32)에서 받는다. 혜택은 정책 매칭 결과라 응답 시점 값이다.
  *
@@ -18,9 +20,16 @@ import java.util.List;
  * @param density 일정 밀도(PACKED·RELAXED)
  * @param days 날짜별 일정
  * @param benefits 적용 혜택 뱃지
+ * @param weather 여행 날짜의 코스 지역 날씨(생성 시점만 — 저장 코스·예보범위 밖·미조회면 null)
  */
 public record CourseResponse(
-        Long courseId, long regionId, int travelDays, String density, List<Day> days, List<Benefit> benefits) {
+        Long courseId,
+        long regionId,
+        int travelDays,
+        String density,
+        List<Day> days,
+        List<Benefit> benefits,
+        @Schema(description = "여행 날짜의 코스 지역 날씨 (없으면 null)", nullable = true) Weather weather) {
 
     public static CourseResponse from(GeneratedCourse generated) {
         Course course = generated.course();
@@ -30,7 +39,8 @@ public record CourseResponse(
                 course.getTravelDays(),
                 course.getDensity().name(),
                 course.getDays().stream().map(Day::from).toList(),
-                generated.benefits().stream().map(Benefit::from).toList());
+                generated.benefits().stream().map(Benefit::from).toList(),
+                generated.weather() == null ? null : Weather.from(generated.weather()));
     }
 
     /**
@@ -86,6 +96,30 @@ public record CourseResponse(
 
         static Benefit from(GeneratedCourse.Benefit benefit) {
             return new Benefit(benefit.policyId(), benefit.type(), benefit.text());
+        }
+    }
+
+    /**
+     * @param date 예보 날짜
+     * @param minTemp 최저기온(℃, 없으면 null)
+     * @param maxTemp 최고기온(℃, 없으면 null)
+     * @param sky 하늘 상태 문구(맑음·구름많음·흐림·정보 없음)
+     * @param rainProbability 강수확률 최대(%, 없으면 null)
+     */
+    public record Weather(
+            LocalDate date,
+            @Schema(example = "18", nullable = true) Integer minTemp,
+            @Schema(example = "27", nullable = true) Integer maxTemp,
+            @Schema(example = "맑음") String sky,
+            @Schema(example = "20", nullable = true) Integer rainProbability) {
+
+        static Weather from(DailyWeather weather) {
+            return new Weather(
+                    weather.date(),
+                    weather.minTemp(),
+                    weather.maxTemp(),
+                    weather.sky().label(),
+                    weather.rainProbability());
         }
     }
 }
