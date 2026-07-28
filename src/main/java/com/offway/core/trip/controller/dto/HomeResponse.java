@@ -36,6 +36,7 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
      * @param imageUrl 대표 이미지 URL (없으면 null)
      * @param categories 볼거리 카테고리 칩
      * @param benefit 대표 혜택 (없으면 null)
+     * @param airQuality 지역 시도 실시간 대기질 (없으면 null)
      */
     public record RegionCard(
             long regionId,
@@ -46,7 +47,8 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
                             nullable = true)
                     String imageUrl,
             List<CategoryResponse.Item> categories,
-            @Schema(description = "대표 혜택 (없으면 null)", nullable = true) Benefit benefit) {
+            @Schema(description = "대표 혜택 (없으면 null)", nullable = true) Benefit benefit,
+            @Schema(description = "지역 실시간 대기질 (없으면 null)", nullable = true) AirQuality airQuality) {
 
         static RegionCard from(HomeResult.RegionCard card) {
             return new RegionCard(
@@ -55,7 +57,23 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
                     card.crowdLevel(),
                     card.imageUrl(),
                     card.categories().stream().map(CategoryResponse.Item::from).toList(),
-                    card.benefit() == null ? null : Benefit.from(card.benefit()));
+                    card.benefit() == null ? null : Benefit.from(card.benefit()),
+                    card.airQuality() == null ? null : AirQuality.from(card.airQuality()));
+        }
+    }
+
+    /**
+     * @param pm10 미세먼지 평균 (㎍/㎥, 없으면 null)
+     * @param pm25 초미세먼지 평균 (㎍/㎥, 없으면 null)
+     * @param grade 통합대기환경 등급 문구 (좋음·보통·나쁨·매우나쁨·정보없음)
+     */
+    public record AirQuality(
+            @Schema(example = "45", nullable = true) Integer pm10,
+            @Schema(example = "23", nullable = true) Integer pm25,
+            @Schema(example = "보통") String grade) {
+
+        static AirQuality from(com.offway.core.weather.domain.AirQuality air) {
+            return new AirQuality(air.pm10(), air.pm25(), air.grade().label());
         }
     }
 

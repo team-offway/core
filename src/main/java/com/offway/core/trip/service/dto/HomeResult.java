@@ -4,6 +4,7 @@ import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
+import com.offway.core.weather.domain.AirQuality;
 import java.util.List;
 
 /**
@@ -24,6 +25,7 @@ public record HomeResult(Integer remainingLeaveDays, List<RegionCard> regions) {
      * @param imageUrl 대표 이미지 URL(없으면 null)
      * @param categories 볼거리 카테고리
      * @param benefit 대표 혜택(없으면 null)
+     * @param airQuality 지역 시도 실시간 대기질(없으면 null — 부가 정보라 실패해도 카드는 나온다)
      */
     public record RegionCard(
             long regionId,
@@ -32,18 +34,27 @@ public record HomeResult(Integer remainingLeaveDays, List<RegionCard> regions) {
             CrowdLevel crowdLevel,
             String imageUrl,
             List<Category> categories,
-            Benefit benefit) {
+            Benefit benefit,
+            AirQuality airQuality) {
 
-        /** 랭킹·혜택에 지역 콘텐츠(이미지·categories)를 얹어 카드를 만든다. */
+        /** 랭킹·혜택에 지역 콘텐츠(이미지·categories)와 실시간 대기질을 얹어 카드를 만든다. */
         public static RegionCard of(
                 long regionId,
                 String sido,
                 String sigungu,
                 CrowdLevel crowdLevel,
                 RegionContent content,
-                Benefit benefit) {
+                Benefit benefit,
+                AirQuality airQuality) {
             return new RegionCard(
-                    regionId, sido, sigungu, crowdLevel, content.imageUrl(), content.categories(), benefit);
+                    regionId,
+                    sido,
+                    sigungu,
+                    crowdLevel,
+                    content.imageUrl(),
+                    content.categories(),
+                    benefit,
+                    airQuality);
         }
     }
 
