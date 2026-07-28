@@ -35,7 +35,11 @@ public class AirQualityService {
         String key = SidoName.toAirKorea(sido);
         return cache.get(key, (k, stale) -> {
             Optional<AirQuality> fresh = airKoreaClient.realtimeBySido(k);
-            return new Loaded<>(fresh, fresh.isPresent() ? CACHE_TTL : EMPTY_TTL);
+            if (fresh.isPresent()) {
+                return new Loaded<>(fresh, CACHE_TTL);
+            }
+            // 값 없음(조회 실패·미제공) — 직전 정상값이 있으면 유지(stale-while-error), 없으면 짧게 빈 값 뒤 재시도.
+            return new Loaded<>(stale != null ? stale : Optional.empty(), EMPTY_TTL);
         }, Optional.empty());
     }
 
