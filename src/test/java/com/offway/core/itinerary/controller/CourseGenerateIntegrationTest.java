@@ -1,5 +1,6 @@
 package com.offway.core.itinerary.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -16,6 +17,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -55,6 +57,11 @@ class CourseGenerateIntegrationTest {
         KmaWeatherClient stubKmaWeatherClient() {
             return new StubKmaWeatherClient();
         }
+    }
+
+    @AfterEach
+    void resetWeatherStub() {
+        weatherClient.reset(); // 공유 컨텍스트 — 앞 테스트가 세팅한 예보가 다음 테스트로 새지 않게
     }
 
     private static TourPoi poi(String id, int contentTypeId, double lat, double lng) {
@@ -112,6 +119,20 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.weather.maxTemp").value(27))
                 .andExpect(jsonPath("$.data.weather.sky").value("맑음"))
                 .andExpect(jsonPath("$.data.weather.rainProbability").value(20));
+    }
+
+    @Test
+    void 날씨_예보가_없으면_weather는_null이고_코스는_정상() throws Exception {
+        tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
+        // 예보 범위 밖·조회 실패 → 빈 예보(stub 기본값). 날씨는 부가 정보라 코스는 그대로 200
+        String body = """
+                { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-05-01" }""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days.length()").value(2))
+                .andExpect(jsonPath("$.data.weather").value(nullValue()));
     }
 
     @Test

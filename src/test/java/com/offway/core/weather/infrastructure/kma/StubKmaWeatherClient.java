@@ -14,11 +14,18 @@ import java.util.function.Supplier;
  */
 public class StubKmaWeatherClient implements KmaWeatherClient {
 
-    private Supplier<Optional<DailyWeather>> behavior = Optional::empty;
+    private static final Supplier<Optional<DailyWeather>> DEFAULT = Optional::empty;
+
+    private Supplier<Optional<DailyWeather>> behavior = DEFAULT;
 
     /** 모든 좌표·날짜 조회에 같은 예보를 돌려준다. */
     public void respond(Supplier<Optional<DailyWeather>> behavior) {
         this.behavior = behavior;
+    }
+
+    /** 기본값(빈 예보)으로 되돌린다 — 공유 컨텍스트에서 앞 테스트가 세팅한 예보가 남지 않게 각 테스트 뒤 호출. */
+    public void reset() {
+        this.behavior = DEFAULT;
     }
 
     @Override
