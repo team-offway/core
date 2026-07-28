@@ -61,6 +61,30 @@ class ExternalDataCacheTest {
     }
 
     @Test
+    void loader가_예외를_던져도_요청_경로로_올리지_않고_stale로_degrade한다() throws InterruptedException {
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        cache.get(KEY, (k, stale) -> new Loaded<>("good", SHORT_TTL), "fallback");
+        Thread.sleep(60); // 만료 후 loader 가 계약을 어기고 예외를 던지는 상황
+
+        String result = cache.get(KEY, (k, stale) -> {
+            throw new IllegalStateException("loader 계약 위반");
+        }, "fallback");
+
+        assertEquals("good", result); // 마지막 성공값(stale)으로 degrade — 예외 전파 안 함
+    }
+
+    @Test
+    void loader_예외인데_stale도_없으면_폴백을_돌려준다() {
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+
+        String result = cache.get(KEY, (k, stale) -> {
+            throw new IllegalStateException("loader 계약 위반");
+        }, "fallback");
+
+        assertEquals("fallback", result);
+    }
+
+    @Test
     void 만료_순간_동시_요청이_몰려도_외부는_한_번만_호출된다_single_flight() throws InterruptedException {
         ExternalDataCache<String, String> cache = new ExternalDataCache<>();
         cache.get(KEY, (k, stale) -> new Loaded<>("stale", SHORT_TTL), "fallback");
