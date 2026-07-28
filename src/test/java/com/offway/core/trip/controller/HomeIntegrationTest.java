@@ -13,7 +13,12 @@ import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
+import com.offway.core.weather.domain.AirGrade;
+import com.offway.core.weather.domain.AirQuality;
+import com.offway.core.weather.infrastructure.airkorea.AirKoreaClient;
+import com.offway.core.weather.infrastructure.airkorea.StubAirKoreaClient;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,6 +43,9 @@ class HomeIntegrationTest {
     @Autowired
     private StubTourApiClient tourApiClient;
 
+    @Autowired
+    private StubAirKoreaClient airKoreaClient;
+
     @TestConfiguration
     static class StubConfig {
 
@@ -52,6 +60,12 @@ class HomeIntegrationTest {
         TourApiClient stubTourApiClient() {
             return new StubTourApiClient();
         }
+
+        @Bean
+        @Primary
+        AirKoreaClient stubAirKoreaClient() {
+            return new StubAirKoreaClient();
+        }
     }
 
     /** 볼거리가 충분한 지역 콘텐츠 — 대표 이미지·categories(NA→관광지). */
@@ -64,6 +78,7 @@ class HomeIntegrationTest {
     void 남은연차_필터칩_추천지역을_콘텐츠와_함께_내려준다() throws Exception {
         dataLabClient.respond(TourVisitorResult::empty);
         tourApiClient.respond(HomeIntegrationTest::content);
+        airKoreaClient.respond(() -> Optional.of(new AirQuality(45, 23, AirGrade.MODERATE)));
 
         mockMvc.perform(get(URL).param("remainingLeave", "13"))
                 .andExpect(status().isOk())
@@ -79,19 +94,26 @@ class HomeIntegrationTest {
                 .andExpect(jsonPath("$.data.recommendedRegions[0].categories[0].key").value("SIGHT"))
                 // 전 지역이 인구감소지역 → 대표 혜택으로 반값여행 뱃지
                 .andExpect(jsonPath("$.data.recommendedRegions[0].benefit.text").value("여행경비 50% 환급"))
-                .andExpect(jsonPath("$.data.recommendedRegions[0].benefit.policyType").value("REGIONAL_VOUCHER"));
+                .andExpect(jsonPath("$.data.recommendedRegions[0].benefit.policyType").value("REGIONAL_VOUCHER"))
+                // 지역 시도 실시간 대기질
+                .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality.pm10").value(45))
+                .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality.pm25").value(23))
+                .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality.grade").value("보통"));
     }
 
     @Test
     void 남은연차가_없어도_200으로_내려준다() throws Exception {
         dataLabClient.respond(TourVisitorResult::empty);
         tourApiClient.respond(HomeIntegrationTest::content);
+        // 대기질 조회 실패해도(빈 값) 카드는 나온다 — 부가 정보라 airQuality=null
+        airKoreaClient.respond(Optional::empty);
 
         mockMvc.perform(get(URL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.user.name").value("게스트"))
                 .andExpect(jsonPath("$.data.user.remainingLeaveDays").value(nullValue()))
-                .andExpect(jsonPath("$.data.recommendedRegions.length()").value(6));
+                .andExpect(jsonPath("$.data.recommendedRegions.length()").value(6))
+                .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality").value(nullValue()));
     }
 
     @Test

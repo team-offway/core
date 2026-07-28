@@ -7,10 +7,13 @@ import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.RegionContent;
 import com.offway.core.trip.domain.RegionScore;
 import com.offway.core.trip.service.dto.HomeResult;
+import com.offway.core.weather.domain.AirQuality;
+import com.offway.core.weather.service.AirQualityService;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -32,6 +35,7 @@ public class HomeService {
     private final RegionRankingService regionRankingService;
     private final RegionContentProvider regionContentProvider;
     private final PolicyService policyService;
+    private final AirQualityService airQualityService;
 
     public HomeResult home(Integer remainingLeaveDays) {
         List<Region> all = regionRepository.findAll();
@@ -40,20 +44,30 @@ public class HomeService {
         Map<Long, Region> regionById = new HashMap<>();
         all.forEach(region -> regionById.put(region.getId(), region));
         LocalDate today = LocalDate.now();
+        // 대기질은 시도 단위라 top-N 에서 같은 시도가 겹친다. 시도별 1회만 조회해 외부 호출을 줄인다.
+        Map<String, Optional<AirQuality>> airBySido = new HashMap<>();
 
         List<HomeResult.RegionCard> cards = ranked.stream()
                 .limit(HOME_REGION_LIMIT)
-                .map(score -> toCard(regionById.get(score.regionId()), score, all, today))
+                .map(score -> toCard(regionById.get(score.regionId()), score, all, today, airBySido))
                 .toList();
         return new HomeResult(remainingLeaveDays, cards);
     }
 
-    private HomeResult.RegionCard toCard(Region region, RegionScore score, List<Region> neighborPool, LocalDate date) {
+    private HomeResult.RegionCard toCard(
+            Region region,
+            RegionScore score,
+            List<Region> neighborPool,
+            LocalDate date,
+            Map<String, Optional<AirQuality>> airBySido) {
         RegionContent content = regionContentProvider.contentFor(region, neighborPool);
         List<Policy> matched = policyService.matchForRegion(region.getId(), date);
         HomeResult.Benefit benefit = matched.isEmpty() ? null : toBenefit(matched.get(0));
+        AirQuality air = airBySido
+                .computeIfAbsent(region.getSido(), airQualityService::byRegionSido)
+                .orElse(null);
         return HomeResult.RegionCard.of(
-                region.getId(), region.getSido(), region.getSigungu(), score.crowdLevel(), content, benefit);
+                region.getId(), region.getSido(), region.getSigungu(), score.crowdLevel(), content, benefit, air);
     }
 
     private static HomeResult.Benefit toBenefit(Policy policy) {
