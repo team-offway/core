@@ -19,6 +19,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * @param overview 소개 문구(없으면 null)
  * @param useTime 이용/영업 시간(없으면 null)
  * @param restDate 휴무일(없으면 null)
+ * @param catchphrase 구석구석 캐치프레이즈(감성 한 줄, 없으면 null)
  */
 public record PoiDetailResponse(
         String contentId,
@@ -32,7 +33,8 @@ public record PoiDetailResponse(
         String imageUrl,
         String overview,
         @Schema(example = "09:00~18:00") String useTime,
-        @Schema(example = "연중무휴") String restDate) {
+        @Schema(example = "연중무휴") String restDate,
+        @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase) {
 
     public static PoiDetailResponse from(PoiDetail poi) {
         return new PoiDetailResponse(
@@ -47,6 +49,7 @@ public record PoiDetailResponse(
                 poi.imageUrl(),
                 poi.overview(),
                 poi.useTime(),
-                poi.restDate());
+                poi.restDate(),
+                poi.catchphrase());
     }
 }

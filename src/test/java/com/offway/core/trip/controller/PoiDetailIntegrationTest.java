@@ -55,6 +55,18 @@ class PoiDetailIntegrationTest {
     }
 
     @Test
+    void 캐치프레이즈가_있는_장소면_data에_함께_내린다() throws Exception {
+        // 126508 은 시드 CSV(구석구석 캐치프레이즈)에 실제 존재한다.
+        tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
+                "126508", 12, "경복궁", "서울 종로구", null, 37.5, 126.9, null, null)));
+        tourApiClient.respondIntro(Optional::empty);
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "126508"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.catchphrase").isNotEmpty());
+    }
+
+    @Test
     void 없는_장소면_404_TOUR_003() throws Exception {
         tourApiClient.respondDetail(Optional::empty);
 
