@@ -1,12 +1,11 @@
 package com.offway.core.transport.infrastructure.tago;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import com.offway.core.common.config.ExternalApiProperties;
-import com.offway.core.transport.infrastructure.tago.dto.TrainLeg;
+import com.offway.core.transport.infrastructure.tago.dto.TrainAvailability;
 import java.time.LocalDate;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -14,7 +13,7 @@ import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-/** TrainInfoClientImpl stub 테스트 — 외부 HTTP 경계만 ExchangeFunction 으로 격리. 응답 스키마는 TAGO 문서 기준(실호출 전파 시 검증). */
+/** TrainInfoClientImpl stub 테스트 — 외부 HTTP 경계만 ExchangeFunction 으로 격리. 응답 스키마는 TAGO 실호출로 검증된 형태. */
 class TrainInfoClientImplTest {
 
     private static final ExternalApiProperties WITH_KEY =
@@ -40,31 +39,57 @@ class TrainInfoClientImplTest {
                   {"traingradename":"KTX","depplandtime":"20260501070000","arrplandtime":"20260501084000"}
                 ]}}}}""";
 
-        Optional<TrainLeg> leg = client(body).fastestTrain("NAT010000", "NAT013271", DATE);
+        TrainAvailability result = client(body).fastestTrain("NAT010000", "NAT013271", DATE);
 
-        assertTrue(leg.isPresent());
-        assertEquals("KTX", leg.get().trainType()); // 100분 < 무궁화 210분
-        assertEquals(100, leg.get().durationMinutes());
+        TrainAvailability.Available available = assertInstanceOf(TrainAvailability.Available.class, result);
+        assertEquals("KTX", available.fastest().trainType()); // 100분 < 무궁화 210분
+        assertEquals(100, available.fastest().durationMinutes());
     }
 
     @Test
-    void 해당_날짜_미운행이면_빈결과다() {
+    void 열차편이_하나면_item이_객체로_와도_처리한다() {
+        // data.go.kr 은 결과가 하나면 item 을 배열이 아니라 객체 하나로 내려준다.
+        String body = """
+                {"response":{"header":{"resultCode":"00"},"body":{"items":{"item":
+                  {"traingradename":"KTX","depplandtime":"20260501070000","arrplandtime":"20260501084000"}
+                }}}}""";
+
+        TrainAvailability result = client(body).fastestTrain("NAT010000", "NAT013271", DATE);
+
+        TrainAvailability.Available available = assertInstanceOf(TrainAvailability.Available.class, result);
+        assertEquals("KTX", available.fastest().trainType());
+        assertEquals(100, available.fastest().durationMinutes());
+    }
+
+    @Test
+    void 해당_날짜_미운행이면_NoServiceOnDate다() {
+        // 미운행이면 items 가 빈 문자열로 온다.
         String body = """
                 {"response":{"header":{"resultCode":"00"},"body":{"items":""}}}""";
 
-        assertTrue(client(body).fastestTrain("NAT010000", "NAT013271", DATE).isEmpty());
+        TrainAvailability result = client(body).fastestTrain("NAT010000", "NAT013271", DATE);
+
+        assertInstanceOf(TrainAvailability.NoServiceOnDate.class, result);
     }
 
     @Test
-    void 키가_없으면_호출하지_않고_빈결과를_돌려준다() {
+    void 비정상_resultCode는_Unavailable이다() {
+        String body = """
+                {"response":{"header":{"resultCode":"99"},"body":{}}}""";
+
+        assertInstanceOf(TrainAvailability.Unavailable.class, client(body).fastestTrain("A", "B", DATE));
+    }
+
+    @Test
+    void 키가_없으면_호출하지_않고_Unavailable을_돌려준다() {
         WebClient neverCalled = WebClient.builder()
                 .exchangeFunction(request -> {
                     throw new AssertionError("키가 없는데 TAGO 열차 호출이 일어났다");
                 })
                 .build();
 
-        assertTrue(new TrainInfoClientImpl(neverCalled, NO_KEY)
-                .fastestTrain("NAT010000", "NAT013271", DATE)
-                .isEmpty());
+        assertInstanceOf(
+                TrainAvailability.Unavailable.class,
+                new TrainInfoClientImpl(neverCalled, NO_KEY).fastestTrain("NAT010000", "NAT013271", DATE));
     }
 }

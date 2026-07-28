@@ -58,20 +58,21 @@
 - **Base 공통**: `http://apis.data.go.kr/1613000/...` · 응답 래퍼 `resultCode`/`items>item[]`
 - **한도**: 무료, 개발계정 일 10,000건
 
-> **경로 명명 규칙(실측)**: TAGO 서비스명은 전부 `...InqireService` 로 끝난다(오타 아님 — 정부 API 원문 표기). 틀린 이름은 게이트웨이가 `404 "API not found"`, 맞는 이름은 `500 "Unexpected errors"`(전파 전) 또는 `200`. 아래는 그 규칙으로 확정한 값.
+> **⚠️ 경로 명명 — 서비스마다 다르다(실측 확정)**: data.go.kr TAGO 는 서비스마다 base·op casing 이 제각각이다. 버스류는 `...InqireService` + **소문자** op(`getCtyCodeList`), **열차·지하철은 짧은 base(`TrainInfo`) + 대문자 G** op(`GetCtyCodeList`)다. 틀린 조합은 게이트웨이가 `404 "API not found"` — 404 의 태반이 미구독이 아니라 **경로·casing 오타**였다.
 
-| 서비스 | 데이터셋 | 경로 | 핵심 op / 필드 | 비고 |
+| 서비스 | 데이터셋 | base | 핵심 op / 필드 | 비고 |
 |---|---|---|---|---|
-| 버스도착정보(시내) | 15098530 | `ArvlInfoInqireService` ✅ | `getSttnAcctoArvlPrearngeInfoList` → `arrtime`(초 단위 잔여) | `nodeId` 선조회 필요, 실시간 |
-| 버스정류소정보 | 15098534 | `BusSttnInfoInqireService` ✅ | `getCtyCodeList` 등 | 200 확인 |
-| 버스노선정보 | 15098529 | `BusRouteInfoInqireService` ✅ | 노선·경유정류소 | 200 확인 |
-| 버스위치정보 | 15098531 | `BusLcInfoInqireService` ✅ | 실시간 차량 위치 | 200 확인 |
-| 고속버스정보 | 15098522 | `ExpBusInfoInqireService` ✅ | 출발/도착시간 · 요금 | 터미널ID 선조회 (경로 확정: 500=경로존재) |
-| 시외버스정보 | 15098541 | `SuburbsBusInfoInqireService`(추정) | 출발/도착/**소요시간**·요금 | ⚠️ **당일 배차만** (미래날짜 불가) |
-| 열차정보 | 15098552 | `TrainInfoInqireService` ✅ | `getStrtpntAlocFndTrainInfo`(출발/도착역+날짜) | **KTX 포함, SRT 미포함** (경로 확정) |
+| 버스도착정보(시내) | 15098530 | `ArvlInfoInqireService` ✅ | `getSttnAcctoArvlPrearngeInfoList`(소문자) → `arrtime` | `nodeId` 선조회, 실시간 |
+| 버스정류소정보 | 15098534 | `BusSttnInfoInqireService` ✅ | `getCtyCodeList` 등(소문자) | 200 |
+| 버스노선정보 | 15098529 | `BusRouteInfoInqireService` ✅ | 노선·경유정류소(소문자) | 200 |
+| 버스위치정보 | 15098531 | `BusLcInfoInqireService` ✅ | 실시간 차량 위치(소문자) | 200 |
+| **열차정보** | 15098552 | **`TrainInfo`** ✅ | **`GetStrtpntAlocFndTrainInfo`(대문자 G)** · `GetCtyCodeList` · `GetCtyAcctoTrainSttnList` | **200 실호출·KTX 확인.** SRT 미포함 |
+| 고속버스정보 | 15098522 | `ExpBusInfo`(추정) | `GetExpBusTrminlList`(대문자 추정) | 열차와 같은 규칙 예상 |
+| 시외버스정보 | 15098541 | `SuburbsBusInfo`(추정) | (대문자 추정) | ⚠️ **당일 배차만** |
+| 지하철정보 | — | `SubwayInfo`(추정) | (대문자 추정) | 도시 내 |
 
-- **경로 확정 근거**: 승인된 버스 4종은 `200`. 열차·고속버스는 올바른 `...InqireService` 이름에서 `500`(경로 존재·전파 진행 중), 틀린 이름(`TrainInfoService`·`ExpBusInfo`)에선 `404`. 즉 **이름은 확정, 남은 500 은 data.go.kr 응답 준비(전파) 대기** — 완료되면 자동 200.
-- **역/정류소/터미널 ID**는 각 목록 오퍼레이션(`getCtyCodeList`, 역목록 등)으로 선조회.
+- **응답 필드(열차)**: `items.item[]` (단건이면 `item` 객체 하나) · `traingradename`(KTX·ITX-새마을·무궁화) · `depplandtime`/`arrplandtime`(`yyyyMMddHHmmss`) · `trainno`. 미운행이면 `items:""`(빈 문자열).
+- **역/정류소/터미널 ID**는 각 목록 op(`GetCtyCodeList` → `GetCtyAcctoTrainSttnList` 등)으로 선조회. 예: 서울 `NAT010000` · 부산 `NAT014445`.
 - **OffWay 용도**: 반차·퇴근후 모드 도착시각, 교통수단별 동선.
 
 ### 1-5. 코레일 열차운행정보 — 한국철도공사

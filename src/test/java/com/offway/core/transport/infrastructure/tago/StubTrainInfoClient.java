@@ -1,8 +1,7 @@
 package com.offway.core.transport.infrastructure.tago;
 
-import com.offway.core.transport.infrastructure.tago.dto.TrainLeg;
+import com.offway.core.transport.infrastructure.tago.dto.TrainAvailability;
 import java.time.LocalDate;
-import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -11,16 +10,16 @@ import java.util.function.Supplier;
  */
 public class StubTrainInfoClient implements TrainInfoClient {
 
-    private Supplier<Optional<TrainLeg>> behavior = () -> {
+    private Supplier<TrainAvailability> behavior = () -> {
         throw new IllegalStateException("StubTrainInfoClient 미설정 — 테스트가 respond(...) 로 동작을 지정해야 합니다.");
     };
 
-    public void respond(Supplier<Optional<TrainLeg>> behavior) {
+    public void respond(Supplier<TrainAvailability> behavior) {
         this.behavior = behavior;
     }
 
     @Override
-    public Optional<TrainLeg> fastestTrain(String depStationId, String arrStationId, LocalDate date) {
+    public TrainAvailability fastestTrain(String depStationId, String arrStationId, LocalDate date) {
         return behavior.get();
     }
 }
