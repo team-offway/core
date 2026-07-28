@@ -1,10 +1,7 @@
 package com.offway.core.transport.infrastructure.tago;
 
-import com.offway.core.transport.infrastructure.tago.dto.Station;
 import com.offway.core.transport.infrastructure.tago.dto.TrainAvailability;
 import java.time.LocalDate;
-import java.util.List;
-import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -13,28 +10,16 @@ import java.util.function.Supplier;
  */
 public class StubTrainInfoClient implements TrainInfoClient {
 
-    private Supplier<TrainAvailability> trainBehavior = () -> {
+    private Supplier<TrainAvailability> behavior = () -> {
         throw new IllegalStateException("StubTrainInfoClient 미설정 — 테스트가 respond(...) 로 동작을 지정해야 합니다.");
-    };
-    private Function<String, List<Station>> stationBehavior = cityCode -> {
-        throw new IllegalStateException("StubTrainInfoClient 미설정 — 테스트가 respondStations(...) 로 동작을 지정해야 합니다.");
     };
 
     public void respond(Supplier<TrainAvailability> behavior) {
-        this.trainBehavior = behavior;
-    }
-
-    public void respondStations(Function<String, List<Station>> behavior) {
-        this.stationBehavior = behavior;
+        this.behavior = behavior;
     }
 
     @Override
     public TrainAvailability fastestTrain(String depStationId, String arrStationId, LocalDate date) {
-        return trainBehavior.get();
-    }
-
-    @Override
-    public List<Station> stationsInCity(String cityCode) {
-        return stationBehavior.apply(cityCode);
+        return behavior.get();
     }
 }

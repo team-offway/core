@@ -3,7 +3,6 @@ package com.offway.core.transport.infrastructure.tago;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
-import com.offway.core.transport.infrastructure.tago.dto.Station;
 import com.offway.core.transport.infrastructure.tago.dto.TrainAvailability;
 import com.offway.core.transport.infrastructure.tago.dto.TrainLeg;
 import java.net.URI;
@@ -12,7 +11,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
-import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -38,10 +36,7 @@ class TrainInfoClientImpl implements TrainInfoClient {
 
     private static final String URL =
             "https://apis.data.go.kr/1613000/TrainInfo/GetStrtpntAlocFndTrainInfo";
-    private static final String STATION_URL =
-            "https://apis.data.go.kr/1613000/TrainInfo/GetCtyAcctoTrainSttnList";
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
-    private static final int STATION_ROWS = 500;
     private static final int ROWS = 100;
     private static final DateTimeFormatter DATE = DateTimeFormatter.BASIC_ISO_DATE; // yyyyMMdd
     private static final DateTimeFormatter PLAN_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
@@ -74,41 +69,6 @@ class TrainInfoClientImpl implements TrainInfoClient {
             log.warn("TAGO 열차정보 조회 실패 — 조회 불가 처리 cause={}", e.getClass().getSimpleName());
             return new TrainAvailability.Unavailable();
         }
-    }
-
-    @Override
-    public List<Station> stationsInCity(String cityCode) {
-        if (!props.dataGoKr().hasKey()) {
-            return List.of();
-        }
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(STATION_URL)
-                .queryParam("serviceKey", props.dataGoKr().serviceKey())
-                .queryParam("_type", "json")
-                .queryParam("numOfRows", STATION_ROWS)
-                .queryParam("pageNo", 1)
-                .queryParam("cityCode", cityCode);
-        try {
-            return parseStations(call(builder));
-        } catch (Exception e) {
-            log.warn("TAGO 역목록 조회 실패 — 빈 목록 cause={}", e.getClass().getSimpleName());
-            return List.of();
-        }
-    }
-
-    private List<Station> parseStations(String body) throws Exception {
-        JsonNode response = objectMapper.readTree(body).path("response");
-        if (!"00".equals(response.path("header").path("resultCode").asText())) {
-            return List.of();
-        }
-        JsonNode item = response.path("body").path("items").path("item");
-        if (item.isMissingNode() || item.isNull()) {
-            return List.of();
-        }
-        Stream<JsonNode> nodes =
-                item.isArray() ? StreamSupport.stream(item.spliterator(), false) : Stream.of(item);
-        return nodes.map(n -> new Station(n.path("nodeid").asText(null), n.path("nodename").asText(null)))
-                .filter(s -> s.id() != null && s.name() != null)
-                .toList();
     }
 
     private String call(UriComponentsBuilder builder) {
