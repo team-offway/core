@@ -12,13 +12,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 /**
  * 홈 API 캐시 전후 응답시간 실측 — 서버사이드 캐싱의 효과를 숫자로 남긴다(포트폴리오/ADR 근거). data.go.kr 실 키가 있을 때만 돈다
- * (실 외부 호출이라 CI 기본 실행 제외). 워밍(HomeCacheWarmer)은 테스트 컨텍스트에서 비활성(@Profile)이라 캐시가 콜드로 시작해
- * 측정을 통제할 수 있다.
+ * (실 외부 호출이라 CI 기본 실행 제외).
  *
  * <ul>
- *   <li><b>캐시 OFF</b> — 매 호출 전 캐시를 비워, 요청마다 외부 팬아웃(랭킹 관광빅데이터 + 콘텐츠 TourAPI×N + 미세먼지)을 탄다.
+ *   <li><b>캐시 OFF</b> — 매 호출 <b>직전</b> 캐시를 비워, 그 호출이 외부 팬아웃(랭킹 관광빅데이터 + 콘텐츠 TourAPI×N + 미세먼지)을 타게 한다.
  *   <li><b>캐시 ON</b> — 한 번 데운 뒤 호출 → 전부 인메모리 캐시에서 응답.
  * </ul>
+ *
+ * <p><b>워머 통제</b>: 기본 활성 프로파일이 {@code local}({@code application.properties})이라 이 컨텍스트엔 {@code
+ * HomeCacheWarmer}(프로파일 {@code local | prod})가 뜬다. 프로파일·프로퍼티 고정 어노테이션으로 끄는 게 이상적이나, 그것들은
+ * 컨텍스트 캐시를 깨 프로젝트 훅이 막는다. 대신 <b>측정 직전 evict</b> 가 통제 수단이다 — 워머가 백그라운드로 채워도 각 콜드 호출
+ * 직전에 비우므로 콜드는 외부를 탄다. 설령 워머가 한 호출 중 끼어들어 채우면 그 호출은 더 <b>빨라질</b> 뿐이라 OFF 수치를 부풀리지
+ * 않는다(=보수적). 실제로 콜드 median 이 10s 대라 워머 간섭은 결론에 무의미하다.
  */
 @SpringBootTest
 @EnabledIfEnvironmentVariable(named = "DATA_GO_KR_SERVICE_KEY", matches = ".+")
