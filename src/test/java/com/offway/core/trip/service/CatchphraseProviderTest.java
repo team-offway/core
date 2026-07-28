@@ -33,21 +33,12 @@ class CatchphraseProviderTest {
     }
 
     @Test
-    void 콤마가_포함된_문구도_인용을_풀어_온전히_준다() {
-        // 인용된 필드는 앞뒤 큰따옴표가 제거되어야 한다.
-        provider.forContentId("126508").ifPresent(phrase -> {
-            assertFalse(phrase.startsWith("\""), "인용 큰따옴표가 남으면 안 된다");
-            assertFalse(phrase.endsWith("\""), "인용 큰따옴표가 남으면 안 된다");
-        });
-    }
+    void 콤마가_포함된_인용_문구도_콤마를_보존해_온전히_준다() {
+        // 134640 은 인용부호로 감싸이고 내부에 콤마가 있는 실제 시드 행("...인삼, 대추...").
+        // 첫 콤마로 contentId 를 자르되 인용을 풀어, 문구 안의 콤마는 그대로 보존돼야 한다.
+        String phrase = provider.forContentId("134640").orElseThrow();
 
-    @Test
-    void 대량_시드가_로드된다() {
-        // 구석구석 캐치프레이즈는 수만 건 규모 — 파싱이 통째로 실패하면 0 이 된다.
-        assertTrue(provider.forContentId("126508").isPresent());
-        assertEquals(
-                provider.forContentId("126508"),
-                provider.forContentId("126508"),
-                "같은 키는 항상 같은 값");
+        assertEquals("신촌약수물에 인삼, 대추 등의 약재를 넣은 닭죽 전문점", phrase);
+        assertFalse(phrase.startsWith("\""), "인용 큰따옴표가 남으면 안 된다");
     }
 }
