@@ -82,6 +82,11 @@ public class RegionRankingService {
             return cached != null ? cached.data() : Map.of();
         }
         try {
+            // 게이트 획득 사이 다른 스레드가 이미 갱신했을 수 있다 — 재확인해 직렬 중복 호출을 막는다.
+            CachedVisitors latest = cache.get();
+            if (latest != null && latest.isFresh()) {
+                return latest.data();
+            }
             Map<String, VisitorAgg> fresh = fetchTourists();
             cache.set(CachedVisitors.of(fresh, CACHE_TTL));
             return fresh;

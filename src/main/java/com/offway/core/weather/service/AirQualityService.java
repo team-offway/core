@@ -45,6 +45,11 @@ public class AirQualityService {
             return cached != null ? cached.value() : Optional.empty();
         }
         try {
+            // 게이트 획득 사이 다른 스레드가 이미 갱신했을 수 있다 — 재확인해 직렬 중복 호출을 막는다.
+            CachedAir latest = cache.get(key);
+            if (latest != null && latest.isFresh()) {
+                return latest.value();
+            }
             Optional<AirQuality> fresh = airKoreaClient.realtimeBySido(key);
             cache.put(key, CachedAir.of(fresh, fresh.isPresent() ? CACHE_TTL : EMPTY_TTL));
             return fresh;
