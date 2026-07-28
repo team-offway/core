@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 느리고 불안정한 외부 API 응답을 감싸는 재사용 캐시 프리미티브. OffWay 의 외부 의존(관광빅데이터·TourAPI·에어코리아 등)은
@@ -28,6 +29,7 @@ import java.util.function.BiFunction;
  * @param <K> 캐시 키(예: 지역 id·시도명). 단일 값이면 상수 키 하나를 쓴다.
  * @param <V> 캐시 값
  */
+@Slf4j
 public final class ExternalDataCache<K, V> {
 
     private final Map<K, Entry<V>> cache = new ConcurrentHashMap<>();
@@ -58,7 +60,15 @@ public final class ExternalDataCache<K, V> {
                 return latest.value();
             }
             V stale = latest != null ? latest.value() : (cached != null ? cached.value() : null);
-            Loaded<V> loaded = loader.apply(key, stale);
+            Loaded<V> loaded;
+            try {
+                loaded = loader.apply(key, stale);
+            } catch (RuntimeException e) {
+                // 최후 방어선 — loader 는 외부 예외를 스스로 잡는 게 계약이지만, 그 계약이 깨져도(예외 누수) 요청 경로로 올리지
+                // 않는다. stale 이 있으면 그걸로, 없으면 폴백으로 degrade 한다. 캐시엔 넣지 않아 다음 호출이 재시도한다.
+                log.warn("캐시 loader 가 예외를 던졌습니다 — stale 로 degrade key={}", key, e);
+                return stale != null ? stale : noStaleFallback;
+            }
             cache.put(key, new Entry<>(loaded.value(), Instant.now().plus(loaded.ttl())));
             return loaded.value();
         } finally {
