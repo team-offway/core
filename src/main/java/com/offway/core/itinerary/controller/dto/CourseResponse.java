@@ -20,11 +20,12 @@ import java.util.List;
  * @param benefits 적용 혜택 뱃지
  */
 public record CourseResponse(
-        long regionId, int travelDays, String density, List<Day> days, List<Benefit> benefits) {
+        Long courseId, long regionId, int travelDays, String density, List<Day> days, List<Benefit> benefits) {
 
     public static CourseResponse from(GeneratedCourse generated) {
         Course course = generated.course();
         return new CourseResponse(
+                course.getId(), // 저장된 코스만 값, 생성만 된 코스는 null
                 course.getRegionId(),
                 course.getTravelDays(),
                 course.getDensity().name(),
