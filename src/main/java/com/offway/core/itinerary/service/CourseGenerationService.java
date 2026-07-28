@@ -99,13 +99,13 @@ public class CourseGenerationService {
         return new GeneratedCourse(course, benefits, weather, trainAccess);
     }
 
-    /** 대중교통 코스의 출발지→지역 열차 접근. 지역 좌표가 아니라 지역명(시도·시군구)으로 역을 해석한다. */
+    /** 대중교통 코스의 출발지→지역 열차 접근. 출발·지역 좌표의 최근접 역으로 해석한다. */
     private TrainAccess trainAccessFor(GenerateCourse command) {
         return regionRepository.findByIds(List.of(command.regionId())).stream()
                 .findFirst()
                 .map(region -> trainAccessService.accessTo(
                         command.originLat(), command.originLng(),
-                        region.getSido(), region.getSigungu(), command.travelDate()))
+                        region.getLat(), region.getLng(), command.travelDate()))
                 .orElse(null);
     }
 

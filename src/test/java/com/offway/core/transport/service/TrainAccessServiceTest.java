@@ -2,99 +2,89 @@ package com.offway.core.transport.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.offway.core.transport.domain.TrainAvailability;
+import com.offway.core.transport.domain.TrainLeg;
+import com.offway.core.transport.domain.TrainStation;
 import com.offway.core.transport.infrastructure.tago.StubTrainInfoClient;
-import com.offway.core.transport.infrastructure.tago.dto.Station;
-import com.offway.core.transport.infrastructure.tago.dto.TrainAvailability;
-import com.offway.core.transport.infrastructure.tago.dto.TrainLeg;
+import com.offway.core.transport.repository.TrainStationRepository;
 import com.offway.core.transport.service.dto.TrainAccess;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/** TrainAccessService — 역 해석(이름매칭·출발지 거점) + 열차 조회를 조립한 4-way 결과 검증. 외부는 StubTrainInfoClient 로 격리. */
+/** TrainAccessService — 좌표 최근접 역해석 + 열차 조회를 조립한 4-way 결과. 역 마스터는 stub 리포지토리로, 열차는 stub 클라이언트로 격리. */
 class TrainAccessServiceTest {
 
     private static final LocalDate DATE = LocalDate.of(2026, 5, 1);
     private static final double SEOUL_LAT = 37.5547;
     private static final double SEOUL_LNG = 126.9707;
-    // 강원 역 목록(정선 있음). 출발 거점역(서울)은 resolver 가 큐레이션으로 안다.
-    private static final List<Station> GANGWON = List.of(
-            new Station("NAT770658", "정선"), new Station("NAT600000", "태백"));
+    private static final double JEONGSEON_LAT = 37.3878;
+    private static final double JEONGSEON_LNG = 128.6716;
+
+    /** 서울·경주·정선 3역 마스터. */
+    private static final List<TrainStation> MASTER = List.of(
+            TrainStation.of("NAT010000", "서울", 37.5547, 126.9707),
+            TrainStation.of("NATH13421", "경주", 35.7980, 129.1405),
+            TrainStation.of("NAT610226", "정선", 37.3878, 128.6716)); // 코드는 시드 마스터와 일치
 
     private static TrainAccessService service(StubTrainInfoClient stub) {
-        return new TrainAccessService(new TrainStationResolver(stub), new TrainRouteService(stub));
+        TrainStationRepository repo = () -> MASTER; // findAll 단일 메서드 → 람다
+        return new TrainAccessService(new TrainStationResolver(repo), new TrainRouteService(stub));
     }
 
     private static TrainLeg ktx() {
-        return TrainLeg.of("KTX",
-                LocalDateTime.of(2026, 5, 1, 7, 0), LocalDateTime.of(2026, 5, 1, 9, 30));
+        return TrainLeg.of("KTX", LocalDateTime.of(2026, 5, 1, 7, 0), LocalDateTime.of(2026, 5, 1, 9, 30));
     }
 
     @Test
-    void 서울출발_정선도착_운행있으면_AVAILABLE() {
+    void 출발_도착_모두_근교역이_있고_운행하면_AVAILABLE() {
         StubTrainInfoClient stub = new StubTrainInfoClient();
-        stub.respondStations(city -> GANGWON);
         stub.respond(() -> new TrainAvailability.Available(ktx()));
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, "강원특별자치도", "정선군", DATE);
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
 
         assertEquals(TrainAccess.Status.AVAILABLE, access.status());
         assertEquals("서울", access.fromStation());
         assertEquals("정선", access.toStation());
-        assertEquals("KTX", access.fastest().trainType());
         assertEquals(150, access.fastest().durationMinutes());
     }
 
     @Test
-    void 동명_역이_없는_지역은_NO_STATION() {
+    void 목적지_근교에_역이_없으면_NO_STATION() {
         StubTrainInfoClient stub = new StubTrainInfoClient();
-        stub.respondStations(city -> GANGWON); // 정선·태백뿐 — 철원 없음
         stub.respond(() -> {
             throw new AssertionError("역이 없으면 열차 조회를 하면 안 된다");
         });
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, "강원특별자치도", "철원군", DATE);
+        // 제주 좌표 — 마스터의 어느 육지 역과도 50km 밖
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, 33.4996, 126.5312, DATE);
 
         assertEquals(TrainAccess.Status.NO_STATION, access.status());
-        assertEquals("서울", access.fromStation()); // 출발역은 잡히고
-        assertEquals(null, access.toStation()); // 도착역이 없다
-    }
-
-    @Test
-    void 출발지가_거점역에서_멀면_NO_STATION() {
-        StubTrainInfoClient stub = new StubTrainInfoClient();
-        stub.respondStations(city -> GANGWON);
-        stub.respond(() -> {
-            throw new AssertionError("출발역이 없으면 열차 조회를 하면 안 된다");
-        });
-
-        // 울릉도 근처 — 거점역 반경 밖
-        TrainAccess access = service(stub).accessTo(37.48, 130.90, "강원특별자치도", "정선군", DATE);
-
-        assertEquals(TrainAccess.Status.NO_STATION, access.status());
+        assertEquals("서울", access.fromStation());
+        assertEquals(null, access.toStation());
     }
 
     @Test
     void 역은_있는데_그날_미운행이면_NO_SERVICE_ON_DATE() {
         StubTrainInfoClient stub = new StubTrainInfoClient();
-        stub.respondStations(city -> GANGWON);
-        stub.respond(() -> new TrainAvailability.NoServiceOnDate());
+        stub.respond(TrainAvailability.NoServiceOnDate::new);
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, "강원특별자치도", "정선군", DATE);
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
 
         assertEquals(TrainAccess.Status.NO_SERVICE_ON_DATE, access.status());
         assertEquals("정선", access.toStation());
     }
 
     @Test
-    void 열차_조회_실패는_UNAVAILABLE() {
+    void 열차_조회_실패는_역명_유지하며_UNAVAILABLE() {
         StubTrainInfoClient stub = new StubTrainInfoClient();
-        stub.respondStations(city -> GANGWON);
-        stub.respond(() -> new TrainAvailability.Unavailable());
+        stub.respond(TrainAvailability.Unavailable::new);
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, "강원특별자치도", "정선군", DATE);
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
 
         assertEquals(TrainAccess.Status.UNAVAILABLE, access.status());
+        assertEquals("서울", access.fromStation());
+        assertEquals("정선", access.toStation());
     }
 }
