@@ -24,7 +24,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 @EnabledIfEnvironmentVariable(named = "DATA_GO_KR_SERVICE_KEY", matches = ".+")
 class HomeCacheBenchmarkE2ETest {
 
-    private static final int RUNS = 5;
+    private static final int RUNS = 20;
     private static final int REMAINING_LEAVE = 13;
 
     @Autowired
