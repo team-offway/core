@@ -38,6 +38,19 @@ class RegionRecommendIntegrationTest {
     @Autowired
     private StubTourApiClient tourApiClient;
 
+    @Autowired
+    private com.offway.core.trip.service.RegionRankingService regionRankingService;
+
+    @Autowired
+    private com.offway.core.trip.service.RegionContentProvider regionContentProvider;
+
+    // 랭킹·콘텐츠 캐시는 공유 싱글톤 — 각 테스트가 자기 stub 시나리오를 타도록 캐시를 비운다(DB 롤백에 준하는 격리).
+    @org.junit.jupiter.api.BeforeEach
+    void evictCaches() {
+        regionRankingService.evictCache();
+        regionContentProvider.evictCache();
+    }
+
     @TestConfiguration
     static class StubConfig {
 
@@ -140,17 +153,19 @@ class RegionRecommendIntegrationTest {
     }
 
     @Test
-    void 관광빅데이터_조회_실패는_502_TOUR_002() throws Exception {
+    void 관광빅데이터_조회가_실패해도_200으로_추천을_내린다() throws Exception {
+        // 생활인구는 랭킹 가중치 — 조회 실패 시 방문자 0 폴백 랭킹으로 추천을 유지한다(502 금지)
         dataLabClient.respond(() -> {
             throw TourApiException.dataLabLookupFailed(new RuntimeException("upstream down"));
         });
+        tourApiClient.respond(RegionRecommendIntegrationTest::sufficientContent);
 
         String body = """
                 { "originLat": 37.49, "originLng": 127.02, "transport": "CAR", "maxReachMinutes": 100000 }""";
 
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.status").value(502))
-                .andExpect(jsonPath("$.code").value("TOUR-002"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.length()").value(org.hamcrest.Matchers.greaterThan(0)));
     }
 }

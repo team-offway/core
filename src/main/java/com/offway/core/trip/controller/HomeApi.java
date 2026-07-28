@@ -14,8 +14,7 @@ public interface HomeApi {
     @Operation(
             summary = "홈",
             description = "남은 연차 + 필터칩 + 이번주 추천 지역(랭킹 top-N, 대표 이미지·categories·한산도·대표 혜택 뱃지).")
-    @ApiResponse(responseCode = "200", description = "조회 성공")
-    @ApiResponse(responseCode = "502", description = "외부 관광정보(방문자 통계 · TourAPI 콘텐츠) 조회 실패")
+    @ApiResponse(responseCode = "200", description = "조회 성공 (외부 관광정보 실패 시 이미지·대기질 없이 degrade — 502 아님)")
     ApiResponseBody<HomeResponse> home(
             @Parameter(description = "남은 연차 (게스트 — 클라이언트 보유값)", example = "13") Integer remainingLeave);
 }
