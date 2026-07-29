@@ -3,6 +3,7 @@ package com.offway.core.common.cache;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
@@ -45,26 +46,26 @@ public final class ExternalDataCache<K, V> {
      * @return 신선하거나 stale 한 값, 또는 폴백
      */
     public V get(K key, BiFunction<K, V, Loaded<V>> loader, V noStaleFallback) {
-        return get(key, loader, noStaleFallback, true);
+        return get(key, loader, noStaleFallback, StalePolicy.ALLOW_STALE);
     }
 
     /**
-     * {@link #get(Object, BiFunction, Object)} 와 같되, stale 제공 여부를 고른다.
+     * {@link #get(Object, BiFunction, Object)} 와 같되, stale 재사용 정책을 고른다.
      *
-     * <p>{@code serveStaleWhileRefreshing=false} 는 <b>실시간 값</b>용이다. 다른 스레드가 갱신 중일 때(single-flight)
-     * 만료된 캐시값을 내려주면 "이미 떠난 버스"를 기다리게 하므로, stale 대신 즉시 {@code noStaleFallback}(예: 조회 불가)을
-     * 돌려준다. 느리게 변하는 값(정류소·방문자수)은 {@code true}(기본)로 stale 을 재사용해 스탬피드를 막는다.
+     * <p>정책은 <b>degrade 가 필요한 두 지점</b>(갱신 중 동시 요청 · loader 예외)에 함께 적용된다. 무엇을 내릴지는
+     * {@link StalePolicy} 가 스스로 안다.
      *
-     * @param serveStaleWhileRefreshing 갱신 중 동시 요청에 stale 을 줄지(true) 폴백을 줄지(false)
+     * @param stalePolicy stale 재사용 정책 — 각 상수의 문서 참고
      */
-    public V get(K key, BiFunction<K, V, Loaded<V>> loader, V noStaleFallback, boolean serveStaleWhileRefreshing) {
+    public V get(K key, BiFunction<K, V, Loaded<V>> loader, V noStaleFallback, StalePolicy stalePolicy) {
+        Objects.requireNonNull(stalePolicy, "stalePolicy");
         Entry<V> cached = cache.get(key);
         if (cached != null && cached.isFresh()) {
             return cached.value();
         }
         // single-flight: 이 키를 이미 다른 스레드가 갱신 중이면 stale(없거나 미제공이면 폴백)을 즉시 반환한다.
         if (!refreshing.add(key)) {
-            return (serveStaleWhileRefreshing && cached != null) ? cached.value() : noStaleFallback;
+            return stalePolicy.degrade(cached != null ? cached.value() : null, noStaleFallback);
         }
         try {
             // double-check: 게이트 획득 사이 다른 스레드가 이미 갱신했을 수 있다.
@@ -80,7 +81,7 @@ public final class ExternalDataCache<K, V> {
                 // 최후 방어선 — loader 는 외부 예외를 스스로 잡는 게 계약이지만, 그 계약이 깨져도(예외 누수) 요청 경로로 올리지
                 // 않는다. stale 을 쓰는 값이면 그걸로, 아니면 폴백으로 degrade 한다. 캐시엔 넣지 않아 다음 호출이 재시도한다.
                 log.warn("캐시 loader 가 예외를 던졌습니다 — degrade key={}", key, e);
-                return (serveStaleWhileRefreshing && stale != null) ? stale : noStaleFallback;
+                return stalePolicy.degrade(stale, noStaleFallback);
             }
             cache.put(key, new Entry<>(loaded.value(), Instant.now().plus(loaded.ttl())));
             return loaded.value();
@@ -92,6 +93,37 @@ public final class ExternalDataCache<K, V> {
     /** 캐시 무효화 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트 격리용. */
     public void evictAll() {
         cache.clear();
+    }
+
+    /**
+     * 신선한 값을 못 줄 때 stale 을 재사용할지의 정책. 무엇을 내릴지는 각 상수가 스스로 안다(호출부에 분기가 없다).
+     *
+     * <p>degrade 가 필요한 지점은 두 곳이고, 정책은 <b>양쪽에 같이</b> 적용된다 — ① 다른 스레드가 갱신 중일 때
+     * (single-flight 에 막힌 요청) ② loader 가 계약을 어기고 예외를 던졌을 때.
+     */
+    public enum StalePolicy {
+
+        /** 느리게 변하는 값(정류소·방문자수)용 — stale 이 있으면 재사용해 스탬피드를 막는다. */
+        ALLOW_STALE {
+            @Override
+            <V> V degrade(V stale, V fallback) {
+                return stale != null ? stale : fallback;
+            }
+        },
+
+        /**
+         * 실시간 값(버스 도착)용 — stale 을 절대 내리지 않는다. 10분 전에 받은 "3분 후 도착"은 이미 떠난 버스를 기다리게
+         * 만들어, 없느니만 못한 정보다.
+         */
+        DISALLOW_STALE {
+            @Override
+            <V> V degrade(V stale, V fallback) {
+                return fallback;
+            }
+        };
+
+        /** 신선한 값이 없을 때 무엇을 내릴지 — 정책이 고른다. */
+        abstract <V> V degrade(V stale, V fallback);
     }
 
     /** loader 가 돌려주는 결과 — 값과 그 값을 캐시할 기간. 성공/실패·빈 값에 따라 TTL 을 달리 골라 넘긴다. */
