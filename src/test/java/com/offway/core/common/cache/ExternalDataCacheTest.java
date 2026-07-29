@@ -1,6 +1,7 @@
 package com.offway.core.common.cache;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
@@ -12,6 +13,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class ExternalDataCacheTest {
@@ -86,6 +88,38 @@ class ExternalDataCacheTest {
         }, "fallback");
 
         assertEquals("fallback", result);
+    }
+
+    @Test
+    void stale_미제공이면_loader_예외로_degrade할_때도_stale대신_폴백을_돌려준다() throws InterruptedException {
+        // 위 loader가_예외를_던져도... 의 DISALLOW_STALE 짝 — degrade 두 경로가 같은 정책을 따르는지 확인한다.
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        cache.get(KEY, (k, stale) -> new Loaded<>("stale", SHORT_TTL), "fallback", StalePolicy.DISALLOW_STALE);
+        Thread.sleep(60); // 만료 — stale 이 남은 상태에서 loader 가 계약을 어기고 예외를 던진다
+
+        String result = cache.get(KEY, (k, stale) -> {
+            throw new IllegalStateException("loader 계약 위반");
+        }, "fallback", StalePolicy.DISALLOW_STALE);
+
+        assertEquals("fallback", result); // ALLOW_STALE 이면 "stale" 이지만, 실시간 값은 조회 불가가 낫다
+    }
+
+    @Test
+    void stale_미제공이면_loader가_stale을_새_값으로_되돌려줄_수_없다() throws InterruptedException {
+        // 정책이 degrade 만 막으면 loader 반환값이라는 우회로가 남는다. stale 을 아예 안 넘겨 그 통로를 닫는다.
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        cache.get(KEY, (k, stale) -> new Loaded<>("stale", SHORT_TTL), "fallback", StalePolicy.DISALLOW_STALE);
+        Thread.sleep(60); // 만료
+
+        AtomicReference<String> seenByLoader = new AtomicReference<>("아직 호출 안 됨");
+        String result = cache.get(KEY, (k, stale) -> {
+            seenByLoader.set(stale);
+            // ALLOW_STALE 호출부의 일반적인 형태 — 조회 실패면 stale 을 그대로 재사용한다.
+            return new Loaded<>(stale != null ? stale : "fresh", LONG_TTL);
+        }, "fallback", StalePolicy.DISALLOW_STALE);
+
+        assertNull(seenByLoader.get(), "DISALLOW_STALE 이면 loader 에 stale 이 넘어가면 안 된다");
+        assertEquals("fresh", result);
     }
 
     @Test
