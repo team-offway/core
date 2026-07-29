@@ -122,6 +122,46 @@ class ExternalDataCacheTest {
         assertTrue(results.contains("stale"), "게이트에 막힌 스레드는 stale 값을 받아야 한다");
     }
 
+    @Test
+    void stale_미제공이면_갱신_중_동시요청은_stale대신_폴백을_받는다() throws InterruptedException {
+        // 실시간 값(버스 도착)용 — serveStaleWhileRefreshing=false. 만료된 stale 을 절대 내리지 않는다.
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        cache.get(KEY, (k, stale) -> new Loaded<>("stale", SHORT_TTL), "fallback", false);
+        Thread.sleep(60); // 만료 — 이제 캐시엔 만료된 "stale" 이 남아 있다
+
+        int threads = 16;
+        AtomicInteger loads = new AtomicInteger();
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threads);
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        List<String> results = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        for (int i = 0; i < threads; i++) {
+            pool.submit(() -> {
+                try {
+                    start.await();
+                    results.add(cache.get(KEY, (k, stale) -> {
+                        loads.incrementAndGet();
+                        sleepQuietly(50); // 게이트를 잡은 스레드가 조회하는 동안 나머지가 막히게
+                        return new Loaded<>("fresh", LONG_TTL);
+                    }, "fallback", false));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+        start.countDown();
+        done.await(5, TimeUnit.SECONDS);
+        pool.shutdown();
+
+        assertEquals(1, loads.get());
+        assertEquals(threads, results.size());
+        // 핵심: 갱신 중 막힌 스레드는 만료된 stale 이 아니라 폴백을 받아야 한다(실시간 값이 오래된 채로 노출되지 않게).
+        assertTrue(results.stream().noneMatch("stale"::equals), "stale 미제공 모드에선 stale 이 절대 노출되면 안 된다");
+        assertTrue(results.contains("fallback"), "게이트에 막힌 스레드는 폴백을 받아야 한다");
+    }
+
     private static void sleepQuietly(long millis) {
         try {
             Thread.sleep(millis);

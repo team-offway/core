@@ -13,9 +13,10 @@ import org.springframework.stereotype.Service;
  * 실시간 버스 도착 조회 — transport 가 다른 도메인에 노출하는 공개 서비스. 여행 <b>당일</b> "다음 버스가 언제 오나"에 답한다.
  * 계획 시점의 대중교통 판단은 {@link BusAccessService}(정류소 유무)가 맡는다.
  *
- * <p><b>여기서는 stale-while-error 를 쓰지 않는다.</b> 캐시 프리미티브가 그 기능을 주지만, 실시간 값에 적용하면 해로운
+ * <p><b>여기서는 stale 을 절대 내리지 않는다.</b> 캐시 프리미티브가 stale 재사용을 주지만, 실시간 값에 적용하면 해로운
  * 정보가 된다 — 10분 전에 받은 "3분 후 도착"을 그대로 내려주면 이미 떠난 버스를 기다리게 만든다. 느리게 변하는 값(정류소 위치·
- * 방문자수)과 달리, 오래된 도착 정보는 없느니만 못하다. 그래서 실패하면 stale 대신 조회 불가를 돌려준다.
+ * 방문자수)과 달리, 오래된 도착 정보는 없느니만 못하다. 그래서 {@code serveStaleWhileRefreshing=false} 로 호출해,
+ * <b>재조회 실패든 다른 스레드가 갱신 중이든</b> stale 대신 조회 불가를 돌려준다.
  *
  * <p>캐시를 아예 안 쓰지는 않는다. 같은 정류소를 여러 사용자가 동시에 볼 때 쿼터가 터지지 않게 아주 짧게(20초)만 묶는다.
  */
@@ -43,7 +44,8 @@ public class BusArrivalService {
                     Duration ttl = fresh instanceof BusArrivalStatus.Unavailable ? RETRY_TTL : CACHE_TTL;
                     return new Loaded<>(fresh, ttl);
                 },
-                new BusArrivalStatus.Unavailable());
+                new BusArrivalStatus.Unavailable(),
+                false); // 실시간 값 — 갱신 중 동시 요청에도 stale(만료된 도착정보) 대신 조회 불가를 준다
     }
 
     /** 캐시 무효화 — 운영상 강제 갱신, 통합 테스트 격리용. */

@@ -33,6 +33,9 @@ class BusArrivalClientImpl implements BusArrivalClient {
     /** 한 정류소에 곧 오는 버스는 많아야 수십 대다. */
     private static final int ROWS = 30;
 
+    private static final String CITY_CODE = "cityCode";
+    private static final String NODE_ID = "nodeId";
+
     private final WebClient webClient;
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -48,12 +51,12 @@ class BusArrivalClientImpl implements BusArrivalClient {
             return new BusArrivalStatus.Unavailable();
         }
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(URL)
-                .queryParam("serviceKey", props.dataGoKr().serviceKey())
-                .queryParam("_type", "json")
-                .queryParam("numOfRows", ROWS)
-                .queryParam("pageNo", 1)
-                .queryParam("cityCode", stop.cityCode())
-                .queryParam("nodeId", stop.nodeId());
+                .queryParam(TagoQuery.SERVICE_KEY, props.dataGoKr().serviceKey())
+                .queryParam(TagoQuery.RESPONSE_TYPE, TagoQuery.RESPONSE_TYPE_JSON)
+                .queryParam(TagoQuery.NUM_OF_ROWS, ROWS)
+                .queryParam(TagoQuery.PAGE_NO, TagoQuery.FIRST_PAGE)
+                .queryParam(CITY_CODE, stop.cityCode())
+                .queryParam(NODE_ID, stop.nodeId());
         try {
             return parse(call(builder));
         } catch (Exception e) {
@@ -63,8 +66,8 @@ class BusArrivalClientImpl implements BusArrivalClient {
     }
 
     private String call(UriComponentsBuilder builder) {
-        // serviceKey 는 hex 라 재인코딩해도 안전.
-        URI uri = builder.encode().build().toUri();
+        // serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(build(true)) — TourApiClientImpl 과 동일 규약.
+        URI uri = builder.build(true).toUri();
         return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
     }
 

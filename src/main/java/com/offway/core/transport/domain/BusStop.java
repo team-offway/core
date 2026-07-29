@@ -22,5 +22,8 @@ public record BusStop(String nodeId, String name, int cityCode, double lat, doub
         if (nodeId.isBlank()) {
             throw new IllegalArgumentException("정류소 코드는 비어 있을 수 없습니다");
         }
+        if (name.isBlank()) {
+            throw new IllegalArgumentException("정류소명은 비어 있을 수 없습니다");
+        }
     }
 }

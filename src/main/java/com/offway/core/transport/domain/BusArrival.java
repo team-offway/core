@@ -17,6 +17,8 @@ import java.util.Objects;
  */
 public record BusArrival(String routeNo, String routeType, int arrivalSeconds, int stopsAway) {
 
+    private static final int SECONDS_PER_MINUTE = 60;
+
     public BusArrival {
         Objects.requireNonNull(routeNo, "노선번호는 필수입니다");
         if (arrivalSeconds < 0) {
@@ -27,8 +29,9 @@ public record BusArrival(String routeNo, String routeType, int arrivalSeconds, i
         }
     }
 
-    /** 도착까지 남은 분 — 올림. 30초 남았는데 "0분" 이라고 하면 이미 지나간 것처럼 읽힌다. */
+    /** 도착까지 남은 분 — 올림. 30초 남았는데 "0분" 이라고 하면 이미 지나간 것처럼 읽힌다. 나머지로 올림해 덧셈 오버플로를 피한다. */
     public int arrivalMinutes() {
-        return (arrivalSeconds + 59) / 60;
+        int minutes = arrivalSeconds / SECONDS_PER_MINUTE;
+        return arrivalSeconds % SECONDS_PER_MINUTE == 0 ? minutes : minutes + 1;
     }
 }

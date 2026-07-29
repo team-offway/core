@@ -33,6 +33,9 @@ class BusStopClientImpl implements BusStopClient {
     /** 접근성 판정에는 가장 가까운 몇 곳이면 충분하다 — 전량을 받아 파싱할 이유가 없다. */
     private static final int ROWS = 20;
 
+    private static final String GPS_LATI = "gpsLati";
+    private static final String GPS_LONG = "gpsLong";
+
     private final WebClient webClient;
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -48,12 +51,12 @@ class BusStopClientImpl implements BusStopClient {
             return new BusStopAccess.Unavailable();
         }
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(URL)
-                .queryParam("serviceKey", props.dataGoKr().serviceKey())
-                .queryParam("_type", "json")
-                .queryParam("numOfRows", ROWS)
-                .queryParam("pageNo", 1)
-                .queryParam("gpsLati", lat)
-                .queryParam("gpsLong", lng);
+                .queryParam(TagoQuery.SERVICE_KEY, props.dataGoKr().serviceKey())
+                .queryParam(TagoQuery.RESPONSE_TYPE, TagoQuery.RESPONSE_TYPE_JSON)
+                .queryParam(TagoQuery.NUM_OF_ROWS, ROWS)
+                .queryParam(TagoQuery.PAGE_NO, TagoQuery.FIRST_PAGE)
+                .queryParam(GPS_LATI, lat)
+                .queryParam(GPS_LONG, lng);
         try {
             return parse(call(builder));
         } catch (Exception e) {
@@ -63,8 +66,8 @@ class BusStopClientImpl implements BusStopClient {
     }
 
     private String call(UriComponentsBuilder builder) {
-        // serviceKey 는 hex 라 재인코딩해도 안전.
-        URI uri = builder.encode().build().toUri();
+        // serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(build(true)) — TourApiClientImpl 과 동일 규약.
+        URI uri = builder.build(true).toUri();
         return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
     }
 
@@ -90,9 +93,14 @@ class BusStopClientImpl implements BusStopClient {
         String name = node.path("nodenm").asText(null);
         JsonNode lat = node.path("gpslati");
         JsonNode lng = node.path("gpslong");
-        if (nodeId == null || nodeId.isBlank() || name == null || !lat.isNumber() || !lng.isNumber()) {
-            return Optional.empty(); // 부분 결측 방어 — 이 항목만 건너뛴다
+        JsonNode cityCode = node.path("citycode");
+        // 부분 결측 방어 — 이 항목만 건너뛴다. citycode 는 도착정보 조회에 필수라 정수 아님·0 이하면 제외한다
+        // (asInt() 는 결측·비정수도 0 을 돌려줘 방어를 우회하므로 isIntegralNumber 로 확인).
+        if (nodeId == null || nodeId.isBlank() || name == null || name.isBlank()
+                || !lat.isNumber() || !lng.isNumber()
+                || !cityCode.isIntegralNumber() || cityCode.asInt() <= 0) {
+            return Optional.empty();
         }
-        return Optional.of(new BusStop(nodeId, name, node.path("citycode").asInt(), lat.asDouble(), lng.asDouble()));
+        return Optional.of(new BusStop(nodeId, name, cityCode.asInt(), lat.asDouble(), lng.asDouble()));
     }
 }

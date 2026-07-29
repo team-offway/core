@@ -45,13 +45,26 @@ public final class ExternalDataCache<K, V> {
      * @return 신선하거나 stale 한 값, 또는 폴백
      */
     public V get(K key, BiFunction<K, V, Loaded<V>> loader, V noStaleFallback) {
+        return get(key, loader, noStaleFallback, true);
+    }
+
+    /**
+     * {@link #get(Object, BiFunction, Object)} 와 같되, stale 제공 여부를 고른다.
+     *
+     * <p>{@code serveStaleWhileRefreshing=false} 는 <b>실시간 값</b>용이다. 다른 스레드가 갱신 중일 때(single-flight)
+     * 만료된 캐시값을 내려주면 "이미 떠난 버스"를 기다리게 하므로, stale 대신 즉시 {@code noStaleFallback}(예: 조회 불가)을
+     * 돌려준다. 느리게 변하는 값(정류소·방문자수)은 {@code true}(기본)로 stale 을 재사용해 스탬피드를 막는다.
+     *
+     * @param serveStaleWhileRefreshing 갱신 중 동시 요청에 stale 을 줄지(true) 폴백을 줄지(false)
+     */
+    public V get(K key, BiFunction<K, V, Loaded<V>> loader, V noStaleFallback, boolean serveStaleWhileRefreshing) {
         Entry<V> cached = cache.get(key);
         if (cached != null && cached.isFresh()) {
             return cached.value();
         }
-        // single-flight: 이 키를 이미 다른 스레드가 갱신 중이면 stale(없으면 폴백)을 즉시 반환한다.
+        // single-flight: 이 키를 이미 다른 스레드가 갱신 중이면 stale(없거나 미제공이면 폴백)을 즉시 반환한다.
         if (!refreshing.add(key)) {
-            return cached != null ? cached.value() : noStaleFallback;
+            return (serveStaleWhileRefreshing && cached != null) ? cached.value() : noStaleFallback;
         }
         try {
             // double-check: 게이트 획득 사이 다른 스레드가 이미 갱신했을 수 있다.
@@ -65,9 +78,9 @@ public final class ExternalDataCache<K, V> {
                 loaded = loader.apply(key, stale);
             } catch (RuntimeException e) {
                 // 최후 방어선 — loader 는 외부 예외를 스스로 잡는 게 계약이지만, 그 계약이 깨져도(예외 누수) 요청 경로로 올리지
-                // 않는다. stale 이 있으면 그걸로, 없으면 폴백으로 degrade 한다. 캐시엔 넣지 않아 다음 호출이 재시도한다.
-                log.warn("캐시 loader 가 예외를 던졌습니다 — stale 로 degrade key={}", key, e);
-                return stale != null ? stale : noStaleFallback;
+                // 않는다. stale 을 쓰는 값이면 그걸로, 아니면 폴백으로 degrade 한다. 캐시엔 넣지 않아 다음 호출이 재시도한다.
+                log.warn("캐시 loader 가 예외를 던졌습니다 — degrade key={}", key, e);
+                return (serveStaleWhileRefreshing && stale != null) ? stale : noStaleFallback;
             }
             cache.put(key, new Entry<>(loaded.value(), Instant.now().plus(loaded.ttl())));
             return loaded.value();
