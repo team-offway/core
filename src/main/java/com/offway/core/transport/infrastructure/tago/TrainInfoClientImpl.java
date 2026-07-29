@@ -11,9 +11,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -28,7 +27,7 @@ import org.springframework.web.util.UriComponentsBuilder;
  *
  * <p>결과를 세 상태로 구분한다: 키 없음·호출/파싱 실패·비정상 resultCode 는 {@code Unavailable}(조용히 폴백), 정상 응답인데
  * 그 날짜 편이 없으면 {@code NoServiceOnDate}(사용자 안내 가능), 있으면 {@code Available}. data.go.kr 특유의 응답
- * (resultCode·item 단일/배열·빈 items)을 방어한다.
+ * (resultCode·item 단일/배열·빈 items) 방어는 {@link TagoItems} 가 공통으로 처리한다.
  */
 @Slf4j
 @Component
@@ -78,20 +77,17 @@ class TrainInfoClientImpl implements TrainInfoClient {
     }
 
     private TrainAvailability parse(String body) throws Exception {
-        JsonNode response = objectMapper.readTree(body).path("response");
-        if (!"00".equals(response.path("header").path("resultCode").asText())) {
-            return new TrainAvailability.Unavailable(); // 외부가 정상 응답을 안 줬으니 실패로 본다
-        }
-        // 미운행이면 items 가 빈 문자열("")로 와서 item 은 missing. 결과가 하나면 item 이 배열이 아니라 객체 하나로 온다.
-        JsonNode item = response.path("body").path("items").path("item");
-        if (item.isMissingNode() || item.isNull()) {
-            return new TrainAvailability.NoServiceOnDate(); // 조회 정상, 그 날짜 운행 없음
-        }
-        Stream<JsonNode> trains =
-                item.isArray() ? StreamSupport.stream(item.spliterator(), false) : Stream.of(item);
-        return trains.map(TrainInfoClientImpl::toLeg)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
+        return switch (TagoItems.parse(body, objectMapper)) {
+            case TagoItems.Items(List<JsonNode> nodes) -> fastest(nodes);
+            case TagoItems.Empty ignored -> new TrainAvailability.NoServiceOnDate(); // 조회 정상, 그 날짜 운행 없음
+            case TagoItems.Failed ignored -> new TrainAvailability.Unavailable(); // 외부가 정상 응답을 안 줬으니 실패
+        };
+    }
+
+    private static TrainAvailability fastest(List<JsonNode> trains) {
+        return trains.stream()
+                .map(TrainInfoClientImpl::toLeg)
+                .flatMap(Optional::stream)
                 .min(Comparator.comparingInt(TrainLeg::durationMinutes))
                 .<TrainAvailability>map(TrainAvailability.Available::new)
                 // items 에 편이 있는데 전부 파싱 실패면 미운행이 아니라 스키마 변경·결측 신호 → Unavailable(잘못된 "없음" 안내 방지).
