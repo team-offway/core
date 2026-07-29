@@ -134,14 +134,22 @@ Google 은 ID 토큰에 `name`, Kakao 는 `nickname` 클레임이 온다. 그러
 
 `JwtAuthenticationFilter` 가 `Authorization: Bearer <access>` 를 검증해 `SecurityContext` 에 `userId`(UUID) 를 넣는다. 컨트롤러는 `@LoginUser UUID userId` 로 받는다.
 
-`SecurityConfig` 의 현재 `anyRequest().permitAll()` 을 교체한다.
-
-| 경로 | 접근 |
-|---|---|
-| `/api/v1/auth/**` · `/swagger-ui/**` · `/v3/api-docs/**` · `/h2-console/**` · `/actuator/health` | permitAll |
-| 그 외 `/api/v1/**` | authenticated |
-
 이 필터가 #41 의 MDC `userId` 연결점이 된다 (현재 `"guest"` 고정).
+
+### 전면 인증 전환은 2단계로 나눈다
+
+목표 상태는 `anyRequest().authenticated()` 다. 다만 **지금 잠그지 않는다.**
+
+| 단계 | 접근 정책 | 시점 |
+|---|---|---|
+| 1단계 (이 ADR) | `/api/v1/auth/logout` 만 authenticated, 그 외 permitAll | 지금 |
+| 2단계 | `anyRequest().authenticated()` + 공개 경로 목록(`auth/login`·`reissue`·`dev-login`·swagger·h2·actuator·`/inventory`) | FE 가 provider 클라이언트 ID 확보 후 |
+
+이유는 실 provider 토큰을 만들 주체가 아직 없다는 것이다. 플러터 앱이 나와야 Google·Kakao·Apple SDK 로 ID 토큰을 받을 수 있고, 그전에 전면 잠금을 걸면 **apidog 실호출 검증(#42)이 막힌다.** 코드는 완성돼 있으므로 전환은 matcher 두 줄을 뒤집는 작업이다.
+
+로그아웃만 예외로 잠그는 건 타협이 아니라 필수다 — 누구의 토큰을 폐기할지 알아야 하므로 permitAll 로 열면 `@LoginUser` 가 null 로 들어와 서버 오류가 된다. 덕분에 **401 공통 래퍼 계약은 1단계에서도 통합 테스트로 검증된다.**
+
+2단계에서 함께 해야 할 일: 기존 통합 테스트 13개(약 70개 호출)에 `Authorization` 헤더 부착.
 
 ## 로컬 실행성
 
@@ -229,6 +237,9 @@ provider 클라이언트 ID(audience)가 비어 있어도 부팅은 되고, 해�
 - `courses` 소유 전환
 
 **범위 밖 (후속 이슈)**
+- **전면 인증 전환(2단계)** — provider 클라이언트 ID 확보 후
+- provider 콘솔 등록 및 audience 값 주입 (코드가 아니라 등록 작업)
+- 실 provider 토큰과의 접점 검증 — 실 ID 토큰은 플러터 앱만 만들 수 있어 FE 연동 시점에 확인된다
 - 회원 탈퇴
 - 계정 연결(한 유저에 provider 여러 개)
 - 권한·롤 (지금은 전원 동일)
