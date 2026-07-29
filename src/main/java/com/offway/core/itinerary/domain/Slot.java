@@ -63,8 +63,18 @@ public class Slot {
     @Column(name = "travel_minutes_from_prev", nullable = false)
     private int travelMinutesFromPrev;
 
+    /** 대표 이미지·주소·추천 한 줄(catchphrase) — 코스 타임라인 인라인 렌더용 표시 정보. 부가 정보라 없을 수 있다. */
+    @Column(name = "image_url", length = 500)
+    private String imageUrl;
+
+    @Column(length = 300)
+    private String address;
+
+    @Column(length = 500)
+    private String catchphrase;
+
     private Slot(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
-            double lat, double lng, int travelMinutesFromPrev) {
+            double lat, double lng, int travelMinutesFromPrev, String imageUrl, String address, String catchphrase) {
         if (orderInDay < 1) {
             throw new IllegalArgumentException("슬롯 순서는 1 이상이어야 합니다: " + orderInDay);
         }
@@ -84,12 +94,22 @@ public class Slot {
         this.lat = lat;
         this.lng = lng;
         this.travelMinutesFromPrev = travelMinutesFromPrev;
+        this.imageUrl = imageUrl; // 표시 정보라 검증하지 않는다(없으면 null)
+        this.address = address;
+        this.catchphrase = catchphrase;
     }
 
-    /** 방문 슬롯을 만든다. 좌표·순서·이동시간 불변식을 스스로 검증한다. */
+    /** 방문 슬롯을 만든다(표시 정보 없이). 좌표·순서·이동시간 불변식을 스스로 검증한다. */
     public static Slot of(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
             double lat, double lng, int travelMinutesFromPrev) {
-        return new Slot(orderInDay, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutesFromPrev);
+        return of(orderInDay, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutesFromPrev, null, null, null);
+    }
+
+    /** 방문 슬롯을 표시 정보(이미지·주소·추천 한 줄)와 함께 만든다. */
+    public static Slot of(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
+            double lat, double lng, int travelMinutesFromPrev, String imageUrl, String address, String catchphrase) {
+        return new Slot(orderInDay, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutesFromPrev,
+                imageUrl, address, catchphrase);
     }
 
     private static void requireCoordinate(double value, double min, double max, String name) {
