@@ -131,6 +131,31 @@ class CourseGenerationIntegrationTest {
     }
 
     @Test
+    void 관광지가_페이지한도를_넘어도_음식점_숙박이_코스에_들어간다() {
+        // 회귀 방지 — 관광지가 후보 페이지 크기(CANDIDATE_ROWS=100)를 넘고 음식점·숙박이 그 뒤에 오는 지역.
+        // 전체타입 단일 조회(기존 구현)라면 관광지가 페이지를 채워 음식점·숙박이 밀려나 코스에서 빠졌을 것.
+        // 타입별 조회면 음식점(39)·숙박(32)을 각각 받아 밀려나지 않는다.
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 120; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.001, 129.03 + i * 0.001)); // 관광지 120개 (100 초과)
+            }
+            items.add(poi("f0", 39, 35.11, 129.04)); // 관광지 뒤에 배치 — 전체타입 조회면 페이지에서 잘림
+            items.add(poi("f1", 39, 35.12, 129.05));
+            items.add(poi("st0", 32, 35.10, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+
+        Course course = courseGenerationService.generate(command(2, Density.PACKED)).course();
+
+        List<Slot> slots = course.getDays().stream().flatMap(day -> day.getSlots().stream()).toList();
+        assertTrue(slots.stream().anyMatch(slot -> slot.getKind() == SlotKind.FOOD),
+                "관광지가 페이지를 넘겨도 음식점 슬롯이 있어야 한다");
+        assertTrue(slots.stream().anyMatch(slot -> slot.getKind() == SlotKind.STAY),
+                "관광지가 페이지를 넘겨도 숙박 슬롯이 있어야 한다");
+    }
+
+    @Test
     void 당일치기는_숙박없이_하루코스를_만든다() {
         tourApiClient.respond(CourseGenerationIntegrationTest::richPois);
 

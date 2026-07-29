@@ -49,14 +49,17 @@ public class StubTourApiClient implements TourApiClient {
 
     @Override
     public TourPoiResult findByArea(int areaCode, Integer sigunguCode, Integer contentTypeId, int numOfRows) {
-        TourPoiResult all = areaBehavior.get();
+        // 실 API 처럼 타입 필터 → 페이지 크기(numOfRows) 제한 순으로 재현한다. numOfRows 를 지켜야, 전체타입 단일 조회로
+        // 관광지가 페이지를 채우면 음식점·숙박이 밀려나는 과소표집을 테스트가 실제로 잡는다(타입별 조회 변경의 회귀 방지).
+        TourPoiResult source = areaBehavior.get();
         if (contentTypeId == null) {
-            return all;
+            // 전체 조회 — totalCount(선언된 전체 건수)는 그대로 두고 페이지만 자른다.
+            return new TourPoiResult(source.items().stream().limit(numOfRows).toList(), source.totalCount());
         }
-        List<TourPoi> filtered = all.items().stream()
+        List<TourPoi> matched = source.items().stream()
                 .filter(poi -> contentTypeId.equals(poi.contentTypeId()))
                 .toList();
-        return new TourPoiResult(filtered, filtered.size());
+        return new TourPoiResult(matched.stream().limit(numOfRows).toList(), matched.size());
     }
 
     @Override
