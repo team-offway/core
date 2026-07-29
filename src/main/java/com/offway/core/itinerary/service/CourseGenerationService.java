@@ -183,7 +183,8 @@ public class CourseGenerationService {
             Entry e = entries.get(i);
             int travel = prev == null ? 0 : legMinutes(prev, coord(e.poi()), transport);
             slots.add(Slot.of(i + 1, e.timeOfDay(), e.kind(), e.poi().contentId(), e.poi().title(),
-                    e.poi().lat(), e.poi().lng(), travel));
+                    e.poi().lat(), e.poi().lng(), travel,
+                    e.poi().imageUrl(), e.poi().address(), e.poi().catchphrase()));
             prev = coord(e.poi());
         }
         return slots;

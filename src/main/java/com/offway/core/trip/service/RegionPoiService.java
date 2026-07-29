@@ -35,6 +35,7 @@ public class RegionPoiService {
 
     private final RegionRepository regionRepository;
     private final TourApiClient tourApiClient;
+    private final CatchphraseProvider catchphraseProvider;
 
     /** 지역의 후보 POI 를 세 풀로 분류해 돌려준다. 좌표가 없는 POI 는 지도·동선에 못 쓰므로 제외한다. */
     public RegionPois collect(long regionId) {
@@ -71,12 +72,14 @@ public class RegionPoiService {
         return out;
     }
 
-    private static PoiCandidate toCandidate(TourPoi poi) {
+    private PoiCandidate toCandidate(TourPoi poi) {
         if (poi.contentTypeId() == null || poi.contentId() == null || poi.title() == null
                 || poi.lat() == null || poi.lng() == null) {
             return null;
         }
+        // 추천 한 줄(catchphrase)·주소는 코스 슬롯을 트리플식으로 인라인 렌더하기 위한 표시 정보다.
         return new PoiCandidate(
-                poi.contentId(), poi.contentTypeId(), poi.title(), poi.lat(), poi.lng(), poi.firstImage());
+                poi.contentId(), poi.contentTypeId(), poi.title(), poi.lat(), poi.lng(),
+                poi.firstImage(), poi.address(), catchphraseProvider.forContentId(poi.contentId()).orElse(null));
     }
 }

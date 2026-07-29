@@ -14,7 +14,8 @@ import java.util.List;
 /**
  * 코스 생성 응답 — API 계약. 날짜별 타임라인(Day 탭)과 지도 핀 좌표·이동시간, 적용 혜택·여행 날씨를 담는다.
  *
- * <p>POI 이미지·운영시간은 장소 상세({@code GET /pois/{id}}, #32)에서 받는다. 혜택은 정책 매칭 결과라 응답 시점 값이다.
+ * <p>슬롯은 타임라인 인라인 렌더용 표시 정보(이미지·주소·카테고리·추천 한 줄)를 함께 담는다. 운영시간·상세 소개 등 더 깊은
+ * 정보는 장소 상세({@code GET /pois/{id}})에서 받는다. 혜택은 정책 매칭 결과라 응답 시점 값이다.
  *
  * @param regionId 코스 지역
  * @param travelDays 여행 일수
@@ -63,8 +64,12 @@ public record CourseResponse(
      * @param order 하루 안 방문 순서
      * @param timeOfDay 시간대(MORNING·LUNCH·AFTERNOON·DINNER)
      * @param kind 장소 종류(SIGHT·FOOD·STAY)
+     * @param categoryLabel 종류 한글 라벨(관광·맛집·숙박) — 카드 표시용
      * @param poiContentId TourAPI 콘텐츠 ID(장소 상세 조회용)
      * @param title 장소명
+     * @param imageUrl 대표 이미지(없으면 null)
+     * @param address 주소(없으면 null)
+     * @param catchphrase 추천 한 줄 문구(구석구석 캐치프레이즈, 없으면 null)
      * @param lat 위도(지도 핀)
      * @param lng 경도
      * @param travelMinutes 직전 장소에서의 이동시간(분, 첫 장소는 0)
@@ -73,8 +78,12 @@ public record CourseResponse(
             int order,
             String timeOfDay,
             String kind,
+            @Schema(example = "관광") String categoryLabel,
             String poiContentId,
             @Schema(example = "완도타워 전망대") String title,
+            @Schema(nullable = true) String imageUrl,
+            @Schema(example = "전남 완도군", nullable = true) String address,
+            @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase,
             double lat,
             double lng,
             int travelMinutes) {
@@ -84,8 +93,12 @@ public record CourseResponse(
                     slot.getOrderInDay(),
                     slot.getTimeOfDay().name(),
                     slot.getKind().name(),
+                    slot.getKind().label(),
                     slot.getPoiContentId(),
                     slot.getTitle(),
+                    slot.getImageUrl(),
+                    slot.getAddress(),
+                    slot.getCatchphrase(),
                     slot.getLat(),
                     slot.getLng(),
                     slot.getTravelMinutesFromPrev());

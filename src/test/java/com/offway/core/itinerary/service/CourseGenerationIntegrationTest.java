@@ -109,6 +109,28 @@ class CourseGenerationIntegrationTest {
     }
 
     @Test
+    void 코스_슬롯에_이미지_주소_카테고리_추천문구가_실린다() {
+        // 126508 은 구석구석 캐치프레이즈 CSV 에 있는 실제 contentId(경복궁) — 추천 한 줄이 실려야 한다.
+        tourApiClient.respond(() -> new TourPoiResult(List.of(
+                new TourPoi("126508", 12, "NA", "경복궁", "서울 종로구", 35.10, 129.03, "http://img/g.jpg", null),
+                poi("s1", 12, 35.11, 129.04),
+                poi("f0", 39, 35.12, 129.05)), 3));
+
+        Course course = courseGenerationService.generate(command(1, Density.RELAXED)).course();
+
+        Slot slot = course.getDays().stream()
+                .flatMap(day -> day.getSlots().stream())
+                .filter(s -> s.getPoiContentId().equals("126508"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("http://img/g.jpg", slot.getImageUrl());
+        assertEquals("서울 종로구", slot.getAddress());
+        assertEquals("관광", slot.getKind().label());
+        assertTrue(slot.getCatchphrase() != null && !slot.getCatchphrase().isBlank(),
+                "CSV 에 있는 contentId 는 추천 문구(catchphrase)가 실려야 한다");
+    }
+
+    @Test
     void 당일치기는_숙박없이_하루코스를_만든다() {
         tourApiClient.respond(CourseGenerationIntegrationTest::richPois);
 
