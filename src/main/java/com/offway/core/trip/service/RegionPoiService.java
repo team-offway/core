@@ -45,30 +45,30 @@ public class RegionPoiService {
         }
         Region region = found.get(0);
 
-        List<PoiCandidate> sights = new ArrayList<>();
-        List<PoiCandidate> foods = new ArrayList<>();
-        List<PoiCandidate> stays = new ArrayList<>();
-        for (TourPoi poi : tourApiClient.findByArea(
-                region.getAreaCode(), region.getSigunguCode(), null, CANDIDATE_ROWS).items()) {
-            PoiCandidate candidate = toCandidate(poi);
-            if (candidate == null) {
-                continue; // 좌표·필수값 결여
-            }
-            classify(candidate, sights, foods, stays);
-        }
+        // 볼거리·맛집·숙박을 각각 타입 스코프로 조회한다. 전체타입을 한 번만 뽑으면 인구감소지역처럼 등록 수가 적은 곳에서
+        // 맛집·숙박이 볼거리에 밀려 과소표집돼(끼니·숙소가 코스에서 빠짐), 풀마다 독립 조회로 채운다.
+        List<PoiCandidate> sights = candidates(region, null).stream()
+                .filter(c -> SIGHT_TYPES.contains(c.contentTypeId()))
+                .toList();
+        List<PoiCandidate> foods = candidates(region, FOOD_TYPE);
+        List<PoiCandidate> stays = candidates(region, STAY_TYPE);
+
         log.info("코스 POI 수집 regionId={} 볼거리={} 맛집={} 숙박={}", regionId, sights.size(), foods.size(), stays.size());
         return new RegionPois(sights, foods, stays);
     }
 
-    private static void classify(
-            PoiCandidate c, List<PoiCandidate> sights, List<PoiCandidate> foods, List<PoiCandidate> stays) {
-        if (SIGHT_TYPES.contains(c.contentTypeId())) {
-            sights.add(c);
-        } else if (c.contentTypeId() == FOOD_TYPE) {
-            foods.add(c);
-        } else if (c.contentTypeId() == STAY_TYPE) {
-            stays.add(c);
+    /** 한 콘텐츠 타입(또는 {@code null}=전체)의 후보를 좌표 있는 것만 뽑는다. */
+    private List<PoiCandidate> candidates(Region region, Integer contentTypeId) {
+        List<PoiCandidate> out = new ArrayList<>();
+        for (TourPoi poi : tourApiClient
+                .findByArea(region.getAreaCode(), region.getSigunguCode(), contentTypeId, CANDIDATE_ROWS)
+                .items()) {
+            PoiCandidate candidate = toCandidate(poi);
+            if (candidate != null) {
+                out.add(candidate); // 좌표·필수값 결여는 제외
+            }
         }
+        return out;
     }
 
     private static PoiCandidate toCandidate(TourPoi poi) {

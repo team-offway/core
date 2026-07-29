@@ -97,8 +97,12 @@ class CourseGenerationIntegrationTest {
         assertEquals(1, first.getOrderInDay());
         assertEquals(0, first.getTravelMinutesFromPrev());
 
+        // 볼거리만 아니라 끼니(음식점)·숙소가 코스에 함께 엮인다 — 풀별 타입 스코프 조회로 확실히 채워진다.
+        assertTrue(day1.getSlots().stream().anyMatch(slot -> slot.getKind() == SlotKind.FOOD),
+                "음식점 슬롯이 코스에 있어야 한다");
         // 멀티데이라 마지막이 아닌 날(1일차)엔 숙박 슬롯이 붙는다
-        assertTrue(day1.getSlots().stream().anyMatch(slot -> slot.getKind() == SlotKind.STAY));
+        assertTrue(day1.getSlots().stream().anyMatch(slot -> slot.getKind() == SlotKind.STAY),
+                "숙박 슬롯이 코스에 있어야 한다");
 
         // 인구감소지역이라 혜택이 매칭된다
         assertFalse(result.benefits().isEmpty());
