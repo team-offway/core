@@ -51,19 +51,22 @@ public record AvailableTimeRequest(
      * 진짜 불변식 안전망(500)으로 남는다.
      */
     public AvailableTimeCommand toCommand() {
-        // 날짜는 '둘 다' 있어야 그 모드를 고른 것으로 본다. 한쪽만 보낸 요청을 날짜 모드로 인정하면
-        // 뒤에서 NPE 로 터지거나 나머지를 서버가 임의로 정하게 된다.
-        boolean choseDates = startDate != null && endDate != null;
+        boolean anyDate = startDate != null || endDate != null;
+        boolean bothDates = startDate != null && endDate != null;
         boolean choseStyle = periodStyle != null;
-        if (choseDates == choseStyle) {
+
+        // 각 모드가 '완전히' 성립하는지 따로 본다. 두 조건을 XOR 로만 보면 "날짜 한쪽 + 스타일" 이
+        // 스타일 모드로 흘러가 클라이언트가 보낸 날짜가 <b>조용히 버려진다</b>.
+        // 날짜 모드는 둘 다 있어야 하고(한쪽만이면 나머지를 서버가 임의로 정하게 된다),
+        // 스타일 모드는 날짜가 하나도 없어야 한다(있으면 무엇을 쓸지 요청이 스스로 모순된다).
+        boolean datesMode = bothDates && !choseStyle;
+        boolean styleMode = choseStyle && !anyDate;
+        if (!datesMode && !styleMode) {
             throw LeaveException.ambiguousPeriodInput();
         }
         boolean halfDay = Boolean.TRUE.equals(halfDayStart); // 선택 필드 — 부재/null 은 반차 아님
 
-        if (choseStyle) {
-            return fromStyle(halfDay);
-        }
-        return fixedDates(halfDay);
+        return styleMode ? fromStyle(halfDay) : fixedDates(halfDay);
     }
 
     private AvailableTimeCommand fromStyle(boolean halfDay) {

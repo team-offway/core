@@ -305,6 +305,33 @@ class LeaveAvailableTimeIntegrationTest {
     }
 
     @Test
+    void 날짜를_한쪽만_보내며_기간스타일도_함께_보내면_400_LEAVE_004() throws Exception {
+        holidayClient.respond((year, month) -> Set.of());
+
+        // startDate 하나만으로는 날짜 모드가 성립하지 않지만, 스타일 모드도 날짜가 섞여 성립하지 않는다.
+        // 이걸 통과시키면 보낸 startDate 가 조용히 버려진다.
+        String body = """
+                { "startDate": "2026-05-06", "periodStyle": "DAY_TRIP", "baseDate": "2026-05-04",
+                  "transport": "CAR" }""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LEAVE-004"));
+    }
+
+    @Test
+    void 연차만인데_연차_일수가_없으면_400_LEAVE_006() throws Exception {
+        holidayClient.respond((year, month) -> Set.of());
+
+        String body = """
+                { "periodStyle": "CONNECTED", "baseDate": "2026-05-04", "transport": "CAR" }""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LEAVE-006"));
+    }
+
+    @Test
     void 연차만인데_연차_일수가_범위_밖이면_400_LEAVE_007() throws Exception {
         holidayClient.respond((year, month) -> Set.of());
 
