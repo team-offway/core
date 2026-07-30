@@ -12,6 +12,7 @@ import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -69,14 +70,21 @@ class TourDataLabClientE2ETest {
                 "최근 " + MAX_MONTHS_BACK + "개월이 모두 비었습니다 — 발행 주기가 바뀌었거나 서비스가 중단됐습니다");
     }
 
+    /** 법정 시군구코드 형태 — 숫자 5자리. 길이만 보면 {@code ABCDE} 같은 값도 통과해 형식 변경을 놓친다. */
+    private static final Pattern FIVE_DIGITS = Pattern.compile("\\d{5}");
+
     @Test
-    void 시군구코드는_5자리_법정코드로_온다() {
+    void 시군구코드는_숫자_5자리_법정코드로_온다() {
         Set<String> codes = mostRecentPublished().stream()
                 .map(RegionVisitor::signguCode)
                 .collect(Collectors.toSet());
 
-        Set<Integer> lengths = codes.stream().map(String::length).collect(Collectors.toSet());
-        assertEquals(Set.of(5), lengths, "signguCode 가 5자리가 아니면 region.legal_code backfill 이 전부 어긋난다");
+        List<String> malformed = codes.stream()
+                .filter(code -> !FIVE_DIGITS.matcher(code).matches())
+                .toList();
+        assertTrue(
+                malformed.isEmpty(),
+                "signguCode 는 숫자 5자리여야 한다 — region.legal_code backfill 의 정본이다. 어긋난 값=" + malformed);
     }
 
     /**

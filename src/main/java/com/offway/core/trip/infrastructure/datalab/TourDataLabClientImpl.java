@@ -33,7 +33,15 @@ class TourDataLabClientImpl implements TourDataLabClient {
 
     private static final String BASE =
             "https://apis.data.go.kr/B551011/DataLabService/locgoRegnVisitrDDList";
-    private static final Duration TIMEOUT = Duration.ofSeconds(6);
+    /**
+     * 다른 외부 클라이언트(6초)보다 길게 잡는다. 이 오퍼레이션은 <b>지역 필터 파라미터가 없어</b> 기간 전체가 한 번에
+     * 내려온다 — 관측 창 7일이 268 시군구 × 3 구분 × 7일 = 5,628건, 약 <b>1MB</b> 다. 실측 응답시간이 0.3초~8.8초로
+     * 출렁여(같은 요청 3회: 0.5s · 8.8s · 0.3s) 6초로는 간헐 실패한다.
+     *
+     * <p>길게 둬도 사용자 지연으로 새지 않는다 — 결과는 6시간 캐시되고 워머가 미리 채우므로 이 대기를 감당하는 건
+     * 대부분 백그라운드다. 반대로 짧게 두면 랭킹 가중치가 통째로 날아가 순위가 무의미해진다(실패 시 폴백이 빈 가중치).
+     */
+    private static final Duration TIMEOUT = Duration.ofSeconds(20);
     private static final String MOBILE_OS = "ETC";
     private static final String MOBILE_APP = "offway";
     private static final Set<String> SUCCESS_CODES = Set.of("0000", "00");

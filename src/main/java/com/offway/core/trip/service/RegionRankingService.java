@@ -102,10 +102,17 @@ public class RegionRankingService {
         }, Map.of());
     }
 
-    /** 마지막 성공값이 있으면 그것을, 없으면 빈 가중치를 쓴다(홈·추천은 어느 쪽이든 유지된다). */
+    /**
+     * 마지막 성공값이 있으면 그것을, 없으면 빈 가중치를 쓴다(홈·추천은 어느 쪽이든 유지된다).
+     *
+     * <p>{@code stale} 이 <b>비어 있는지</b>까지 본다. 빈 집계도 짧은 TTL 로 캐시되므로, 미발행이 이어지면 이전 사이클의
+     * {@code Map.of()} 가 그대로 {@code stale} 로 돌아온다. 그때 "마지막 성공값" 이라고 찍으면 한 번도 유효한 데이터를
+     * 받지 못한 상황을 정상처럼 보이게 해 장애 판단을 흐린다.
+     */
     private Map<String, VisitorAgg> fallback(Map<String, VisitorAgg> stale, String reason) {
-        log.warn("관광빅데이터 {} — {} 로 폴백 랭킹(홈·추천은 유지)", reason, stale != null ? "마지막 성공값" : "빈 가중치");
-        return stale != null ? stale : Map.of();
+        boolean hasStale = stale != null && !stale.isEmpty();
+        log.warn("관광빅데이터 {} — {} 로 폴백 랭킹(홈·추천은 유지)", reason, hasStale ? "마지막 성공값" : "빈 가중치");
+        return hasStale ? stale : Map.of();
     }
 
     /**
