@@ -1,19 +1,28 @@
 package com.offway.core.trip.controller;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.offway.core.trip.domain.TourApiException;
+import com.offway.core.trip.domain.VisitorType;
 import com.offway.core.trip.infrastructure.datalab.StubTourDataLabClient;
 import com.offway.core.trip.infrastructure.datalab.TourDataLabClient;
+import com.offway.core.trip.infrastructure.datalab.dto.RegionVisitor;
 import com.offway.core.trip.infrastructure.datalab.dto.TourVisitorResult;
 import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -71,6 +80,109 @@ class RegionRecommendIntegrationTest {
     private static TourPoiResult sufficientContent() {
         TourPoi poi = new TourPoi("126508", 12, "NA", "가사동백숲해변", "전남 완도군", 34.36, 126.92, "http://img/1.jpg", null);
         return new TourPoiResult(List.of(poi), 38);
+    }
+
+    /** 관측 창과 같은 7일. 지역별 일 방문자수를 그대로 반복해 일평균이 곧 그 값이 되게 한다(혼잡도 뱃지 계산이 자명해짐). */
+    private static final int OBSERVE_DAYS = 7;
+
+    /**
+     * 법정 시군구코드별 <b>일</b> 방문자수로 관광빅데이터 응답을 만든다. {@code signguNm} 에 실제 지명을 넣어 지명이 겹치는
+     * 상황을 그대로 재현한다 — 집계가 지명을 키로 쓰면 서로의 방문자가 합산돼 뱃지가 틀어진다.
+     */
+    private static TourVisitorResult visitorsPerDay(Map<String, Double> dailyByLegalCode, Map<String, String> names) {
+        List<RegionVisitor> items = new ArrayList<>();
+        dailyByLegalCode.forEach((legalCode, daily) -> {
+            for (int day = 0; day < OBSERVE_DAYS; day++) {
+                items.add(new RegionVisitor(
+                        legalCode,
+                        names.get(legalCode),
+                        LocalDate.of(2026, 6, 24).plusDays(day),
+                        VisitorType.DOMESTIC,
+                        daily));
+            }
+        });
+        return new TourVisitorResult(items, items.size());
+    }
+
+    /**
+     * 지명이 겹치는 한 쌍 — 집계 대상(target)과, 같은 지명을 쓰는 다른 지역(leak).
+     *
+     * @param sharedName 두 지역이 공유하는 시군구 지명
+     * @param targetCode 단언 대상의 법정 시군구코드
+     * @param targetName 응답의 {@code name}("시군구 · 시도")
+     * @param leakCode 같은 지명을 쓰는 다른 지역의 코드 — 이 방문자가 target 으로 새면 안 된다
+     * @param originLat 출발지 위도 — target 이 도달 후보에 들도록 근처로 잡는다
+     * @param originLng 출발지 경도
+     */
+    private record NameCollision(
+            String sharedName,
+            String targetCode,
+            String targetName,
+            String leakCode,
+            double originLat,
+            double originLng) {}
+
+    private static List<NameCollision> nameCollisions() {
+        return List.of(
+                // 대전 동구(30110)는 우리 89곳이 아니지만, 지명으로 집계하면 부산 동구가 그 방문자를 받는다.
+                new NameCollision("동구", "26170", "동구 · 부산광역시", "30110", 35.1798, 129.0750),
+                // 고성군은 강원(51820)·경남(48820) 둘 다 우리 89곳이라 서로의 방문자를 나눠 갖는다.
+                new NameCollision("고성군", "51820", "고성군 · 강원특별자치도", "48820", 38.3803039, 128.4678610));
+    }
+
+    /**
+     * 전국에 동구는 6곳, 중구는 6곳, 서구는 5곳, 남구·북구는 4곳, 고성군은 2곳이다. 지명으로 집계하면 서로 다른 지역의 방문자가
+     * 한 버킷에 합산돼 뱃지·랭킹이 부풀려진다.
+     *
+     * <p>같은 지명을 쓰는 다른 지역에 일 50,000명, 단언 대상에 일 3,500명을 준다. 법정코드로 집계하면 대상은 일평균 3,500 →
+     * {@code MID} 다. 지명으로 집계하면 53,500 이 돼 {@code HIGH} 로 틀어진다.
+     *
+     * <p>혼잡도 뱃지로 단언하는 이유: 뱃지는 <b>그 지역 자기 방문자수만</b>의 함수라, 랭킹 점수(베이지안 pooling·정렬)와
+     * 무관하게 집계 키가 맞는지를 직접 드러낸다.
+     *
+     * <p>도달 한계를 좁게 잡는 이유: 후보 상한(20건) 절단에 걸리면 대상이 응답에서 빠져 단언이 무의미해진다. 도달 필터가 랭킹보다
+     * 앞에 있어, 반경을 좁히면 후보가 상한 미만으로 줄어 순위와 무관하게 대상이 응답에 남는다.
+     */
+    @ParameterizedTest
+    @MethodSource("nameCollisions")
+    void 지명이_겹치는_지역끼리_방문자수가_섞이지_않는다(NameCollision collision) throws Exception {
+        dataLabClient.respond(() -> visitorsPerDay(
+                Map.of(collision.targetCode(), 3_500.0, collision.leakCode(), 50_000.0),
+                Map.of(collision.targetCode(), collision.sharedName(),
+                        collision.leakCode(), collision.sharedName())));
+        tourApiClient.respond(RegionRecommendIntegrationTest::sufficientContent);
+
+        String body = """
+                { "originLat": %s, "originLng": %s, "transport": "CAR", "maxReachMinutes": 30 }"""
+                .formatted(collision.originLat(), collision.originLng());
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.regions[?(@.name == '%s')].crowdLevel".formatted(collision.targetName()))
+                        .value(org.hamcrest.Matchers.contains("MID")));
+    }
+
+    /**
+     * 관광빅데이터는 완결된 달만 월 단위로 발행된다. 지난달이 아직 미발행이면 조회는 <b>예외가 아니라</b>
+     * {@code resultCode=0000} + 빈 결과로 성공하므로, 이전 달로 물러서지 않으면 전 지역 방문자가 0이 돼 랭킹이 무의미해진다.
+     */
+    @Test
+    void 지난달이_미발행이면_이전_달로_물러서_집계한다() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        dataLabClient.respond(() -> attempts.getAndIncrement() < 2
+                ? TourVisitorResult.empty()
+                : visitorsPerDay(Map.of("26170", 3_500.0), Map.of("26170", "동구")));
+        tourApiClient.respond(RegionRecommendIntegrationTest::sufficientContent);
+
+        String body = """
+                { "originLat": 37.49, "originLng": 127.02, "transport": "CAR", "maxReachMinutes": 100000 }""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                // 세 번째 달(2회 미발행 뒤)의 데이터가 실제로 집계에 반영됐다
+                .andExpect(jsonPath("$.data.regions[?(@.name == '동구 · 부산광역시')].crowdLevel")
+                        .value(org.hamcrest.Matchers.contains("MID")));
+        assertEquals(3, attempts.get(), "빈 결과를 만나면 이전 달로 물러서야 한다");
     }
 
     @Test

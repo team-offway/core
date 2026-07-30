@@ -48,4 +48,13 @@ public class Region {
     /** TourAPI KorService2 시군구 코드 (areaBasedList2 sigunguCode). */
     @Column(name = "sigungu_code", nullable = false)
     private Integer sigunguCode;
+
+    /**
+     * 법정 시군구코드(행정표준코드 5자리, 예 {@code 51820}) — 관광빅데이터 방문자수 매칭 키.
+     *
+     * <p>{@link #sigungu} 지명으로 매칭하면 안 된다. 전국에 동구 6곳·중구 6곳·서구 5곳·남구 4곳·북구 4곳·고성군
+     * 2곳이 있어 서로 다른 지역의 방문자가 한 지역으로 합산된다. 우리 89곳 중에도 6곳이 여기 걸린다.
+     */
+    @Column(name = "legal_code", nullable = false, length = 5)
+    private String legalCode;
 }
