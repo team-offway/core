@@ -9,7 +9,6 @@ import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -135,14 +134,20 @@ public class RegionContentProvider {
         if (targets.isEmpty()) {
             return Map.of();
         }
-        Instant deadlineAt = Instant.now().plus(deadline);
+        // 벽시계(Instant) 가 아니라 단조 시계로 잰다 — 시스템 시각이 보정되면 예산이 늘거나 즉시 만료된다.
+        long deadlineNanos = System.nanoTime() + deadline.toNanos();
         Map<Long, RegionContent> contents = new ConcurrentHashMap<>();
 
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         int rejected = 0;
-        for (Region region : targets) {
+        int index = 0;
+        for (; index < targets.size(); index++) {
+            if (isPast(deadlineNanos)) {
+                break; // 제출 도중 예산이 끝났다 — 더 넣어봐야 아래 fillTask 가 즉시 버린다
+            }
+            Region region = targets.get(index);
             try {
-                futures.add(CompletableFuture.runAsync(fillTask(region, neighborPool, deadlineAt, contents),
+                futures.add(CompletableFuture.runAsync(fillTask(region, neighborPool, deadlineNanos, contents),
                                 fanoutExecutor)
                         .exceptionally(error -> {
                             // contentFor 는 스스로 degrade 하는 게 계약이지만, 그 계약이 깨져도 나머지를 막지 않는다.
@@ -156,10 +161,15 @@ public class RegionContentProvider {
         if (rejected > 0) {
             log.warn("지역 콘텐츠 팬아웃 큐 포화({}) — {}건을 건너뜁니다", FANOUT_QUEUE_CAPACITY, rejected);
         }
+        if (index < targets.size()) {
+            log.warn("지역 콘텐츠 팬아웃 시간 상한({}) 초과 — {}건은 제출하지 못했습니다",
+                    deadline, targets.size() - index);
+        }
 
         try {
+            // 전체 예산이 아니라 <b>남은</b> 예산만 기다린다. 제출에 쓴 시간을 빼지 않으면 상한이 그만큼 늘어난다.
             CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-                    .get(deadline.toMillis(), TimeUnit.MILLISECONDS);
+                    .get(Math.max(0, deadlineNanos - System.nanoTime()), TimeUnit.NANOSECONDS);
         } catch (TimeoutException e) {
             log.warn("지역 콘텐츠 팬아웃 시간 상한({}) 초과 — {}/{}건만 채웁니다",
                     deadline, contents.size(), targets.size());
@@ -183,13 +193,18 @@ public class RegionContentProvider {
      * 그걸 끊으려면 남은 예산을 {@code TourApiClient} 까지 내려야 하는데, 그 포트는 소비자가 넷이라 별도 작업이다.
      */
     private Runnable fillTask(
-            Region region, List<Region> neighborPool, Instant deadlineAt, Map<Long, RegionContent> contents) {
+            Region region, List<Region> neighborPool, long deadlineNanos, Map<Long, RegionContent> contents) {
         return () -> {
-            if (!Instant.now().isBefore(deadlineAt)) {
+            if (isPast(deadlineNanos)) {
                 return;
             }
             contents.put(region.getId(), contentFor(region, neighborPool));
         };
+    }
+
+    /** 단조 시계 기준 마감 경과 여부. 뺄셈으로 비교해 {@code nanoTime} 랩어라운드에도 안전하다. */
+    private static boolean isPast(long deadlineNanos) {
+        return System.nanoTime() - deadlineNanos >= 0;
     }
 
     /**
