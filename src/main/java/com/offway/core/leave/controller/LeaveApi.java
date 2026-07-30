@@ -14,9 +14,22 @@ import java.time.LocalDate;
 @Tag(name = "연차", description = "연차 기반 가용시간(LNT)·샌드위치 연휴")
 public interface LeaveApi {
 
-    @Operation(summary = "가용 시간(LNT) 산출", description = "확정된 날짜 구간으로 여행일수·소모 연차·이동 한계를 산출한다.")
+    @Operation(
+            summary = "가용 시간(LNT) 산출",
+            description = """
+                    여행 구간을 두 가지 방식 중 하나로 지정해 여행일수·소모 연차·이동 한계를 산출한다.
+
+                    ① 날짜 직접 — startDate + endDate
+                    ② 기간스타일 — periodStyle + baseDate (+ WEEKEND 는 weekendBridge, CONNECTED 는 leaveDays)
+
+                    ②는 기준일에서 가장 가까운 실제 구간을 서버가 해석해 확정한다. 어느 방식이든 응답에
+                    확정된 startDate·endDate 가 함께 내려간다.""")
     @ApiResponse(responseCode = "200", description = "산출 성공")
-    @ApiResponse(responseCode = "400", description = "날짜 형식 오류 · 종료일이 시작일보다 앞섬 · 여행 구간이 2박 3일 초과")
+    @ApiResponse(
+            responseCode = "400",
+            description = "날짜 형식 오류 · 날짜와 기간스타일을 함께 보냄 또는 둘 다 없음 · 종료일이 시작일보다 앞섬 · "
+                    + "여행 구간이 2박 3일 초과 · 기간스타일에 기준일 누락 · WEEKEND 인데 브릿지 요일 누락 · "
+                    + "CONNECTED 인데 연차 일수 누락 또는 2~3 범위 밖")
     @ApiResponse(responseCode = "502", description = "공휴일 정보(특일정보) 조회 실패")
     ApiResponseBody<AvailableTimeResponse> availableTime(AvailableTimeRequest request);
 
