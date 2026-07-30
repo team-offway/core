@@ -164,13 +164,25 @@ public final class ExternalDataCache<K, V> {
         if (overflow <= 0) {
             return;
         }
-        // 그래도 넘치면 가장 먼저 만료될 것부터. 위에서 이미 지운 항목은 조건부 remove 가 알아서 무시한다.
-        snapshot.stream()
-                .filter(entry -> entry.getValue().isFresh())
-                .sorted(Comparator.comparing(entry -> entry.getValue().expiresAt()))
-                .limit(overflow)
-                .forEach(entry -> cache.remove(entry.getKey(), entry.getValue()));
-        log.info("캐시 상한({}) 초과 — {}건 축출", maxEntries, overflow);
+        // 그래도 넘치면 가장 먼저 만료될 것부터. 조건부 remove 는 이미 지워졌거나 그 사이 갱신된 항목에 대해 no-op 이라,
+        // limit(overflow) 로 개수를 미리 자르면 그 no-op 이 자리를 차지해 정작 덜 지운다 — <b>실제로 지워진 수</b>를 센다.
+        int removed = 0;
+        for (Map.Entry<K, Entry<V>> entry : sortedByExpiry(snapshot)) {
+            if (removed >= overflow) {
+                break;
+            }
+            if (cache.remove(entry.getKey(), entry.getValue())) {
+                removed++;
+            }
+        }
+        log.info("캐시 상한({}) 초과 — {}건 축출", maxEntries, removed);
+    }
+
+    /** 가장 먼저 만료될 것부터. 만료된 항목도 빼지 않는다 — ①에서 지워졌으면 no-op 이고, 아직 남았으면 먼저 나가야 한다. */
+    private List<Map.Entry<K, Entry<V>>> sortedByExpiry(List<Map.Entry<K, Entry<V>>> snapshot) {
+        return snapshot.stream()
+                .sorted(Comparator.comparing((Map.Entry<K, Entry<V>> entry) -> entry.getValue().expiresAt()))
+                .toList();
     }
 
     /**
