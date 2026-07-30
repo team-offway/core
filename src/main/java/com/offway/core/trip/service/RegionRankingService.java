@@ -11,6 +11,7 @@ import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.datalab.TourDataLabClient;
 import com.offway.core.trip.infrastructure.datalab.dto.RegionVisitor;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.HashMap;
@@ -51,6 +52,15 @@ public class RegionRankingService {
      * {@code resultCode=0000} + 빈 결과로 <b>조용히</b> 성공하고, 전 지역 방문자가 0이 돼 랭킹이 무의미해진다.
      */
     private static final int MAX_MONTHS_BACK = 3;
+    /**
+     * 집계 <b>전체</b>의 시간 상한. 클라이언트의 timeout(20초)은 HTTP 요청 <b>한 건</b>에 걸리므로, 페이지·월을 순차로
+     * 도는 이 집계에서는 상한이 곱해진다 — {@value #MAX_MONTHS_BACK}개월 × {@value #MAX_PAGES}페이지 × 20초면
+     * 최악 3,000초다. single-flight 라 한 스레드만 이 대기를 타지만, 그 한 스레드가 요청 스레드일 수 있어 상한이 필요하다.
+     *
+     * <p>실제로는 관측 창 7일이 한 페이지(5,628건)로 끝나 1회 호출이면 되고, 미발행 월은 빈 결과로 즉시 돌아온다. 이 값은
+     * 정상 경로의 여유가 아니라 <b>병리적 누적을 끊는 상한</b>이다(예: 외부가 잘못된 totalCount 를 계속 돌려줄 때).
+     */
+    private static final Duration AGGREGATE_DEADLINE = Duration.ofSeconds(60);
     private static final int FIRST_PAGE_NUMBER = 1;
     private static final int VISITOR_PAGE_SIZE = 10_000;
     /** 페이지 폭주 안전장치 — total 이 잘못 크거나 페이지가 안 줄어도 무한 루프에 빠지지 않게 상한을 둔다. */
@@ -121,11 +131,17 @@ public class RegionRankingService {
      * 랭킹이 무의미해진 것을 아무도 모른다).
      */
     private Map<String, VisitorAgg> fetchTourists() {
+        Instant deadline = Instant.now().plus(AGGREGATE_DEADLINE);
         YearMonth month = YearMonth.from(LocalDate.now()).minusMonths(1);
         for (int back = 0; back < MAX_MONTHS_BACK; back++, month = month.minusMonths(1)) {
-            Map<String, VisitorAgg> byCode = fetchMonthTail(month);
+            Map<String, VisitorAgg> byCode = fetchMonthTail(month, deadline);
             if (!byCode.isEmpty()) {
                 return byCode;
+            }
+            if (isPast(deadline)) {
+                // 빈 결과의 원인이 미발행이 아니라 시간 상한이다 — 이전 달로 물러서도 같은 상한에 걸린다.
+                log.warn("관광빅데이터 집계 시간 상한({}) 초과 — 방문자 가중치 없이 랭킹합니다", AGGREGATE_DEADLINE);
+                return Map.of();
             }
             log.info("관광빅데이터 {} 미발행(빈 결과) — 이전 달로 물러섭니다", month);
         }
@@ -133,12 +149,19 @@ public class RegionRankingService {
         return Map.of();
     }
 
+    private static boolean isPast(Instant deadline) {
+        return !Instant.now().isBefore(deadline);
+    }
+
     /**
      * 한 달의 관측 창(마지막 {@value #OBSERVE_SPAN_DAYS}일)을 <b>전 페이지</b> 모아 법정 시군구코드로 집계한다(관광객
      * 합·관측 일수). 부분 페이지로 랭킹하면 뒷페이지 지역이 0으로 과소집계돼 순위가 틀어지므로, totalCount 까지 페이지를
      * 끝까지 읽는다. 키 없으면 빈 결과(로컬 실행성).
+     *
+     * <p>{@code deadline} 을 넘기면 <b>모아둔 부분 결과를 버리고</b> 빈 결과를 준다. 같은 이유다 — 부분 데이터로
+     * 랭킹하는 것은 랭킹을 포기하는 것보다 나쁘다(뒷페이지 지역이 0으로 과소집계돼 순위가 조용히 틀어진다).
      */
-    private Map<String, VisitorAgg> fetchMonthTail(YearMonth month) {
+    private Map<String, VisitorAgg> fetchMonthTail(YearMonth month, Instant deadline) {
         LocalDate to = month.atEndOfMonth();
         LocalDate from = to.minusDays(OBSERVE_SPAN_DAYS - 1);
 
@@ -146,6 +169,11 @@ public class RegionRankingService {
         int fetched = 0;
         int total = 0;
         for (int page = FIRST_PAGE_NUMBER; page < FIRST_PAGE_NUMBER + MAX_PAGES; page++) {
+            if (isPast(deadline)) {
+                log.warn("관광빅데이터 집계 시간 상한 초과 — {} 부분 수집({}/{}건)을 버립니다(부분 랭킹 금지)",
+                        month, fetched, total);
+                return Map.of();
+            }
             var result = tourDataLabClient.findRegionVisitors(from, to, page, VISITOR_PAGE_SIZE);
             total = result.totalCount();
             for (RegionVisitor visitor : result.items()) {
