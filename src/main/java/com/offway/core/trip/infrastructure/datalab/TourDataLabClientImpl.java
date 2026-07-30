@@ -40,6 +40,9 @@ class TourDataLabClientImpl implements TourDataLabClient {
      *
      * <p>길게 둬도 사용자 지연으로 새지 않는다 — 결과는 6시간 캐시되고 워머가 미리 채우므로 이 대기를 감당하는 건
      * 대부분 백그라운드다. 반대로 짧게 두면 랭킹 가중치가 통째로 날아가 순위가 무의미해진다(실패 시 폴백이 빈 가중치).
+     *
+     * <p>이 값은 한 건의 <b>기본</b> 상한이다. 호출자가 남은 예산({@code maxWait})을 더 짧게 주면 그쪽을 따른다 —
+     * 집계 전체 상한을 가진 호출자가 마지막 한 건 때문에 그 상한을 넘기지 않게.
      */
     private static final Duration TIMEOUT = Duration.ofSeconds(20);
     private static final String MOBILE_OS = "ETC";
@@ -57,7 +60,8 @@ class TourDataLabClientImpl implements TourDataLabClient {
     }
 
     @Override
-    public TourVisitorResult findRegionVisitors(LocalDate from, LocalDate to, int pageNo, int numOfRows) {
+    public TourVisitorResult findRegionVisitors(
+            LocalDate from, LocalDate to, int pageNo, int numOfRows, Duration maxWait) {
         if (!props.dataGoKr().hasKey()) {
             log.info("관광빅데이터 키 없음 — 방문자수 조회를 건너뜁니다");
             return TourVisitorResult.empty();
@@ -73,12 +77,14 @@ class TourDataLabClientImpl implements TourDataLabClient {
                 .queryParam("numOfRows", numOfRows)
                 .build(true)
                 .toUri();
+        // 짧은 쪽을 따른다 — 호출자의 남은 예산을 넘겨 기다리면 호출자의 전체 상한이 무의미해진다.
+        Duration wait = maxWait.compareTo(TIMEOUT) < 0 ? maxWait : TIMEOUT;
         try {
             String body = webClient.get()
                     .uri(uri)
                     .retrieve()
                     .bodyToMono(String.class)
-                    .timeout(TIMEOUT)
+                    .timeout(wait)
                     .block();
             return parse(body);
         } catch (Exception e) {

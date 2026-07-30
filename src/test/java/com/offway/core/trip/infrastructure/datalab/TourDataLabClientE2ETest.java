@@ -7,6 +7,7 @@ import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.infrastructure.datalab.dto.RegionVisitor;
 import com.offway.core.trip.infrastructure.datalab.dto.TourVisitorResult;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
@@ -49,6 +50,9 @@ class TourDataLabClientE2ETest {
 
     private static final int PAGE_SIZE = 10_000;
 
+    /** 이 테스트는 집계 예산을 검증하지 않는다 - 클라이언트 자체 timeout 이 그대로 걸리게 넉넉히 준다. */
+    private static final Duration AMPLE = Duration.ofMinutes(1);
+
     @Autowired
     private TourDataLabClient client;
 
@@ -61,7 +65,7 @@ class TourDataLabClientE2ETest {
         for (int back = 0; back < MAX_MONTHS_BACK; back++, month = month.minusMonths(1)) {
             LocalDate to = month.atEndOfMonth();
             TourVisitorResult result =
-                    client.findRegionVisitors(to.minusDays(OBSERVE_SPAN_DAYS - 1), to, 1, PAGE_SIZE);
+                    client.findRegionVisitors(to.minusDays(OBSERVE_SPAN_DAYS - 1), to, 1, PAGE_SIZE, AMPLE);
             if (!result.items().isEmpty()) {
                 return result.items();
             }

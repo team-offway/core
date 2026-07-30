@@ -1,6 +1,8 @@
 package com.offway.core.trip.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,6 +17,7 @@ import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -183,6 +186,35 @@ class RegionRecommendIntegrationTest {
                 .andExpect(jsonPath("$.data.regions[?(@.name == '동구 · 부산광역시')].crowdLevel")
                         .value(org.hamcrest.Matchers.contains("MID")));
         assertEquals(3, attempts.get(), "빈 결과를 만나면 이전 달로 물러서야 한다");
+    }
+
+    /** 집계 전체 상한(현재 60초) — 서비스가 소유하므로 여기서 상한값을 직접 참조하지 않고 이 상수로 느슨하게 검증한다. */
+    private static final Duration AGGREGATE_DEADLINE_CEILING = Duration.ofSeconds(60);
+
+    /**
+     * 집계 전체 시간 상한이 <b>클라이언트 한 건까지</b> 실제로 내려가는지. 안 내려가면 예산이 거의 없는 시점에 시작한 마지막
+     * 요청이 클라이언트 자체 timeout(20초)만큼 더 대기해, 집계 상한이 그만큼 초과된다.
+     *
+     * <p>클라이언트가 짧은 쪽을 따르는지는 단위 테스트({@code TourDataLabClientImplTest})가 본다. 여기서는 서비스가
+     * 예산을 <b>넘기기는 하는지</b>(배선)를 본다 — 두 곳이 다 맞아야 상한이 성립한다.
+     */
+    @Test
+    void 집계_시간_예산이_클라이언트까지_전달된다() throws Exception {
+        dataLabClient.respond(() -> visitorsPerDay(Map.of("26170", 3_500.0), Map.of("26170", "동구")));
+        tourApiClient.respond(RegionRecommendIntegrationTest::sufficientContent);
+
+        String body = """
+                { "originLat": 35.1798, "originLng": 129.0750, "transport": "CAR", "maxReachMinutes": 30 }""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk());
+
+        Duration budget = dataLabClient.lastMaxWait();
+        assertNotNull(budget, "서비스가 남은 시간 예산을 넘겨야 한다 — null 이면 배선이 빠졌다");
+        assertTrue(budget.isPositive(), "예산은 양수여야 한다. 실제=" + budget);
+        assertTrue(
+                budget.compareTo(AGGREGATE_DEADLINE_CEILING) <= 0,
+                "예산이 집계 상한을 넘을 수 없다. 실제=" + budget);
     }
 
     @Test

@@ -59,8 +59,18 @@ public class RegionRankingService {
      *
      * <p>실제로는 관측 창 7일이 한 페이지(5,628건)로 끝나 1회 호출이면 되고, 미발행 월은 빈 결과로 즉시 돌아온다. 이 값은
      * 정상 경로의 여유가 아니라 <b>병리적 누적을 끊는 상한</b>이다(예: 외부가 잘못된 totalCount 를 계속 돌려줄 때).
+     *
+     * <p>이 상한은 호출 <b>직전 검사만으로는 지켜지지 않는다</b> — 예산이 1초 남은 시점에 시작한 요청이 클라이언트
+     * timeout(20초)만큼 더 대기하면 실제 상한이 80초가 된다. 그래서 남은 예산을 클라이언트에 함께 넘겨(min 적용)
+     * 진행 중인 마지막 요청도 이 시점에 끊기게 한다.
      */
     private static final Duration AGGREGATE_DEADLINE = Duration.ofSeconds(60);
+    /**
+     * 남은 예산이 이보다 적으면 페이지를 <b>시작하지 않는다</b>. 0 에 가까운 예산으로 호출하면 클라이언트가 곧바로
+     * timeout 을 던져 502 로 올라간다 — 시간이 없어서 못 모은 것을 외부 장애로 보고하는 셈이라, 그 전에
+     * "상한 초과 → 빈 결과" 경로로 정상 종료시킨다.
+     */
+    private static final Duration MIN_CALL_BUDGET = Duration.ofSeconds(1);
     private static final int FIRST_PAGE_NUMBER = 1;
     private static final int VISITOR_PAGE_SIZE = 10_000;
     /** 페이지 폭주 안전장치 — total 이 잘못 크거나 페이지가 안 줄어도 무한 루프에 빠지지 않게 상한을 둔다. */
@@ -138,7 +148,7 @@ public class RegionRankingService {
             if (!byCode.isEmpty()) {
                 return byCode;
             }
-            if (isPast(deadline)) {
+            if (budgetExhausted(deadline)) {
                 // 빈 결과의 원인이 미발행이 아니라 시간 상한이다 — 이전 달로 물러서도 같은 상한에 걸린다.
                 log.warn("관광빅데이터 집계 시간 상한({}) 초과 — 방문자 가중치 없이 랭킹합니다", AGGREGATE_DEADLINE);
                 return Map.of();
@@ -149,8 +159,13 @@ public class RegionRankingService {
         return Map.of();
     }
 
-    private static boolean isPast(Instant deadline) {
-        return !Instant.now().isBefore(deadline);
+    private static Duration remaining(Instant deadline) {
+        return Duration.between(Instant.now(), deadline);
+    }
+
+    /** 남은 예산이 한 건을 시작할 만큼도 안 되면 소진으로 본다. */
+    private static boolean budgetExhausted(Instant deadline) {
+        return remaining(deadline).compareTo(MIN_CALL_BUDGET) < 0;
     }
 
     /**
@@ -169,12 +184,15 @@ public class RegionRankingService {
         int fetched = 0;
         int total = 0;
         for (int page = FIRST_PAGE_NUMBER; page < FIRST_PAGE_NUMBER + MAX_PAGES; page++) {
-            if (isPast(deadline)) {
+            Duration budget = remaining(deadline);
+            if (budget.compareTo(MIN_CALL_BUDGET) < 0) {
                 log.warn("관광빅데이터 집계 시간 상한 초과 — {} 부분 수집({}/{}건)을 버립니다(부분 랭킹 금지)",
                         month, fetched, total);
                 return Map.of();
             }
-            var result = tourDataLabClient.findRegionVisitors(from, to, page, VISITOR_PAGE_SIZE);
+            // 남은 예산을 함께 넘긴다 — 클라이언트가 자기 timeout 과 이 값 중 짧은 쪽만 기다려, 이 한 건이
+            // deadline 을 넘겨 대기하지 않는다.
+            var result = tourDataLabClient.findRegionVisitors(from, to, page, VISITOR_PAGE_SIZE, budget);
             total = result.totalCount();
             for (RegionVisitor visitor : result.items()) {
                 if (!visitor.type().isTourist()) {
