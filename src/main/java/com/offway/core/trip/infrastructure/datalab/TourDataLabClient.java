@@ -1,6 +1,7 @@
 package com.offway.core.trip.infrastructure.datalab;
 
 import com.offway.core.trip.infrastructure.datalab.dto.TourVisitorResult;
+import java.time.Duration;
 import java.time.LocalDate;
 
 /**
@@ -18,6 +19,10 @@ public interface TourDataLabClient {
      * @param to 종료일 (포함)
      * @param pageNo 페이지 번호 (1부터)
      * @param numOfRows 페이지 크기
+     * @param maxWait 이 <b>한 건</b>을 기다릴 상한 — 호출자에게 남은 시간 예산이다. 구현은 자체 timeout 과 이 값 중
+     *     <b>짧은 쪽</b>만 기다린다. 페이지·월을 순차로 도는 집계에서, 예산이 거의 다 떨어진 시점에 시작한 마지막
+     *     요청이 자체 timeout 만큼 더 대기해 전체 상한을 넘기는 것을 막는다.
      */
-    TourVisitorResult findRegionVisitors(LocalDate from, LocalDate to, int pageNo, int numOfRows);
+    TourVisitorResult findRegionVisitors(
+            LocalDate from, LocalDate to, int pageNo, int numOfRows, Duration maxWait);
 }
