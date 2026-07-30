@@ -149,14 +149,27 @@ public final class ExternalDataCache<K, V> {
      * 하는 장치라 몇 개 오차는 무해하다. 정확한 상한을 위해 전역 잠금을 걸면 외부 I/O 를 막지 않는다는 이 캐시의 성질이 깨진다.
      */
     private void evictOverflow() {
-        cache.entrySet().removeIf(entry -> !entry.getValue().isFresh());
+        // 값을 고정한 스냅샷을 뜬다. ConcurrentHashMap 의 entrySet 뷰는 값이 살아 움직여서, 판단한 값과 지우는 값이
+        // 달라질 수 있다.
+        List<Map.Entry<K, Entry<V>>> snapshot = new ArrayList<>();
+        cache.forEach((key, entry) -> snapshot.add(Map.entry(key, entry)));
+
+        // 삭제는 전부 조건부(remove(key, value))다. 무조건 지우면, 스냅샷 이후 다른 스레드가 같은 키에 넣은
+        // <b>방금 갱신된 값</b>까지 날아가 곧바로 외부 재호출을 부른다 — 캐시가 스스로 미스를 만드는 셈이다.
+        snapshot.stream()
+                .filter(entry -> !entry.getValue().isFresh())
+                .forEach(entry -> cache.remove(entry.getKey(), entry.getValue()));
+
         int overflow = cache.size() - maxEntries;
         if (overflow <= 0) {
             return;
         }
-        List<Map.Entry<K, Entry<V>>> byExpiry = new ArrayList<>(cache.entrySet());
-        byExpiry.sort(Comparator.comparing(entry -> entry.getValue().expiresAt()));
-        byExpiry.stream().limit(overflow).forEach(entry -> cache.remove(entry.getKey()));
+        // 그래도 넘치면 가장 먼저 만료될 것부터. 위에서 이미 지운 항목은 조건부 remove 가 알아서 무시한다.
+        snapshot.stream()
+                .filter(entry -> entry.getValue().isFresh())
+                .sorted(Comparator.comparing(entry -> entry.getValue().expiresAt()))
+                .limit(overflow)
+                .forEach(entry -> cache.remove(entry.getKey(), entry.getValue()));
         log.info("캐시 상한({}) 초과 — {}건 축출", maxEntries, overflow);
     }
 
