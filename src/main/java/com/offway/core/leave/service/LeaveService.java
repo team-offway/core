@@ -44,10 +44,14 @@ public class LeaveService {
     private final HolidayClient holidayClient;
 
     /**
-     * 월별 공휴일 캐시. 키 공간은 <b>유한</b>하다 — 샌드위치 조회 상한(12개월)과 스타일 해석 창이 묶어주므로 실제로 쌓이는
-     * 것은 수십 개다. 그래서 축출 정책 없이 둔다(성능 규약 "캐시 키 공간의 상한을 먼저 정한다").
+     * 보관할 월 수. 키 공간이 <b>유한</b>하다 — 샌드위치 조회 상한(12개월)과 스타일 해석 창이 묶어주므로 한 해 남짓이
+     * 전부다. 연도가 넘어가며 조금씩 늘 수 있어 몇 해분 여유를 둔다.
      */
-    private final ExternalDataCache<YearMonth, HolidayLookup> holidayCache = new ExternalDataCache<>();
+    private static final int HOLIDAY_CACHE_MAX_MONTHS = 64;
+
+    /** 월별 공휴일 캐시. */
+    private final ExternalDataCache<YearMonth, HolidayLookup> holidayCache =
+            new ExternalDataCache<>(HOLIDAY_CACHE_MAX_MONTHS);
 
     /** 공휴일 캐시를 비운다 — 운영상 강제 갱신(고시 정정 등), 그리고 공유 컨텍스트 통합 테스트의 격리용. */
     public void evictCache() {

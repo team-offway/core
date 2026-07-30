@@ -39,8 +39,11 @@ public class RegionContentProvider {
     /** 실패 캐시 TTL — 조회 실패가 이어져도 매 요청이 6초씩 재시도하지 않게 짧게 폴백값을 눌러둔다. */
     private static final Duration FAILURE_CACHE_TTL = Duration.ofMinutes(5);
 
+    /** 보관할 지역 수. 키가 지역 id 라 <b>키 공간이 유한</b>하다 — 인구감소지역 89곳이 전부고, 고시 개정 여유를 얹었다. */
+    private static final int MAX_CACHED_REGIONS = 128;
+
     private final TourApiClient tourApiClient;
-    private final ExternalDataCache<Long, RegionContent> cache = new ExternalDataCache<>();
+    private final ExternalDataCache<Long, RegionContent> cache = new ExternalDataCache<>(MAX_CACHED_REGIONS);
 
     /**
      * 한 지역의 콘텐츠. 볼거리가 충분하면 그대로, 부족하면 인접 50km 지역(가까운 순, 최대 {@value #MAX_NEIGHBORS}곳)을 충분해질
