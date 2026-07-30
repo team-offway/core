@@ -9,14 +9,18 @@ import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import lombok.RequiredArgsConstructor;
@@ -81,14 +85,30 @@ public class RegionContentProvider {
     private final ExternalDataCache<Long, RegionContent> cache = new ExternalDataCache<>(MAX_CACHED_REGIONS);
 
     /**
+     * 대기 큐 상한. {@code Executors.newFixedThreadPool} 은 <b>무제한 큐</b>라, 외부가 느려지면 요청·워밍 작업이
+     * 한없이 쌓여 서로를 밀어낸다. 워밍 한 배치(89곳)와 동시 요청 몇 건을 담을 만큼만 두고 넘치면 거절한다.
+     */
+    private static final int FANOUT_QUEUE_CAPACITY = 256;
+
+    /**
      * 팬아웃 전용 풀. 요청마다 만들지 않고 빈이 소유한다 — 워밍은 5시간에 한 번이지만 요청은 매번이라, 풀 생성 비용을
      * 요청 경로에 얹을 이유가 없다. 데몬 스레드로 둬 종료를 막지 않는다(전부 재시도 가능한 조회다).
+     *
+     * <p>거절 정책은 기본(`AbortPolicy`)이다 — 호출부가 {@link java.util.concurrent.RejectedExecutionException} 을
+     * 받아 그 지역만 건너뛴다. `CallerRunsPolicy` 로 두면 넘칠 때 <b>요청 스레드가 외부 호출을 직접 떠안아</b>
+     * 상한이 무의미해진다.
      */
-    private final ExecutorService fanoutExecutor = Executors.newFixedThreadPool(FANOUT_CONCURRENCY, runnable -> {
-        Thread thread = new Thread(runnable, "region-content-fanout");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ExecutorService fanoutExecutor = new ThreadPoolExecutor(
+            FANOUT_CONCURRENCY,
+            FANOUT_CONCURRENCY,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(FANOUT_QUEUE_CAPACITY),
+            runnable -> {
+                Thread thread = new Thread(runnable, "region-content-fanout");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     @PreDestroy
     void shutdownFanout() {
@@ -115,18 +135,31 @@ public class RegionContentProvider {
         if (targets.isEmpty()) {
             return Map.of();
         }
+        Instant deadlineAt = Instant.now().plus(deadline);
         Map<Long, RegionContent> contents = new ConcurrentHashMap<>();
-        CompletableFuture<?>[] futures = targets.stream()
-                .map(region -> CompletableFuture.runAsync(
-                                () -> contents.put(region.getId(), contentFor(region, neighborPool)), fanoutExecutor)
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        int rejected = 0;
+        for (Region region : targets) {
+            try {
+                futures.add(CompletableFuture.runAsync(fillTask(region, neighborPool, deadlineAt, contents),
+                                fanoutExecutor)
                         .exceptionally(error -> {
                             // contentFor 는 스스로 degrade 하는 게 계약이지만, 그 계약이 깨져도 나머지를 막지 않는다.
                             log.warn("지역 콘텐츠 팬아웃 실패(계속) region={}", region.getId(), error);
                             return null;
-                        }))
-                .toArray(CompletableFuture[]::new);
+                        }));
+            } catch (RejectedExecutionException e) {
+                rejected++; // 큐가 찼다 — 이 지역은 빈 콘텐츠로 두고 나머지를 계속한다
+            }
+        }
+        if (rejected > 0) {
+            log.warn("지역 콘텐츠 팬아웃 큐 포화({}) — {}건을 건너뜁니다", FANOUT_QUEUE_CAPACITY, rejected);
+        }
+
         try {
-            CompletableFuture.allOf(futures).get(deadline.toMillis(), TimeUnit.MILLISECONDS);
+            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                    .get(deadline.toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             log.warn("지역 콘텐츠 팬아웃 시간 상한({}) 초과 — {}/{}건만 채웁니다",
                     deadline, contents.size(), targets.size());
@@ -137,6 +170,26 @@ public class RegionContentProvider {
             log.warn("지역 콘텐츠 팬아웃이 중단됐습니다 — {}/{}건만 채웁니다", contents.size(), targets.size());
         }
         return contents;
+    }
+
+    /**
+     * 한 지역을 채우는 작업. <b>큐에서 대기하는 동안 예산이 끝났으면 외부를 부르지 않고 즉시 끝낸다.</b>
+     *
+     * <p>{@code allOf(...).get(deadline)} 은 <b>기다림만</b> 끊는다 — 이미 제출된 작업은 그대로 남아 각자
+     * read-timeout 까지 스레드를 물고, 뒤이은 요청·워밍이 그 뒤에 쌓인다. 시작 시점에 한 번 보는 것만으로
+     * 대기 중이던 작업이 즉시 빠져나가 큐가 풀린다.
+     *
+     * <p>이미 <b>실행 중</b>인 호출은 여기서 못 끊는다(최대 {@value #FANOUT_CONCURRENCY}건 × 클라이언트 timeout).
+     * 그걸 끊으려면 남은 예산을 {@code TourApiClient} 까지 내려야 하는데, 그 포트는 소비자가 넷이라 별도 작업이다.
+     */
+    private Runnable fillTask(
+            Region region, List<Region> neighborPool, Instant deadlineAt, Map<Long, RegionContent> contents) {
+        return () -> {
+            if (!Instant.now().isBefore(deadlineAt)) {
+                return;
+            }
+            contents.put(region.getId(), contentFor(region, neighborPool));
+        };
     }
 
     /**
