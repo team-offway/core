@@ -7,10 +7,18 @@ import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.trip.domain.RegionContent;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -42,8 +50,94 @@ public class RegionContentProvider {
     /** 보관할 지역 수. 키가 지역 id 라 <b>키 공간이 유한</b>하다 — 인구감소지역 89곳이 전부고, 고시 개정 여유를 얹었다. */
     private static final int MAX_CACHED_REGIONS = 128;
 
+    /**
+     * 팬아웃 동시성 상한. 외부가 느려도 후보를 순차로 기다리지 않게 병렬로 돌리되, 상한을 둬 TourAPI 부하·쿼터 소모를
+     * 억제한다.
+     *
+     * <p><b>요청 경로와 워밍 경로가 같은 값을 쓰는 게 아니라 같은 메서드를 쓴다</b>({@link #contentForAll}) — 두 경로의
+     * 동시성이 갈릴 여지를 코드에서 없앴다(성능 규약 "요청 경로와 워밍 경로의 동시성을 다르게 두지 않는다").
+     */
+    private static final int FANOUT_CONCURRENCY = 12;
+
+    /**
+     * <b>요청 경로</b>의 팬아웃 시간 상한. 호출 하나의 timeout(6초)과는 별개다 — 후보 20곳 × (자기 + 인접 최대
+     * {@value #MAX_NEIGHBORS}) 을 동시성 {@value #FANOUT_CONCURRENCY} 로 돌려도 최악은 수십 초다.
+     *
+     * <p>상한에 걸리면 <b>그때까지 채워진 것만</b> 쓴다. 콘텐츠는 화면의 부가 정보라 일부가 비는 것이 이미 정상
+     * 동작이고(조회 실패 시 빈 콘텐츠로 degrade), 랭킹과 달리 부분 데이터가 순위를 틀리게 만들지 않는다.
+     */
+    public static final Duration REQUEST_FANOUT_DEADLINE = Duration.ofSeconds(15);
+
+    /**
+     * <b>백그라운드 워밍</b>의 팬아웃 시간 상한. 요청 경로보다 훨씬 길다 — 89곳을 끝까지 채워야 첫 요청이 즉답이 되는데,
+     * 사용자를 기다리게 하는 쪽이 아니라서 서두를 이유가 없다.
+     *
+     * <p><b>동시성은 공유하고 시간 예산만 나눈다.</b> 동시성은 외부에 거는 부하라 경로가 갈리면 상한이 무의미해지지만,
+     * 시간 예산은 "누가 기다리는가" 의 문제라 요청과 배치가 같을 이유가 없다.
+     */
+    public static final Duration WARMING_FANOUT_DEADLINE = Duration.ofMinutes(5);
+
     private final TourApiClient tourApiClient;
     private final ExternalDataCache<Long, RegionContent> cache = new ExternalDataCache<>(MAX_CACHED_REGIONS);
+
+    /**
+     * 팬아웃 전용 풀. 요청마다 만들지 않고 빈이 소유한다 — 워밍은 5시간에 한 번이지만 요청은 매번이라, 풀 생성 비용을
+     * 요청 경로에 얹을 이유가 없다. 데몬 스레드로 둬 종료를 막지 않는다(전부 재시도 가능한 조회다).
+     */
+    private final ExecutorService fanoutExecutor = Executors.newFixedThreadPool(FANOUT_CONCURRENCY, runnable -> {
+        Thread thread = new Thread(runnable, "region-content-fanout");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    @PreDestroy
+    void shutdownFanout() {
+        fanoutExecutor.shutdownNow();
+    }
+
+    /**
+     * 여러 지역의 콘텐츠를 <b>동시성 상한을 둔 병렬</b>로 채운다. 홈·추천·워밍이 전부 이 메서드를 쓴다.
+     *
+     * <p>순차로 돌면 지연이 후보 수만큼 곱해진다 — TourAPI 는 지역당 수 초에 간헐 타임아웃이라, 20곳이면 그게 그대로
+     * 응답시간이 된다(ADR 0001 의 cold median 10초).
+     *
+     * <p>지역 하나의 실패는 그 지역만 빈 콘텐츠가 되고 나머지를 막지 않는다. 전체가 {@code deadline} 을 넘기면
+     * 그때까지 채워진 것만 돌려준다.
+     *
+     * @param targets 콘텐츠를 채울 지역
+     * @param neighborPool 인접 후보(보통 전체 지역)
+     * @param deadline 팬아웃 전체의 시간 상한 — {@link #REQUEST_FANOUT_DEADLINE} 또는
+     *     {@link #WARMING_FANOUT_DEADLINE}
+     * @return 지역ID → 콘텐츠. 채우지 못한 지역은 <b>키가 없다</b>(호출자가 빈 콘텐츠로 취급한다)
+     */
+    public Map<Long, RegionContent> contentForAll(
+            List<Region> targets, List<Region> neighborPool, Duration deadline) {
+        if (targets.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, RegionContent> contents = new ConcurrentHashMap<>();
+        CompletableFuture<?>[] futures = targets.stream()
+                .map(region -> CompletableFuture.runAsync(
+                                () -> contents.put(region.getId(), contentFor(region, neighborPool)), fanoutExecutor)
+                        .exceptionally(error -> {
+                            // contentFor 는 스스로 degrade 하는 게 계약이지만, 그 계약이 깨져도 나머지를 막지 않는다.
+                            log.warn("지역 콘텐츠 팬아웃 실패(계속) region={}", region.getId(), error);
+                            return null;
+                        }))
+                .toArray(CompletableFuture[]::new);
+        try {
+            CompletableFuture.allOf(futures).get(deadline.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            log.warn("지역 콘텐츠 팬아웃 시간 상한({}) 초과 — {}/{}건만 채웁니다",
+                    deadline, contents.size(), targets.size());
+        } catch (ExecutionException e) {
+            log.warn("지역 콘텐츠 팬아웃이 예외로 끝났습니다 — {}/{}건만 채웁니다", contents.size(), targets.size(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("지역 콘텐츠 팬아웃이 중단됐습니다 — {}/{}건만 채웁니다", contents.size(), targets.size());
+        }
+        return contents;
+    }
 
     /**
      * 한 지역의 콘텐츠. 볼거리가 충분하면 그대로, 부족하면 인접 50km 지역(가까운 순, 최대 {@value #MAX_NEIGHBORS}곳)을 충분해질

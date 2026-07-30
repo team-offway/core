@@ -4,9 +4,6 @@ import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.weather.service.AirQualityService;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
@@ -41,8 +38,6 @@ public class HomeCacheWarmer {
     private static final String SLOW_REFRESH_INTERVAL = "PT5H";
     /** 대기질 워밍 주기 — 대기질 캐시 TTL(1시간)보다 짧게. 시간당 갱신 데이터라 짧은 주기로 따로 데운다. */
     private static final String AIR_REFRESH_INTERVAL = "PT50M";
-    /** 콘텐츠 워밍 동시성 — 외부가 느려도(지역당 최대 read-timeout) 89개를 순차로 기다리지 않게. 상한을 둬 외부 부하를 억제한다. */
-    private static final int WARM_CONCURRENCY = 12;
 
     private final RegionRepository regionRepository;
     private final RegionRankingService regionRankingService;
@@ -88,28 +83,16 @@ public class HomeCacheWarmer {
         }
     }
 
-    /** 지역 콘텐츠를 제한된 동시성으로 데운다. 지역별 예외는 격리하고, 데운 지역 수를 센다. */
+    /**
+     * 지역 콘텐츠를 데운다. 팬아웃(동시성 상한·지역별 예외 격리·전체 시간 상한)은 {@link RegionContentProvider} 가
+     * 소유하므로 여기서는 넘기기만 한다.
+     *
+     * <p>워밍이 자기 풀을 따로 들지 않는 이유 — <b>요청 경로와 같은 메서드를 쓰기 위해서다.</b> 상수만 공유하면 한쪽만
+     * 고쳐질 수 있지만, 메서드를 공유하면 동시성이 갈릴 여지가 없다(성능 규약).
+     */
     private int warmContent(List<Region> regions) {
-        ExecutorService pool = Executors.newFixedThreadPool(Math.min(WARM_CONCURRENCY, regions.size()));
-        try {
-            var futures = regions.stream()
-                    .map(region -> pool.submit(() -> regionContentProvider.contentFor(region, regions)))
-                    .toList();
-            int warmed = 0;
-            for (Future<?> future : futures) {
-                try {
-                    future.get();
-                    warmed++;
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return warmed;
-                } catch (Exception e) {
-                    log.warn("홈 캐시 워밍 — 지역 콘텐츠 워밍 실패(계속)", e);
-                }
-            }
-            return warmed;
-        } finally {
-            pool.shutdown();
-        }
+        return regionContentProvider
+                .contentForAll(regions, regions, RegionContentProvider.WARMING_FANOUT_DEADLINE)
+                .size();
     }
 }

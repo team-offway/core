@@ -72,14 +72,24 @@ public class RegionRecommendationService {
         Map<Long, Region> regionById = new HashMap<>();
         reachable.forEach(region -> regionById.put(region.getId(), region));
         LocalDate today = LocalDate.now();
+        List<Region> candidateRegions = candidates.stream()
+                .map(score -> regionById.get(score.regionId()))
+                .toList();
+
+        // 외부(TourAPI)는 병렬, DB(혜택)는 일괄 — 성격이 다르다. 혜택까지 병렬로 돌리면 후보 수만큼 커넥션을
+        // 잡으려 들어 커넥션 풀에서 경합한다. 쿼리 수를 줄이는 게 맞지 스레드를 늘릴 일이 아니다.
+        Map<Long, RegionContent> contents = regionContentProvider.contentForAll(candidateRegions, allRegions, RegionContentProvider.REQUEST_FANOUT_DEADLINE);
+        Map<Long, List<Policy>> policiesByRegion = policyService.matchForRegions(
+                candidateRegions.stream().map(Region::getId).toList(), today);
 
         List<RecommendedRegion> result = new ArrayList<>();
         for (RegionScore score : candidates) {
             Region region = regionById.get(score.regionId());
-            RegionContent content = regionContentProvider.contentFor(region, allRegions);
-            List<RecommendedRegion.Benefit> benefits = policyService.matchForRegion(region.getId(), today).stream()
-                    .map(RegionRecommendationService::toBenefit)
-                    .toList();
+            RegionContent content = contents.getOrDefault(region.getId(), RegionContent.EMPTY);
+            List<RecommendedRegion.Benefit> benefits =
+                    policiesByRegion.getOrDefault(region.getId(), List.of()).stream()
+                            .map(RegionRecommendationService::toBenefit)
+                            .toList();
             result.add(RecommendedRegion.of(
                     region.getId(), region.getSido(), region.getSigungu(),
                     reachByRegion.get(region.getId()), score.crowdLevel(), content, benefits));
