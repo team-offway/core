@@ -31,8 +31,14 @@ public class BusArrivalService {
     /** 조회 실패도 짧게 잡아 곧 재시도되게 한다. */
     private static final Duration RETRY_TTL = Duration.ofSeconds(20);
 
+    /**
+     * 보관할 정류소 수. 키가 정류소라 <b>키 공간이 전국 정류소 수</b>(수만)다. TTL 이 20초로 짧아 값은 금방 죽지만
+     * <b>엔트리는 남으므로 회전이 빠를수록 오히려 더 빨리 쌓인다</b> — 상한이 없으면 조회량에 비례해 힙이 자란다.
+     */
+    private static final int MAX_CACHED_STOPS = 2_000;
+
     private final BusArrivalClient busArrivalClient;
-    private final ExternalDataCache<String, BusArrivalStatus> cache = new ExternalDataCache<>();
+    private final ExternalDataCache<String, BusArrivalStatus> cache = new ExternalDataCache<>(MAX_CACHED_STOPS);
 
     /** 정류소의 실시간 도착 예정 버스. */
     public BusArrivalStatus arrivalsAt(BusStop stop) {

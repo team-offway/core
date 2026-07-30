@@ -2,6 +2,7 @@ package com.offway.core.common.cache;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
@@ -25,9 +26,12 @@ class ExternalDataCacheTest {
     /** latch 대기 상한 — 정상 구현이면 즉시 풀리고, 안 풀리면 hang 대신 실패로 끝나게 하는 안전망. */
     private static final long AWAIT_SECONDS = 5;
 
+    /** 상한을 검증하지 않는 테스트용 — 그 테스트들이 쓰는 키 수보다 충분히 커서 축출이 끼어들지 않는다. */
+    private static final int TEST_MAX_ENTRIES = 100;
+
     @Test
     void 값이_신선하면_loader를_다시_부르지_않는다() {
-        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>(TEST_MAX_ENTRIES);
         AtomicInteger loads = new AtomicInteger();
 
         String first = cache.get(KEY, (k, stale) -> {
@@ -46,7 +50,7 @@ class ExternalDataCacheTest {
 
     @Test
     void 만료되면_다시_조회한다() throws InterruptedException {
-        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>(TEST_MAX_ENTRIES);
 
         cache.get(KEY, (k, stale) -> new Loaded<>("old", SHORT_TTL), "fallback");
         Thread.sleep(60); // TTL 만료
@@ -57,7 +61,7 @@ class ExternalDataCacheTest {
 
     @Test
     void 조회_실패시_마지막_성공값을_돌려준다_stale_while_error() throws InterruptedException {
-        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>(TEST_MAX_ENTRIES);
 
         cache.get(KEY, (k, stale) -> new Loaded<>("good", SHORT_TTL), "fallback");
         Thread.sleep(60); // 만료 후 재조회가 실패하는 상황 — loader 가 stale 을 폴백으로 반환
@@ -68,7 +72,7 @@ class ExternalDataCacheTest {
 
     @Test
     void loader가_예외를_던져도_요청_경로로_올리지_않고_stale로_degrade한다() throws InterruptedException {
-        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>(TEST_MAX_ENTRIES);
         cache.get(KEY, (k, stale) -> new Loaded<>("good", SHORT_TTL), "fallback");
         Thread.sleep(60); // 만료 후 loader 가 계약을 어기고 예외를 던지는 상황
 
@@ -81,7 +85,7 @@ class ExternalDataCacheTest {
 
     @Test
     void loader_예외인데_stale도_없으면_폴백을_돌려준다() {
-        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>(TEST_MAX_ENTRIES);
 
         String result = cache.get(KEY, (k, stale) -> {
             throw new IllegalStateException("loader 계약 위반");
@@ -93,7 +97,7 @@ class ExternalDataCacheTest {
     @Test
     void stale_미제공이면_loader_예외로_degrade할_때도_stale대신_폴백을_돌려준다() throws InterruptedException {
         // 위 loader가_예외를_던져도... 의 DISALLOW_STALE 짝 — degrade 두 경로가 같은 정책을 따르는지 확인한다.
-        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>(TEST_MAX_ENTRIES);
         cache.get(KEY, (k, stale) -> new Loaded<>("stale", SHORT_TTL), "fallback", StalePolicy.DISALLOW_STALE);
         Thread.sleep(60); // 만료 — stale 이 남은 상태에서 loader 가 계약을 어기고 예외를 던진다
 
@@ -107,7 +111,7 @@ class ExternalDataCacheTest {
     @Test
     void stale_미제공이면_loader가_stale을_새_값으로_되돌려줄_수_없다() throws InterruptedException {
         // 정책이 degrade 만 막으면 loader 반환값이라는 우회로가 남는다. stale 을 아예 안 넘겨 그 통로를 닫는다.
-        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>(TEST_MAX_ENTRIES);
         cache.get(KEY, (k, stale) -> new Loaded<>("stale", SHORT_TTL), "fallback", StalePolicy.DISALLOW_STALE);
         Thread.sleep(60); // 만료
 
@@ -124,7 +128,7 @@ class ExternalDataCacheTest {
 
     @Test
     void 만료_순간_동시_요청이_몰려도_외부는_한_번만_호출된다_single_flight() throws InterruptedException {
-        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>(TEST_MAX_ENTRIES);
         cache.get(KEY, (k, stale) -> new Loaded<>("stale", SHORT_TTL), "fallback");
         Thread.sleep(60); // 만료
 
@@ -178,7 +182,7 @@ class ExternalDataCacheTest {
     @Test
     void stale_미제공이면_갱신_중_동시요청은_stale대신_폴백을_받는다() throws InterruptedException {
         // 실시간 값(버스 도착)용 — DISALLOW_STALE. 만료된 stale 을 절대 내리지 않는다.
-        ExternalDataCache<String, String> cache = new ExternalDataCache<>();
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>(TEST_MAX_ENTRIES);
         cache.get(KEY, (k, stale) -> new Loaded<>("stale", SHORT_TTL), "fallback", StalePolicy.DISALLOW_STALE);
         Thread.sleep(60); // 만료 — 이제 캐시엔 만료된 "stale" 이 남아 있다
 
@@ -227,6 +231,52 @@ class ExternalDataCacheTest {
         assertEquals(1, loads.get());
         assertEquals(threads, results.size());
         assertTrue(results.stream().noneMatch("stale"::equals), "stale 미제공 모드에선 stale 이 절대 노출되면 안 된다");
+    }
+
+    // ── 엔트리 수 상한 (#100) ──────────────────────────────────────
+    // TTL 은 값의 신선도만 관리하고 엔트리를 지우지 않는다. 키 공간이 무한하면(좌표·정류소·날짜) 상한이 유일한 방어선이다.
+
+    @Test
+    void 상한을_넘기면_축출해_엔트리_수가_상한_안에_머문다() {
+        ExternalDataCache<Integer, String> cache = new ExternalDataCache<>(10);
+
+        for (int i = 0; i < 100; i++) {
+            cache.get(i, (k, stale) -> new Loaded<>("v" + k, LONG_TTL), "fallback");
+        }
+
+        assertTrue(cache.size() <= 10, "상한을 넘게 쌓이면 안 된다. 실제=" + cache.size());
+    }
+
+    @Test
+    void 상한을_넘기면_만료된_엔트리부터_버리고_신선한_것은_남긴다() throws InterruptedException {
+        ExternalDataCache<Integer, String> cache = new ExternalDataCache<>(3);
+
+        // 짧은 TTL 두 건을 먼저 넣고 만료시킨다 — 값은 죽었지만 엔트리는 남아 자리를 차지한다.
+        cache.get(1, (k, stale) -> new Loaded<>("expired1", SHORT_TTL), "fallback");
+        cache.get(2, (k, stale) -> new Loaded<>("expired2", SHORT_TTL), "fallback");
+        Thread.sleep(SHORT_TTL.toMillis() * 2);
+
+        // 신선한 값을 상한까지 채운다 — 축출이 일어나면 만료된 1·2 가 먼저 나가야 한다.
+        cache.get(3, (k, stale) -> new Loaded<>("fresh3", LONG_TTL), "fallback");
+        cache.get(4, (k, stale) -> new Loaded<>("fresh4", LONG_TTL), "fallback");
+        cache.get(5, (k, stale) -> new Loaded<>("fresh5", LONG_TTL), "fallback");
+
+        AtomicInteger reloads = new AtomicInteger();
+        for (int key : new int[] {3, 4, 5}) {
+            cache.get(key, (k, stale) -> {
+                reloads.incrementAndGet();
+                return new Loaded<>("reloaded", LONG_TTL);
+            }, "fallback");
+        }
+
+        assertEquals(0, reloads.get(), "신선한 엔트리는 만료된 것보다 먼저 축출되면 안 된다");
+    }
+
+    @Test
+    void 상한이_0_이하면_생성을_거부한다() {
+        // 상한이 없다는 뜻이 되면 이 클래스의 방어가 무력해진다 — 실수로 0 을 넘기는 것을 막는다.
+        assertThrows(IllegalArgumentException.class, () -> new ExternalDataCache<String, String>(0));
+        assertThrows(IllegalArgumentException.class, () -> new ExternalDataCache<String, String>(-1));
     }
 
     private static void awaitQuietly(CountDownLatch latch) {

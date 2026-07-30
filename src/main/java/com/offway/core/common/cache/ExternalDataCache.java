@@ -2,6 +2,9 @@ package com.offway.core.common.cache;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -21,7 +24,23 @@ import lombok.extern.slf4j.Slf4j;
  *   <li><b>double-check</b> — 게이트 획득 직후 캐시를 재확인해, 획득 사이 다른 스레드가 이미 갱신했으면 그 값을 쓴다(직렬 중복 호출 방지).
  *   <li><b>stale-while-error</b> — 재조회 실패 시 마지막 성공값을 계속 내려준다. 폴백·실패 TTL 선택은 loader 가 소유한다
  *       (외부 예외 타입을 이 프리미티브가 알 필요가 없다).
+ *   <li><b>엔트리 수 상한</b> — 아래 참고.
  * </ul>
+ *
+ * <h2>왜 상한이 필요한가</h2>
+ *
+ * <b>TTL 은 값의 신선도만 관리하고 엔트리를 지우지 않는다.</b> 만료된 엔트리도 맵에 그대로 남아 자리를 차지하므로, 키 공간이
+ * 무한하면(좌표·정류소 id·날짜가 섞인 키) 트래픽에 비례해 힙이 계속 자란다. TTL 이 짧을수록 회전이 빨라 <b>오히려 더 빨리</b>
+ * 쌓인다. 그래서 소유자가 {@code maxEntries} 로 "이 캐시의 키는 몇 개까지 늘 수 있나" 를 반드시 답하게 한다(성능 규약
+ * "캐시 키 공간의 상한을 먼저 정한다").
+ *
+ * <p><b>축출 순서</b>: ① 만료된 엔트리 — 값이 이미 죽었는데 자리만 차지한다. ② 그래도 넘치면 <b>가장 먼저 만료될</b>
+ * 엔트리부터. 어차피 곧 버릴 것이고, 접근 시각 같은 추가 상태 없이 정할 수 있다. TTL 이 균일한 캐시에서는 사실상 가장 오래된
+ * 것부터 나가는 것과 같다.
+ *
+ * <p><b>Caffeine 을 쓰지 않은 이유</b>: 이 프리미티브의 single-flight 는 <b>막지 않는</b> 방식이다 — 갱신 중인 키에
+ * 들어온 요청을 기다리게 하지 않고 stale 을 즉시 준다. Caffeine 의 로딩 캐시는 같은 키를 기다리게 하고, stale 은 만료와
+ * 함께 사라져 loader 에게 넘길 수 없다. 그 두 성질이 이 캐시의 존재 이유라, 라이브러리에 맞추려면 오히려 의미를 잃는다.
  *
  * <p><b>단일 인스턴스 전제.</b> JVM 인메모리라 인스턴스를 늘리면 히트율이 나뉘고 각자 워밍·single-flight 를 돌려 외부 호출이
  * 인스턴스 수만큼 는다. 공모전 규모(단일 인스턴스)에선 로컬 캐시가 더 빠르고 단순해 의식적으로 택했고, 스케일아웃하면 동일 인터페이스로
@@ -35,6 +54,18 @@ public final class ExternalDataCache<K, V> {
 
     private final Map<K, Entry<V>> cache = new ConcurrentHashMap<>();
     private final Set<K> refreshing = ConcurrentHashMap.newKeySet();
+    private final int maxEntries;
+
+    /**
+     * @param maxEntries 보관할 최대 엔트리 수. <b>소유자가 키 공간의 상한을 직접 답해야 한다</b> — 유한한 키(지역 89개·
+     *     시도 17개)면 그 수에 여유를 얹고, 무한한 키(좌표·정류소·날짜)면 메모리로 감당할 값을 고른다.
+     */
+    public ExternalDataCache(int maxEntries) {
+        if (maxEntries <= 0) {
+            throw new IllegalArgumentException("maxEntries 는 1 이상이어야 합니다: " + maxEntries);
+        }
+        this.maxEntries = maxEntries;
+    }
 
     /**
      * 키의 신선한 값을 주거나, 만료됐으면 single-flight 로 재조회한다.
@@ -86,7 +117,7 @@ public final class ExternalDataCache<K, V> {
                 log.warn("캐시 loader 가 예외를 던졌습니다 — degrade key={}", key, e);
                 return stalePolicy.degrade(stale, noStaleFallback);
             }
-            cache.put(key, new Entry<>(loaded.value(), Instant.now().plus(loaded.ttl())));
+            store(key, new Entry<>(loaded.value(), Instant.now().plus(loaded.ttl())));
             return loaded.value();
         } finally {
             refreshing.remove(key);
@@ -96,6 +127,62 @@ public final class ExternalDataCache<K, V> {
     /** 캐시 무효화 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트 격리용. */
     public void evictAll() {
         cache.clear();
+    }
+
+    /** 현재 보관 중인 엔트리 수 — 상한이 실제로 지켜지는지 확인하는 용도(테스트·운영 점검). */
+    public int size() {
+        return cache.size();
+    }
+
+    /** 새 값을 넣고, 상한을 넘겼으면 축출한다. */
+    private void store(K key, Entry<V> entry) {
+        cache.put(key, entry);
+        if (cache.size() > maxEntries) {
+            evictOverflow();
+        }
+    }
+
+    /**
+     * 상한 초과분을 덜어낸다. 만료된 것부터 버리고(값이 죽었는데 자리만 차지한다), 그래도 넘치면 가장 먼저 만료될 것부터 버린다.
+     *
+     * <p>{@code size()} 는 동시 갱신 중 근사값이고 스냅샷도 정확한 시점이 아니지만, 상한은 <b>메모리가 무한히 자라지 않게</b>
+     * 하는 장치라 몇 개 오차는 무해하다. 정확한 상한을 위해 전역 잠금을 걸면 외부 I/O 를 막지 않는다는 이 캐시의 성질이 깨진다.
+     */
+    private void evictOverflow() {
+        // 값을 고정한 스냅샷을 뜬다. ConcurrentHashMap 의 entrySet 뷰는 값이 살아 움직여서, 판단한 값과 지우는 값이
+        // 달라질 수 있다.
+        List<Map.Entry<K, Entry<V>>> snapshot = new ArrayList<>();
+        cache.forEach((key, entry) -> snapshot.add(Map.entry(key, entry)));
+
+        // 삭제는 전부 조건부(remove(key, value))다. 무조건 지우면, 스냅샷 이후 다른 스레드가 같은 키에 넣은
+        // <b>방금 갱신된 값</b>까지 날아가 곧바로 외부 재호출을 부른다 — 캐시가 스스로 미스를 만드는 셈이다.
+        snapshot.stream()
+                .filter(entry -> !entry.getValue().isFresh())
+                .forEach(entry -> cache.remove(entry.getKey(), entry.getValue()));
+
+        int overflow = cache.size() - maxEntries;
+        if (overflow <= 0) {
+            return;
+        }
+        // 그래도 넘치면 가장 먼저 만료될 것부터. 조건부 remove 는 이미 지워졌거나 그 사이 갱신된 항목에 대해 no-op 이라,
+        // limit(overflow) 로 개수를 미리 자르면 그 no-op 이 자리를 차지해 정작 덜 지운다 — <b>실제로 지워진 수</b>를 센다.
+        int removed = 0;
+        for (Map.Entry<K, Entry<V>> entry : sortedByExpiry(snapshot)) {
+            if (removed >= overflow) {
+                break;
+            }
+            if (cache.remove(entry.getKey(), entry.getValue())) {
+                removed++;
+            }
+        }
+        log.info("캐시 상한({}) 초과 — {}건 축출", maxEntries, removed);
+    }
+
+    /** 가장 먼저 만료될 것부터. 만료된 항목도 빼지 않는다 — ①에서 지워졌으면 no-op 이고, 아직 남았으면 먼저 나가야 한다. */
+    private List<Map.Entry<K, Entry<V>>> sortedByExpiry(List<Map.Entry<K, Entry<V>>> snapshot) {
+        return snapshot.stream()
+                .sorted(Comparator.comparing((Map.Entry<K, Entry<V>> entry) -> entry.getValue().expiresAt()))
+                .toList();
     }
 
     /**

@@ -35,8 +35,14 @@ public class BusAccessService {
      */
     private static final String KEY_FORMAT = "%.4f|%.4f";
 
+    /**
+     * 보관할 좌표 수. 키가 좌표라 <b>키 공간이 무한</b>하다 — 사용자가 지도를 움직이는 만큼 새 격자가 생긴다. TTL(24시간)이
+     * 길어 회전이 느리므로 상한이 유일한 방어선이다. 89개 인구감소지역과 그 주변 관광지를 넉넉히 덮는 크기로 잡았다.
+     */
+    private static final int MAX_CACHED_COORDINATES = 2_000;
+
     private final BusStopClient busStopClient;
-    private final ExternalDataCache<String, BusStopAccess> cache = new ExternalDataCache<>();
+    private final ExternalDataCache<String, BusStopAccess> cache = new ExternalDataCache<>(MAX_CACHED_COORDINATES);
 
     /** 좌표 주변 버스 정류소 조회 결과. */
     public BusStopAccess nearbyStops(double lat, double lng) {

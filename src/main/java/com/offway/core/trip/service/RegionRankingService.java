@@ -82,8 +82,12 @@ public class RegionRankingService {
     /** 방문자 집계는 전 지역 공통 단일 값이라 상수 키 하나로 캐시한다. */
     private static final String VISITORS_KEY = "tourists";
 
+    /** 보관할 키 수. 방문자 집계는 전 지역 공통 <b>단일 값</b>이라 상수 키 하나뿐이다({@link #VISITORS_KEY}). */
+    private static final int MAX_CACHED_AGGREGATES = 2;
+
     private final TourDataLabClient tourDataLabClient;
-    private final ExternalDataCache<String, Map<String, VisitorAgg>> cache = new ExternalDataCache<>();
+    private final ExternalDataCache<String, Map<String, VisitorAgg>> cache =
+            new ExternalDataCache<>(MAX_CACHED_AGGREGATES);
 
     /** 방문자 집계 캐시를 비운다 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트의 격리(캐시가 이전 시나리오를 물고 가지 않게)용. */
     public void evictCache() {

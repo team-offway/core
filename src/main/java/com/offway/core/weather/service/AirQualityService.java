@@ -27,8 +27,11 @@ public class AirQualityService {
     /** 값이 없을 때(키 없음·조회 실패) 재시도까지의 짧은 TTL. */
     private static final Duration EMPTY_TTL = Duration.ofMinutes(5);
 
+    /** 보관할 시도 수. 키가 시도명이라 <b>키 공간이 유한</b>하다 — 17개 시도가 전부고, 표기 변형 여유를 얹었다. */
+    private static final int MAX_CACHED_SIDO = 32;
+
     private final AirKoreaClient airKoreaClient;
-    private final ExternalDataCache<String, Optional<AirQuality>> cache = new ExternalDataCache<>();
+    private final ExternalDataCache<String, Optional<AirQuality>> cache = new ExternalDataCache<>(MAX_CACHED_SIDO);
 
     /** 지역 시도명(정식/축약 모두)에 대한 실시간 대기질. 없으면 빈 Optional. 시도별로 캐시한다. */
     public Optional<AirQuality> byRegionSido(String sido) {
