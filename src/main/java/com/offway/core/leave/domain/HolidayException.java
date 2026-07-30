@@ -14,4 +14,12 @@ public final class HolidayException extends BaseException {
     public static HolidayException lookupFailed(Throwable cause) {
         return new HolidayException(HolidayErrorCode.HOLIDAY_LOOKUP_FAILED, cause);
     }
+
+    /**
+     * 직전 조회 실패가 짧은 TTL 로 캐시된 상태. 원인은 그 조회 시점에 스택과 함께 로그로 남았으므로 여기서는 다시 들지 않는다
+     * — 실패가 이어지는 동안 매 요청이 외부 read-timeout 을 다시 물지 않게 같은 실패로 즉시 응답한다.
+     */
+    public static HolidayException lookupFailedRecently() {
+        return new HolidayException(HolidayErrorCode.HOLIDAY_LOOKUP_FAILED, null);
+    }
 }
