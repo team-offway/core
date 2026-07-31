@@ -27,6 +27,7 @@ import com.offway.core.weather.service.WeatherService;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -58,19 +59,25 @@ public class CourseGenerationService {
         // ① POI 수집 (trip)
         RegionPois pois = regionPoiService.collect(command.regionId());
 
+        // ①' "이 장소 말고" — 재생성이 지정한 장소를 후보에서 뺀다(#114). 빈 집합이면 그대로다.
+        List<PoiCandidate> sightPool = exclude(pois.sights(), command.excludePoiContentIds());
+        List<PoiCandidate> foodPool = exclude(pois.foods(), command.excludePoiContentIds());
+        List<PoiCandidate> stayPool = exclude(pois.stays(), command.excludePoiContentIds());
+
         // ④ 필요 개수 (밀도×일수)
         CourseNeeds needs = CourseNeeds.of(command.density(), command.travelDays());
-        if (pois.sights().isEmpty()) {
+        if (sightPool.isEmpty()) {
             throw ItineraryException.courseNotBuildable(); // 볼거리가 없으면 코스가 아니다(식사만 있는 코스 방지)
         }
 
         // ⑤ 지리 클러스터링: 흩어진 후보 대신 밀집한 볼거리를 고르고(아웃라이어 배제), 맛집·숙소는 그 코스 중심 근처로 →
         // 순서 최적화만으로는 못 줄이는 이동시간을 선택 단계에서 줄인다.
+        // 씨앗이 다르면 다른 군집이 잡혀 코스가 달라지지만, 뭉치는 성질은 그대로라 동선이 망가지지 않는다(#114).
         List<PoiCandidate> sights =
-                reorder(pois.sights(), GeoCluster.selectCompact(coords(pois.sights()), needs.sights()));
+                reorder(sightPool, GeoCluster.selectCompact(coords(sightPool), needs.sights(), seedIndexOf(command)));
         Coordinate hub = GeoCluster.centroid(coords(sights));
-        List<PoiCandidate> foods = reorder(pois.foods(), GeoCluster.nearest(coords(pois.foods()), hub, needs.foods()));
-        List<PoiCandidate> stays = reorder(pois.stays(), GeoCluster.nearest(coords(pois.stays()), hub, needs.stays()));
+        List<PoiCandidate> foods = reorder(foodPool, GeoCluster.nearest(coords(foodPool), hub, needs.foods()));
+        List<PoiCandidate> stays = reorder(stayPool, GeoCluster.nearest(coords(stayPool), hub, needs.stays()));
 
         // ⑤⑦ interim: 출발지 기준 최근접 정렬(동선) → 하루씩 순서대로 슬라이스하면 가까운 곳끼리 묶인다
         List<PoiCandidate> orderedSights =
@@ -97,6 +104,24 @@ public class CourseGenerationService {
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
                 weather != null, trainAccess != null ? trainAccess.status() : "N/A");
         return new GeneratedCourse(course, benefits, weather, trainAccess);
+    }
+
+    /**
+     * 씨앗값을 후보 인덱스로 접는다. {@code GeoCluster} 가 후보 수로 다시 나머지를 취하므로 여기서는 부호만 없앤다.
+     *
+     * <p>씨앗을 인덱스로 <b>그대로</b> 쓰는 이유 — 해시를 한 번 더 섞으면 "seed 를 1 올리면 옆 후보" 라는 성질이
+     * 사라져, 문의 대응할 때 무슨 일이 있었는지 재구성하기 어려워진다.
+     */
+    private static int seedIndexOf(GenerateCourse command) {
+        return (int) Math.floorMod(command.seed(), Integer.MAX_VALUE);
+    }
+
+    /** "이 장소 말고" — 제외 목록에 든 후보를 뺀다. 빈 목록이면 원본 그대로다. */
+    private static List<PoiCandidate> exclude(List<PoiCandidate> pool, Set<String> excluded) {
+        if (excluded.isEmpty()) {
+            return pool;
+        }
+        return pool.stream().filter(poi -> !excluded.contains(poi.contentId())).toList();
     }
 
     /** 대중교통 코스의 출발지→지역 열차 접근. 출발·지역 좌표의 최근접 역으로 해석한다. */

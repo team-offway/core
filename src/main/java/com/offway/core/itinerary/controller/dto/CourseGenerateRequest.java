@@ -37,6 +37,6 @@ public record CourseGenerateRequest(
         @Schema(example = "2026-05-01", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull LocalDate travelDate) {
 
     public GenerateCourse toCommand() {
-        return new GenerateCourse(regionId, travelDays, density, transport, originLat, originLng, travelDate);
+        return GenerateCourse.first(regionId, travelDays, density, transport, originLat, originLng, travelDate);
     }
 }

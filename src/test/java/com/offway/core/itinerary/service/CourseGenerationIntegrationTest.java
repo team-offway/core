@@ -76,7 +76,7 @@ class CourseGenerationIntegrationTest {
     private static final LocalDate TRAVEL_DATE = LocalDate.of(2026, 5, 1);
 
     private static GenerateCourse command(int travelDays, Density density) {
-        return new GenerateCourse(SEEDED_REGION_ID, travelDays, density, TransportMode.CAR, 35.10, 129.03,
+        return GenerateCourse.first(SEEDED_REGION_ID, travelDays, density, TransportMode.CAR, 35.10, 129.03,
                 TRAVEL_DATE);
     }
 
