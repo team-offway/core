@@ -1,6 +1,9 @@
 package com.offway.core.itinerary.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.itinerary.service.TripOutcomeService;
+import com.offway.core.itinerary.controller.dto.TripOutcomeRequest;
+import com.offway.core.itinerary.controller.dto.PendingTripsResponse;
 import com.offway.core.leave.controller.dto.MyLeaveResponse;
 import com.offway.core.itinerary.service.CourseLeaveDeductionService;
 import com.offway.core.itinerary.controller.dto.CourseLeaveDeductionRequest;
@@ -33,6 +36,7 @@ public class CourseStorageController implements CourseStorageApi {
 
     private final CourseStorageService courseStorageService;
     private final CourseLeaveDeductionService courseLeaveDeductionService;
+    private final TripOutcomeService tripOutcomeService;
 
     @Override
     @PostMapping
@@ -81,5 +85,21 @@ public class CourseStorageController implements CourseStorageApi {
     public ApiResponseBody<MyLeaveResponse> cancelLeaveDeduction(
             @RequestHeader(GUEST_HEADER) String guestId, @PathVariable long courseId) {
         return ApiResponseBody.ok(MyLeaveResponse.from(courseLeaveDeductionService.cancel(guestId, courseId)));
+    }
+
+    @Override
+    @GetMapping("/pending-trips")
+    public ApiResponseBody<PendingTripsResponse> pendingTrips(@RequestHeader(GUEST_HEADER) String guestId) {
+        return ApiResponseBody.ok(PendingTripsResponse.from(tripOutcomeService.pending(guestId)));
+    }
+
+    @Override
+    @PostMapping("/{courseId}/trip-outcome")
+    public ApiResponseBody<MyLeaveResponse> answerTripOutcome(
+            @RequestHeader(GUEST_HEADER) String guestId,
+            @PathVariable long courseId,
+            @Valid @RequestBody TripOutcomeRequest request) {
+        return ApiResponseBody.ok(
+                MyLeaveResponse.from(tripOutcomeService.answer(guestId, courseId, request.outcome())));
     }
 }

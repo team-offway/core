@@ -29,4 +29,9 @@ public final class ItineraryException extends BaseException {
     public static ItineraryException travelDateMissing() {
         return new ItineraryException(ItineraryErrorCode.TRAVEL_DATE_MISSING);
     }
+
+    /** 홈 모달 "다녀오셨나요?" 에 이미 답한 여행이다. */
+    public static ItineraryException tripAlreadyAnswered() {
+        return new ItineraryException(ItineraryErrorCode.TRIP_ALREADY_ANSWERED);
+    }
 }
