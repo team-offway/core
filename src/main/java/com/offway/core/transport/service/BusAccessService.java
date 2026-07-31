@@ -41,8 +41,11 @@ public class BusAccessService {
      */
     private static final int MAX_CACHED_COORDINATES = 2_000;
 
+    /** loader 가 TAGO 정류소 <b>단일 호출</b>(timeout 6초)이라 여유 1초를 얹었다. */
+    private static final Duration FIRST_LOAD_WAIT = Duration.ofSeconds(7);
+
     private final BusStopClient busStopClient;
-    private final ExternalDataCache<String, BusStopAccess> cache = new ExternalDataCache<>(MAX_CACHED_COORDINATES);
+    private final ExternalDataCache<String, BusStopAccess> cache = new ExternalDataCache<>(MAX_CACHED_COORDINATES, FIRST_LOAD_WAIT);
 
     /** 좌표 주변 버스 정류소 조회 결과. */
     public BusStopAccess nearbyStops(double lat, double lng) {

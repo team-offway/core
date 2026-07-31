@@ -85,9 +85,17 @@ public class RegionRankingService {
     /** 보관할 키 수. 방문자 집계는 전 지역 공통 <b>단일 값</b>이라 상수 키 하나뿐이다({@link #VISITORS_KEY}). */
     private static final int MAX_CACHED_AGGREGATES = 2;
 
+    /**
+     * <b>기다리지 않는다.</b> 이 loader 는 호출 하나가 아니라 {@link #AGGREGATE_DEADLINE} 짜리 집계라, 동시 요청이
+     * 기다려 봐야 대부분 상한에 걸려 결국 degrade 한다 — 그러면 즉시 degrade 보다 지연만 늘고 결과는 같다.
+     *
+     * <p>대신 이 캐시는 {@code HomeCacheWarmer} 가 미리 데운다. 지연 적재에 기대지 않는 쪽이 옳은 캐시다.
+     */
+    private static final Duration FIRST_LOAD_WAIT = Duration.ZERO;
+
     private final TourDataLabClient tourDataLabClient;
     private final ExternalDataCache<String, Map<String, VisitorAgg>> cache =
-            new ExternalDataCache<>(MAX_CACHED_AGGREGATES);
+            new ExternalDataCache<>(MAX_CACHED_AGGREGATES, FIRST_LOAD_WAIT);
 
     /** 방문자 집계 캐시를 비운다 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트의 격리(캐시가 이전 시나리오를 물고 가지 않게)용. */
     public void evictCache() {

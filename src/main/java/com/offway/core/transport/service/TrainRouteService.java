@@ -32,8 +32,11 @@ public class TrainRouteService {
      */
     private static final int MAX_CACHED_ROUTES = 2_000;
 
+    /** loader 가 열차 운행정보 <b>단일 호출</b>(timeout 6초)이라 여유 1초를 얹었다. */
+    private static final Duration FIRST_LOAD_WAIT = Duration.ofSeconds(7);
+
     private final TrainInfoClient trainInfoClient;
-    private final ExternalDataCache<String, TrainAvailability> cache = new ExternalDataCache<>(MAX_CACHED_ROUTES);
+    private final ExternalDataCache<String, TrainAvailability> cache = new ExternalDataCache<>(MAX_CACHED_ROUTES, FIRST_LOAD_WAIT);
 
     /** 출발역→도착역, 해당 날짜의 가장 빠른 열차 조회 결과. */
     public TrainAvailability fastestTrain(String depStationId, String arrStationId, LocalDate date) {

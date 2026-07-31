@@ -227,12 +227,6 @@ class CourseLeaveDeductionIntegrationTest {
         setTotalLeave(guest, 15.0);
         long courseId = saveCourse(guest, TWO_DAY_COURSE);
 
-        // 공휴일 캐시를 미리 데운다. 캐시가 빈 채로 동시 요청이 들어오면 로딩을 놓친 쪽이 폴백(=조회 실패)을 받아
-        // 502 가 되는데, 그건 ExternalDataCache 의 별개 결함이라 이 테스트가 볼 대상이 아니다. 여기서 확인할 것은
-        // "두 번 차감되지 않는가" 하나다.
-        String warmup = uniqueGuest();
-        deduct(warmup, saveCourse(warmup, TWO_DAY_COURSE), "{}").andExpect(status().isOk());
-
         int threads = 2;
         CountDownLatch start = new CountDownLatch(1);
         CountDownLatch done = new CountDownLatch(threads);
