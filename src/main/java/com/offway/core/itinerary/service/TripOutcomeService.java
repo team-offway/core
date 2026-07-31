@@ -67,7 +67,7 @@ public class TripOutcomeService {
         Set<Long> answered = tripOutcomeRepository.findAnsweredCourseIds(guestId);
 
         List<Course> waiting = past.courses().stream()
-                .filter(course -> course.travelEndDate().isBefore(past.today()))
+                .filter(course -> course.hasEndedBy(past.today()))
                 .filter(course -> !answered.contains(course.getId()))
                 .filter(course -> !past.isDeducted(course))
                 .toList();
@@ -90,10 +90,7 @@ public class TripOutcomeService {
     public MyLeave answer(String guestId, long courseId, VisitOutcome outcome) {
         Course course = findOwned(guestId, courseId);
         course.requireTravelDate();
-
-        if (tripOutcomeRepository.findAnsweredCourseIds(guestId).contains(courseId)) {
-            throw ItineraryException.tripAlreadyAnswered();
-        }
+        requireAnswerable(guestId, course);
 
         if (outcome.deductsLeave()) {
             leaveDeductionService.deduct(guestId, courseId, MODAL_ASSUMES_FULL_DAY);
@@ -110,6 +107,31 @@ public class TripOutcomeService {
 
         log.info("여행 결과 기록 courseId={} outcome={}", courseId, outcome);
         return myLeaveService.myLeave(guestId);
+    }
+
+    /**
+     * 답할 수 있는 여행인가 — <b>{@link #pending} 이 물어봤을 법한 여행만</b> 답을 받는다.
+     *
+     * <p>조회 조건과 쓰기 조건이 어긋나면 모달이 묻지 않은 것에도 답이 들어온다. 그 결과가 가볍지 않다:
+     * <ul>
+     *   <li>아직 시작도 안 한 여행에 {@code VISITED} → 다녀오지 않았는데 연차가 깎인다.</li>
+     *   <li>이미 차감한 여행에 {@code NOT_VISITED} → 차감은 남은 채 "안 갔다" 로 기록되고, 모순된 상태인데
+     *       모달에도 다시 뜨지 않아 화면에서 바로잡을 길이 사라진다.</li>
+     * </ul>
+     *
+     * <p>이미 차감한 코스를 {@code TRIP_ALREADY_ANSWERED} 로 막는 이유 — 내 코스 카드에서 "연차 차감하기" 를
+     * 눌렀다면 <b>그게 곧 "다녀왔다" 는 답</b>이다({@link #pending} 이 같은 이유로 걸러낸다).
+     */
+    private void requireAnswerable(String guestId, Course course) {
+        if (!course.hasEndedBy(LocalDate.now(CourseStorageService.SERVICE_ZONE))) {
+            throw ItineraryException.tripNotEnded();
+        }
+        if (tripOutcomeRepository.findAnsweredCourseIds(guestId).contains(course.getId())) {
+            throw ItineraryException.tripAlreadyAnswered();
+        }
+        if (myLeaveService.alreadyDeducted(guestId, course.getId())) {
+            throw ItineraryException.tripAlreadyAnswered();
+        }
     }
 
     /** 지역명을 한 번에 — 코스마다 조회하면 N+1 이다. */

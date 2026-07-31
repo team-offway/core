@@ -311,4 +311,54 @@ class TripOutcomeIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.trips.length()").value(2));
     }
+
+    @Test
+    void 아직_끝나지_않은_여행에는_답할_수_없다() throws Exception {
+        // 모달이 묻지 않은 것에 답이 들어오면 다녀오지도 않았는데 연차가 깎인다.
+        noHolidays();
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 13.0);
+        long courseId = saveCourse(guest, weekdayRun(10, 2));
+
+        answer(guest, courseId, "VISITED")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ITINERARY-006"));
+
+        mockMvc.perform(get(LEAVES).header("X-Guest-Id", guest))
+                .andExpect(jsonPath("$.data.remainingDays").value(13.0))
+                .andExpect(jsonPath("$.data.usages.length()").value(0));
+    }
+
+    @Test
+    void 오늘_끝나는_여행에도_답할_수_없다() throws Exception {
+        // pending 이 종료 당일을 빼는 것과 같은 기준이어야 한다.
+        noHolidays();
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 13.0);
+        long courseId = saveCourse(guest, today().minusDays(1)); // 어제 시작 1박2일 → 오늘 끝난다
+
+        answer(guest, courseId, "VISITED")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ITINERARY-006"));
+    }
+
+    @Test
+    void 이미_차감한_여행에_안_갔다고_답할_수_없다() throws Exception {
+        // 통과시키면 차감은 남은 채 "안 갔다" 로 기록되고, 모달에도 안 떠서 화면에서 바로잡을 길이 사라진다.
+        noHolidays();
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 13.0);
+        long courseId = saveCourse(guest, weekdayRun(-3, 2));
+        mockMvc.perform(post(COURSES + "/{id}/leave-deduction", courseId).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+
+        answer(guest, courseId, "NOT_VISITED")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ITINERARY-005"));
+
+        // 차감이 그대로 남는다 — 되돌리려면 차감 취소 API 를 쓴다
+        mockMvc.perform(get(LEAVES).header("X-Guest-Id", guest))
+                .andExpect(jsonPath("$.data.remainingDays").value(11.0));
+    }
 }

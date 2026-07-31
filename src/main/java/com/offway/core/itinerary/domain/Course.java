@@ -141,6 +141,17 @@ public class Course {
     }
 
     /**
+     * 이 여행이 {@code today} 기준으로 끝났는가 — 종료일이 오늘보다 <b>이전</b>이어야 한다.
+     *
+     * <p>종료 당일은 끝난 것으로 보지 않는다. 아직 여행 중일 수 있다.
+     *
+     * <p>여행 날짜가 없으면 끝났는지 알 수 없으므로 거짓이다 — 모르는 것을 "끝났다" 로 답하면 안 된다.
+     */
+    public boolean hasEndedBy(LocalDate today) {
+        return travelDate != null && travelEndDate().isBefore(today);
+    }
+
+    /**
      * 연차를 차감하려면 여행 날짜가 있어야 한다 — <b>도메인이 스스로 막는다.</b>
      *
      * <p>이 컬럼이 생기기 전에 저장된 코스가 있으므로 <b>멀쩡한 클라이언트가 정상 요청으로 닿을 수 있다</b>. 불변식이

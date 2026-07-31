@@ -34,4 +34,9 @@ public final class ItineraryException extends BaseException {
     public static ItineraryException tripAlreadyAnswered() {
         return new ItineraryException(ItineraryErrorCode.TRIP_ALREADY_ANSWERED);
     }
+
+    /** 아직 끝나지 않은 여행에 다녀왔는지를 답하려 했다. */
+    public static ItineraryException tripNotEnded() {
+        return new ItineraryException(ItineraryErrorCode.TRIP_NOT_ENDED);
+    }
 }

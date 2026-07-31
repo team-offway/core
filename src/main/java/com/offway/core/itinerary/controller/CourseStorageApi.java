@@ -126,12 +126,18 @@ public interface CourseStorageApi {
 
                     답한 뒤의 내 연차를 돌려주므로, 모달이 상단 "남은 연차" 를 바로 고쳐 그릴 수 있다.
 
-                    이미 답한 여행은 409 다. 반차 여부는 묻지 않는다(종일 기준) — 반차가 필요하면
+                    **`pending-trips` 가 물어봤을 법한 여행만 답을 받는다.** 아직 끝나지 않았거나(종료 당일 포함),
+                    이미 답했거나, 내 코스 카드에서 이미 차감한 여행은 409 다 — 조회 조건과 쓰기 조건이 어긋나면
+                    모달이 묻지 않은 것에도 답이 들어와 연차가 잘못 움직인다.
+
+                    반차 여부는 묻지 않는다(종일 기준) — 반차가 필요하면
                     내 코스 카드의 `POST /courses/{courseId}/leave-deduction` 을 쓴다.""")
     @ApiResponse(responseCode = "200", description = "기록 성공 (VISITED 면 차감 반영된 연차)")
     @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·형식 오류, outcome 누락·잘못된 값, 또는 여행 날짜 없이 저장된 코스")
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
-    @ApiResponse(responseCode = "409", description = "이미 답한 여행")
+    @ApiResponse(
+            responseCode = "409",
+            description = "답할 수 없는 여행 — 아직 끝나지 않았거나(종료 당일 포함), 이미 답했거나, 내 코스 카드에서 이미 연차를 차감했음")
     @ApiResponse(responseCode = "502", description = "공휴일 조회(특일정보) 실패로 차감 일수를 계산할 수 없음")
     ApiResponseBody<MyLeaveResponse> answerTripOutcome(String guestId, long courseId, TripOutcomeRequest request);
 }
