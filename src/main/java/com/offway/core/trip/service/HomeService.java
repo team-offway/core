@@ -44,12 +44,20 @@ public class HomeService {
         Map<Long, Region> regionById = new HashMap<>();
         all.forEach(region -> regionById.put(region.getId(), region));
         LocalDate today = LocalDate.now();
-        // 대기질은 시도 단위라 top-N 에서 같은 시도가 겹친다. 시도별 1회만 조회해 외부 호출을 줄인다.
+
+        List<RegionScore> top = ranked.stream().limit(HOME_REGION_LIMIT).toList();
+        List<Region> topRegions = top.stream().map(score -> regionById.get(score.regionId())).toList();
+
+        // 외부(TourAPI)는 병렬, DB(혜택)는 일괄. 대기질은 시도 단위라 top-N 에서 겹치므로 시도별 1회만 조회한다
+        // — 캐시가 있어 대부분 즉답이고, 순차로 둬야 아래 맵을 스레드 안전성 걱정 없이 쓸 수 있다.
+        Map<Long, RegionContent> contents = regionContentProvider.contentForAll(topRegions, all, RegionContentProvider.REQUEST_FANOUT_DEADLINE);
+        Map<Long, List<Policy>> policiesByRegion =
+                policyService.matchForRegions(topRegions.stream().map(Region::getId).toList(), today);
         Map<String, Optional<AirQuality>> airBySido = new HashMap<>();
 
-        List<HomeResult.RegionCard> cards = ranked.stream()
-                .limit(HOME_REGION_LIMIT)
-                .map(score -> toCard(regionById.get(score.regionId()), score, all, today, airBySido))
+        List<HomeResult.RegionCard> cards = top.stream()
+                .map(score -> toCard(
+                        regionById.get(score.regionId()), score, contents, policiesByRegion, airBySido))
                 .toList();
         return new HomeResult(remainingLeaveDays, cards);
     }
@@ -57,11 +65,11 @@ public class HomeService {
     private HomeResult.RegionCard toCard(
             Region region,
             RegionScore score,
-            List<Region> neighborPool,
-            LocalDate date,
+            Map<Long, RegionContent> contents,
+            Map<Long, List<Policy>> policiesByRegion,
             Map<String, Optional<AirQuality>> airBySido) {
-        RegionContent content = regionContentProvider.contentFor(region, neighborPool);
-        List<Policy> matched = policyService.matchForRegion(region.getId(), date);
+        RegionContent content = contents.getOrDefault(region.getId(), RegionContent.EMPTY);
+        List<Policy> matched = policiesByRegion.getOrDefault(region.getId(), List.of());
         HomeResult.Benefit benefit = matched.isEmpty() ? null : toBenefit(matched.get(0));
         AirQuality air = airBySido
                 .computeIfAbsent(region.getSido(), airQualityService::byRegionSido)
