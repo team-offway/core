@@ -15,6 +15,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
 import lombok.AccessLevel;
@@ -60,6 +61,15 @@ public class Course {
     @Enumerated(EnumType.STRING)
     private TransportMode transport;
 
+    /**
+     * 여행 시작일(저장 코스만). 생성만 된 코스와 이 컬럼 이전에 저장된 코스는 null 이다.
+     *
+     * <p>연차 차감 일수를 <b>서버가 다시 계산</b>하는 근거다 — 차감 시점에 클라이언트가 날짜를 보내면 보낸 만큼
+     * 차감량이 바뀐다.
+     */
+    @Column(name = "travel_date")
+    private LocalDate travelDate;
+
     /** 소유 게스트 ID(저장된 코스만) — 로그인 전이라 클라이언트 게스트 식별자로 "내 코스"를 묶는다. 생성만 된 코스는 null. */
     @Column(name = "guest_id", length = MAX_GUEST_ID_LENGTH)
     private String guestId;
@@ -72,7 +82,13 @@ public class Course {
     @OrderBy("dayNumber")
     private List<DaySchedule> days;
 
-    private Course(String guestId, Long regionId, Density density, TransportMode transport, List<DaySchedule> days) {
+    private Course(
+            String guestId,
+            Long regionId,
+            Density density,
+            TransportMode transport,
+            List<DaySchedule> days,
+            LocalDate travelDate) {
         if (days == null || days.isEmpty()) {
             throw new IllegalArgumentException("코스에는 하루 이상이 있어야 합니다");
         }
@@ -86,16 +102,22 @@ public class Course {
         this.transport = Objects.requireNonNull(transport, "이동수단은 필수입니다");
         this.days = List.copyOf(days);
         this.travelDays = days.size();
+        this.travelDate = travelDate;
     }
 
     /** 하루 일정들을 묶어 코스를 만든다(생성용, 소유자 없음). 일수 상한(2박3일)과 일차 연속성을 스스로 검증한다. */
     public static Course of(Long regionId, Density density, TransportMode transport, List<DaySchedule> days) {
-        return new Course(null, regionId, density, transport, days);
+        return new Course(null, regionId, density, transport, days, null);
     }
 
     /** 게스트 소유로 코스를 만든다(저장용). 게스트 ID 는 공백일 수 없고 길이 상한을 넘지 않는다(빈 값이면 모든 요청이 한 묶음을 공유). */
     public static Course ownedBy(
-            String guestId, Long regionId, Density density, TransportMode transport, List<DaySchedule> days) {
+            String guestId,
+            Long regionId,
+            Density density,
+            TransportMode transport,
+            List<DaySchedule> days,
+            LocalDate travelDate) {
         Objects.requireNonNull(guestId, "게스트 ID는 필수입니다");
         if (guestId.isBlank()) {
             throw new IllegalArgumentException("게스트 ID는 비어 있을 수 없습니다");
@@ -103,7 +125,31 @@ public class Course {
         if (guestId.length() > MAX_GUEST_ID_LENGTH) {
             throw new IllegalArgumentException("게스트 ID가 너무 깁니다: " + guestId.length());
         }
-        return new Course(guestId, regionId, density, transport, days);
+        return new Course(guestId, regionId, density, transport, days, travelDate);
+    }
+
+    /**
+     * 여행 종료일 — 시작일에서 일수만큼. 1박2일이면 시작일 다음 날이다.
+     *
+     * <p>날짜가 없는 코스에서는 부를 수 없다. 부재가 계약(400)이라 {@link #requireTravelDate()} 로 먼저 거른다.
+     */
+    public LocalDate travelEndDate() {
+        if (travelDate == null) {
+            throw new IllegalStateException("여행 날짜가 없는 코스의 종료일을 물었습니다: id=" + id);
+        }
+        return travelDate.plusDays(travelDays - 1L);
+    }
+
+    /**
+     * 연차를 차감하려면 여행 날짜가 있어야 한다 — <b>도메인이 스스로 막는다.</b>
+     *
+     * <p>이 컬럼이 생기기 전에 저장된 코스가 있으므로 <b>멀쩡한 클라이언트가 정상 요청으로 닿을 수 있다</b>. 불변식이
+     * 아니라 계약이라 400 이다.
+     */
+    public void requireTravelDate() {
+        if (travelDate == null) {
+            throw ItineraryException.travelDateMissing();
+        }
     }
 
     /** 코스 전체 슬롯(장소) 수. */

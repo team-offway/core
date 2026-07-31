@@ -24,4 +24,9 @@ public final class ItineraryException extends BaseException {
     public static ItineraryException courseNotFound() {
         return new ItineraryException(ItineraryErrorCode.COURSE_NOT_FOUND);
     }
+
+    /** 여행 날짜 없이 저장된 코스로 연차 차감을 요청했다. */
+    public static ItineraryException travelDateMissing() {
+        return new ItineraryException(ItineraryErrorCode.TRAVEL_DATE_MISSING);
+    }
 }
