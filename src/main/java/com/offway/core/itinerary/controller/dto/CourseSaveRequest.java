@@ -15,6 +15,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -29,6 +30,11 @@ public record CourseSaveRequest(
         @Schema(example = "16", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull @Positive Long regionId,
         @Schema(example = "PACKED", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull Density density,
         @Schema(example = "CAR", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull TransportMode transport,
+        @Schema(
+                        description = "여행 시작일. 넣어두면 코스 확정 시 연차 차감 일수를 서버가 이 날짜로 계산한다. 없으면 차감을 요청할 수 없다.",
+                        example = "2026-08-14",
+                        nullable = true)
+                LocalDate travelDate,
         @NotEmpty @Valid List<Day> days) {
 
     /**
@@ -40,7 +46,7 @@ public record CourseSaveRequest(
             List<DaySchedule> schedules = days.stream()
                     .map(day -> DaySchedule.of(day.day(), day.items().stream().map(Item::toSlot).toList()))
                     .toList();
-            return Course.ownedBy(guestId, regionId, density, transport, schedules);
+            return Course.ownedBy(guestId, regionId, density, transport, schedules, travelDate);
         } catch (IllegalArgumentException e) {
             throw ItineraryException.invalidCourse();
         }

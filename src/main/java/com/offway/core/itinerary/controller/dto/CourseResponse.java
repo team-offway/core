@@ -29,6 +29,8 @@ public record CourseResponse(
         Long courseId,
         long regionId,
         int travelDays,
+        @Schema(description = "여행 시작일 (저장 시 넣지 않았으면 null)", example = "2026-08-14", nullable = true)
+                LocalDate travelDate,
         String density,
         List<Day> days,
         List<Benefit> benefits,
@@ -42,6 +44,7 @@ public record CourseResponse(
                 course.getId(), // 저장된 코스만 값, 생성만 된 코스는 null
                 course.getRegionId(),
                 course.getTravelDays(),
+                course.getTravelDate(),
                 course.getDensity().name(),
                 course.getDays().stream().map(Day::from).toList(),
                 generated.benefits().stream().map(Benefit::from).toList(),

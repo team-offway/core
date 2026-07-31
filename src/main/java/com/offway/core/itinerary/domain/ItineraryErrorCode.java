@@ -17,7 +17,10 @@ public enum ItineraryErrorCode implements ErrorCode {
     INVALID_COURSE("ITINERARY-002", ErrorCategory.BAD_REQUEST, "코스 구성이 올바르지 않습니다."),
 
     /** 요청한 코스가 없음. 404. */
-    COURSE_NOT_FOUND("ITINERARY-003", ErrorCategory.NOT_FOUND, "요청한 코스를 찾을 수 없습니다.");
+    COURSE_NOT_FOUND("ITINERARY-003", ErrorCategory.NOT_FOUND, "요청한 코스를 찾을 수 없습니다."),
+
+    /** 여행 날짜 없이 저장된 코스로 연차 차감을 요청했다 — 차감 일수를 계산할 근거가 없다. */
+    TRAVEL_DATE_MISSING("ITINERARY-004", ErrorCategory.BAD_REQUEST, "여행 날짜가 없는 코스는 연차를 차감할 수 없습니다.");
 
     private final String code;
     private final ErrorCategory category;
