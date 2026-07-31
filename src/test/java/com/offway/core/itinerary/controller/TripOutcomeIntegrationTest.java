@@ -10,6 +10,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.offway.core.leave.infrastructure.holiday.HolidayClient;
 import com.offway.core.leave.infrastructure.holiday.StubHolidayClient;
 import com.offway.core.leave.service.LeaveService;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Set;
@@ -67,6 +68,33 @@ class TripOutcomeIntegrationTest {
         return LocalDate.now(KST);
     }
 
+    /**
+     * 오늘에서 {@code daysFromToday} 만큼 떨어진 지점부터, <b>구간 전체가 평일인</b> 가장 가까운 시작일.
+     *
+     * <p>상대 날짜만으로는 요일이 고정되지 않아 차감 일수를 단정하는 테스트가 실행 요일에 따라 깨진다. 시작일만
+     * 평일로 맞춰서도 부족하다 — 1박2일이 금요일에 시작하면 둘째 날이 토요일이라 차감이 1일이 된다.
+     *
+     * <p>과거를 물으면 과거 쪽으로 민다. 앞으로 밀면 "이미 지난 여행" 이라는 전제가 깨진다.
+     */
+    private static LocalDate weekdayRun(int daysFromToday, int length) {
+        int step = daysFromToday < 0 ? -1 : 1;
+        LocalDate start = today().plusDays(daysFromToday);
+        while (!allWeekdays(start, length)) {
+            start = start.plusDays(step);
+        }
+        return start;
+    }
+
+    private static boolean allWeekdays(LocalDate start, int length) {
+        for (int i = 0; i < length; i++) {
+            DayOfWeek day = start.plusDays(i).getDayOfWeek();
+            if (day == DayOfWeek.SATURDAY || day == DayOfWeek.SUNDAY) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void noHolidays() {
         holidayClient.respond((year, month) -> Set.of());
         leaveService.evictCache();
@@ -118,7 +146,7 @@ class TripOutcomeIntegrationTest {
         String guest = uniqueGuest();
         setTotalLeave(guest, 13.0);
         // 그저께 시작한 1박2일 → 어제 끝났다
-        long courseId = saveCourse(guest, today().minusDays(2));
+        long courseId = saveCourse(guest, weekdayRun(-2, 2));
 
         pending(guest)
                 .andExpect(status().isOk())
@@ -157,7 +185,7 @@ class TripOutcomeIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 13.0);
-        long courseId = saveCourse(guest, today().minusDays(3));
+        long courseId = saveCourse(guest, weekdayRun(-3, 2));
 
         answer(guest, courseId, "VISITED")
                 .andExpect(status().isOk())
@@ -192,7 +220,7 @@ class TripOutcomeIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 13.0);
-        long courseId = saveCourse(guest, today().minusDays(3));
+        long courseId = saveCourse(guest, weekdayRun(-3, 2));
         answer(guest, courseId, "VISITED").andExpect(status().isOk());
 
         answer(guest, courseId, "NOT_VISITED")
