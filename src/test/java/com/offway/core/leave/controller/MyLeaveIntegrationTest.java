@@ -1,11 +1,22 @@
 package com.offway.core.leave.controller;
 
+import static org.hamcrest.Matchers.anyOf;
+import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -186,5 +197,54 @@ class MyLeaveIntegrationTest {
         mockMvc.perform(get(URL).header(GUEST_HEADER, "x".repeat(65)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("LEAVE-011"));
+    }
+
+    /**
+     * 같은 소유자로 동시에 수정하면 <b>둘 다 성공</b>해야 한다.
+     *
+     * <p>잔액이 없는 상태에서 동시에 들어오면 둘 다 "없음" 을 보고 각자 만들려 든다. 한쪽은 유니크 제약에 걸리는데,
+     * 그건 실패가 아니라 "먼저 넣은 쪽이 이겼다" 는 뜻이라 500 이 나가면 안 된다.
+     *
+     * <p><b>경합 구간이 좁아 매번 재현되지는 않는다.</b> 그래도 두는 이유는 이 시나리오가 500 을 내면 안 된다는
+     * 계약을 코드에 남기기 위해서다 — 재현되는 날엔 잡는다.
+     */
+    @Test
+    void 같은_소유자로_동시에_수정해도_둘_다_성공한다() throws Exception {
+        String guest = "leave-race";
+        int threads = 2;
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threads);
+        List<Integer> statuses = Collections.synchronizedList(new ArrayList<>());
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            for (int i = 0; i < threads; i++) {
+                double total = 10 + i; // 서로 다른 값 — 어느 쪽이 이겨도 둘 다 200 이어야 한다
+                pool.submit(() -> {
+                    try {
+                        start.await();
+                        statuses.add(mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content("{\"totalDays\": " + total + "}"))
+                                .andReturn().getResponse().getStatus());
+                    } catch (Exception e) {
+                        statuses.add(-1);
+                    } finally {
+                        done.countDown();
+                    }
+                });
+            }
+            start.countDown();
+            assertTrue(done.await(20, TimeUnit.SECONDS), "동시 요청이 끝나야 한다");
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertEquals(List.of(200, 200), statuses.stream().sorted().toList(),
+                "동시 생성은 경합일 뿐 실패가 아니다 — 500 이 섞이면 안 된다. 실제=" + statuses);
+
+        // 어느 쪽이 이겼든 값은 둘 중 하나여야 하고, 행이 두 개 생기지도 않는다.
+        mockMvc.perform(get(URL).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalDays").value(anyOf(is(10.0), is(11.0))));
     }
 }
