@@ -3,6 +3,8 @@ package com.offway.core.transport.infrastructure.tago;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.transport.domain.BusCity;
+import com.offway.core.transport.domain.BusCoverage;
 import com.offway.core.transport.domain.BusStop;
 import com.offway.core.transport.domain.BusStopAccess;
 import java.net.URI;
@@ -28,10 +30,21 @@ class BusStopClientImpl implements BusStopClient {
 
     private static final String URL =
             "https://apis.data.go.kr/1613000/BusSttnInfoInqireService/getCrdntPrxmtSttnList";
+
+    /** 커버 지자체 목록 — 같은 서비스의 다른 오퍼레이션. */
+    private static final String CITY_CODE_URL =
+            "https://apis.data.go.kr/1613000/BusSttnInfoInqireService/getCtyCodeList";
+
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
 
     /** 접근성 판정에는 가장 가까운 몇 곳이면 충분하다 — 전량을 받아 파싱할 이유가 없다. */
     private static final int ROWS = 20;
+
+    /**
+     * 도시목록은 <b>전량을 한 번에</b> 받는다. 실측 138곳인데 기본 페이지 크기로 요청하면 나머지가 통째로 미커버로 오판된다.
+     * 지자체가 늘어날 여지를 두고 여유를 얹었다.
+     */
+    private static final int CITY_ROWS = 300;
 
     private static final String GPS_LATI = "gpsLati";
     private static final String GPS_LONG = "gpsLong";
@@ -63,6 +76,59 @@ class BusStopClientImpl implements BusStopClient {
             log.warn("TAGO 버스정류소 조회 실패 — 조회 불가 처리 cause={}", e.getClass().getSimpleName());
             return new BusStopAccess.Unavailable();
         }
+    }
+
+    @Override
+    public Optional<BusCoverage> coveredCities() {
+        if (!props.dataGoKr().hasKey()) {
+            return Optional.empty();
+        }
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(CITY_CODE_URL)
+                .queryParam(TagoQuery.SERVICE_KEY, props.dataGoKr().serviceKey())
+                .queryParam(TagoQuery.RESPONSE_TYPE, TagoQuery.RESPONSE_TYPE_JSON)
+                .queryParam(TagoQuery.NUM_OF_ROWS, CITY_ROWS)
+                .queryParam(TagoQuery.PAGE_NO, TagoQuery.FIRST_PAGE);
+        try {
+            return parseCities(call(builder));
+        } catch (Exception e) {
+            log.warn("TAGO 도시목록 조회 실패 — 커버 판별 불가 cause={}", e.getClass().getSimpleName());
+            return Optional.empty();
+        }
+    }
+
+    private Optional<BusCoverage> parseCities(String body) throws Exception {
+        return switch (TagoItems.parse(body, objectMapper)) {
+            case TagoItems.Items(List<JsonNode> nodes) -> toCoverage(nodes);
+            case TagoItems.Empty ignored -> {
+                // 빈 목록을 그대로 믿으면 전국이 미커버가 된다. 조용히 넘기지 않고 실패로 본다.
+                log.warn("TAGO 도시목록이 비어 왔습니다 — 커버 판별 불가");
+                yield Optional.empty();
+            }
+            case TagoItems.Failed ignored -> {
+                log.warn("TAGO 도시목록 응답이 비정상 resultCode 입니다 — 커버 판별 불가");
+                yield Optional.empty();
+            }
+        };
+    }
+
+    private static Optional<BusCoverage> toCoverage(List<JsonNode> nodes) {
+        List<BusCity> cities =
+                nodes.stream().map(BusStopClientImpl::toCity).flatMap(Optional::stream).toList();
+        if (cities.isEmpty()) {
+            log.warn("TAGO 도시목록 {}건이 전부 파싱 실패했습니다 — 커버 판별 불가", nodes.size());
+            return Optional.empty();
+        }
+        return Optional.of(new BusCoverage(cities));
+    }
+
+    private static Optional<BusCity> toCity(JsonNode node) {
+        JsonNode code = node.path("citycode");
+        String name = node.path("cityname").asText(null);
+        // 부분 결측 방어 — 이 항목만 건너뛴다. 코드가 없으면 어느 시도인지 못 갈라내 판정에 쓸 수 없다.
+        if (!code.isIntegralNumber() || code.asInt() <= 0 || name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(new BusCity(code.asInt(), name));
     }
 
     private String call(UriComponentsBuilder builder) {

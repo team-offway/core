@@ -2,9 +2,14 @@ package com.offway.core.transport.infrastructure.tago;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.transport.domain.BusCoverage;
 import com.offway.core.transport.domain.BusStopAccess;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -21,6 +26,9 @@ class BusStopClientImplTest {
             new ExternalApiProperties(new ExternalApiProperties.DataGoKr(null), null);
     private static final double LAT = 37.3878;
     private static final double LNG = 128.6716;
+
+    /** TAGO 시내버스가 담는 지자체 수(실호출 확인). 이보다 적게 요청하면 뒷부분이 미커버로 오판된다. */
+    private static final int TAGO_CITY_COUNT = 138;
 
     private static BusStopClient client(String body) {
         ClientResponse response = ClientResponse.create(HttpStatus.OK)
@@ -90,6 +98,77 @@ class BusStopClientImplTest {
                 {"response":{"header":{"resultCode":"99"},"body":{}}}""";
 
         assertInstanceOf(BusStopAccess.Unavailable.class, client(body).nearbyStops(LAT, LNG));
+    }
+
+    @Test
+    void 커버_도시_목록을_파싱한다() {
+        String body =
+                """
+                {"response":{"header":{"resultCode":"00"},"body":{"items":{"item":[
+                  {"citycode":32050,"cityname":"태백시"},
+                  {"citycode":32020,"cityname":"원주시/횡성군"}
+                ]}}}}""";
+
+        BusCoverage coverage = client(body).coveredCities().orElseThrow();
+
+        assertEquals(2, coverage.cities().size());
+        assertTrue(coverage.covers("강원특별자치도", "태백시"));
+        assertTrue(coverage.covers("강원특별자치도", "횡성군"));
+    }
+
+    @Test
+    void 커버_목록이_비어_오면_실패로_본다() {
+        // 빈 목록을 그대로 믿으면 전국이 미커버가 된다 — 89곳 전부 "데이터 없음"으로 안내하게 되는 사고다.
+        String body = """
+                {"response":{"header":{"resultCode":"00"},"body":{"items":""}}}""";
+
+        assertTrue(client(body).coveredCities().isEmpty());
+    }
+
+    @Test
+    void 커버_목록_조회가_실패하면_빈_Optional이다() {
+        String body = """
+                {"response":{"header":{"resultCode":"99"},"body":{}}}""";
+
+        assertTrue(client(body).coveredCities().isEmpty());
+    }
+
+    @Test
+    void 커버_목록은_전량을_한_번에_요청한다() {
+        // TAGO 는 138곳을 준다. 기본 페이지 크기(10)로 요청하면 나머지가 통째로 미커버로 오판된다.
+        AtomicReference<String> requestedUri = new AtomicReference<>();
+        ClientResponse response = ClientResponse.create(HttpStatus.OK)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .body("""
+                        {"response":{"header":{"resultCode":"00"},"body":{"items":{"item":
+                          {"citycode":32050,"cityname":"태백시"}
+                        }}}}""")
+                .build();
+        WebClient webClient = WebClient.builder()
+                .exchangeFunction(request -> {
+                    requestedUri.set(request.url().toString());
+                    return Mono.just(response);
+                })
+                .build();
+
+        new BusStopClientImpl(webClient, WITH_KEY).coveredCities();
+
+        Matcher numOfRows = Pattern.compile("numOfRows=(\\d+)").matcher(requestedUri.get());
+        assertTrue(numOfRows.find(), "numOfRows 파라미터가 없다: " + requestedUri.get());
+        assertTrue(
+                Integer.parseInt(numOfRows.group(1)) >= TAGO_CITY_COUNT,
+                "전국 지자체 수(" + TAGO_CITY_COUNT + ")보다 작게 요청하면 뒷부분이 미커버로 오판된다: " + numOfRows.group(1));
+    }
+
+    @Test
+    void 커버_목록도_키가_없으면_호출하지_않는다() {
+        WebClient neverCalled = WebClient.builder()
+                .exchangeFunction(request -> {
+                    throw new AssertionError("키가 없는데 TAGO 도시목록 호출이 일어났다");
+                })
+                .build();
+
+        assertTrue(new BusStopClientImpl(neverCalled, NO_KEY).coveredCities().isEmpty());
     }
 
     @Test
