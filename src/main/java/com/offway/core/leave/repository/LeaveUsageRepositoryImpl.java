@@ -2,6 +2,7 @@ package com.offway.core.leave.repository;
 
 import com.offway.core.leave.domain.LeaveUsage;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -25,6 +26,16 @@ public class LeaveUsageRepositoryImpl implements LeaveUsageRepository {
     @Override
     public boolean existsByGuestIdAndCourseId(String guestId, Long courseId) {
         return jpaRepository.existsByGuestIdAndCourseId(guestId, courseId);
+    }
+
+    @Override
+    public Set<Long> findDeductedCourseIds(String guestId) {
+        return jpaRepository.findDeductedCourseIds(guestId);
+    }
+
+    @Override
+    public int deleteByGuestIdAndCourseId(String guestId, Long courseId) {
+        return jpaRepository.deleteByGuestIdAndCourseId(guestId, courseId);
     }
 
     @Override

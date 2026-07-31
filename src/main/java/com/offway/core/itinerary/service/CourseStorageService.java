@@ -1,11 +1,17 @@
 package com.offway.core.itinerary.service;
 
 import com.offway.core.itinerary.domain.Course;
+import com.offway.core.itinerary.domain.CourseScope;
+import com.offway.core.itinerary.service.dto.MyCourses;
+import com.offway.core.leave.service.MyLeaveService;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.service.PolicyService;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -20,9 +26,13 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class CourseStorageService {
 
+    /** D-day·다가오는 여행 판정 기준 시간대. 서비스가 한국 여행을 다루므로 사용자 로캘과 무관하게 KST 다. */
+    private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
+
     private final CourseRepository courseRepository;
     private final PolicyService policyService;
     private final CoursePersistenceService coursePersistenceService;
+    private final MyLeaveService myLeaveService;
 
     /** 이미 조립된 게스트 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
     @Transactional
@@ -30,12 +40,18 @@ public class CourseStorageService {
         return withBenefits(courseRepository.save(course));
     }
 
-    /** 게스트의 저장 코스 목록(최신순). */
+    /**
+     * 게스트의 저장 코스 목록 — 보는 범위({@link CourseScope})에 따라 다가오는 여행 · 지난 여행 · 전부.
+     *
+     * <p>어느 코스를 연차 차감했는지 함께 준다. 화면이 "확정함" 을 표시하려면 필요한데, <b>코스마다 물으면 코스 수만큼
+     * 쿼리가 늘어난다</b> — 한 번에 모아 온다.
+     */
     @Transactional(readOnly = true)
-    public List<Course> myCourses(String guestId) {
-        List<Course> courses = courseRepository.findByGuestId(guestId);
+    public MyCourses myCourses(String guestId, CourseScope scope) {
+        LocalDate today = LocalDate.now(SERVICE_ZONE);
+        List<Course> courses = scope.find(courseRepository, guestId, today);
         courses.forEach(Course::totalSlots); // 응답 직렬화는 tx 밖 — 애그리거트(days·slots)를 여기서 초기화
-        return courses;
+        return new MyCourses(courses, myLeaveService.deductedCourseIds(guestId), today);
     }
 
     /**
