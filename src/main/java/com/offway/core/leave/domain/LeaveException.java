@@ -49,4 +49,19 @@ public final class LeaveException extends BaseException {
     public static LeaveException baseDateRequired() {
         return new LeaveException(LeaveErrorCode.BASE_DATE_REQUIRED);
     }
+
+    /** 총 연차가 음수·상한 초과·0.5 단위가 아님. */
+    public static LeaveException invalidTotalLeaveDays() {
+        return new LeaveException(LeaveErrorCode.INVALID_TOTAL_LEAVE_DAYS);
+    }
+
+    /** 사용 내역 증감이 0 이거나 0.5 단위가 아님. */
+    public static LeaveException invalidLeaveUsageDays() {
+        return new LeaveException(LeaveErrorCode.INVALID_LEAVE_USAGE_DAYS);
+    }
+
+    /** 소유 키 헤더가 비었거나 너무 김. */
+    public static LeaveException invalidOwnerId() {
+        return new LeaveException(LeaveErrorCode.INVALID_OWNER_ID);
+    }
 }

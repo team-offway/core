@@ -30,7 +30,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 class HomeCacheBenchmarkE2ETest {
 
     private static final int RUNS = 20;
-    private static final int REMAINING_LEAVE = 13;
+    /** 연차를 저장한 적 없는 소유 키 — 이 측정은 외부 팬아웃 시간을 보는 것이라 연차 값은 무관하다. */
+    private static final String BENCHMARK_GUEST = "benchmark-guest";
 
     @Autowired
     private HomeService homeService;
@@ -50,17 +51,17 @@ class HomeCacheBenchmarkE2ETest {
         for (int i = 0; i < RUNS; i++) {
             evictAll(); // 캐시 OFF — 이 호출은 외부를 직접 팬아웃한다
             cold[i] = measureMillis(() -> {
-                homeService.home(REMAINING_LEAVE);
+                homeService.home(BENCHMARK_GUEST);
                 return 0L;
             });
         }
 
-        homeService.home(REMAINING_LEAVE); // 캐시 ON — 첫 호출로 캐시를 데운다
+        homeService.home(BENCHMARK_GUEST); // 캐시 ON — 첫 호출로 캐시를 데운다
 
         long[] warm = new long[RUNS];
         for (int i = 0; i < RUNS; i++) {
             warm[i] = measureMillis(() -> {
-                homeService.home(REMAINING_LEAVE);
+                homeService.home(BENCHMARK_GUEST);
                 return 0L;
             });
         }

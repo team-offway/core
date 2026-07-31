@@ -12,10 +12,10 @@ import java.util.List;
  *
  * <p>홈 카드는 대표 이미지·볼거리 categories 와 대표 혜택 하나를 붙인다(뱃지 강조). 무드 필터는 추천(S3)에서만 건다.
  *
- * @param remainingLeaveDays 남은 연차 (게스트 — 클라이언트가 넘긴 값, 없으면 null)
+ * @param remainingLeaveDays 남은 연차 (저장값. 설정한 적 없으면 null — 0 과 구분한다). 반차가 0.5 라 실수다
  * @param regions 추천 지역 카드 (랭킹 top-N)
  */
-public record HomeResult(Integer remainingLeaveDays, List<RegionCard> regions) {
+public record HomeResult(Double remainingLeaveDays, List<RegionCard> regions) {
 
     /**
      * @param regionId 지역 ID

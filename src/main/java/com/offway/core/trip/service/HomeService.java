@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
@@ -36,8 +37,15 @@ public class HomeService {
     private final RegionContentProvider regionContentProvider;
     private final PolicyService policyService;
     private final AirQualityService airQualityService;
+    private final MyLeaveService myLeaveService;
 
-    public HomeResult home(Integer remainingLeaveDays) {
+    /**
+     * 홈 화면. 남은 연차는 <b>저장값에서 읽는다</b> — 예전엔 클라이언트가 보낸 값을 그대로 되돌려줬다(#89).
+     *
+     * @param guestId 소유 키 (없으면 남은 연차는 null — "미설정" 과 0 을 구분한다)
+     */
+    public HomeResult home(String guestId) {
+        Double remainingLeaveDays = myLeaveService.remainingDaysOrNull(guestId);
         List<Region> all = regionRepository.findAll();
         List<RegionScore> ranked = regionRankingService.rankByVisitors(all);
 

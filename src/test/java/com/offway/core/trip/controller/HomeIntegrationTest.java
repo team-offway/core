@@ -2,6 +2,7 @@ package com.offway.core.trip.controller;
 
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -26,6 +27,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
@@ -33,6 +35,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class HomeIntegrationTest {
 
     private static final String URL = "/api/v1/home";
+    private static final String GUEST = "home-guest";
 
     @Autowired
     private MockMvc mockMvc;
@@ -97,11 +100,19 @@ class HomeIntegrationTest {
         tourApiClient.respond(HomeIntegrationTest::content);
         airKoreaClient.respond(() -> Optional.of(new AirQuality(45, 23, AirGrade.MODERATE)));
 
-        mockMvc.perform(get(URL).param("remainingLeave", "13"))
+        // 홈의 남은 연차는 저장값에서 온다(#89) — 클라이언트가 넘긴 값을 되돌려주던 예전과 다르다.
+        // 그래서 먼저 저장해야 13 이 나온다. 이 두 단계가 실제 배선을 함께 검증한다.
+        mockMvc.perform(patch("/api/v1/leaves/me")
+                        .header("X-Guest-Id", GUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"totalDays\": 13}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(URL).header("X-Guest-Id", GUEST))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.user.name").value("게스트"))
-                .andExpect(jsonPath("$.data.user.remainingLeaveDays").value(13))
+                .andExpect(jsonPath("$.data.user.remainingLeaveDays").value(13.0))
                 .andExpect(jsonPath("$.data.filters.length()").value(5))
                 .andExpect(jsonPath("$.data.filters[0].key").value("ALL"))
                 .andExpect(jsonPath("$.data.recommendedRegions.length()").value(6))
@@ -142,7 +153,7 @@ class HomeIntegrationTest {
         tourApiClient.respond(HomeIntegrationTest::content);
         airKoreaClient.respond(Optional::empty);
 
-        mockMvc.perform(get(URL).param("remainingLeave", "13"))
+        mockMvc.perform(get(URL).header("X-Guest-Id", GUEST))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.recommendedRegions.length()").value(6));
