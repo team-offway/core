@@ -1,5 +1,7 @@
 package com.offway.core.itinerary.controller;
 
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -119,5 +121,114 @@ class CourseStorageIntegrationTest {
         mockMvc.perform(get(URL + "/{id}", 999999).header("X-Guest-Id", uniqueGuest()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-003"));
+    }
+
+    @Test
+    void 코스를_삭제하면_목록과_상세에서_사라진다() throws Exception {
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        // 204 를 쓰지 않는다 — 응답 래퍼가 항상 body 를 만든다.
+        mockMvc.perform(delete(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data").value(nullValue()));
+
+        mockMvc.perform(get(URL).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ITINERARY-003"));
+    }
+
+    @Test
+    void 남의_코스는_삭제할_수_없고_그대로_남는다_404() throws Exception {
+        String owner = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", owner)
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        // 403 이 아니라 404 — 403 이면 "그 ID 는 존재한다" 를 알려주는 셈이다.
+        mockMvc.perform(delete(URL + "/{id}", courseId).header("X-Guest-Id", uniqueGuest()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ITINERARY-003"));
+
+        // 거부로 끝나야 한다 — 주인 것이 지워졌으면 안 된다
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.courseId").value(courseId));
+    }
+
+    @Test
+    void 없는_코스_삭제는_404_ITINERARY_003() throws Exception {
+        mockMvc.perform(delete(URL + "/{id}", 999999).header("X-Guest-Id", uniqueGuest()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ITINERARY-003"));
+    }
+
+    @Test
+    void 같은_코스를_두_번_삭제하면_두_번째는_404() throws Exception {
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        mockMvc.perform(delete(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk());
+        // 더블클릭·재시도 — 이미 없으니 없는 코스와 같은 답이다
+        mockMvc.perform(delete(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ITINERARY-003"));
+    }
+
+    @Test
+    void 같은_코스를_동시에_삭제해도_500이_나지_않는다() throws Exception {
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        int threads = 2;
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(threads);
+        java.util.List<Integer> statuses = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            for (int i = 0; i < threads; i++) {
+                pool.submit(() -> {
+                    try {
+                        start.await();
+                        statuses.add(mockMvc.perform(delete(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                                .andReturn().getResponse().getStatus());
+                    } catch (Exception e) {
+                        statuses.add(-1);
+                    } finally {
+                        done.countDown();
+                    }
+                });
+            }
+            start.countDown();
+            org.junit.jupiter.api.Assertions.assertTrue(done.await(20, java.util.concurrent.TimeUnit.SECONDS));
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // 하나는 지우고 하나는 "없다" 여야 한다 — 순차 재삭제와 같은 계약이다. 500 이 섞이면 안 된다.
+        org.junit.jupiter.api.Assertions.assertEquals(
+                java.util.List.of(200, 404), statuses.stream().sorted().toList(),
+                "동시 삭제는 경합일 뿐 실패가 아니다. 실제=" + statuses);
     }
 }

@@ -33,4 +33,18 @@ public interface CourseStorageApi {
     ApiResponseBody<CourseResponse> course(
             @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
             @Parameter(description = "코스 ID", example = "1") long courseId);
+
+    @Operation(
+            summary = "내 코스 삭제",
+            description = """
+                    소유한 코스를 지운다. 하위 일정·슬롯도 함께 지워진다(hard delete).
+
+                    없는 코스와 남의 코스를 모두 404 로 답한다 — 403 으로 나누면 "그 ID 는 존재한다" 를
+                    알려주는 셈이라 ID 를 훑어 남의 코스 존재를 확인할 수 있다.""")
+    @ApiResponse(responseCode = "200", description = "삭제 성공 (data 는 null — 204 를 쓰지 않는다)")
+    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락")
+    @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
+    ApiResponseBody<Void> deleteCourse(
+            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
+            @Parameter(description = "코스 ID", example = "12") long courseId);
 }
