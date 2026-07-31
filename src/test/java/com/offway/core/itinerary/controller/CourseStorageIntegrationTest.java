@@ -191,4 +191,44 @@ class CourseStorageIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-003"));
     }
+
+    @Test
+    void 같은_코스를_동시에_삭제해도_500이_나지_않는다() throws Exception {
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        int threads = 2;
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(threads);
+        java.util.List<Integer> statuses = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            for (int i = 0; i < threads; i++) {
+                pool.submit(() -> {
+                    try {
+                        start.await();
+                        statuses.add(mockMvc.perform(delete(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                                .andReturn().getResponse().getStatus());
+                    } catch (Exception e) {
+                        statuses.add(-1);
+                    } finally {
+                        done.countDown();
+                    }
+                });
+            }
+            start.countDown();
+            org.junit.jupiter.api.Assertions.assertTrue(done.await(20, java.util.concurrent.TimeUnit.SECONDS));
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // 하나는 지우고 하나는 "없다" 여야 한다 — 순차 재삭제와 같은 계약이다. 500 이 섞이면 안 된다.
+        org.junit.jupiter.api.Assertions.assertEquals(
+                java.util.List.of(200, 404), statuses.stream().sorted().toList(),
+                "동시 삭제는 경합일 뿐 실패가 아니다. 실제=" + statuses);
+    }
 }

@@ -8,6 +8,7 @@ import com.offway.core.policy.service.PolicyService;
 import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +22,7 @@ public class CourseStorageService {
 
     private final CourseRepository courseRepository;
     private final PolicyService policyService;
+    private final CoursePersistenceService coursePersistenceService;
 
     /** 이미 조립된 게스트 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
     @Transactional
@@ -57,13 +59,17 @@ public class CourseStorageService {
      *
      * <p>hard delete 다. 하위(DaySchedule·Slot)는 애그리거트 내부라 {@code cascade = ALL} ·
      * {@code orphanRemoval} 로 함께 지워진다.
+     *
+     * <p><b>이 메서드에 트랜잭션을 걸지 않는다.</b> 동시 삭제 충돌은 flush·commit 시점에 드러나므로 같은 트랜잭션
+     * 안에서는 잡을 수 없다 — {@link CoursePersistenceService} 가 커밋까지 끝낸 뒤 결과를 여기서 받는다.
      */
-    @Transactional
     public void delete(String guestId, long courseId) {
-        Course course = courseRepository
-                .findByIdAndGuestId(courseId, guestId)
-                .orElseThrow(ItineraryException::courseNotFound);
-        courseRepository.delete(course);
+        try {
+            coursePersistenceService.deleteOwned(guestId, courseId);
+        } catch (OptimisticLockingFailureException e) {
+            // 남이 먼저 지웠다. "없다" 가 정확한 답이고, 순차 재삭제(두 번째 요청)와 같은 계약이 된다.
+            throw ItineraryException.courseNotFound();
+        }
     }
 
     private GeneratedCourse withBenefits(Course course) {
