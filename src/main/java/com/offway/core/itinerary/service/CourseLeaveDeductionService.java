@@ -63,7 +63,13 @@ public class CourseLeaveDeductionService {
             log.info("코스 연차 차감 courseId={} days={} 남은={}", courseId, days, after.summary().remainingDays());
             return after;
         } catch (DataIntegrityViolationException e) {
-            // 동시 확정 — 유니크 제약이 두 번째를 막았다. 결과가 '이미 차감됨' 과 같으므로 실패가 아니다.
+            // 이 예외는 유니크 제약 위반만 뜻하지 않는다(NOT NULL·길이 초과 등). 정말 먼저 기록된 내역이 있을 때만
+            // '이미 차감됨' 과 결과가 같다. 확인 없이 삼키면 아무것도 저장되지 않았는데 200 을 주게 되고,
+            // 사용자와 화면은 차감이 끝난 줄 안다 — 규약이 막는 '조용한 실패' 그 자체다.
+            if (!myLeaveService.alreadyDeducted(guestId, courseId)) {
+                log.error("코스 연차 차감 실패 — 중복이 아닌 제약 위반 courseId={}", courseId, e);
+                throw e;
+            }
             log.info("코스 연차 차감 경합 — 먼저 기록된 내역을 그대로 둡니다 courseId={}", courseId);
             return myLeaveService.myLeave(guestId);
         }
