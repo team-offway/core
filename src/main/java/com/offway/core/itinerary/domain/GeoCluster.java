@@ -24,16 +24,31 @@ public final class GeoCluster {
      * 뭉치게 한다 — 외곽 아웃라이어가 자연히 배제된다. {@code count} 가 후보 수 이상이면 전부.
      */
     public static List<Integer> selectCompact(List<Coordinate> points, int count) {
-        if (count <= 0) {
+        return selectCompact(points, count, 0);
+    }
+
+    /**
+     * 씨앗을 골라 밀집 {@code count} 곳을 고른 인덱스 — <b>코스 재생성의 다양성 축</b>(#114).
+     *
+     * <p>씨앗이 다르면 뭉치는 군집이 달라져 결과가 바뀌지만, "무게중심에 가까운 것을 붙인다" 는 성질은 그대로라
+     * <b>밀집도를 잃지 않는다.</b> 후보를 무작위로 섞는 방식과 다른 점이다 — 그쪽은 다양해지는 대신 동선이 망가진다.
+     *
+     * <p>같은 씨앗이면 항상 같은 결과다. 재생성이 재현 가능해야 문의 대응과 디버깅이 된다.
+     *
+     * @param seedIndex 시작 후보의 인덱스. 범위 밖이면 후보 수로 나눈 나머지를 쓴다(음수 포함)
+     */
+    public static List<Integer> selectCompact(List<Coordinate> points, int count, int seedIndex) {
+        if (count <= 0 || points.isEmpty()) {
             return List.of();
         }
         if (count >= points.size()) {
             return allIndices(points.size());
         }
+        int seed = Math.floorMod(seedIndex, points.size());
         List<Integer> selected = new ArrayList<>();
         Set<Integer> used = new HashSet<>();
-        selected.add(0);
-        used.add(0);
+        selected.add(seed);
+        used.add(seed);
         while (selected.size() < count) {
             Coordinate center = centroid(selectedPoints(points, selected));
             int nearest = -1;
