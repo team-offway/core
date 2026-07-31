@@ -22,11 +22,11 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
 
     /**
      * @param name 사용자명 (게스트)
-     * @param remainingLeaveDays 남은 연차 (없으면 null)
+     * @param remainingLeaveDays 남은 연차 (저장값. 설정한 적 없으면 null). 반차가 0.5 라 실수다
      */
     public record User(
             @Schema(example = "게스트") String name,
-            @Schema(example = "13", nullable = true) Integer remainingLeaveDays) {
+            @Schema(example = "13.0", nullable = true) Double remainingLeaveDays) {
     }
 
     /**

@@ -38,7 +38,15 @@ public enum LeaveErrorCode implements ErrorCode {
             "LEAVE-007", ErrorCategory.BAD_REQUEST, "이어서 쓰는 연차는 2~3일까지 가능합니다."),
 
     /** 기간스타일을 골랐는데 해석 기준일이 없음 — 서버 시계로 대체하지 않는다(클라이언트 로컬 날짜가 정본). */
-    BASE_DATE_REQUIRED("LEAVE-008", ErrorCategory.BAD_REQUEST, "기준 날짜를 함께 보내주세요.");
+    BASE_DATE_REQUIRED("LEAVE-008", ErrorCategory.BAD_REQUEST, "기준 날짜를 함께 보내주세요."),
+
+    /** 총 연차가 음수·상한 초과·0.5 단위가 아님. */
+    INVALID_TOTAL_LEAVE_DAYS(
+            "LEAVE-009", ErrorCategory.BAD_REQUEST, "연차 일수는 0.5일 단위로, 0일 이상 365일 이하여야 합니다."),
+
+    /** 사용 내역 증감이 0 이거나 0.5 단위가 아님. 0 은 아무것도 바꾸지 않아 기록할 이유가 없다. */
+    INVALID_LEAVE_USAGE_DAYS(
+            "LEAVE-010", ErrorCategory.BAD_REQUEST, "연차 증감은 0.5일 단위여야 하고 0일은 기록할 수 없습니다.");
 
     private final String code;
     private final ErrorCategory category;

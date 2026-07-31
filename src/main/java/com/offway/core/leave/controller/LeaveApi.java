@@ -1,9 +1,12 @@
 package com.offway.core.leave.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.leave.controller.dto.AddLeaveUsageRequest;
 import com.offway.core.leave.controller.dto.AvailableTimeRequest;
 import com.offway.core.leave.controller.dto.AvailableTimeResponse;
+import com.offway.core.leave.controller.dto.MyLeaveResponse;
 import com.offway.core.leave.controller.dto.SandwichResponse;
+import com.offway.core.leave.controller.dto.UpdateMyLeaveRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -11,8 +14,42 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.LocalDate;
 
 /** 연차·가용시간 API 문서 계약. 매핑·검증 어노테이션은 구현체({@link LeaveController})가 소유한다. */
-@Tag(name = "연차", description = "연차 기반 가용시간(LNT)·샌드위치 연휴")
+@Tag(name = "연차", description = "연차 기반 가용시간(LNT)·샌드위치 연휴·내 연차")
 public interface LeaveApi {
+
+    @Operation(
+            summary = "내 연차 조회",
+            description = "총 연차·쓴 연차·남은 연차와 사용 내역. 아직 설정한 적이 없으면 총 0·내역 없음으로 답한다(404 아님).")
+    @ApiResponse(responseCode = "200", description = "조회 성공")
+    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락")
+    ApiResponseBody<MyLeaveResponse> myLeave(
+            @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId);
+
+    @Operation(
+            summary = "내 연차 수정",
+            description = "총 연차를 고쳐 쓴다(와이어프레임 +/- 스테퍼). 0.5 단위로 반차 조합도 넣을 수 있다.")
+    @ApiResponse(responseCode = "200", description = "수정 성공")
+    @ApiResponse(
+            responseCode = "400",
+            description = "X-Guest-Id 헤더 누락 · totalDays 누락 · 0.5 단위가 아니거나 0~365 범위 밖")
+    ApiResponseBody<MyLeaveResponse> updateMyLeave(
+            @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
+            UpdateMyLeaveRequest request);
+
+    @Operation(
+            summary = "연차 사용 내역 추가",
+            description = """
+                    연차를 쓰거나(양수) 되돌린(음수) 내역을 남긴다.
+
+                    남은 연차가 부족해도 서버는 막지 않는다 — 프론트가 경고하고 사용자가 확인하면 진행한다(결정 #38).
+                    그래서 남은 연차는 음수가 될 수 있다.""")
+    @ApiResponse(responseCode = "201", description = "추가 성공")
+    @ApiResponse(
+            responseCode = "400",
+            description = "X-Guest-Id 헤더 누락 · usedOn·days 누락 또는 형식 오류 · days 가 0 이거나 0.5 단위가 아님")
+    ApiResponseBody<MyLeaveResponse> addLeaveUsage(
+            @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
+            AddLeaveUsageRequest request);
 
     @Operation(
             summary = "가용 시간(LNT) 산출",
