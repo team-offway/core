@@ -49,6 +49,23 @@ public class CourseStorageService {
         return withBenefits(course);
     }
 
+    /**
+     * 게스트 소유의 저장 코스를 지운다.
+     *
+     * <p>조회와 <b>같은 규칙</b>이다 — 없거나 남의 코스면 똑같이 404 다. 403 으로 나누면 "그 ID 는 존재하는데 네 것이
+     * 아니다" 를 알려주는 셈이라, ID 를 훑어 남의 코스 존재를 확인할 수 있다.
+     *
+     * <p>hard delete 다. 하위(DaySchedule·Slot)는 애그리거트 내부라 {@code cascade = ALL} ·
+     * {@code orphanRemoval} 로 함께 지워진다.
+     */
+    @Transactional
+    public void delete(String guestId, long courseId) {
+        Course course = courseRepository
+                .findByIdAndGuestId(courseId, guestId)
+                .orElseThrow(ItineraryException::courseNotFound);
+        courseRepository.delete(course);
+    }
+
     private GeneratedCourse withBenefits(Course course) {
         List<GeneratedCourse.Benefit> benefits = policyService.matchForRegion(course.getRegionId(), LocalDate.now())
                 .stream()

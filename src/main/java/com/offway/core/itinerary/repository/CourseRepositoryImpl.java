@@ -27,4 +27,9 @@ public class CourseRepositoryImpl implements CourseRepository {
     public Optional<Course> findByIdAndGuestId(Long id, String guestId) {
         return courseJpaRepository.findByIdAndGuestId(id, guestId);
     }
+
+    @Override
+    public void delete(Course course) {
+        courseJpaRepository.delete(course);
+    }
 }

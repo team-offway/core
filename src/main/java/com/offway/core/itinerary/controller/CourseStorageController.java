@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,5 +48,14 @@ public class CourseStorageController implements CourseStorageApi {
     public ApiResponseBody<CourseResponse> course(
             @RequestHeader(GUEST_HEADER) String guestId, @PathVariable long courseId) {
         return ApiResponseBody.ok(CourseResponse.from(courseStorageService.get(guestId, courseId)));
+    }
+
+    @Override
+    @DeleteMapping("/{courseId}")
+    public ApiResponseBody<Void> deleteCourse(
+            @RequestHeader(GUEST_HEADER) String guestId, @PathVariable long courseId) {
+        courseStorageService.delete(guestId, courseId);
+        // 204 를 쓰지 않는다 — 응답 래퍼가 항상 body 를 만든다(exception-and-response).
+        return ApiResponseBody.ok(null);
     }
 }

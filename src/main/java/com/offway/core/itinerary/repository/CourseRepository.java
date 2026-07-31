@@ -14,4 +14,7 @@ public interface CourseRepository {
 
     /** 소유자 범위 상세 조회 — 남의 코스를 ID 만으로 못 보게 게스트 소유로 제한한다. */
     Optional<Course> findByIdAndGuestId(Long id, String guestId);
+
+    /** 애그리거트 통째 삭제. 하위(DaySchedule·Slot)는 cascade·orphanRemoval 로 함께 지워진다. */
+    void delete(Course course);
 }
