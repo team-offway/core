@@ -57,7 +57,16 @@ public class CourseGenerationService {
 
     public GeneratedCourse generate(GenerateCourse command) {
         // ① POI 수집 (trip)
-        RegionPois pois = regionPoiService.collect(command.regionId());
+        return generate(command, regionPoiService.collect(command.regionId()));
+    }
+
+    /**
+     * 이미 모은 후보로 코스를 짠다 — 재생성이 씨앗을 바꿔가며 시도할 때 <b>후보를 다시 모으지 않게</b> 한다(#114).
+     *
+     * <p>{@code collect} 는 캐시가 없어 호출마다 TourAPI 를 세 번 부른다. 시도마다 다시 모으면 그 배수만큼
+     * 외부 호출이 는다.
+     */
+    public GeneratedCourse generate(GenerateCourse command, RegionPois pois) {
 
         // ①' "이 장소 말고" — 재생성이 지정한 장소를 후보에서 뺀다(#114). 빈 집합이면 그대로다.
         List<PoiCandidate> sightPool = exclude(pois.sights(), command.excludePoiContentIds());
@@ -104,6 +113,26 @@ public class CourseGenerationService {
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
                 weather != null, trainAccess != null ? trainAccess.status() : "N/A");
         return new GeneratedCourse(course, benefits, weather, trainAccess);
+    }
+
+    /**
+     * 이 씨앗이면 어떤 볼거리가 뽑히는지 — <b>외부 호출 없이</b> 좌표 계산만으로 답한다(#114).
+     *
+     * <p>재생성이 "충분히 다른가" 를 판정할 때 쓴다. 판정하자고 코스를 통째로 짜면 TMAP 경유지 최적화·이동시간·
+     * 날씨·열차 조회가 시도 횟수만큼 곱해진다 — TMAP 경유지 최적화는 <b>일일 허용량이 50건</b>이라 요청 한 번이
+     * 그날 몫을 태울 수 있다.
+     *
+     * <p>순서는 담지 않는다. 사용자가 "다른 코스" 로 느끼는 것은 <b>어디를 가느냐</b>이지 순서가 아니다.
+     */
+    public Set<String> selectedSightIds(GenerateCourse command, RegionPois pois) {
+        List<PoiCandidate> pool = exclude(pois.sights(), command.excludePoiContentIds());
+        if (pool.isEmpty()) {
+            return Set.of();
+        }
+        CourseNeeds needs = CourseNeeds.of(command.density(), command.travelDays());
+        return reorder(pool, GeoCluster.selectCompact(coords(pool), needs.sights(), seedIndexOf(command))).stream()
+                .map(PoiCandidate::contentId)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
     }
 
     /**

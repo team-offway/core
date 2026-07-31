@@ -179,4 +179,28 @@ class CourseRegenerateIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-001"));
     }
+
+    @Test
+    void 여러_씨앗을_시도해도_외부_후보조회는_한_번뿐이다() throws Exception {
+        // 판정하자고 코스를 통째로 짜면 TourAPI 도, TMAP 경유지 최적화(일일 50건)도 시도 횟수만큼 곱해진다.
+        // 씨앗 판정은 좌표 계산으로만 하고 조립은 이긴 씨앗 하나로 한 번만 해야 한다.
+        tourApiClient.respond(() -> pois(RICH_SIGHTS));
+        tourApiClient.resetAreaCallCount();
+
+        call(REGENERATE, "");
+
+        // 볼거리·맛집·숙박 세 풀을 각각 조회한다 = 후보 수집 1회분.
+        assertEquals(3, tourApiClient.areaCallCount(),
+                "재생성이 시도 횟수만큼 후보를 다시 모으면 외부 호출이 그 배수로 는다");
+    }
+
+    @Test
+    void 씨앗을_지정해도_외부_후보조회는_한_번뿐이다() throws Exception {
+        tourApiClient.respond(() -> pois(RICH_SIGHTS));
+        tourApiClient.resetAreaCallCount();
+
+        call(REGENERATE, "\"seed\": 12345");
+
+        assertEquals(3, tourApiClient.areaCallCount());
+    }
 }
