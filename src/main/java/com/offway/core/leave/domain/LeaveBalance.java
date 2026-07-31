@@ -6,7 +6,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -65,10 +64,13 @@ public class LeaveBalance {
         return totalDays;
     }
 
+    /**
+     * 계약 예외(400)를 던진다. 빈 헤더({@code X-Guest-Id: " "})는 {@code @RequestHeader} 를 통과하므로
+     * <b>멀쩡한 클라이언트가 정상 요청으로 닿을 수 있다</b> — 불변식으로 다루면 500 이 나간다.
+     */
     private static String requireOwner(String guestId) {
-        Objects.requireNonNull(guestId, "guestId 는 null 일 수 없습니다.");
-        if (guestId.isBlank() || guestId.length() > MAX_OWNER_ID_LENGTH) {
-            throw new IllegalArgumentException("소유 키 길이가 유효하지 않습니다: " + guestId.length());
+        if (guestId == null || guestId.isBlank() || guestId.length() > MAX_OWNER_ID_LENGTH) {
+            throw LeaveException.invalidOwnerId();
         }
         return guestId;
     }

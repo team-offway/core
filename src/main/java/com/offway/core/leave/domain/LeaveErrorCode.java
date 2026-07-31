@@ -46,7 +46,10 @@ public enum LeaveErrorCode implements ErrorCode {
 
     /** 사용 내역 증감이 0 이거나 0.5 단위가 아님. 0 은 아무것도 바꾸지 않아 기록할 이유가 없다. */
     INVALID_LEAVE_USAGE_DAYS(
-            "LEAVE-010", ErrorCategory.BAD_REQUEST, "연차 증감은 0.5일 단위여야 하고 0일은 기록할 수 없습니다.");
+            "LEAVE-010", ErrorCategory.BAD_REQUEST, "연차 증감은 0.5일 단위여야 하고 0일은 기록할 수 없습니다."),
+
+    /** 소유 키 헤더가 비었거나 너무 김 — 헤더 자체가 없으면 프레임워크가 먼저 COMMON-400 으로 막는다. */
+    INVALID_OWNER_ID("LEAVE-011", ErrorCategory.BAD_REQUEST, "사용자 식별값이 올바르지 않습니다.");
 
     private final String code;
     private final ErrorCategory category;

@@ -59,4 +59,9 @@ public final class LeaveException extends BaseException {
     public static LeaveException invalidLeaveUsageDays() {
         return new LeaveException(LeaveErrorCode.INVALID_LEAVE_USAGE_DAYS);
     }
+
+    /** 소유 키 헤더가 비었거나 너무 김. */
+    public static LeaveException invalidOwnerId() {
+        return new LeaveException(LeaveErrorCode.INVALID_OWNER_ID);
+    }
 }

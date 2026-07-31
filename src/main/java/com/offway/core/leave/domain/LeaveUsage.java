@@ -70,9 +70,15 @@ public class LeaveUsage {
         return new LeaveUsage(guestId, usedOn, days, reason, courseId);
     }
 
+    /**
+     * 계약 예외(400)를 던진다 — {@code IllegalArgumentException} 이 아니다.
+     *
+     * <p>지금은 요청 DTO 가 먼저 걸러 여기 닿지 않지만, 코스 확정 차감(#91)이 {@link #forCourse} 를 서비스에서
+     * 직접 부르면 DTO 를 거치지 않고 들어온다. 그때 불변식 예외를 던지면 클라이언트 계약 위반이 500 으로 나간다.
+     */
     private static double requireDays(double days) {
         if (!LeaveDays.isValidUsage(days)) {
-            throw new IllegalArgumentException("연차 증감이 유효하지 않습니다: " + days);
+            throw LeaveException.invalidLeaveUsageDays();
         }
         return days;
     }

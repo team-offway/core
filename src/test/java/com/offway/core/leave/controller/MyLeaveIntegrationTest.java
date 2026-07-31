@@ -157,4 +157,34 @@ class MyLeaveIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON-400"));
     }
+
+    /**
+     * 빈 헤더({@code X-Guest-Id: " "})는 {@code @RequestHeader} 를 통과한다 — 헤더가 '있긴 있기' 때문이다.
+     * 그대로 흘려보내면 도메인 불변식에서 터져 <b>COMMON-500</b> 이 나갔다. 클라이언트 계약 위반이 서버 버그로
+     * 보고되던 자리라, 세 엔드포인트가 <b>같은 계약</b>을 쓰는지 함께 확인한다.
+     */
+    @Test
+    void 빈_소유_키는_세_엔드포인트_모두_400_LEAVE_011() throws Exception {
+        mockMvc.perform(get(URL).header(GUEST_HEADER, "  "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LEAVE-011"));
+
+        mockMvc.perform(patch(URL).header(GUEST_HEADER, "  ")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 10}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LEAVE-011"));
+
+        mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, "  ")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"usedOn\": \"2026-05-08\", \"days\": 1}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LEAVE-011"));
+    }
+
+    @Test
+    void 소유_키가_너무_길면_400_LEAVE_011() throws Exception {
+        mockMvc.perform(get(URL).header(GUEST_HEADER, "x".repeat(65)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LEAVE-011"));
+    }
 }

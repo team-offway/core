@@ -21,7 +21,7 @@ public interface LeaveApi {
             summary = "내 연차 조회",
             description = "총 연차·쓴 연차·남은 연차와 사용 내역. 아직 설정한 적이 없으면 총 0·내역 없음으로 답한다(404 아님).")
     @ApiResponse(responseCode = "200", description = "조회 성공")
-    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락")
+    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락 · 헤더가 비었거나 64자 초과")
     ApiResponseBody<MyLeaveResponse> myLeave(
             @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId);
 
@@ -31,7 +31,7 @@ public interface LeaveApi {
     @ApiResponse(responseCode = "200", description = "수정 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "X-Guest-Id 헤더 누락 · totalDays 누락 · 0.5 단위가 아니거나 0~365 범위 밖")
+            description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · totalDays 누락 · 0.5 단위가 아니거나 0~365 범위 밖")
     ApiResponseBody<MyLeaveResponse> updateMyLeave(
             @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
             UpdateMyLeaveRequest request);
@@ -46,7 +46,7 @@ public interface LeaveApi {
     @ApiResponse(responseCode = "201", description = "추가 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "X-Guest-Id 헤더 누락 · usedOn·days 누락 또는 형식 오류 · days 가 0 이거나 0.5 단위가 아님")
+            description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usedOn·days 누락 또는 형식 오류 · days 가 0 이거나 0.5 단위가 아님")
     ApiResponseBody<MyLeaveResponse> addLeaveUsage(
             @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
             AddLeaveUsageRequest request);
