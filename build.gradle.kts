@@ -52,4 +52,24 @@ dependencies {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+
+    // 테스트는 실제 외부 API 를 때리지 않는다.
+    //
+    // application.properties 가 `spring.config.import=optional:file:./application-secret.properties` 로
+    // 실키를 읽고, Gradle 테스트 워커의 작업 디렉터리가 프로젝트 루트라 테스트에도 그대로 주입됐다.
+    // 그 결과 stub 을 빠뜨린 클라이언트(TMAP 경유지 최적화)가 매 실행마다 실호출을 날려 일일 허용량을 갉아먹었다.
+    //
+    // 환경변수는 config data(파일)보다 우선순위가 높으므로 여기서 비우면 파일 값이 덮인다. 모든 외부 클라이언트가
+    // hasKey() 가드를 갖고 있어, 키가 없으면 stub 을 빠뜨려도 실호출 대신 폴백으로 떨어진다 — stub 누락을
+    // 일일이 쫓지 않아도 되는 마지막 방어선이다.
+    //
+    // E2E 는 실호출이 목적이라 `-Pe2e` 로 명시적으로 열어준다. 기본값을 "막힘" 으로 두는 이유는, 실호출은
+    // 켜는 걸 잊으면 테스트가 하나 안 돌 뿐이지만 끄는 걸 잊으면 허용량이 조용히 새기 때문이다.
+    val allowRealExternalCalls = providers.gradleProperty("e2e").isPresent
+    if (allowRealExternalCalls) {
+        systemProperty("offway.e2e", "true")
+    } else {
+        environment("DATA_GO_KR_SERVICE_KEY", "")
+        environment("TMAP_APP_KEY", "")
+    }
 }
