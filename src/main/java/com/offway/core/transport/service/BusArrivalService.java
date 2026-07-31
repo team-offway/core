@@ -37,8 +37,11 @@ public class BusArrivalService {
      */
     private static final int MAX_CACHED_STOPS = 2_000;
 
+    /** loader 가 TAGO 도착정보 <b>단일 호출</b>(timeout 6초)이라 여유 1초를 얹었다. */
+    private static final Duration FIRST_LOAD_WAIT = Duration.ofSeconds(7);
+
     private final BusArrivalClient busArrivalClient;
-    private final ExternalDataCache<String, BusArrivalStatus> cache = new ExternalDataCache<>(MAX_CACHED_STOPS);
+    private final ExternalDataCache<String, BusArrivalStatus> cache = new ExternalDataCache<>(MAX_CACHED_STOPS, FIRST_LOAD_WAIT);
 
     /** 정류소의 실시간 도착 예정 버스. */
     public BusArrivalStatus arrivalsAt(BusStop stop) {

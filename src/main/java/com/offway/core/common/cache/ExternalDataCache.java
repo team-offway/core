@@ -7,8 +7,11 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BiFunction;
 import lombok.extern.slf4j.Slf4j;
 
@@ -53,18 +56,37 @@ import lombok.extern.slf4j.Slf4j;
 public final class ExternalDataCache<K, V> {
 
     private final Map<K, Entry<V>> cache = new ConcurrentHashMap<>();
-    private final Set<K> refreshing = ConcurrentHashMap.newKeySet();
+
+    /**
+     * 지금 적재 중인 키 → 그 결과를 받을 future.
+     *
+     * <p>{@code Set} 이 아니라 future 인 이유 — <b>캐시가 빈 상태에서 동시 요청</b>이 오면 늦은 쪽에게 줄 stale 이
+     * 없다. 그때 폴백을 즉시 주면 한 명은 정상 값을, 다른 한 명은 실패를 받는다. 이 future 로 결과를 나눠 갖는다.
+     */
+    private final Map<K, CompletableFuture<V>> inFlight = new ConcurrentHashMap<>();
+
     private final int maxEntries;
+    private final Duration maxWaitForFirstLoad;
 
     /**
      * @param maxEntries 보관할 최대 엔트리 수. <b>소유자가 키 공간의 상한을 직접 답해야 한다</b> — 유한한 키(지역 89개·
      *     시도 17개)면 그 수에 여유를 얹고, 무한한 키(좌표·정류소·날짜)면 메모리로 감당할 값을 고른다.
+     * @param maxWaitForFirstLoad <b>캐시가 빈 키</b>에 동시 요청이 몰렸을 때, 늦은 쪽이 진행 중인 적재를 기다릴 상한.
+     *     소유자가 "내 loader 한 번이 얼마나 걸리나" 를 답해야 한다 — 외부 호출 하나짜리면 그 timeout 에 여유를 얹고,
+     *     여러 호출을 도는 집계 loader 면 {@link Duration#ZERO} 로 <b>기다리지 않는다</b>(그만큼 기다린 뒤 결국
+     *     degrade 하면 즉시 degrade 보다 나쁘다). 이 상한은 <b>이미 값이 있는(stale) 경우엔 쓰이지 않는다</b> —
+     *     그때는 지금처럼 즉시 stale 을 준다.
      */
-    public ExternalDataCache(int maxEntries) {
+    public ExternalDataCache(int maxEntries, Duration maxWaitForFirstLoad) {
         if (maxEntries <= 0) {
             throw new IllegalArgumentException("maxEntries 는 1 이상이어야 합니다: " + maxEntries);
         }
+        Objects.requireNonNull(maxWaitForFirstLoad, "maxWaitForFirstLoad");
+        if (maxWaitForFirstLoad.isNegative()) {
+            throw new IllegalArgumentException("maxWaitForFirstLoad 는 음수일 수 없습니다: " + maxWaitForFirstLoad);
+        }
         this.maxEntries = maxEntries;
+        this.maxWaitForFirstLoad = maxWaitForFirstLoad;
     }
 
     /**
@@ -95,15 +117,25 @@ public final class ExternalDataCache<K, V> {
         if (cached != null && cached.isFresh()) {
             return cached.value();
         }
-        // single-flight: 이 키를 이미 다른 스레드가 갱신 중이면 stale(없거나 미제공이면 폴백)을 즉시 반환한다.
-        if (!refreshing.add(key)) {
-            return stalePolicy.degrade(cached != null ? cached.value() : null, noStaleFallback);
+        // single-flight: 이 키를 이미 다른 스레드가 갱신 중이라면
+        //  · stale 이 있으면 즉시 준다(이 프리미티브의 설계 의도 — 막지 않는다).
+        //  · stale 이 없으면(첫 적재) 폴백을 즉시 주면 안 된다. 줄 게 없어서 실패로 답하는 것뿐인데, 그 폴백이
+        //    실패를 뜻하는 캐시에서는 사용자가 502 를 받고 빈 값을 뜻하는 캐시에서는 조용히 빈 화면이 된다.
+        //    진행 중인 적재를 상한만큼 기다렸다가 그 결과를 나눠 갖는다.
+        CompletableFuture<V> mine = new CompletableFuture<>();
+        CompletableFuture<V> running = inFlight.putIfAbsent(key, mine);
+        if (running != null) {
+            V stale = cached != null ? cached.value() : null;
+            if (stale != null) {
+                return stalePolicy.degrade(stale, noStaleFallback);
+            }
+            return awaitFirstLoad(key, running, stalePolicy, noStaleFallback);
         }
         try {
             // double-check: 게이트 획득 사이 다른 스레드가 이미 갱신했을 수 있다.
             Entry<V> latest = cache.get(key);
             if (latest != null && latest.isFresh()) {
-                return latest.value();
+                return complete(mine, latest.value());
             }
             V stale = latest != null ? latest.value() : (cached != null ? cached.value() : null);
             Loaded<V> loaded;
@@ -115,13 +147,44 @@ public final class ExternalDataCache<K, V> {
                 // 최후 방어선 — loader 는 외부 예외를 스스로 잡는 게 계약이지만, 그 계약이 깨져도(예외 누수) 요청 경로로 올리지
                 // 않는다. stale 을 쓰는 값이면 그걸로, 아니면 폴백으로 degrade 한다. 캐시엔 넣지 않아 다음 호출이 재시도한다.
                 log.warn("캐시 loader 가 예외를 던졌습니다 — degrade key={}", key, e);
-                return stalePolicy.degrade(stale, noStaleFallback);
+                return complete(mine, stalePolicy.degrade(stale, noStaleFallback));
             }
             store(key, new Entry<>(loaded.value(), Instant.now().plus(loaded.ttl())));
-            return loaded.value();
+            return complete(mine, loaded.value());
         } finally {
-            refreshing.remove(key);
+            // 어떤 경로로 빠져나가도 기다리는 쪽을 매달아 두지 않는다. 위에서 이미 완료됐으면 no-op 이다.
+            mine.complete(stalePolicy.degrade(null, noStaleFallback));
+            inFlight.remove(key, mine);
         }
+    }
+
+    /** 적재 결과를 기다리는 쪽에게도 나눠 주고 그대로 돌려준다. */
+    private V complete(CompletableFuture<V> mine, V value) {
+        mine.complete(value);
+        return value;
+    }
+
+    /**
+     * 빈 키의 첫 적재를 기다린다 — 상한을 넘기면 지금까지처럼 degrade 한다.
+     *
+     * <p>기다리는 쪽은 <b>적재하는 쪽보다 늦게 끝나지 않는다.</b> 어차피 자기가 적재했어도 같은 시간이 걸렸을
+     * 뿐이라, 이 대기는 지연을 새로 만들지 않고 실패를 정상 값으로 바꾼다.
+     */
+    private V awaitFirstLoad(K key, CompletableFuture<V> running, StalePolicy stalePolicy, V noStaleFallback) {
+        if (maxWaitForFirstLoad.isZero()) {
+            return stalePolicy.degrade(null, noStaleFallback);
+        }
+        try {
+            return running.get(maxWaitForFirstLoad.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            log.warn("첫 적재 대기 상한({}) 초과 — 폴백으로 degrade key={}", maxWaitForFirstLoad, key);
+        } catch (ExecutionException e) {
+            log.warn("첫 적재가 실패로 끝났습니다 — 폴백으로 degrade key={}", key, e.getCause());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("첫 적재 대기가 중단됐습니다 — 폴백으로 degrade key={}", key);
+        }
+        return stalePolicy.degrade(null, noStaleFallback);
     }
 
     /** 캐시 무효화 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트 격리용. */

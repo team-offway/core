@@ -81,7 +81,16 @@ public class RegionContentProvider {
     public static final Duration WARMING_FANOUT_DEADLINE = Duration.ofMinutes(5);
 
     private final TourApiClient tourApiClient;
-    private final ExternalDataCache<Long, RegionContent> cache = new ExternalDataCache<>(MAX_CACHED_REGIONS);
+    /**
+     * 빈 지역에 동시 요청이 몰렸을 때 첫 적재를 기다릴 상한. loader 가 TourAPI <b>단일 호출</b>(timeout 6초)이라
+     * 여유 1초를 얹었다.
+     *
+     * <p>여기서 기다리지 않으면 폴백이 {@link RegionContent#EMPTY} 라 <b>조용히 빈 화면</b>이 된다 — 502 처럼
+     * 눈에 띄지도 않아 아무도 모른다.
+     */
+    private static final Duration FIRST_LOAD_WAIT = Duration.ofSeconds(7);
+
+    private final ExternalDataCache<Long, RegionContent> cache = new ExternalDataCache<>(MAX_CACHED_REGIONS, FIRST_LOAD_WAIT);
 
     /**
      * 대기 큐 상한. {@code Executors.newFixedThreadPool} 은 <b>무제한 큐</b>라, 외부가 느려지면 요청·워밍 작업이

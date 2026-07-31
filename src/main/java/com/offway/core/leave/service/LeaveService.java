@@ -49,9 +49,15 @@ public class LeaveService {
      */
     private static final int HOLIDAY_CACHE_MAX_MONTHS = 64;
 
+    /**
+     * 빈 달에 동시 요청이 몰렸을 때 첫 적재를 기다릴 상한. loader 가 특일정보 <b>단일 호출</b>(timeout 6초)이라
+     * 여유 1초를 얹었다. 기다리는 쪽은 적재하는 쪽보다 늦게 끝나지 않는다.
+     */
+    private static final Duration FIRST_LOAD_WAIT = Duration.ofSeconds(7);
+
     /** 월별 공휴일 캐시. */
     private final ExternalDataCache<YearMonth, HolidayLookup> holidayCache =
-            new ExternalDataCache<>(HOLIDAY_CACHE_MAX_MONTHS);
+            new ExternalDataCache<>(HOLIDAY_CACHE_MAX_MONTHS, FIRST_LOAD_WAIT);
 
     /** 공휴일 캐시를 비운다 — 운영상 강제 갱신(고시 정정 등), 그리고 공유 컨텍스트 통합 테스트의 격리용. */
     public void evictCache() {
