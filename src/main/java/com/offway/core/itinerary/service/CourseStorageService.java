@@ -27,7 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class CourseStorageService {
 
     /** D-day·다가오는 여행 판정 기준 시간대. 서비스가 한국 여행을 다루므로 사용자 로캘과 무관하게 KST 다. */
-    private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
+    public static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
     private final CourseRepository courseRepository;
     private final PolicyService policyService;

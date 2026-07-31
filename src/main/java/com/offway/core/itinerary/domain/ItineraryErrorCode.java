@@ -20,7 +20,13 @@ public enum ItineraryErrorCode implements ErrorCode {
     COURSE_NOT_FOUND("ITINERARY-003", ErrorCategory.NOT_FOUND, "요청한 코스를 찾을 수 없습니다."),
 
     /** 여행 날짜 없이 저장된 코스로 연차 차감을 요청했다 — 차감 일수를 계산할 근거가 없다. */
-    TRAVEL_DATE_MISSING("ITINERARY-004", ErrorCategory.BAD_REQUEST, "여행 날짜가 없는 코스는 연차를 차감할 수 없습니다.");
+    TRAVEL_DATE_MISSING("ITINERARY-004", ErrorCategory.BAD_REQUEST, "여행 날짜가 없는 코스는 연차를 차감할 수 없습니다."),
+
+    /** 홈 모달 "다녀오셨나요?" 에 이미 답한 여행이다(#116). */
+    TRIP_ALREADY_ANSWERED("ITINERARY-005", ErrorCategory.CONFLICT, "이미 답한 여행입니다."),
+
+    /** 아직 끝나지 않은 여행에 다녀왔는지를 답하려 했다(#116). */
+    TRIP_NOT_ENDED("ITINERARY-006", ErrorCategory.CONFLICT, "아직 끝나지 않은 여행입니다.");
 
     private final String code;
     private final ErrorCategory category;

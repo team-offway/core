@@ -1,6 +1,8 @@
 package com.offway.core.itinerary.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.itinerary.controller.dto.TripOutcomeRequest;
+import com.offway.core.itinerary.controller.dto.PendingTripsResponse;
 import com.offway.core.leave.controller.dto.MyLeaveResponse;
 import com.offway.core.itinerary.controller.dto.CourseLeaveDeductionRequest;
 import com.offway.core.itinerary.domain.CourseScope;
@@ -96,4 +98,46 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·형식 오류")
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
     ApiResponseBody<MyLeaveResponse> cancelLeaveDeduction(String guestId, long courseId);
+
+    @Operation(
+            summary = "홈 모달 — 물어볼 지난 여행",
+            description = """
+                    홈 진입 시 한 번 부른다. **여행이 끝났고**(종료일 < 오늘) **아직 답하지 않은** 코스를 준다.
+                    비어 있으면 모달을 띄우지 않는다.
+
+                    종료 당일은 넣지 않는다 — 아직 여행 중일 수 있다. 내 코스 카드에서 이미 "연차 차감하기" 를
+                    눌렀다면 그게 곧 "다녀왔다" 는 답이므로 함께 빠진다. 여행 날짜 없이 저장된 코스는 지났는지
+                    알 수 없어 대상이 아니다.
+
+                    **모달은 이 응답 하나로 완성된다** — 지역명·여행 날짜·차감될 연차·지도에 찍을 좌표까지 들어
+                    있어 카드를 그리려고 코스 상세를 다시 부를 일이 없다.""")
+    @ApiResponse(responseCode = "200", description = "조회 성공 (물어볼 여행이 없으면 trips 가 빈 배열)")
+    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·형식 오류")
+    @ApiResponse(responseCode = "502", description = "공휴일 조회(특일정보) 실패로 차감될 연차를 계산할 수 없음")
+    ApiResponseBody<PendingTripsResponse> pendingTrips(String guestId);
+
+    @Operation(
+            summary = "홈 모달 — 다녀왔는지 답하기",
+            description = """
+                    `VISITED` 면 **이 시점에 연차를 깎는다**. `NOT_VISITED` 면 깎지 않는다.
+
+                    안 간 여행도 기록한다 — 기록하지 않으면 "아직 안 물어본 것" 과 구분되지 않아 홈을 열 때마다
+                    다시 뜬다.
+
+                    답한 뒤의 내 연차를 돌려주므로, 모달이 상단 "남은 연차" 를 바로 고쳐 그릴 수 있다.
+
+                    **`pending-trips` 가 물어봤을 법한 여행만 답을 받는다.** 아직 끝나지 않았거나(종료 당일 포함),
+                    이미 답했거나, 내 코스 카드에서 이미 차감한 여행은 409 다 — 조회 조건과 쓰기 조건이 어긋나면
+                    모달이 묻지 않은 것에도 답이 들어와 연차가 잘못 움직인다.
+
+                    반차 여부는 묻지 않는다(종일 기준) — 반차가 필요하면
+                    내 코스 카드의 `POST /courses/{courseId}/leave-deduction` 을 쓴다.""")
+    @ApiResponse(responseCode = "200", description = "기록 성공 (VISITED 면 차감 반영된 연차)")
+    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·형식 오류, outcome 누락·잘못된 값, 또는 여행 날짜 없이 저장된 코스")
+    @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
+    @ApiResponse(
+            responseCode = "409",
+            description = "답할 수 없는 여행 — 아직 끝나지 않았거나(종료 당일 포함), 이미 답했거나, 내 코스 카드에서 이미 연차를 차감했음")
+    @ApiResponse(responseCode = "502", description = "공휴일 조회(특일정보) 실패로 차감 일수를 계산할 수 없음")
+    ApiResponseBody<MyLeaveResponse> answerTripOutcome(String guestId, long courseId, TripOutcomeRequest request);
 }
