@@ -8,6 +8,7 @@ import com.offway.core.leave.repository.LeaveBalanceRepository;
 import com.offway.core.leave.repository.LeaveUsageRepository;
 import com.offway.core.leave.service.dto.AddLeaveUsage;
 import com.offway.core.leave.service.dto.MyLeave;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -100,6 +101,39 @@ public class MyLeaveService {
                 .map(balance -> new LeaveSummary(balance.getTotalDays(), usageRepository.sumDaysByGuestId(guestId))
                         .remainingDays())
                 .orElse(null);
+    }
+
+    /**
+     * 코스 차감을 되돌린다(#113). 코스는 그대로 두고 연차만 복구한다.
+     *
+     * <p><b>멱등하다</b> — 차감된 적이 없어도 조용히 넘어간다. "취소했다" 와 "원래 없었다" 는 사용자에게 같은 결과다.
+     *
+     * <p>취소는 음수 행을 덧붙이지 않고 <b>그 행을 지운다</b>. {@code uk_leave_usage_guest_course} 가 코스당 한 행을
+     * 강제하므로(#91) 음수 누적은 수동 내역 전용이다.
+     *
+     * <p>기본 전파라 <b>호출자의 트랜잭션에 합류한다</b> — 코스 삭제와 한 덩어리로 묶여야 "코스만 사라지고 연차는
+     * 깎인 채" 가 남지 않는다.
+     *
+     * @return 되돌린 내역이 있었으면 {@code true}
+     */
+    @Transactional
+    public boolean cancelCourseDeduction(String guestId, long courseId) {
+        String owner = requireOwner(guestId);
+        int removed = usageRepository.deleteByGuestIdAndCourseId(owner, courseId);
+        if (removed > 0) {
+            log.info("코스 연차 차감 취소 courseId={} 되돌린내역={}", courseId, removed);
+        }
+        return removed > 0;
+    }
+
+    /**
+     * 이 소유자가 차감한 코스 ID 들 — 목록 화면의 "차감함" 표시용.
+     *
+     * <p>코스마다 {@link #alreadyDeducted} 를 부르면 코스 수만큼 쿼리가 늘어난다(N+1). 한 번에 모아온다.
+     */
+    @Transactional(readOnly = true)
+    public Set<Long> deductedCourseIds(String guestId) {
+        return usageRepository.findDeductedCourseIds(requireOwner(guestId));
     }
 
     /** 코스로 이미 차감했는지 — 중복 차감 방지(#91). */

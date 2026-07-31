@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.repository;
 
 import com.offway.core.itinerary.domain.Course;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,16 @@ public class CourseRepositoryImpl implements CourseRepository {
     @Override
     public List<Course> findByGuestId(String guestId) {
         return courseJpaRepository.findByGuestIdOrderByIdDesc(guestId);
+    }
+
+    @Override
+    public List<Course> findUpcoming(String guestId, LocalDate today) {
+        return courseJpaRepository.findByGuestIdAndTravelDateGreaterThanEqualOrderByTravelDateAscIdDesc(guestId, today);
+    }
+
+    @Override
+    public List<Course> findPast(String guestId, LocalDate today) {
+        return courseJpaRepository.findByGuestIdAndTravelDateLessThanOrderByTravelDateDescIdDesc(guestId, today);
     }
 
     @Override

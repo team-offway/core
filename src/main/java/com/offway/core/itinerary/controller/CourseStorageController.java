@@ -4,6 +4,7 @@ import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.leave.controller.dto.MyLeaveResponse;
 import com.offway.core.itinerary.service.CourseLeaveDeductionService;
 import com.offway.core.itinerary.controller.dto.CourseLeaveDeductionRequest;
+import com.offway.core.itinerary.domain.CourseScope;
 import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.itinerary.controller.dto.CourseSaveRequest;
 import com.offway.core.itinerary.controller.dto.CourseSummaryResponse;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -42,9 +44,10 @@ public class CourseStorageController implements CourseStorageApi {
 
     @Override
     @GetMapping
-    public ApiResponseBody<List<CourseSummaryResponse>> myCourses(@RequestHeader(GUEST_HEADER) String guestId) {
-        return ApiResponseBody.ok(
-                courseStorageService.myCourses(guestId).stream().map(CourseSummaryResponse::from).toList());
+    public ApiResponseBody<List<CourseSummaryResponse>> myCourses(
+            @RequestHeader(GUEST_HEADER) String guestId,
+            @RequestParam(defaultValue = "ALL") CourseScope scope) {
+        return ApiResponseBody.ok(CourseSummaryResponse.listFrom(courseStorageService.myCourses(guestId, scope)));
     }
 
     @Override
@@ -71,5 +74,12 @@ public class CourseStorageController implements CourseStorageApi {
             @Valid @RequestBody CourseLeaveDeductionRequest request) {
         return ApiResponseBody.ok(MyLeaveResponse.from(
                 courseLeaveDeductionService.deduct(guestId, courseId, request.halfDayStartOrFullDay())));
+    }
+
+    @Override
+    @DeleteMapping("/{courseId}/leave-deduction")
+    public ApiResponseBody<MyLeaveResponse> cancelLeaveDeduction(
+            @RequestHeader(GUEST_HEADER) String guestId, @PathVariable long courseId) {
+        return ApiResponseBody.ok(MyLeaveResponse.from(courseLeaveDeductionService.cancel(guestId, courseId)));
     }
 }

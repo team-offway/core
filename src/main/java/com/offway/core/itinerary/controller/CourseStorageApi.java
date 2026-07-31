@@ -3,6 +3,7 @@ package com.offway.core.itinerary.controller;
 import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.leave.controller.dto.MyLeaveResponse;
 import com.offway.core.itinerary.controller.dto.CourseLeaveDeductionRequest;
+import com.offway.core.itinerary.domain.CourseScope;
 import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.itinerary.controller.dto.CourseSaveRequest;
 import com.offway.core.itinerary.controller.dto.CourseSummaryResponse;
@@ -22,11 +23,24 @@ public interface CourseStorageApi {
     ApiResponseBody<CourseResponse> save(
             @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId, CourseSaveRequest request);
 
-    @Operation(summary = "내 코스 목록", description = "게스트가 저장한 코스 요약을 최신순으로.")
+    @Operation(
+            summary = "내 코스 목록",
+            description = """
+                    게스트가 저장한 코스 요약. `scope` 로 보는 범위를 정한다.
+
+                    - `UPCOMING` — 오늘 포함 이후 여행, **가까운 것부터**
+                    - `PAST` — 지난 여행, 최근 것부터
+                    - `ALL`(기본) — 전부, 저장한 순서(최근 저장이 위)
+
+                    각 항목은 `dDay`(오늘 기준 남은 날, 지난 여행이면 음수)와 `leaveDeducted`(연차 차감 여부)를 함께 준다.
+
+                    **여행 날짜 없이 저장된 코스는 `ALL` 에만 나온다** — 날짜가 없으면 다가오는 여행인지 지난 여행인지
+                    판단할 근거가 없고, 아무 쪽에나 끼워 넣으면 화면이 조용히 거짓말을 한다.""")
     @ApiResponse(responseCode = "200", description = "조회 성공(없으면 빈 목록)")
-    @ApiResponse(responseCode = "400", description = "게스트 ID 누락")
+    @ApiResponse(responseCode = "400", description = "게스트 ID 누락, 또는 scope 가 UPCOMING·PAST·ALL 이 아님")
     ApiResponseBody<List<CourseSummaryResponse>> myCourses(
-            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId);
+            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
+            @Parameter(description = "보는 범위", example = "UPCOMING") CourseScope scope);
 
     @Operation(summary = "코스 상세", description = "저장 코스의 날짜별 타임라인과 혜택.")
     @ApiResponse(responseCode = "200", description = "조회 성공")
@@ -69,4 +83,17 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "502", description = "공휴일 조회(특일정보) 실패로 차감 일수를 계산할 수 없음")
     ApiResponseBody<MyLeaveResponse> deductLeave(
             String guestId, long courseId, CourseLeaveDeductionRequest request);
+
+    @Operation(
+            summary = "코스 확정 취소 — 연차 되돌리기",
+            description = """
+                    코스는 그대로 두고 차감한 연차만 되돌린다. 여행 계획을 접었을 때 쓴다.
+
+                    **멱등하다** — 차감된 적이 없어도 200 이다. "취소했다" 와 "원래 없었다" 는 사용자에게 같은 결과다.
+
+                    코스 자체를 지우면(`DELETE /courses/{courseId}`) 차감도 함께 되돌아가므로 따로 부를 필요가 없다.""")
+    @ApiResponse(responseCode = "200", description = "취소 성공 (차감된 적이 없어도 200 — 현재 상태를 준다)")
+    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·형식 오류")
+    @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
+    ApiResponseBody<MyLeaveResponse> cancelLeaveDeduction(String guestId, long courseId);
 }

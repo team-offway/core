@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.repository;
 
 import com.offway.core.itinerary.domain.Course;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,6 +14,12 @@ public interface CourseRepository {
     List<Course> findByGuestId(String guestId);
 
     /** 소유자 범위 상세 조회 — 남의 코스를 ID 만으로 못 보게 게스트 소유로 제한한다. */
+    /** 오늘 포함 이후 여행 — 가까운 것부터. 날짜 없는 코스는 분류 근거가 없어 빠진다. */
+    List<Course> findUpcoming(String guestId, LocalDate today);
+
+    /** 오늘 이전 여행 — 최근 것부터. 날짜 없는 코스는 빠진다. */
+    List<Course> findPast(String guestId, LocalDate today);
+
     Optional<Course> findByIdAndGuestId(Long id, String guestId);
 
     /** 애그리거트 통째 삭제. 하위(DaySchedule·Slot)는 cascade·orphanRemoval 로 함께 지워진다. */

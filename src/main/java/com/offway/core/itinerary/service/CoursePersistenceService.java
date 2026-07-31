@@ -3,6 +3,7 @@ package com.offway.core.itinerary.service;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
+import com.offway.core.leave.service.MyLeaveService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,9 +22,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class CoursePersistenceService {
 
     private final CourseRepository courseRepository;
+    private final MyLeaveService myLeaveService;
 
     /**
-     * 소유자 범위에서 찾아 지운다. 없거나 남의 코스면 404.
+     * 소유자 범위에서 찾아 지우고, <b>이 코스로 깎았던 연차도 함께 되돌린다</b>(#113).
+     *
+     * <p>둘을 나누면 "코스는 사라졌는데 연차는 깎인 채" 가 남는다. 그 상태는 코스가 없어 취소 API 로도 못 고친다.
+     * 그래서 한 트랜잭션이다 — {@code cancelCourseDeduction} 이 기본 전파라 이 트랜잭션에 합류한다.
+     *
+     * <p>없거나 남의 코스면 404.
      *
      * <p>동시에 같은 코스를 지우면 두 요청이 <b>둘 다 조회에 성공</b>하고, 뒤늦은 쪽이 커밋에서 "지울 행이 없다" 로
      * 실패한다({@code OptimisticLockingFailureException}). 그 번역은 호출자가 한다 — 여기서 잡으면 이미 늦다.
@@ -33,6 +40,7 @@ public class CoursePersistenceService {
         Course course = courseRepository
                 .findByIdAndGuestId(courseId, guestId)
                 .orElseThrow(ItineraryException::courseNotFound);
+        myLeaveService.cancelCourseDeduction(guestId, courseId);
         courseRepository.delete(course);
     }
 }

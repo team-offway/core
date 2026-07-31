@@ -76,6 +76,20 @@ public class CourseLeaveDeductionService {
     }
 
     /**
+     * 차감을 되돌린다(#113). 코스는 그대로 두고 연차만 복구한다.
+     *
+     * <p><b>멱등하다</b> — 차감된 적이 없어도 조용히 현재 상태를 준다. 여기서 404 를 주면 화면이 "취소 실패" 를
+     * 보여주는데, 사용자가 원한 상태(차감 없음)는 이미 이뤄져 있다.
+     *
+     * <p>코스 소유 확인은 그대로 한다 — 남의 코스 ID 로 남의 연차를 건드릴 수 있으면 안 된다.
+     */
+    public MyLeave cancel(String guestId, long courseId) {
+        findOwned(guestId, courseId);
+        myLeaveService.cancelCourseDeduction(guestId, courseId);
+        return myLeaveService.myLeave(guestId);
+    }
+
+    /**
      * 차감 일수를 계산한다 — 코스의 여행 구간에 대해 평일에서 공휴일을 뺀 값(반차 0.5).
      *
      * <p>{@link LeaveService} 가 공휴일(특일정보)을 조회하므로 <b>외부 호출이다</b>. 실패해도 그쪽이 폴백을 갖는다.
