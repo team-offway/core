@@ -1,7 +1,7 @@
 package com.offway.core.itinerary.controller;
 
 import static org.hamcrest.Matchers.nullValue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -214,10 +214,11 @@ class CourseStorageIntegrationTest {
                 pool.submit(() -> {
                     try {
                         start.await();
-                        // 인증을 명시한다 — @WithMockUser 는 현재 스레드에만 적용돼 이 요청은 401 이 된다.
+                        // 요청 단위 mock 인증 — @WithMockUser 는 현재 스레드 전용이라 이 요청엔 안 닿는다.
+                        // 실제 계정을 쓰지 않으므로 운영 자격증명이 바뀌어도 이 테스트는 그대로다.
                         statuses.add(mockMvc.perform(delete(URL + "/{id}", courseId)
                                         .header("X-Guest-Id", guest)
-                                        .with(httpBasic("dev", "dev")))
+                                        .with(user("test")))
                                 .andReturn().getResponse().getStatus());
                     } catch (Exception e) {
                         statuses.add(-1);

@@ -1,6 +1,6 @@
 package com.offway.core.itinerary.controller;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -114,10 +114,11 @@ class CourseLeaveDeductionIntegrationTest {
 
     private org.springframework.test.web.servlet.ResultActions deduct(String guest, long courseId, String body)
             throws Exception {
-        // 인증을 명시한다 — 동시성 테스트가 별도 스레드에서 부르는데 @WithMockUser 는 현재 스레드에만 적용된다.
+        // 요청 단위로 인증한다 — 동시성 테스트는 별도 스레드라 @WithMockUser(현재 스레드 전용)가 안 닿는다.
+        // 실제 Basic 자격증명 대신 mock 인증을 쓴다: 운영 계정이 바뀌어도 이 테스트가 깨지지 않는다.
         return mockMvc.perform(post(COURSES + "/{id}/leave-deduction", courseId)
                 .header("X-Guest-Id", guest)
-                .with(httpBasic("dev", "dev"))
+                .with(user("test"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
     }

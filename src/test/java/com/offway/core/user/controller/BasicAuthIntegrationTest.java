@@ -1,7 +1,9 @@
 package com.offway.core.user.controller;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -44,6 +46,15 @@ class BasicAuthIntegrationTest {
                 .andExpect(jsonPath("$.code").value("COMMON-401"))
                 .andExpect(jsonPath("$.detail").isNotEmpty())
                 .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void 인증실패_응답은_브라우저가_팝업을_띄울_수_있게_challenge를_준다() throws Exception {
+        // 이 엔트리 포인트가 Security 기본 Basic 엔트리 포인트를 대체하므로, 여기서 안 붙이면 헤더가 아예
+        // 나가지 않는다 → 브라우저 팝업이 없어 사람이 Swagger 를 열 수단이 사라진다(로그인 화면도 없다).
+        mockMvc.perform(get("/api/v1/categories"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", containsString("Basic")));
     }
 
     @Test

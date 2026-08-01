@@ -4,7 +4,7 @@ import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -226,7 +226,7 @@ class MyLeaveIntegrationTest {
                     try {
                         start.await();
                         statuses.add(mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
-                                        .with(httpBasic("dev", "dev"))
+                                        .with(user("test"))
                                         .contentType(MediaType.APPLICATION_JSON)
                                         .content("{\"totalDays\": " + total + "}"))
                                 .andReturn().getResponse().getStatus());
