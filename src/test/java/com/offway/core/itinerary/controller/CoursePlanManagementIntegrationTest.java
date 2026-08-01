@@ -14,6 +14,7 @@ import com.offway.core.leave.service.LeaveService;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -232,7 +233,9 @@ class CoursePlanManagementIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        LocalDate when = today().plusDays(7);
+        // 차감을 부르므로 여행일이 평일이어야 한다 — plusDays(7) 은 7의 배수라 요일이 그대로 보존돼,
+        // 토·일에 돌리면 차감할 평일이 0일이 되고 "0 은 차감하지 않는다"(LeaveDays) 규칙에 걸려 400 이 난다.
+        LocalDate when = weekdayRun(7, 1);
         long courseId = saveCourse(guest, when);
         deduct(guest, courseId).andExpect(status().isOk());
 
@@ -240,7 +243,8 @@ class CoursePlanManagementIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].travelDate").value(when.toString()))
-                .andExpect(jsonPath("$.data[0].dDay").value(7))
+                // 평일로 밀린 만큼 D-day 도 달라진다 — 상수 7 로 두면 밀린 날에 깨진다.
+                .andExpect(jsonPath("$.data[0].dDay").value((int) ChronoUnit.DAYS.between(today(), when)))
                 .andExpect(jsonPath("$.data[0].leaveDeducted").value(true))
                 .andExpect(jsonPath("$.data[0].placeCount").value(1));
     }
