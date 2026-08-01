@@ -18,6 +18,29 @@ cp application-secret.properties.example application-secret.properties
 # application-secret.properties 에 발급받은 serviceKey / appKey 를 채운다 (git 제외됨)
 ```
 
+## API 인증 (임시)
+
+**모든 엔드포인트가 HTTP Basic 인증을 요구한다.** 8080 을 외부에 열 때 아무나 우리 외부 API 키를 태우지 못하게 막는 임시 게이트다(#122) — TMAP 경유지 최적화는 하루 50건이라 봇 한 마리로 고갈된다.
+
+로컬 기본 계정은 `dev` / `dev` 다. 시크릿 없이 부팅되는 로컬 실행성을 깨지 않는다.
+
+```bash
+curl -u dev:dev http://localhost:8080/api/v1/categories
+```
+
+- **앱·클라이언트**: `Authorization: Basic base64(아이디:비밀번호)` 헤더 하나만 붙이면 된다.
+- **브라우저(Swagger)**: 접속하면 기본 인증 팝업이 뜬다. 별도 로그인 화면은 없다.
+- **인증 실패**: 401 + 공통 응답 래퍼(`code: COMMON-401`).
+
+운영은 환경변수로 주입한다. **값이 없으면 부팅이 실패한다** — 인증이 빠진 채 열리는 것을 막기 위해서다.
+
+```bash
+OFFWAY_BASIC_USERNAME=... OFFWAY_BASIC_PASSWORD='{bcrypt}$2a$10$...' \
+  SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun
+```
+
+비밀번호는 인코더 접두어를 포함한다(`{noop}평문` · `{bcrypt}해시`). 소셜 로그인(#93)이 붙으면 이 게이트는 걷어낸다.
+
 ## 아키텍처
 
 package-by-feature. 도메인별로 `com.offway.core.<domain>` 아래 `controller/service/domain/repository/dto/exception` 를 둔다. 외부 API는 `external` 패키지에 port 인터페이스로 격리한다.

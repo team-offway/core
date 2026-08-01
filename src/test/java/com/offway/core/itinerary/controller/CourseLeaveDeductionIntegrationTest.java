@@ -1,5 +1,6 @@
 package com.offway.core.itinerary.controller;
 
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -29,6 +30,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -39,6 +41,7 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@WithMockUser
 class CourseLeaveDeductionIntegrationTest {
 
     private static final String COURSES = "/api/v1/courses";
@@ -111,8 +114,10 @@ class CourseLeaveDeductionIntegrationTest {
 
     private org.springframework.test.web.servlet.ResultActions deduct(String guest, long courseId, String body)
             throws Exception {
+        // 인증을 명시한다 — 동시성 테스트가 별도 스레드에서 부르는데 @WithMockUser 는 현재 스레드에만 적용된다.
         return mockMvc.perform(post(COURSES + "/{id}/leave-deduction", courseId)
                 .header("X-Guest-Id", guest)
+                .with(httpBasic("dev", "dev"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
     }

@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -22,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -32,6 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@WithMockUser
 class MyLeaveIntegrationTest {
 
     private static final String URL = "/api/v1/leaves/me";
@@ -223,6 +226,7 @@ class MyLeaveIntegrationTest {
                     try {
                         start.await();
                         statuses.add(mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
+                                        .with(httpBasic("dev", "dev"))
                                         .contentType(MediaType.APPLICATION_JSON)
                                         .content("{\"totalDays\": " + total + "}"))
                                 .andReturn().getResponse().getStatus());
