@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.AuthenticationException;
@@ -29,6 +30,7 @@ import tools.jackson.databind.ObjectMapper;
  * <p>앱 클라이언트는 이 헤더의 영향을 받지 않는다 — 팝업은 브라우저의 동작이고, 앱은 헤더를 무시한 채
  * 응답 본문만 읽는다.
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryPoint {
@@ -42,6 +44,10 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
     public void commence(
             HttpServletRequest request, HttpServletResponse response, AuthenticationException authException)
             throws IOException {
+        // 게이트를 뚫으려는 시도를 나중에라도 파악할 수 있게 흔적을 남긴다. 사용자명·자격증명은 절대 남기지
+        // 않는다 — 오타로 비밀번호가 username 자리에 들어오는 일이 흔하고, 그게 그대로 로그에 박힌다.
+        // 레벨은 info 다: 401 은 클라이언트 계약 위반이라 서버 입장에서는 정상 흐름이다(로깅 규약).
+        log.info("인증 실패 — 401 method={} path={}", request.getMethod(), request.getRequestURI());
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, BASIC_CHALLENGE);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);

@@ -41,6 +41,8 @@ OFFWAY_BASIC_USERNAME=... OFFWAY_BASIC_PASSWORD='{bcrypt}$2a$10$...' \
 
 비밀번호는 인코더 접두어를 포함한다(`{noop}평문` · `{bcrypt}해시`). 소셜 로그인(#93)이 붙으면 이 게이트는 걷어낸다.
 
+> **⚠️ 현재 배포는 평문 HTTP 다.** EC2 8080 이 `0.0.0.0/0` 으로 열려 있고 앞단에 TLS 종단이 없다. Basic 인증은 자격증명을 Base64 로 **인코딩만** 하므로(암호화가 아니다), 같은 네트워크 경로에서 들여다보면 그대로 읽힌다. 팀 내부 개발·테스트용이라 감수하고 있으나 **운영 데이터를 넣거나 외부에 공유하기 전에는 HTTPS 종단(ALB·CloudFront·nginx+Let's Encrypt 중 하나)이 선행돼야 한다.** 여기 쓰는 계정을 다른 서비스와 공유하지 않는 것도 그래서다.
+
 ## 아키텍처
 
 package-by-feature. 도메인별로 `com.offway.core.<domain>` 아래 `controller/service/domain/repository/dto/exception` 를 둔다. 외부 API는 `external` 패키지에 port 인터페이스로 격리한다.
