@@ -16,11 +16,13 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** 장소 무장애 정보 엔드포인트 contract — 편의 있음 / 등록 없음(빈 배열 200) / TourAPI 실패(502). */
 @SpringBootTest
 @AutoConfigureMockMvc
+@WithMockUser
 class PoiAccessibilityIntegrationTest {
 
     @Autowired

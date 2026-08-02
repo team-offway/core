@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.controller;
 
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -14,11 +15,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 // DB 격리: 롤백 대신 테스트마다 고유 게스트 ID 를 써서 "내 코스" 목록이 섞이지 않게 한다.
 @SpringBootTest
 @AutoConfigureMockMvc
+@WithMockUser
 class CourseStorageIntegrationTest {
 
     private static final String URL = "/api/v1/courses";
@@ -211,7 +214,11 @@ class CourseStorageIntegrationTest {
                 pool.submit(() -> {
                     try {
                         start.await();
-                        statuses.add(mockMvc.perform(delete(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                        // 요청 단위 mock 인증 — @WithMockUser 는 현재 스레드 전용이라 이 요청엔 안 닿는다.
+                        // 실제 계정을 쓰지 않으므로 운영 자격증명이 바뀌어도 이 테스트는 그대로다.
+                        statuses.add(mockMvc.perform(delete(URL + "/{id}", courseId)
+                                        .header("X-Guest-Id", guest)
+                                        .with(user("test")))
                                 .andReturn().getResponse().getStatus());
                     } catch (Exception e) {
                         statuses.add(-1);
