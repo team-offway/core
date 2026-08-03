@@ -1,5 +1,6 @@
 package com.offway.core.transport.service;
 
+import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.Station;
 import com.offway.core.transport.domain.TrainAvailability;
 import com.offway.core.transport.service.dto.TrainAccess;
@@ -32,11 +33,13 @@ public class TrainAccessService {
         }
         String fromName = from.get().name();
         String toName = to.get().name();
+        // 도착역 좌표는 조회 결과와 무관하게 넘긴다 — 그 지역에 열차로 간다면 내리는 곳은 어차피 이 역이다(#127).
+        Coordinate toPoint = to.get().coordinate();
         TrainAvailability availability = trainRouteService.fastestTrain(from.get().id(), to.get().id(), date);
         return switch (availability) {
-            case TrainAvailability.Available a -> TrainAccess.available(fromName, toName, a.fastest());
-            case TrainAvailability.NoServiceOnDate n -> TrainAccess.noServiceOnDate(fromName, toName);
-            case TrainAvailability.Unavailable u -> TrainAccess.unavailable(fromName, toName);
+            case TrainAvailability.Available a -> TrainAccess.available(fromName, toName, toPoint, a.fastest());
+            case TrainAvailability.NoServiceOnDate n -> TrainAccess.noServiceOnDate(fromName, toName, toPoint);
+            case TrainAvailability.Unavailable u -> TrainAccess.unavailable(fromName, toName, toPoint);
         };
     }
 }
