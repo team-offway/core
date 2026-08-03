@@ -1,7 +1,9 @@
 package com.offway.core.transport.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TrainAvailability;
 import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.transport.domain.TrainStation;
@@ -35,6 +37,50 @@ class TrainAccessServiceTest {
 
     private static TrainLeg ktx() {
         return TrainLeg.of("KTX", LocalDateTime.of(2026, 5, 1, 7, 0), LocalDateTime.of(2026, 5, 1, 9, 30));
+    }
+
+    @Test
+    void 운행이_없어도_도착역_좌표는_그대로_준다() {
+        // 도착 지점은 "그 지역에 열차로 가면 어디에 내리나" 라서 그날 운행 여부와 무관하다. 여기서 빈 값을 주면
+        // 코스가 출발지 좌표로 되돌아가 반대편 동선을 짠다(#127).
+        StubTrainInfoClient stub = new StubTrainInfoClient();
+        stub.respond(TrainAvailability.NoServiceOnDate::new);
+
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
+
+        assertEquals(new Coordinate(JEONGSEON_LAT, JEONGSEON_LNG), access.arrivalPoint().orElseThrow());
+        assertTrue(access.arrivalAt().isEmpty(), "운행을 못 찾았으면 도착 시각은 모른다");
+    }
+
+    @Test
+    void 조회가_실패해도_도착역_좌표는_그대로_준다() {
+        StubTrainInfoClient stub = new StubTrainInfoClient();
+        stub.respond(TrainAvailability.Unavailable::new);
+
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
+
+        assertEquals(new Coordinate(JEONGSEON_LAT, JEONGSEON_LNG), access.arrivalPoint().orElseThrow());
+    }
+
+    @Test
+    void 역이_없으면_도착_지점도_없다() {
+        // 태평양 한가운데 — 50㎞ 안에 역이 없다. 이때만 도착 지점이 비어 코스가 출발지 기준으로 돌아간다.
+        StubTrainInfoClient stub = new StubTrainInfoClient();
+
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, 20.0, 150.0, DATE);
+
+        assertEquals(TrainAccess.Status.NO_STATION, access.status());
+        assertTrue(access.arrivalPoint().isEmpty());
+    }
+
+    @Test
+    void 운행하면_도착_시각을_준다() {
+        StubTrainInfoClient stub = new StubTrainInfoClient();
+        stub.respond(() -> new TrainAvailability.Available(ktx()));
+
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
+
+        assertEquals(LocalDateTime.of(2026, 5, 1, 9, 30), access.arrivalAt().orElseThrow());
     }
 
     @Test

@@ -241,7 +241,9 @@ class TripOutcomeIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 13.0);
-        long courseId = saveCourse(guest, today().minusDays(3));
+        // 차감을 부르므로 여행일이 평일이어야 한다 — minusDays 로 잡으면 실행 요일에 따라 주말이 걸리고,
+        // 그러면 차감할 평일이 0일이라 "0 은 차감하지 않는다"(LeaveDays) 규칙에 막혀 400 이 난다.
+        long courseId = saveCourse(guest, weekdayRun(-3, 1));
         mockMvc.perform(post(COURSES + "/{id}/leave-deduction", courseId).header("X-Guest-Id", guest)
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isOk());

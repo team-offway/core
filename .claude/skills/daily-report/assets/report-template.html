@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>OffWay 일일 리포트</title>
+<style>
+  :root { --ink:#1a1a1a; --dim:#6b7280; --line:#e5e7eb; --band:#f7f7f8; --accent:#0f766e; }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:40px 32px; color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif;
+    line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:920px; margin:0 auto; }
+  header { margin-bottom:20px; }
+  .date { font-size:14px; color:var(--dim); letter-spacing:.02em; }
+  h1 { margin:4px 0 0; font-size:24px; font-weight:700; }
+  h1 em { font-style:normal; color:var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:15px; }
+  thead th {
+    text-align:left; font-size:13px; font-weight:600; color:var(--dim);
+    padding:10px 14px; border-bottom:2px solid var(--ink);
+  }
+  tbody td { padding:14px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tbody tr:nth-child(even) { background:var(--band); }
+  .num { width:44px; font-weight:700; color:var(--accent); text-align:center; }
+  .task { width:34%; font-weight:600; }
+  .detail { color:#333; }
+  .detail em { font-style:normal; color:var(--accent); }
+  footer { margin-top:22px; font-size:13px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <!-- 날짜(KST)·건수만 갈아끼운다 -->
+    <div class="date">2026-07-29 (KST)</div>
+    <h1>오늘 <em>3</em>건 작업</h1>
+  </header>
+
+  <table>
+    <thead>
+      <tr><th class="num">#</th><th class="task">작업</th><th>이 작업으로 사용자가 할 수 있는 것</th></tr>
+    </thead>
+    <!-- 아래 <tbody> 행만 그날 작업으로 교체한다. 한 작업 = 한 행. -->
+    <tbody>
+      <tr>
+        <td class="num">1</td>
+        <td class="task">전국 기차역 마스터 + 좌표 최근접 역해석</td>
+        <td class="detail">코스가 도착하는 지역 근처의 실제 기차역을 자동으로 찾아준다. 역이 없는 오지 지역이면 근교 역(예: 경주 인근이면 <em>경주역</em>)을 잡아 "열차로 어떻게 가는지"를 안내한다.</td>
+      </tr>
+      <tr>
+        <td class="num">2</td>
+        <td class="task">장소 상세에 구석구석 캐치프레이즈 추가</td>
+        <td class="detail">코스에 나온 장소를 누르면 그 장소의 '대한민국 구석구석' 한 줄 소개가 함께 뜬다 (예: 완도타워 → <em>바다 위에 뜬 낭만, 완도의 랜드마크</em>). 관광공사 소개가 비어도 감성 문구로 카드가 채워진다.</td>
+      </tr>
+      <tr>
+        <td class="num">3</td>
+        <td class="task">장소 무장애(배리어프리) 정보</td>
+        <td class="detail">장소를 누르면 이용약자 편의를 분류별로 볼 수 있다 — <em>휠체어 대여·장애인 화장실·음성안내·수유실</em> 등. 등록 정보가 없으면 빈 상태로 깔끔히 처리된다.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <footer>OffWay - BE 박세빈 · 2026 관광데이터 활용 공모전</footer>
+</div>
+</body>
+</html>

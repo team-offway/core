@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>OffWay 일일 리포트 — 2026-08-01</title>
+<style>
+  :root { --ink:#1a1a1a; --dim:#6b7280; --line:#e5e7eb; --band:#f7f7f8; --accent:#0f766e; }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:40px 32px; color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif;
+    line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:920px; margin:0 auto; }
+  header { margin-bottom:20px; }
+  .date { font-size:14px; color:var(--dim); letter-spacing:.02em; }
+  h1 { margin:4px 0 0; font-size:24px; font-weight:700; }
+  h1 em { font-style:normal; color:var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:15px; }
+  thead th {
+    text-align:left; font-size:13px; font-weight:600; color:var(--dim);
+    padding:10px 14px; border-bottom:2px solid var(--ink);
+  }
+  tbody td { padding:14px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tbody tr:nth-child(even) { background:var(--band); }
+  .num { width:44px; font-weight:700; color:var(--accent); text-align:center; }
+  .task { width:34%; font-weight:600; }
+  .detail { color:#333; }
+  .detail em { font-style:normal; color:var(--accent); }
+  .notice {
+    margin-top:24px; padding:14px 16px; border:1px solid var(--accent); border-radius:4px;
+    font-size:14px; line-height:1.7;
+  }
+  .notice strong { color:var(--accent); }
+  .notice code {
+    background:var(--band); padding:1px 5px; border-radius:3px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px;
+  }
+  footer { margin-top:22px; font-size:13px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="date">2026-08-01 (KST)</div>
+    <h1>오늘 <em>4</em>건 작업</h1>
+  </header>
+
+  <table>
+    <thead>
+      <tr><th class="num">#</th><th class="task">작업</th><th>이 작업으로 사용자가 할 수 있는 것</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="num">1</td>
+        <td class="task">서버에 로그인 없이는 못 들어오게 막기</td>
+        <td class="detail">서버를 외부에 열기 전에 <em>아이디·비밀번호를 모르면 아무도 못 쓰게</em> 했다. 그전에는 주소만 알면 누구나 우리 서버를 통해 관광·길찾기 데이터를 뽑아 쓸 수 있었다. 길찾기(TMAP)는 <em>하루 50번</em>까지만 무료라 봇 하나가 몇 초면 하루치를 다 태울 수 있는 상태였다. 브라우저로 접속하면 로그인 팝업이 뜬다.</td>
+      </tr>
+      <tr>
+        <td class="num">2</td>
+        <td class="task">서버 자동 배포 준비 (EC2 · MySQL)</td>
+        <td class="detail">화면 변화는 없다. 코드를 올리면 <em>서버에 자동으로 반영되는 길</em>을 만들었다 — 클라우드 서버에 데이터베이스를 띄우고, 배포용 계정·접속 권한·비밀값 11개를 등록했다. 배포가 잘못됐을 때 이전 버전으로 되돌릴 수 있게 해뒀고, 첫 배포만 사람이 직접 눌러 확인한 뒤 자동으로 전환한다.</td>
+      </tr>
+      <tr>
+        <td class="num">3</td>
+        <td class="task">버스 정보 없는 지역을 "버스 없음"과 구분</td>
+        <td class="detail">정선·평창처럼 <em>버스 정보가 제공되지 않는 13곳</em>에서 "여긴 대중교통이 어려워요"라고 잘못 안내하던 것을 고쳤다. 정선에 버스가 없는 게 아니라 국가 교통정보에 데이터가 없는 것이라, 이제 "대중교통 정보 없음"으로 다르게 표시된다. 이름이 같은 강원 고성군과 경남 고성군도 서로 섞이지 않게 갈라냈다.</td>
+      </tr>
+      <tr>
+        <td class="num">4</td>
+        <td class="task">주말에만 실패하던 테스트 고정</td>
+        <td class="detail">화면 변화는 없다. 검사 자동화가 <em>토·일에만 빨간불</em>이 되던 문제를 고쳤다. 여행 날짜를 "오늘로부터 7일 뒤"로 잡았는데 7일 뒤는 항상 같은 요일이라, 주말에 검사를 돌리면 여행일도 주말이 되어 차감할 연차가 0일이 되는 상황이었다. 실제 기능은 정상이었고 검사 방식만 문제였다.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="notice">
+    <strong>프론트 확인 필요</strong> — 이제 <strong>모든 API 요청에 인증 헤더가 필요</strong>합니다.
+    요청에 <code>Authorization: Basic base64(아이디:비밀번호)</code> 를 붙여 주세요.
+    붙이지 않으면 <code>401</code> 과 함께 <code>code: "COMMON-401"</code> 이 내려옵니다(응답 형식은 기존과 동일).
+    로컬에서 직접 띄워 개발할 때는 <code>dev</code> / <code>dev</code> 로 통과합니다.
+    Swagger 는 브라우저로 열면 팝업이 떠서 거기 입력하면 됩니다.
+  </div>
+
+  <footer>OffWay - BE 박세빈 · 2026 관광데이터 활용 공모전</footer>
+</div>
+</body>
+</html>

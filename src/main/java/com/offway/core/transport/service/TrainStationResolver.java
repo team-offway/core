@@ -35,7 +35,10 @@ public class TrainStationResolver {
                 .map(s -> Map.entry(s, target.haversineKmTo(new Coordinate(s.getLat(), s.getLng()))))
                 .filter(entry -> entry.getValue() <= MAX_KM)
                 .min(Comparator.comparingDouble(Map.Entry::getValue))
-                .map(entry -> new Station(entry.getKey().getCode(), entry.getKey().getName()));
+                .map(entry -> new Station(
+                        entry.getKey().getCode(),
+                        entry.getKey().getName(),
+                        new Coordinate(entry.getKey().getLat(), entry.getKey().getLng())));
     }
 
     /** 캐시 무효화 — 시드 갱신·통합 테스트 격리용. */

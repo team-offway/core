@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>OffWay 일일 리포트 — 2026-07-30</title>
+<style>
+  :root { --ink:#1a1a1a; --dim:#6b7280; --line:#e5e7eb; --band:#f7f7f8; --accent:#0f766e; }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:40px 32px; color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif;
+    line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:920px; margin:0 auto; }
+  header { margin-bottom:20px; }
+  .date { font-size:14px; color:var(--dim); letter-spacing:.02em; }
+  h1 { margin:4px 0 0; font-size:24px; font-weight:700; }
+  h1 em { font-style:normal; color:var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:15px; }
+  thead th {
+    text-align:left; font-size:13px; font-weight:600; color:var(--dim);
+    padding:10px 14px; border-bottom:2px solid var(--ink);
+  }
+  tbody td { padding:14px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tbody tr:nth-child(even) { background:var(--band); }
+  .num { width:44px; font-weight:700; color:var(--accent); text-align:center; }
+  .task { width:34%; font-weight:600; }
+  .detail { color:#333; }
+  .detail em { font-style:normal; color:var(--accent); }
+  .wait { font-size:12px; font-weight:600; color:#b45309; }
+  footer { margin-top:22px; font-size:13px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="date">2026-07-30 (KST)</div>
+    <h1>오늘 <em>5</em>건 작업</h1>
+  </header>
+
+  <table>
+    <thead>
+      <tr><th class="num">#</th><th class="task">작업</th><th>이 작업으로 사용자가 할 수 있는 것</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="num">1</td>
+        <td class="task">기간스타일을 실제 날짜 구간으로 해석</td>
+        <td class="detail">날짜를 직접 고르지 않고 <em>당일치기 · 주말 포함 · 연차 이어서</em> 버튼만 눌러도 서버가 가장 가까운 실제 날짜 구간을 정해준다 (예: 주말 포함 → <em>5월 8일~10일 2박 3일</em>). 확정된 날짜를 응답에 함께 내려서 화면에 그대로 띄울 수 있고, 구간에 공휴일이 끼면 연차가 저절로 덜 빠진다.</td>
+      </tr>
+      <tr>
+        <td class="num">2</td>
+        <td class="task">지역 랭킹을 법정 시군구코드 매칭으로</td>
+        <td class="detail">추천 지역 순위가 <em>실제 방문자수</em> 기준으로 나온다. 그전엔 지명만으로 맞춰서 부산 동구가 전국 동구 6곳의 합(약 6배)을 받고 강원·경남 고성군이 서로 섞였다. 조회 기간도 빈 데이터를 보고 있어 순위가 사실상 안 돌던 것을 함께 고쳤다.</td>
+      </tr>
+      <tr>
+        <td class="num">3</td>
+        <td class="task">추천 · 홈 콘텐츠 팬아웃 병렬화</td>
+        <td class="detail">추천·홈 화면 로딩이 빨라진다. 후보 지역 20곳의 관광 정보를 하나씩 차례로 불러오던 것을 동시에 가져오도록 바꿨다 (첫 진입 기준 10초대에서 단축). 정책 혜택도 지역마다 다시 조회하지 않고 한 번에 읽는다.</td>
+      </tr>
+      <tr>
+        <td class="num">4</td>
+        <td class="task">외부 데이터 캐시에 보관 한도 추가</td>
+        <td class="detail">화면 변화는 없고, 서버를 오래 켜둬도 메모리가 계속 늘지 않게 했다. 기차 시간표·버스 정류소처럼 조회할수록 종류가 무한히 늘어나는 데이터가 쌓이기만 하던 문제로, 장시간 운영 시 서버가 느려지거나 죽는 것을 막는다.</td>
+      </tr>
+      <tr>
+        <td class="num">5</td>
+        <td class="task">성능 · 외부 호출 규약 문서화</td>
+        <td class="detail">화면 변화는 없다. "느린 공공 API 위에서 어떻게 빠르게 만들 것인가"의 판단 기준을 개발 규약에 못 박았다 — 순차 호출 금지, 캐시 한도 먼저 정하기, 응답시간은 평균이 아니라 꼬리로 재기 등. 앞으로 붙는 기능이 같은 실수를 반복하지 않게 하는 안전장치다.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <footer>OffWay - BE 박세빈 · 2026 관광데이터 활용 공모전</footer>
+</div>
+</body>
+</html>
