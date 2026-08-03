@@ -80,7 +80,12 @@ class TrainInfoClientImpl implements TrainInfoClient {
         return switch (TagoItems.parse(body, objectMapper)) {
             case TagoItems.Items(List<JsonNode> nodes) -> fastest(nodes);
             case TagoItems.Empty ignored -> new TrainAvailability.NoServiceOnDate(); // 조회 정상, 그 날짜 운행 없음
-            case TagoItems.Failed ignored -> new TrainAvailability.Unavailable(); // 외부가 정상 응답을 안 줬으니 실패
+            case TagoItems.Failed ignored -> {
+                // 예외가 아니라 정상 HTTP 응답이라 여기서 남기지 않으면 아무 흔적이 안 남는다. 제공기관 장애가
+                // 조용히 "열차 없음" 으로 보이는 것을 막는다.
+                log.warn("TAGO 열차정보 응답이 비정상 resultCode 입니다 — 조회 불가 처리");
+                yield new TrainAvailability.Unavailable();
+            }
         };
     }
 
@@ -91,7 +96,10 @@ class TrainInfoClientImpl implements TrainInfoClient {
                 .min(Comparator.comparingInt(TrainLeg::durationMinutes))
                 .<TrainAvailability>map(TrainAvailability.Available::new)
                 // items 에 편이 있는데 전부 파싱 실패면 미운행이 아니라 스키마 변경·결측 신호 → Unavailable(잘못된 "없음" 안내 방지).
-                .orElseGet(TrainAvailability.Unavailable::new);
+                .orElseGet(() -> {
+                    log.warn("TAGO 열차 {}편이 전부 파싱 실패했습니다 — 조회 불가 처리(스키마 변경 의심)", trains.size());
+                    return new TrainAvailability.Unavailable();
+                });
     }
 
     private static Optional<TrainLeg> toLeg(JsonNode train) {

@@ -5,6 +5,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.offway.core.transport.domain.TrainAvailability;
+import com.offway.core.transport.domain.TrainLeg;
+import com.offway.core.transport.infrastructure.tago.StubTrainInfoClient;
+import com.offway.core.transport.infrastructure.tago.TrainInfoClient;
+import com.offway.core.transport.service.TrainRouteService;
 import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
@@ -14,6 +19,7 @@ import com.offway.core.weather.domain.SkyState;
 import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
 import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -45,6 +51,12 @@ class CourseGenerateIntegrationTest {
     @Autowired
     private StubKmaWeatherClient weatherClient;
 
+    @Autowired
+    private StubTrainInfoClient trainInfoClient;
+
+    @Autowired
+    private TrainRouteService trainRouteService;
+
     @TestConfiguration
     static class StubConfig {
 
@@ -58,6 +70,12 @@ class CourseGenerateIntegrationTest {
         @Primary
         KmaWeatherClient stubKmaWeatherClient() {
             return new StubKmaWeatherClient();
+        }
+
+        @Bean
+        @Primary
+        TrainInfoClient stubTrainInfoClient() {
+            return new StubTrainInfoClient();
         }
     }
 
@@ -159,5 +177,110 @@ class CourseGenerateIntegrationTest {
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-001"));
+    }
+
+    // ── 대중교통 코스의 도착 지점·도착 시각 반영 (#127) ────────────────────────────────
+    //
+    // 지역 1 = 부산 동구(35.1284, 129.0455) → 시드 마스터의 최근접 역은 좌천역(35.1343, 129.0544).
+    // 출발지를 서울로 두면 "출발지 기준" 과 "도착역 기준" 이 서로 다른 장소를 첫 코스로 고르므로,
+    // 첫 장소 하나만 봐도 어느 기준이 쓰였는지 드러난다.
+
+    /** 도착역 코앞 — 도착역이 기준이면 여기서 시작한다. */
+    private static final String NEAR_STATION = "near-station";
+    /** 서울 쪽으로 크게 치우친 곳 — 출발지가 기준이면 여기서 시작한다. */
+    private static final String NEAR_SEOUL = "near-seoul";
+
+    private static final String ARRIVAL_STATION = "좌천";
+    private static final double SEOUL_LAT = 37.5547;
+    private static final double SEOUL_LNG = 126.9707;
+
+    /** 두 기준이 서로 다른 답을 내도록 후보를 양극단에 둔다. 6곳 전부 선택된다(PACKED 2일 = 12곳 필요). */
+    private static TourPoiResult spreadPois() {
+        List<TourPoi> items = new ArrayList<>();
+        items.add(poi(NEAR_STATION, 12, 35.135, 129.055)); // 좌천역에서 100m 남짓
+        items.add(poi(NEAR_SEOUL, 12, 35.400, 129.000));   // 서울에서 가장 가깝다
+        for (int i = 0; i < 4; i++) {
+            items.add(poi("s" + i, 12, 35.20 + i * 0.03, 129.02 + i * 0.01));
+        }
+        items.add(poi("f0", 39, 35.12, 129.04));
+        items.add(poi("f1", 39, 35.13, 129.05));
+        items.add(poi("st0", 32, 35.11, 129.03));
+        return new TourPoiResult(items, items.size());
+    }
+
+    private static String transitBody(String transport) {
+        return """
+                { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "%s",
+                  "originLat": %s, "originLng": %s, "travelDate": "2026-05-01" }"""
+                .formatted(transport, SEOUL_LAT, SEOUL_LNG);
+    }
+
+    /**
+     * 열차 동작을 정하고 <b>경로 캐시를 비운다.</b>
+     *
+     * <p>{@code TrainRouteService} 는 (출발역·도착역·날짜)를 6시간 캐시하는데 아래 시나리오가 전부 같은 조합이라,
+     * 비우지 않으면 먼저 도는 테스트의 결과를 나머지가 그대로 물려받는다.
+     */
+    private void trainArrives(TrainAvailability availability) {
+        trainInfoClient.respond(() -> availability);
+        trainRouteService.evictCache();
+    }
+
+    private static TrainAvailability arrivingAt(int hour, int minute) {
+        return new TrainAvailability.Available(TrainLeg.of("KTX",
+                LocalDateTime.of(2026, 5, 1, 5, 0),
+                LocalDateTime.of(2026, 5, 1, hour, minute)));
+    }
+
+    @Test
+    void 대중교통_코스는_출발지가_아니라_내린_역_근처에서_시작한다() throws Exception {
+        // 서울→부산 KTX 인데 집 좌표로 동선을 짜면 "부산 장소들 중 서울에서 가까운 곳" 부터 이어붙는다(#127).
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainArrives(arrivingAt(8, 30));
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(transitBody("TRANSIT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").value(NEAR_STATION))
+                .andExpect(jsonPath("$.data.trainAccess.toStation").value(ARRIVAL_STATION));
+    }
+
+    @Test
+    void 자차_코스는_출발지_기준_그대로다() throws Exception {
+        // 회귀 방어 — 자차는 집에서 출발하므로 앵커가 바뀌면 안 된다. 같은 후보인데 첫 장소가 위 테스트와 달라야 한다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").value(NEAR_SEOUL))
+                .andExpect(jsonPath("$.data.trainAccess").value(nullValue()));
+    }
+
+    @Test
+    void 오후에_도착하면_1일차에_오전_일정을_넣지_않는다() throws Exception {
+        // 오후 3시에 닿았는데 오전 일정을 주면 지킬 수 없는 코스가 된다. LNT 가 그만큼 과대계산된다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainArrives(arrivingAt(15, 0));
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(transitBody("TRANSIT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items[?(@.timeOfDay == 'MORNING')]").isEmpty())
+                .andExpect(jsonPath("$.data.days[0].items[?(@.timeOfDay == 'LUNCH')]").isEmpty())
+                .andExpect(jsonPath("$.data.days[0].items[0].timeOfDay").value("AFTERNOON"))
+                // 둘째 날은 온전히 쓴다 — 첫날만 이동에 먹힌다
+                .andExpect(jsonPath("$.data.days[1].items[0].timeOfDay").value("MORNING"));
+    }
+
+    @Test
+    void 그날_운행이_없으면_1일차_일정을_깎지_않는다() throws Exception {
+        // 도착 시각을 "모르는" 것이지 "늦은" 게 아니다. 모름을 늦음으로 단정하면 조회 실패가 조용히 코스를 깎는다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainArrives(new TrainAvailability.NoServiceOnDate());
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(transitBody("TRANSIT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items[0].timeOfDay").value("MORNING"))
+                // 시각은 몰라도 내리는 역은 안다 — 앵커는 그대로 도착역이다
+                .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").value(NEAR_STATION))
+                .andExpect(jsonPath("$.data.trainAccess.status").value("NO_SERVICE_ON_DATE"));
     }
 }
