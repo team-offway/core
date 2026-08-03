@@ -105,15 +105,31 @@ public class WeatherService {
         return outlookOf(region.get()).flatMap(outlook -> outlook.on(date));
     }
 
+    /**
+     * 중기예보 캐시를 미리 데운다 — 키 공간이 {@link MidLandRegion} 10개로 <b>완전히 고정</b>이라 워밍이 성립한다.
+     *
+     * <p>안 데우면 나흘 뒤 이후 날씨를 처음 묻는 사용자가 콜드 미스를 그대로 떠안는다(첫 적재 대기 상한까지).
+     * 10개뿐이라 워밍 비용도 작다.
+     */
+    public void warmMidTerm() {
+        for (MidLandRegion region : MidLandRegion.values()) {
+            outlookOf(region);
+        }
+    }
+
     private Optional<MidTermOutlook> outlookOf(MidLandRegion region) {
         return midTermCache.get(
                 region,
                 (key, stale) -> {
                     Optional<MidTermOutlook> fresh = midTermForecastClient.outlook(key);
-                    // 빈 응답을 성공 TTL 로 굳히지 않는다 — 실패와 결과가 같으므로 짧게 잡아 재시도를 유도한다.
-                    return fresh.isEmpty()
-                            ? new Loaded<>(fresh, MID_TERM_RETRY_TTL)
-                            : new Loaded<>(fresh, MID_TERM_TTL);
+                    if (fresh.isEmpty()) {
+                        // 빈 응답을 성공 TTL 로 굳히지 않는다 — 실패와 결과가 같으므로 짧게 잡아 재시도를 유도한다.
+                        // 직전 정상값이 있으면 그걸 유지한다(stale-while-error): 예보는 하루 두 번 갱신이라
+                        // 몇 시간 지난 값도 여전히 맞는데, 버리면 그 사이 날씨가 통째로 사라진다.
+                        log.warn("중기예보가 비어 왔습니다 — 직전 값 유지 region={}", key);
+                        return new Loaded<>(stale != null ? stale : fresh, MID_TERM_RETRY_TTL);
+                    }
+                    return new Loaded<>(fresh, MID_TERM_TTL);
                 },
                 Optional.empty());
     }

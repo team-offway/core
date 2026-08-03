@@ -4,6 +4,7 @@ import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.weather.service.AirQualityService;
 import com.offway.core.weather.service.TourClimateService;
+import com.offway.core.weather.service.WeatherService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +46,7 @@ public class HomeCacheWarmer {
     private final RegionContentProvider regionContentProvider;
     private final AirQualityService airQualityService;
     private final TourClimateService tourClimateService;
+    private final WeatherService weatherService;
 
     /** 랭킹·콘텐츠(6h TTL) 워밍 — 5h 주기. */
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = SLOW_REFRESH_INTERVAL)
@@ -76,6 +78,22 @@ public class HomeCacheWarmer {
             log.info("홈 캐시 워밍(관광기후지수) 완료 days={}", days);
         } catch (RuntimeException e) {
             log.warn("홈 캐시 워밍 — 관광기후지수 워밍 실패(계속)", e);
+        }
+    }
+
+    /**
+     * 중기예보(D+4~D+10) 워밍 — 키 공간이 광역 10구역으로 고정이라 관광기후지수와 같은 이유로 미리 데운다.
+     *
+     * <p>안 데우면 나흘 뒤 이후 날짜로 코스를 짜는 첫 사용자가 콜드 미스를 그대로 떠안는다. 10건뿐이라
+     * 팬아웃 부담도 없다.
+     */
+    @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = SLOW_REFRESH_INTERVAL)
+    public void warmMidTermForecast() {
+        try {
+            weatherService.warmMidTerm();
+            log.info("홈 캐시 워밍(중기예보) 완료");
+        } catch (RuntimeException e) {
+            log.warn("홈 캐시 워밍 — 중기예보 워밍 실패(계속)", e);
         }
     }
 

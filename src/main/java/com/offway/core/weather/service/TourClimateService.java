@@ -85,8 +85,14 @@ public class TourClimateService {
                 LocalDate.now(SERVICE_ZONE),
                 (key, stale) -> {
                     Map<LocalDate, Map<SigunguKey, TourClimateIndex>> fresh = tourClimateIndexClient.forecast();
-                    // 빈 응답을 성공 TTL 로 굳히지 않는다 — 실패와 결과가 같으므로 짧게 잡아 재시도를 유도한다.
-                    return fresh.isEmpty() ? new Loaded<>(fresh, RETRY_TTL) : new Loaded<>(fresh, CACHE_TTL);
+                    if (fresh.isEmpty()) {
+                        // 빈 응답을 성공 TTL 로 굳히지 않는다 — 실패와 결과가 같으므로 짧게 잡아 재시도를 유도한다.
+                        // 직전 정상값이 있으면 유지한다(stale-while-error). 지수는 하루 단위라 어제 값이라도
+                        // 버리는 것보다 낫고, 버리면 추천 가중치가 그 사이 통째로 빠진다.
+                        log.warn("관광기후지수가 비어 왔습니다 — 직전 값 유지 baseDate={}", key);
+                        return new Loaded<>(stale != null ? stale : fresh, RETRY_TTL);
+                    }
+                    return new Loaded<>(fresh, CACHE_TTL);
                 },
                 Map.of());
     }

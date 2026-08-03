@@ -67,7 +67,10 @@ public enum SkyState {
         if (trimmed.startsWith("맑음")) {
             return CLEAR;
         }
-        if (trimmed.startsWith("구름많")) {
+        // "구름많음"·"구름많고 비" 와 함께 "구름조금"(코드표의 WB02)도 받는다. 실측(10구역 110필드)에서는
+        // 구름조금이 안 나왔지만, 나오는 순간 UNKNOWN 으로 빠져 하늘 상태가 조용히 사라진다. 구름이 있다는
+        // 사실을 살리는 쪽을 택했다 — 맑음으로 올리면 실제보다 좋게 안내된다(worseOf 와 같은 판단).
+        if (trimmed.startsWith("구름")) {
             return PARTLY_CLOUDY;
         }
         // "흐림" 과 "흐리고 비" 를 함께 받는다.
