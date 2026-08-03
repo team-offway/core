@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>OffWay 일일 리포트 · 2026-07-29</title>
+<style>
+  :root { --ink:#1a1a1a; --dim:#6b7280; --line:#e5e7eb; --band:#f7f7f8; --accent:#b45309; }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:40px 32px; color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif;
+    line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:920px; margin:0 auto; }
+  header { margin-bottom:20px; }
+  .date { font-size:14px; color:var(--dim); letter-spacing:.02em; }
+  h1 { margin:4px 0 0; font-size:24px; font-weight:700; }
+  h1 em { font-style:normal; color:var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:15px; }
+  thead th {
+    text-align:left; font-size:13px; font-weight:600; color:var(--dim);
+    padding:10px 14px; border-bottom:2px solid var(--ink);
+  }
+  tbody td { padding:14px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tbody tr:nth-child(even) { background:var(--band); }
+  .num { width:44px; font-weight:700; color:var(--accent); text-align:center; }
+  .task { width:34%; font-weight:600; }
+  .detail { color:#333; }
+  .detail em { font-style:normal; color:var(--accent); }
+  .tag { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:10px; font-size:11px; font-weight:600;
+         color:var(--dim); background:#eef0f2; vertical-align:middle; }
+  footer { margin-top:22px; font-size:13px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="date">2026-07-29 (KST)</div>
+    <h1>오늘 <em>4</em>건 작업</h1>
+  </header>
+
+  <table>
+    <thead>
+      <tr><th class="num">#</th><th class="task">작업</th><th>이 작업으로 사용자가 할 수 있는 것</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="num">1</td>
+        <td class="task">코스 카드를 트리플식으로 — 각 장소에 추천 한 줄·썸네일</td>
+        <td class="detail">코스에 나온 장소마다 <em>썸네일 이미지 · 카테고리(관광·맛집·숙박) · 위치 · "추천 한 줄"</em>이 카드에 함께 뜬다 (예: 완도타워 → <em>바다 위에 뜬 낭만, 완도의 랜드마크</em>). 장소를 눌러 상세로 안 들어가도 타임라인만으로 뭐가 뭔지 바로 읽힌다.</td>
+      </tr>
+      <tr>
+        <td class="num">2</td>
+        <td class="task">코스에 끼니·숙소가 항상 들어가게</td>
+        <td class="detail">코스에 관광지만 나오던 지역(음식점·숙박이 적은 시골)에서도 <em>점심·저녁 맛집과 잘 곳</em>이 빠지지 않고 일정에 들어간다. 하루가 "관광 → 점심 → 관광 → 저녁 → 숙소"로 채워진다.</td>
+      </tr>
+      <tr>
+        <td class="num">3</td>
+        <td class="task">버스 정류소·도착정보 연동<span class="tag">토대</span></td>
+        <td class="detail">여행 당일 <em>근처 정류소와 다음 버스가 언제 오는지</em>를 알 수 있는 토대를 붙였다. 실시간 값이라 "이미 떠난 버스"를 안 보여주도록 처리. (대중교통 코스 실측에 연결 예정)</td>
+      </tr>
+      <tr>
+        <td class="num">4</td>
+        <td class="task">API 문서에 화면→코스 흐름 설명<span class="tag">개발</span></td>
+        <td class="detail">사용자 화면 변화는 없음. 프론트·협업자가 API 문서(Swagger) 첫 화면에서 <em>홈 → 연차 → 여행지 추천 → 코스 생성 → 장소 상세</em>까지 "무엇을 호출해 무엇을 받아 어떻게 잇는지"를 한눈에 본다.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <footer>OffWay - BE 박세빈 · 2026 관광데이터 활용 공모전</footer>
+</div>
+</body>
+</html>

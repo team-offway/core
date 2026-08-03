@@ -12,6 +12,7 @@ import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.service.PolicyService;
+import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
@@ -91,9 +92,13 @@ public class CourseGenerationService {
         List<PoiCandidate> foods = reorder(foodPool, GeoCluster.nearest(coords(foodPool), hub, needs.foods()));
         List<PoiCandidate> stays = reorder(stayPool, GeoCluster.nearest(coords(stayPool), hub, needs.stays()));
 
+        // 지역은 날씨·열차 접근 양쪽이 쓴다 — 한 번만 읽는다(#129).
+        Region region = regionRepository.findByIds(List.of(command.regionId())).stream().findFirst().orElse(null);
+
         // 대중교통이면 출발지→지역 열차 접근을 여기서 조회한다(자차는 TMAP 실측이라 불필요). 부가 정보라 실패해도 코스는 그대로.
         // 슬롯 배치보다 앞서야 한다 — 동선의 기준점과 1일차 시작 시간대가 이 결과에서 나온다(#127).
-        TrainAccess trainAccess = command.transport() == TransportMode.TRANSIT ? trainAccessFor(command) : null;
+        TrainAccess trainAccess =
+                command.transport() == TransportMode.TRANSIT ? trainAccessFor(command, region) : null;
 
         // ⑤⑦ interim: 기준점 최근접 정렬(동선) → 하루씩 순서대로 슬라이스하면 가까운 곳끼리 묶인다
         List<PoiCandidate> orderedSights =
@@ -110,8 +115,13 @@ public class CourseGenerationService {
                 .toList();
 
         // 여행 날짜의 코스 지역 날씨 — 코스 중심(hub) 좌표로 조회. 부가 정보라 미조회·실패·예보범위 밖이면 null.
-        DailyWeather weather =
-                weatherService.dailyWeather(hub.lat(), hub.lng(), command.travelDate()).orElse(null);
+        // 시도·시군구를 함께 넘긴다: 나흘 뒤부터는 좌표 격자가 아니라 광역 구역 단위 중기예보가 답한다(#129).
+        DailyWeather weather = weatherService.dailyWeather(
+                        hub.lat(), hub.lng(),
+                        region == null ? null : region.getSido(),
+                        region == null ? null : region.getSigungu(),
+                        command.travelDate())
+                .orElse(null);
 
         log.info("코스 생성 regionId={} days={} slots={} benefits={} weather={} trainAccess={}",
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
@@ -158,13 +168,13 @@ public class CourseGenerationService {
     }
 
     /** 대중교통 코스의 출발지→지역 열차 접근. 출발·지역 좌표의 최근접 역으로 해석한다. */
-    private TrainAccess trainAccessFor(GenerateCourse command) {
-        return regionRepository.findByIds(List.of(command.regionId())).stream()
-                .findFirst()
-                .map(region -> trainAccessService.accessTo(
-                        command.originLat(), command.originLng(),
-                        region.getLat(), region.getLng(), command.travelDate()))
-                .orElse(null);
+    private TrainAccess trainAccessFor(GenerateCourse command, Region region) {
+        if (region == null) {
+            return null;
+        }
+        return trainAccessService.accessTo(
+                command.originLat(), command.originLng(),
+                region.getLat(), region.getLng(), command.travelDate());
     }
 
     /**

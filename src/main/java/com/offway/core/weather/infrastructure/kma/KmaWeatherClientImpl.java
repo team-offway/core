@@ -19,8 +19,14 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /**
- * 기상청 단기예보(동네예보) adapter — {@code VilageFcstInfoService/getVilageFcst}. data.go.kr 서비스라 TourAPI 와 같은
- * serviceKey 를 쓴다. 위경도를 격자({@link Grid})로 바꿔 조회하고, 카테고리별 예보(TMN·TMX·SKY·POP)를 하루 요약으로 집계한다.
+ * 기상청 단기예보(동네예보) adapter — {@code VilageFcstInfoService_2.0/getVilageFcst}. data.go.kr 서비스라 TourAPI 와
+ * 같은 serviceKey 를 쓴다. 위경도를 격자({@link Grid})로 바꿔 조회하고, 카테고리별 예보(TMN·TMX·SKY·POP)를 하루 요약으로
+ * 집계한다.
+ *
+ * <p><b>base 는 반드시 {@code _2.0} 이다.</b> 구버전 {@code VilageFcstInfoService} 는 폐기돼
+ * {@code NO_OPENAPI_SERVICE_ERROR}(해당 오픈API 서비스가 없거나 폐기됨)를 준다. 날씨는 부가 정보라 실패해도 코스는 200 으로
+ * 나가므로, 이 경로가 틀리면 <b>아무도 모른 채 날씨가 계속 비어 있는다</b> — 실제로 그렇게 죽어 있었다(#128).
+ * 스키마·파라미터는 구버전과 같아 base 만 다르다.
  *
  * <p>키 없음·실패·예보 범위 밖은 빈 Optional 로 폴백(날씨는 부가 정보). 발표시각(02·05·08·11·14·17·20·23시)의 최신본을 쓴다.
  */
@@ -28,7 +34,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Component
 class KmaWeatherClientImpl implements KmaWeatherClient {
 
-    private static final String URL = "https://apis.data.go.kr/1360000/VilageFcstInfoService/getVilageFcst";
+    private static final String URL = "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst";
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
     private static final int ROWS = 1000; // 3일치 카테고리 예보가 수백 건이라 잘리지 않게 KMA 예시대로 1000
     private static final int[] BASE_HOURS = {23, 20, 17, 14, 11, 8, 5, 2};

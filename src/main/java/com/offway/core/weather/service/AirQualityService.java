@@ -38,7 +38,7 @@ public class AirQualityService {
 
     /** 지역 시도명(정식/축약 모두)에 대한 실시간 대기질. 없으면 빈 Optional. 시도별로 캐시한다. */
     public Optional<AirQuality> byRegionSido(String sido) {
-        String key = SidoName.toAirKorea(sido);
+        String key = SidoName.toShort(sido);
         return cache.get(key, (k, stale) -> {
             Optional<AirQuality> fresh = airKoreaClient.realtimeBySido(k);
             if (fresh.isPresent()) {
