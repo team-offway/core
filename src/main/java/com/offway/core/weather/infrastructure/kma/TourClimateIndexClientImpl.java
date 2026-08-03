@@ -98,7 +98,12 @@ class TourClimateIndexClientImpl implements TourClimateIndexClient {
 
     private Map<LocalDate, Map<SigunguKey, TourClimateIndex>> parse(String body) throws Exception {
         JsonNode response = objectMapper.readTree(body).path("response");
-        if (!"00".equals(response.path("header").path("resultCode").asText())) {
+        JsonNode header = response.path("header");
+        if (!"00".equals(header.path("resultCode").asText())) {
+            // 서비스키 문제·쿼터 초과가 여기로 온다. 로그가 없으면 지수가 비는 이유를 나중에 못 찾는다.
+            // resultMsg 까지 남긴다 — 코드만으로는 어떤 실패인지 갈리지 않는다.
+            log.warn("관광기후지수 응답이 비정상 resultCode 입니다 — 지수 없음 code={} msg={}",
+                    header.path("resultCode").asText(), header.path("resultMsg").asText());
             return Map.of();
         }
         JsonNode items = response.path("body").path("items").path("item");

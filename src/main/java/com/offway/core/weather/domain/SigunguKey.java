@@ -28,9 +28,16 @@ import java.util.Objects;
  */
 public record SigunguKey(String sido, String sigungu) {
 
+    /**
+     * <b>정규화는 여기서 한다.</b> 팩토리에만 두면 정식 생성자를 직접 부르는 코드가 생겼을 때 같은 지역인데도
+     * 다른 키가 되어, 관광기후지수 매칭이 <b>조용히</b> 빗나간다(예외도 안 난다). 어느 경로로 만들든 같은 키가
+     * 나오도록 compact 생성자가 책임진다.
+     */
     public SigunguKey {
         Objects.requireNonNull(sido, "시도명은 null 일 수 없습니다.");
         Objects.requireNonNull(sigungu, "시군구명은 null 일 수 없습니다.");
+        sido = SidoName.toShort(sido.trim());
+        sigungu = sigungu.trim();
     }
 
     /**
@@ -43,7 +50,7 @@ public record SigunguKey(String sido, String sigungu) {
         if (isBlank(sido) || isBlank(sigungu)) {
             return null;
         }
-        return new SigunguKey(SidoName.toShort(sido.trim()), sigungu.trim());
+        return new SigunguKey(sido, sigungu); // 정규화는 생성자가 한다
     }
 
     private static boolean isBlank(String value) {
