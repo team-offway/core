@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.transport.domain.BusCoverage;
 import com.offway.core.transport.domain.BusStop;
 import com.offway.core.transport.domain.BusStopAccess;
 import org.junit.jupiter.api.Test;
@@ -27,10 +28,27 @@ import org.springframework.web.reactive.function.client.WebClient;
 @EnabledIfEnvironmentVariable(named = "DATA_GO_KR_SERVICE_KEY", matches = ".+")
 class BusStopClientE2ETest {
 
+    /** 실호출 확인(2026-07-31) 138곳. 이보다 적어지면 페이지 크기·스키마가 바뀐 신호다. */
+    private static final int EXPECTED_CITY_COUNT = 138;
+
     private static BusStopClient client() {
         ExternalApiProperties props = new ExternalApiProperties(
                 new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
         return new BusStopClientImpl(WebClient.builder().build(), props);
+    }
+
+    @Test
+    void 커버_도시_목록을_실제로_받아온다() {
+        // 커버 판별의 근거 데이터다. 목록이 짧아지면 멀쩡한 지역이 "데이터 없음"으로 안내된다.
+        BusCoverage coverage = client().coveredCities().orElseThrow(() -> new AssertionError("도시목록 조회 실패"));
+
+        assertTrue(
+                coverage.cities().size() >= EXPECTED_CITY_COUNT,
+                "커버 지자체가 " + EXPECTED_CITY_COUNT + "곳보다 적다 — 페이지 크기나 응답 스키마가 바뀐 것: "
+                        + coverage.cities().size());
+        assertTrue(coverage.covers("강원특별자치도", "태백시"), "태백은 커버 대상이다");
+        assertFalse(coverage.covers("강원특별자치도", "정선군"), "정선은 TAGO 미커버 — 커버로 뒤집혔다면 목록이 바뀐 것");
+        assertFalse(coverage.covers("서울특별시", "종로구"), "서울은 TAGO 대상이 아니다(TOPIS 별도)");
     }
 
     /** 태백(32050)·춘천(32010) — 실호출로 커버가 확인된 지자체. 한 곳만 쓰면 그 지자체 특수성에 기댈 수 있어 둘을 본다. */
