@@ -88,7 +88,10 @@ jobs:
       # DB 비밀번호와 API 키가 그대로 보인다.
       - name: 환경변수 파일 생성 (600)
         run: |
-          cat > env.prod <<ENVEOF
+          # quoted heredoc('ENVEOF') 이어야 한다 — 따옴표가 없으면 셸이 $ 를 변수로 해석해
+          # bcrypt 해시($2y$10$...)의 $2y·$10 이 빈 문자열로 치환되고, 계정이 맞아도 401 이 난다.
+          # ${{ }} 는 Actions 가 YAML 단계에서 치환하므로 quote 를 붙여도 secret 은 정상 주입된다.
+          cat > env.prod <<'ENVEOF'
           SPRING_PROFILES_ACTIVE=prod
           DB_URL=${{ secrets.DB_URL }}
           DB_USERNAME=${{ secrets.DB_USERNAME }}
