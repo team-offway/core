@@ -90,7 +90,9 @@ jobs:
         run: |
           # quoted heredoc('ENVEOF') 이어야 한다 — 따옴표가 없으면 셸이 $ 를 변수로 해석해
           # bcrypt 해시($2y$10$...)의 $2y·$10 이 빈 문자열로 치환되고, 계정이 맞아도 401 이 난다.
-          # ${{ }} 는 Actions 가 YAML 단계에서 치환하므로 quote 를 붙여도 secret 은 정상 주입된다.
+          # secrets 참조는 Actions 가 YAML 단계에서 치환하므로 quote 를 붙여도 정상 주입된다
+          # (셸에 닿을 때는 이미 실제 값이다). 이 주석에 표현식 문법을 그대로 쓰면 안 된다 —
+          # run 블록은 주석까지 Actions 가 먼저 훑어서, 빈 표현식으로 보고 파싱이 깨진다.
           cat > env.prod <<'ENVEOF'
           SPRING_PROFILES_ACTIVE=prod
           DB_URL=${{ secrets.DB_URL }}
