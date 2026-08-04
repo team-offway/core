@@ -355,6 +355,9 @@ class CourseGenerateIntegrationTest {
             return new TourPoiResult(items, items.size());
         });
         trainArrives(arrivingAt(23, 0));
+        // 날짜별로 다른 예보를 준다 — 날씨까지 하루 앞당겨지는지 가리려면 값이 갈려야 한다.
+        weatherClient.respondByDate(date -> Optional.of(new DailyWeather(
+                date, date.getDayOfMonth(), date.getDayOfMonth() + 10, SkyState.CLEAR, 20)));
 
         String body = """
                 { "regionId": 1, "travelDays": 2, "density": "RELAXED", "transport": "TRANSIT",
@@ -367,6 +370,8 @@ class CourseGenerateIntegrationTest {
                 // 날짜는 달력을 따른다 — 5/1 이 아니라 5/2
                 .andExpect(jsonPath("$.data.days[0].date").value("2026-05-02"))
                 .andExpect(jsonPath("$.data.days[0].dayOfWeek").value("SATURDAY"))
+                // 날씨도 그 날짜의 것이어야 한다. 표시 번호로 조회하면 5/1 예보가 붙는다
+                .andExpect(jsonPath("$.data.days[0].weather.minTemp").value(2))
                 // 요청한 출발일 자체는 그대로 보존된다
                 .andExpect(jsonPath("$.data.travelDate").value("2026-05-01"));
     }

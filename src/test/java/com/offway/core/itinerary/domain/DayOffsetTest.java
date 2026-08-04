@@ -27,11 +27,12 @@ class DayOffsetTest {
         return DaySchedule.of(dayNumber, dayOffset, List.of(slot(1)));
     }
 
+    /** 오프셋을 안 주면 표시 번호에서 도출한다 — 첫날부터 일정이 있는 흔한 코스가 이 경로를 탄다. */
     @Test
-    void 오프셋이_없으면_표시_번호에서_하루씩_민다() {
-        DaySchedule first = day(1, 0);
-
-        assertEquals(0, first.getDayOffset());
+    void 오프셋을_생략하면_표시_번호에서_도출한다() {
+        assertEquals(0, DaySchedule.of(1, List.of(slot(1))).getDayOffset());
+        assertEquals(1, DaySchedule.of(2, List.of(slot(1))).getDayOffset());
+        assertEquals(2, DaySchedule.of(3, List.of(slot(1))).getDayOffset());
     }
 
     /** 첫날이 통째로 빠진 코스 — 표시는 1·2 지만 실제로는 둘째·셋째 날이다. */
