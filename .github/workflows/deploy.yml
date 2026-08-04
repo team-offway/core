@@ -206,10 +206,20 @@ jobs:
               # 되돌아갈 이미지가 사라졌다. 죽은 채 두는 것이 가장 나쁘므로, 방금 배포한 것으로라도
               # 서비스를 세운다 — 기동은 성공했고 스모크만 실패한 경우가 대부분이다.
               echo "!! 롤백 이미지($PREV)가 없습니다. 방금 배포한 버전으로 서비스를 유지합니다 !!"
-              echo "!! 배포는 실패로 처리되지만 서버는 떠 있습니다. 내용을 확인하세요 !!"
               docker rm -f offway-core 2>/dev/null || true
               docker run -d --name offway-core --network offway-net --restart unless-stopped \
                 --env-file ~/offway/env.prod -p 8080:8080 offway-core:latest
+              # docker run -d 는 컨테이너 생성까지만 본다. 곧바로 죽으면 서비스가 없는 채로 남으므로
+              # 일반 롤백 경로와 똑같이 응답을 기다린다.
+              for i in $(seq 1 30); do
+                c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:8080/api/v1/categories || true)
+                if [ "$c" = "401" ] || [ "$c" = "200" ]; then
+                  echo "!! 대체 기동 확인 (HTTP $c). 배포는 실패로 처리되지만 서버는 떠 있습니다 !!"
+                  exit 1
+                fi
+                sleep 5
+              done
+              echo "!! 대체 기동까지 실패했습니다. 수동 개입이 필요합니다 !!"
               exit 1
             fi
             echo "── $PREV 로 롤백합니다 ──"
