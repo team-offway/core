@@ -146,10 +146,13 @@ class CourseGenerateIntegrationTest {
     }
 
     @Test
-    void 코스에_여행날짜_날씨를_함께_내린다() throws Exception {
+    void 날씨를_Day_마다_따로_내린다() throws Exception {
+        // 2박3일이면 날마다 날씨가 다르다. 첫날 것 하나로 코스 전체를 대표하면 이튿날이 틀린다(#141).
         tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
-        LocalDate date = LocalDate.of(2026, 5, 1);
-        weatherClient.respond(() -> Optional.of(new DailyWeather(date, 18, 27, SkyState.CLEAR, 20)));
+        LocalDate first = LocalDate.of(2026, 5, 1);
+        weatherClient.respondByDate(date -> date.equals(first)
+                ? Optional.of(new DailyWeather(date, 18, 27, SkyState.CLEAR, 20))
+                : Optional.of(new DailyWeather(date, 12, 19, SkyState.CLOUDY, 80)));
 
         String body = """
                 { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
@@ -157,15 +160,38 @@ class CourseGenerateIntegrationTest {
 
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.weather.date").value("2026-05-01"))
-                .andExpect(jsonPath("$.data.weather.minTemp").value(18))
-                .andExpect(jsonPath("$.data.weather.maxTemp").value(27))
-                .andExpect(jsonPath("$.data.weather.sky").value("맑음"))
-                .andExpect(jsonPath("$.data.weather.rainProbability").value(20));
+                .andExpect(jsonPath("$.data.days[0].weather.date").value("2026-05-01"))
+                .andExpect(jsonPath("$.data.days[0].weather.minTemp").value(18))
+                .andExpect(jsonPath("$.data.days[0].weather.sky").value("맑음"))
+                .andExpect(jsonPath("$.data.days[0].weather.rainProbability").value(20))
+                // 둘째 날은 다른 날씨여야 한다 — 같으면 첫날 것을 복사한 것이다
+                .andExpect(jsonPath("$.data.days[1].weather.date").value("2026-05-02"))
+                .andExpect(jsonPath("$.data.days[1].weather.minTemp").value(12))
+                .andExpect(jsonPath("$.data.days[1].weather.sky").value("흐림"))
+                .andExpect(jsonPath("$.data.days[1].weather.rainProbability").value(80));
     }
 
     @Test
-    void 날씨_예보가_없으면_weather는_null이고_코스는_정상() throws Exception {
+    void 예보가_있는_Day_와_없는_Day_가_섞여도_각자_답한다() throws Exception {
+        // D+11 이후처럼 예보가 없는 날이 뒤에 붙는다. 한 날이 비어도 나머지는 정상이어야 한다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
+        LocalDate first = LocalDate.of(2026, 5, 1);
+        weatherClient.respondByDate(date -> date.equals(first)
+                ? Optional.of(new DailyWeather(date, 18, 27, SkyState.CLEAR, 20))
+                : Optional.empty());
+
+        String body = """
+                { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-05-01" }""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].weather.sky").value("맑음"))
+                .andExpect(jsonPath("$.data.days[1].weather").doesNotExist());
+    }
+
+    @Test
+    void 날씨_예보가_없어도_코스는_정상이다() throws Exception {
         tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
         // 예보 범위 밖·조회 실패 → 빈 예보(stub 기본값). 날씨는 부가 정보라 코스는 그대로 200
         String body = """
@@ -175,7 +201,9 @@ class CourseGenerateIntegrationTest {
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.days.length()").value(2))
-                .andExpect(jsonPath("$.data.weather").value(nullValue()));
+                // 날씨는 부가 정보다 — 없어도 코스는 그대로 나간다
+                .andExpect(jsonPath("$.data.days[0].weather").doesNotExist())
+                .andExpect(jsonPath("$.data.days[1].weather").doesNotExist());
     }
 
     @Test

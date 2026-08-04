@@ -23,7 +23,6 @@ import java.util.List;
  * @param density 일정 밀도(PACKED·RELAXED)
  * @param days 날짜별 일정
  * @param benefits 적용 혜택 뱃지
- * @param weather 여행 날짜의 코스 지역 날씨(생성 시점만 — 저장 코스·예보범위 밖·미조회면 null)
  * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근(자차·저장 코스는 null)
  */
 public record CourseResponse(
@@ -35,7 +34,6 @@ public record CourseResponse(
         String density,
         List<Day> days,
         List<Benefit> benefits,
-        @Schema(description = "여행 날짜의 코스 지역 날씨 (없으면 null)", nullable = true) Weather weather,
         @Schema(description = "대중교통 코스의 출발지→지역 열차 접근 (자차·저장 코스는 null)", nullable = true)
                 TrainAccessResponse trainAccess) {
 
@@ -48,16 +46,20 @@ public record CourseResponse(
                 course.getTravelDate(),
                 course.getDensity().name(),
                 course.getDays().stream()
-                        .map(day -> Day.from(day, course.getTravelDate(), generated.regionName()))
+                        .map(day -> Day.from(
+                                day,
+                                course.getTravelDate(),
+                                generated.regionName(),
+                                generated.weatherByDay().get(day.getDayNumber())))
                         .toList(),
                 generated.benefits().stream().map(Benefit::from).toList(),
-                generated.weather() == null ? null : Weather.from(generated.weather()),
                 generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()));
     }
 
     /**
      * @param day 며칠째(1부터)
      * @param date 그날의 실제 날짜 (여행 시작일 없이 저장된 코스는 null)
+     * @param weather 그날의 날씨 (예보 범위 밖·조회 실패면 null)
      * @param dayOfWeek 요일 (날짜가 없으면 null)
      * @param items 그 날의 방문 순서대로의 장소
      */
@@ -65,9 +67,11 @@ public record CourseResponse(
             int day,
             @Schema(example = "2026-07-26", nullable = true) LocalDate date,
             @Schema(description = "요일", example = "SATURDAY", nullable = true) String dayOfWeek,
+            @Schema(description = "그날의 날씨 (예보 없으면 null)", nullable = true) Weather weather,
             List<Item> items) {
 
-        static Day from(DaySchedule schedule, LocalDate travelDate, String regionName) {
+        static Day from(
+                DaySchedule schedule, LocalDate travelDate, String regionName, DailyWeather weather) {
             LocalDate date = Course.dateOfDay(travelDate, schedule.getDayNumber());
             List<Slot> slots = schedule.getSlots();
             List<Item> items = IntStream.range(0, slots.size())
@@ -77,6 +81,7 @@ public record CourseResponse(
                     schedule.getDayNumber(),
                     date,
                     date == null ? null : date.getDayOfWeek().name(),
+                    weather == null ? null : Weather.from(weather),
                     items);
         }
     }

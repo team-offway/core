@@ -31,6 +31,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -114,20 +116,16 @@ public class CourseGenerationService {
                 .map(policy -> new GeneratedCourse.Benefit(policy.getId(), policy.getType(), policy.badgeText()))
                 .toList();
 
-        // 여행 날짜의 코스 지역 날씨 — 코스 중심(hub) 좌표로 조회. 부가 정보라 미조회·실패·예보범위 밖이면 null.
-        // 시도·시군구를 함께 넘긴다: 나흘 뒤부터는 좌표 격자가 아니라 광역 구역 단위 중기예보가 답한다(#129).
-        DailyWeather weather = weatherService.dailyWeather(
-                        hub.lat(), hub.lng(),
-                        region == null ? null : region.getSido(),
-                        region == null ? null : region.getSigungu(),
-                        command.travelDate())
-                .orElse(null);
+        // 코스 지역 날씨를 Day 마다 따로 — 2박3일이면 날마다 다르다. 첫날 것으로 코스 전체를 대표하면 이튿날이 틀린다(#141).
+        // 코스 중심(hub) 좌표로 조회하고, 시도·시군구를 함께 넘긴다: 나흘 뒤부터는 좌표 격자가 아니라
+        // 광역 구역 단위 중기예보가 답한다(#129). 부가 정보라 미조회·실패·예보범위 밖인 Day 는 그냥 빈다.
+        Map<Integer, DailyWeather> weatherByDay = weatherByDay(command, course, region, hub);
 
-        log.info("코스 생성 regionId={} days={} slots={} benefits={} weather={} trainAccess={}",
+        log.info("코스 생성 regionId={} days={} slots={} benefits={} weatherDays={} trainAccess={}",
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
-                weather != null, trainAccess != null ? trainAccess.status() : "N/A");
+                weatherByDay.size(), trainAccess != null ? trainAccess.status() : "N/A");
         return new GeneratedCourse(
-                course, benefits, weather, trainAccess, region == null ? null : region.getSigungu());
+                course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu());
     }
 
     /**
@@ -166,6 +164,30 @@ public class CourseGenerationService {
             return pool;
         }
         return pool.stream().filter(poi -> !excluded.contains(poi.contentId())).toList();
+    }
+
+    /**
+     * Day 별 날씨. 예보가 없는 Day 는 <b>키 자체를 넣지 않는다</b> — 화면이 Day 마다 독립적으로 판단한다.
+     *
+     * <p>날짜를 모르는 코스(저장 시 날짜 미입력)는 물어볼 기준이 없어 통째로 빈다.
+     */
+    private Map<Integer, DailyWeather> weatherByDay(
+            GenerateCourse command, Course course, Region region, Coordinate hub) {
+        if (command.travelDate() == null) {
+            return Map.of();
+        }
+        Map<Integer, DailyWeather> byDay = new LinkedHashMap<>();
+        for (int dayNumber = 1; dayNumber <= course.getTravelDays(); dayNumber++) {
+            // 키는 반드시 그 Day 번호다 — 채워진 개수로 매기면 예보 없는 Day 를 건너뛸 때 뒤 Day 가 앞으로 밀린다.
+            int day = dayNumber;
+            weatherService.dailyWeather(
+                            hub.lat(), hub.lng(),
+                            region == null ? null : region.getSido(),
+                            region == null ? null : region.getSigungu(),
+                            Course.dateOfDay(command.travelDate(), day))
+                    .ifPresent(weather -> byDay.put(day, weather));
+        }
+        return byDay;
     }
 
     /** 대중교통 코스의 출발지→지역 열차 접근. 출발·지역 좌표의 최근접 역으로 해석한다. */
