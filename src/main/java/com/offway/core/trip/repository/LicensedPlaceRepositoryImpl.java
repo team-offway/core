@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -23,15 +24,17 @@ public class LicensedPlaceRepositoryImpl implements LicensedPlaceRepository {
     private static final int BATCH_SIZE = 1_000;
 
     private static final String INSERT_SQL =
-            "INSERT INTO licensed_place (region_id, kind, category, name, address, tel, lat, lng)"
-                    + " VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+            "INSERT INTO licensed_place"
+                    + " (region_id, kind, category, name, address, tel, lat, lng, fitness_rank)"
+                    + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private final LicensedPlaceJpaRepository licensedPlaceJpaRepository;
     private final JdbcTemplate jdbcTemplate;
 
     @Override
-    public List<LicensedPlace> findByRegionAndKind(long regionId, PlaceKind kind) {
-        return licensedPlaceJpaRepository.findByRegionIdAndKind(regionId, kind);
+    public List<LicensedPlace> findCandidates(long regionId, PlaceKind kind, int limit) {
+        return licensedPlaceJpaRepository.findByRegionIdAndKindOrderByFitnessRankAscNameAsc(
+                regionId, kind, PageRequest.ofSize(limit));
     }
 
     @Override
@@ -69,6 +72,9 @@ public class LicensedPlaceRepositoryImpl implements LicensedPlaceRepository {
                 ps.setString(6, place.getTel());
                 ps.setDouble(7, place.getLat());
                 ps.setDouble(8, place.getLng());
+                // 적합도는 엔티티가 분류에서 도출해 들고 있다. 여기서 빠뜨리면 전부 기본값으로 눕고
+                // 목록 정렬이 이름순으로 주저앉는다.
+                ps.setInt(9, place.getFitnessRank());
             })[0];
             for (int count : result) {
                 // 드라이버가 건수를 모른다고 답할 수 있다(SUCCESS_NO_INFO). 그래도 실패는 아니므로 1건으로 센다.

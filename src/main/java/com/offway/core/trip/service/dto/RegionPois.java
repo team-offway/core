@@ -27,6 +27,14 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, Li
     private static final int MIN_FOODS = 6;
     private static final int MIN_STAYS = 2;
 
+    /**
+     * 같은 장소로 볼 좌표 격자(도 단위, 약 100m).
+     *
+     * <p>TourAPI 와 인허가 데이터는 같은 건물에도 좌표를 조금 다르게 적는다. 정확히 비교하면 중복이 그대로
+     * 남고, 너무 크게 뭉개면 이웃한 다른 가게가 한 곳으로 접힌다.
+     */
+    private static final double GRID_DEGREES = 0.001;
+
     public RegionPois {
         sights = List.copyOf(sights);
         foods = List.copyOf(foods);
@@ -39,7 +47,22 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, Li
 
     /** 어느 풀이라도 가장 긴 코스를 못 채우는가. */
     public boolean needsSupplement() {
-        return sights.size() < MIN_SIGHTS || foods.size() < MIN_FOODS || stays.size() < MIN_STAYS;
+        return needsMoreSights() || needsMoreFoods() || needsMoreStays();
+    }
+
+    /** 볼거리가 모자란가 — 모자란 풀만 보충 후보를 조회하기 위한 판정이다. */
+    public boolean needsMoreSights() {
+        return sights.size() < MIN_SIGHTS;
+    }
+
+    /** 맛집이 모자란가. */
+    public boolean needsMoreFoods() {
+        return foods.size() < MIN_FOODS;
+    }
+
+    /** 숙소가 모자란가. */
+    public boolean needsMoreStays() {
+        return stays.size() < MIN_STAYS;
     }
 
     /**
@@ -64,15 +87,27 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, Li
         }
         Set<String> seen = new HashSet<>();
         for (PoiCandidate candidate : base) {
-            seen.add(normalize(candidate.title()));
+            seen.add(identity(candidate));
         }
         List<PoiCandidate> merged = new ArrayList<>(base);
         for (PoiCandidate candidate : extra) {
-            if (seen.add(normalize(candidate.title()))) {
+            if (seen.add(identity(candidate))) {
                 merged.add(candidate);
             }
         }
         return merged;
+    }
+
+    /**
+     * 같은 장소인지 가르는 열쇠 — 상호에 <b>위치를 함께</b> 본다.
+     *
+     * <p>상호만 보면 "○○식당" 본점과 2호점이 한 곳으로 접혀 풀이 덜 채워진다. 반대로 좌표만 보면 소스마다
+     * 소수점 정밀도가 달라 같은 곳을 다른 곳으로 센다. 좌표를 약 100m 격자로 뭉개 둘을 함께 쓴다.
+     */
+    private static String identity(PoiCandidate candidate) {
+        return normalize(candidate.title())
+                + "@" + Math.round(candidate.lat() / GRID_DEGREES)
+                + "," + Math.round(candidate.lng() / GRID_DEGREES);
     }
 
     /** 소스마다 띄어쓰기·대소문자가 달라 그대로 비교하면 같은 곳을 다른 곳으로 본다. */

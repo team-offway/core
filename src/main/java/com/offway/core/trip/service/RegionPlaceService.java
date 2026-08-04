@@ -39,11 +39,14 @@ public class RegionPlaceService {
         requireMatchingCategory(kind, category);
 
         // 같은 지역 안에서는 코스 적합도가 높은 분류를 먼저 보여준다. 목록 첫 화면에 다방·패스트푸드가
-        // 깔리면 "여기 볼 게 없네" 로 읽힌다. 같은 분류끼리는 상호 가나다순으로 안정 정렬한다.
+        // 깔리면 "여기 볼 게 없네" 로 읽힌다. 같은 순위끼리는 상호 가나다순으로 안정 정렬한다.
+        //
+        // 분류(enum)가 아니라 fitnessRank 로 정렬한다 — 분류는 문자열로 저장돼 사전순이 적합도 순서와
+        // 다르다(LODGING 이 TOURIST_HOTEL 보다 앞선다). 페이징이 걸려 정렬은 DB 가 해야 한다.
         PageRequest pageRequest = PageRequest.of(
                 page == null ? 0 : Math.max(page, 0),
                 clampSize(size),
-                Sort.by(Sort.Order.asc("category"), Sort.Order.asc("name")));
+                Sort.by(Sort.Order.asc("fitnessRank"), Sort.Order.asc("name")));
 
         return RegionPlaces.from(licensedPlaceRepository.findPage(regionId, kind, category, pageRequest));
     }

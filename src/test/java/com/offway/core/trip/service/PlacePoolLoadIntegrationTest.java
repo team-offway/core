@@ -3,6 +3,7 @@ package com.offway.core.trip.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.trip.domain.LicensedPlace;
@@ -26,6 +27,9 @@ class PlacePoolLoadIntegrationTest {
     /** 테스트 풀이 채운 지역 — 경상북도 의성군. */
     private static final long UISEONG = 76L;
 
+    /** 조회 상한. 테스트 풀은 이보다 훨씬 작아 전량이 돌아온다. */
+    private static final int CANDIDATE_LIMIT = 100;
+
     @Autowired
     private LicensedPlaceRepository licensedPlaceRepository;
 
@@ -39,7 +43,7 @@ class PlacePoolLoadIntegrationTest {
 
     @Test
     void 지역과_종류로_후보를_찾는다() {
-        List<LicensedPlace> stays = licensedPlaceRepository.findByRegionAndKind(UISEONG, PlaceKind.STAY);
+        List<LicensedPlace> stays = licensedPlaceRepository.findCandidates(UISEONG, PlaceKind.STAY, CANDIDATE_LIMIT);
 
         assertFalse(stays.isEmpty());
         assertTrue(stays.stream().allMatch(place -> place.getKind() == PlaceKind.STAY));
@@ -48,7 +52,7 @@ class PlacePoolLoadIntegrationTest {
 
     @Test
     void 좌표와_전화번호가_그대로_실린다() {
-        LicensedPlace place = licensedPlaceRepository.findByRegionAndKind(UISEONG, PlaceKind.STAY).stream()
+        LicensedPlace place = licensedPlaceRepository.findCandidates(UISEONG, PlaceKind.STAY, CANDIDATE_LIMIT).stream()
                 .filter(candidate -> candidate.getName().equals("올인모텔"))
                 .findFirst()
                 .orElseThrow();
@@ -61,13 +65,13 @@ class PlacePoolLoadIntegrationTest {
     /** 전화번호는 인허가 데이터에서 29% 만 채워진다 — 없는 게 정상이다. */
     @Test
     void 전화번호가_없는_장소도_실린다() {
-        LicensedPlace place = licensedPlaceRepository.findByRegionAndKind(UISEONG, PlaceKind.STAY).stream()
+        LicensedPlace place = licensedPlaceRepository.findCandidates(UISEONG, PlaceKind.STAY, CANDIDATE_LIMIT).stream()
                 .filter(candidate -> candidate.getName().equals("산수유민박"))
                 .findFirst()
                 .orElseThrow();
 
         assertNotNull(place.getAddress());
-        assertEquals(null, place.getTel());
+        assertNull(place.getTel());
     }
 
     /** 재기동마다 다시 넣으면 부팅이 느려지고 중복이 쌓인다. */

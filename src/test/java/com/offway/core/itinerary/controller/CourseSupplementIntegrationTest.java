@@ -1,5 +1,6 @@
 package com.offway.core.itinerary.controller;
 
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -97,7 +98,11 @@ class CourseSupplementIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 // 1박2일이면 숙박 슬롯이 하나 있어야 한다 — 예전에는 여기가 통째로 비었다
-                .andExpect(jsonPath("$.data.days[0].items[?(@.kind == 'STAY')]").isNotEmpty());
+                .andExpect(jsonPath("$.data.days[0].items[?(@.kind == 'STAY')]").isNotEmpty())
+                // 그 자리가 인허가 숙소로 채워졌는지까지 본다. 슬롯 존재만 보면 TourAPI 쪽 후보가
+                // 어쩌다 들어와도 통과해, 정작 검증하려던 보충 경로를 놓친다.
+                .andExpect(jsonPath("$.data.days[0].items[?(@.kind == 'STAY')].poiContentId")
+                        .value(hasItem(startsWith("LIC-"))));
     }
 
     /** 오늘 실제로 겪은 상황 — 한도가 소진돼 TourAPI 가 아무것도 못 줄 때. */

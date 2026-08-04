@@ -10,7 +10,6 @@ import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.RegionPois;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -74,10 +73,11 @@ public class RegionPoiService {
      * "잘 곳 없는 2박3일" 이 200 으로 나간다. 인허가 데이터엔 사진·소개가 없으므로 <b>부족할 때만</b> 쓴다.
      */
     private RegionPois supplement(RegionPois pois, long regionId) {
+        // 모자란 풀만 조회한다 — 볼거리만 부족한 지역에서 숙소·맛집까지 끌어올 이유가 없다.
         RegionPois supplemented = pois.supplementedWith(
-                licensedCandidates(regionId, PlaceKind.SIGHT),
-                licensedCandidates(regionId, PlaceKind.FOOD),
-                licensedCandidates(regionId, PlaceKind.STAY));
+                pois.needsMoreSights() ? licensedCandidates(regionId, PlaceKind.SIGHT) : List.of(),
+                pois.needsMoreFoods() ? licensedCandidates(regionId, PlaceKind.FOOD) : List.of(),
+                pois.needsMoreStays() ? licensedCandidates(regionId, PlaceKind.STAY) : List.of());
 
         // degrade 한 사실을 남긴다 — 보충이 조용히 일어나면 TourAPI 쪽 공백을 아무도 모른다.
         log.info("인허가 데이터로 보충 regionId={} 볼거리={}→{} 맛집={}→{} 숙박={}→{}",
@@ -89,12 +89,11 @@ public class RegionPoiService {
     }
 
     /**
-     * 인허가 장소를 후보로 옮긴다. 관광 콘텐츠성이 높은 분류(한옥·사찰·박물관)를 앞에 두어, 모자란 만큼만 쓰일 때
-     * 더 나은 쪽이 먼저 뽑히게 한다.
+     * 인허가 장소를 후보로 옮긴다. 정렬·상한은 저장소 경계에서 끝난다 — 관광 콘텐츠성이 높은 분류
+     * (한옥·사찰·박물관)가 앞에 오므로, 모자란 만큼만 쓰일 때 더 나은 쪽이 먼저 뽑힌다.
      */
     private List<PoiCandidate> licensedCandidates(long regionId, PlaceKind kind) {
-        return licensedPlaceRepository.findByRegionAndKind(regionId, kind).stream()
-                .sorted(Comparator.comparing(LicensedPlace::isPreferred).reversed())
+        return licensedPlaceRepository.findCandidates(regionId, kind, CANDIDATE_ROWS).stream()
                 .map(RegionPoiService::toCandidate)
                 .toList();
     }

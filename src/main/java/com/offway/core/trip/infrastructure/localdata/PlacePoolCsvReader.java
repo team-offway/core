@@ -53,8 +53,11 @@ public class PlacePoolCsvReader {
         List<LicensedPlace> places = new ArrayList<>();
         int skipped = 0;
 
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(new GZIPInputStream(source), StandardCharsets.UTF_8))) {
+        // source 를 첫 리소스로 둔다 — gzip 이 아닌 입력이면 GZIPInputStream 생성자가 던지는데,
+        // 그때 reader 는 아직 할당 전이라 source 가 열린 채 남는다(Javadoc 의 "읽은 뒤 닫는다" 계약 위반).
+        try (InputStream raw = source;
+                BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(new GZIPInputStream(raw), StandardCharsets.UTF_8))) {
             requireHeader(reader.readLine());
 
             String line;

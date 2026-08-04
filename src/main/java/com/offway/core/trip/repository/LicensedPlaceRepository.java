@@ -11,8 +11,13 @@ import org.springframework.data.domain.Pageable;
 /** 인허가 장소 풀 port(#144) — 도메인이 의존하는 인터페이스. */
 public interface LicensedPlaceRepository {
 
-    /** 이 지역의 해당 종류 후보 전부. 코스 생성이 여기서 부족분을 채운다. */
-    List<LicensedPlace> findByRegionAndKind(long regionId, PlaceKind kind);
+    /**
+     * 코스 보충용 후보 — 적합도가 높은 순으로 {@code limit} 개까지.
+     *
+     * <p>지역당 수천 건이라 전부 끌어오면 적재·정렬·병합 비용이 코스 생성 경로에 그대로 실린다.
+     * 실제로 쓰이는 건 모자란 몇 자리뿐이므로 경계에서 자른다.
+     */
+    List<LicensedPlace> findCandidates(long regionId, PlaceKind kind, int limit);
 
     /**
      * 지역의 장소를 종류별로 페이징 조회한다 — 목록 화면(숙소·맛집·카페·관광명소 탭)이 쓴다.

@@ -10,7 +10,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface LicensedPlaceJpaRepository extends JpaRepository<LicensedPlace, Long> {
 
-    List<LicensedPlace> findByRegionIdAndKind(long regionId, PlaceKind kind);
+    /** 적합도 순 상위 N — Pageable 로 상한을 건다. */
+    List<LicensedPlace> findByRegionIdAndKindOrderByFitnessRankAscNameAsc(
+            long regionId, PlaceKind kind, Pageable pageable);
 
     Page<LicensedPlace> findByRegionIdAndKind(long regionId, PlaceKind kind, Pageable pageable);
 

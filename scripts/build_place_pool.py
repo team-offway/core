@@ -242,7 +242,9 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
     for zip_path in zip_files:
         names = zip_entry_names(zip_path)
         archive = zipfile.ZipFile(zip_path)
-        for name, info in zip(names, archive.infolist()):
+        # strict=True — 중앙 디렉터리 파싱 결과와 zipfile 의 엔트리 수가 어긋나면 이름이 밀린 채
+        # 엉뚱한 파일을 읽게 된다. 조용히 짧은 쪽에서 잘리지 않도록 그 자리에서 실패시킨다.
+        for name, info in zip(names, archive.infolist(), strict=True):
             mapping = CATEGORIES.get(name)
             if mapping is None:
                 continue
@@ -300,15 +302,17 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
     writer.writerow(["region_id", "kind", "category", "name", "address", "tel", "lat", "lng"])
     writer.writerows(rows)
     # mtime 을 0 으로 고정해 같은 입력이면 같은 바이트가 나오게 한다(불필요한 diff 방지).
-    with gzip.GzipFile(filename="", mode="wb", fileobj=out_path.open("wb"), mtime=0) as gz:
+    # GzipFile.close() 는 외부에서 받은 fileobj 를 닫지 않는다. 바로 아래에서 파일 크기를 읽으므로
+    # 핸들을 함께 with 로 감싸 flush·close 를 보장한다.
+    with out_path.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz:
         gz.write(buffer.getvalue().encode("utf-8"))
 
     per_region = collections.Counter(r[0] for r in rows)
     missing = [rid for ids in by_sigungu.values() for _, rid in ids if per_region[rid] == 0]
     size_mb = out_path.stat().st_size / 1024 / 1024
     print(f"장소 {len(rows):,}건 → {out_path} ({size_mb:.1f} MB)")
-    print(f"  종류별: " + " · ".join(f"{k} {stats[k]:,}" for k in ("STAY", "FOOD", "CAFE", "SIGHT")))
-    print(f"  제외:   " + " · ".join(f"{k} {stats[k]:,}" for k in ("폐업·휴업", "업태제외", "좌표없음", "좌표이상", "상호없음") if stats[k]))
+    print("  종류별: " + " · ".join(f"{k} {stats[k]:,}" for k in ("STAY", "FOOD", "CAFE", "SIGHT")))
+    print("  제외:   " + " · ".join(f"{k} {stats[k]:,}" for k in ("폐업·휴업", "업태제외", "좌표없음", "좌표이상", "상호없음") if stats[k]))
     print(f"  중복 접기: {folded:,}건")
     print(f"  지역 커버: {len(per_region)}/89" + (f" — 빈 지역 {missing}" if missing else ""))
 

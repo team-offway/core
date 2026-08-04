@@ -69,8 +69,14 @@ public class PlacePoolLoader {
             }
             int inserted = licensedPlaceRepository.saveAll(places);
             log.info("장소 풀 적재 완료. count={} elapsed={}ms", inserted, elapsedMillis(startedAt));
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             // 적재 실패로 서버를 죽이지 않는다. 다만 조용히 넘기지도 않는다 — 이후 코스에서 후보가 빈다.
+            //
+            // RuntimeException 까지 잡는 이유: 여기로 올라오는 실패는 대부분 IOException 이 아니다.
+            // 파일이 깨지면 리더가 UncheckedIOException, 헤더가 어긋나면 IllegalStateException,
+            // 적재가 유니크·패킷 상한에 걸리면 DataAccessException 이 온다. ApplicationReadyEvent
+            // 리스너에서 던진 예외는 SpringApplication.run 밖으로 전파되므로, 좁게 잡으면
+            // CSV 한 줄짜리 사고가 서버 전체를 못 뜨게 만든다.
             log.error("장소 풀 적재에 실패했습니다. 인허가 후보 없이 동작합니다.", e);
         }
     }

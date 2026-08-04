@@ -32,7 +32,7 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(
         name = "licensed_place",
-        indexes = {@Index(name = "idx_licensed_place_region_kind", columnList = "region_id, kind")})
+        indexes = {@Index(name = "idx_licensed_place_lookup", columnList = "region_id, kind, category")})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class LicensedPlace {
@@ -69,7 +69,8 @@ public class LicensedPlace {
     @Column(nullable = false, length = MAX_NAME_LENGTH)
     private String name;
 
-    @Column(length = MAX_ADDRESS_LENGTH)
+    /** 도로명 주소. 자연키의 일부라 비면 유니크가 절반만 걸린다 — 필수다. */
+    @Column(nullable = false, length = MAX_ADDRESS_LENGTH)
     private String address;
 
     /** 인허가 데이터에서 29% 만 채워진다. 없는 게 정상이라 null 을 허용한다. */
@@ -81,6 +82,16 @@ public class LicensedPlace {
 
     @Column(nullable = false)
     private double lng;
+
+    /**
+     * 코스 적합도 순위(0=우선). {@link PlaceCategory#fitness()} 에서 도출한 값을 저장한다.
+     *
+     * <p>정렬을 위해 굳이 컬럼으로 둔다 — 분류는 enum 문자열로 저장돼 사전순이 적합도 순서와 다르다.
+     * 그대로 정렬하면 첫 페이지에 모텔(LODGING)이 관광호텔(TOURIST_HOTEL)보다 앞서 깔린다.
+     * 페이징이 걸리므로 정렬은 DB 가 해야 하고, 애플리케이션에서 다시 세우면 페이지 경계가 어긋난다.
+     */
+    @Column(name = "fitness_rank", nullable = false)
+    private int fitnessRank;
 
     @Builder
     private LicensedPlace(
@@ -96,8 +107,9 @@ public class LicensedPlace {
         this.kind = Objects.requireNonNull(kind, "장소 종류는 필수입니다");
         this.category = Objects.requireNonNull(category, "장소 분류는 필수입니다");
         this.name = requireText(name, MAX_NAME_LENGTH, "상호");
-        this.address = trimToNull(address, MAX_ADDRESS_LENGTH);
+        this.address = requireText(address, MAX_ADDRESS_LENGTH, "주소");
         this.tel = trimToNull(tel, MAX_TEL_LENGTH);
+        this.fitnessRank = this.category.fitness().ordinal();
         requireInKorea(lat, lng);
         this.lat = lat;
         this.lng = lng;
@@ -155,6 +167,12 @@ public class LicensedPlace {
         return trimmed;
     }
 
+    /**
+     * 전화번호 전용 — 빈 값은 null 로 눕힌다(인허가 데이터에서 29% 만 채워진다).
+     *
+     * <p>상호·주소와 달리 길이 초과를 예외로 올리지 않고 자른다. 자연키에 들어가지 않아 잘려도 중복 판정이
+     * 어긋나지 않고, 전화번호 하나 때문에 장소를 통째로 버릴 이유가 없다.
+     */
     private static String trimToNull(String value, int maxLength) {
         if (value == null || value.isBlank()) {
             return null;
