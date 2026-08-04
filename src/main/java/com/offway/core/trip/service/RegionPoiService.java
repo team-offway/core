@@ -6,6 +6,7 @@ import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.PlaceKind;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
+import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.RegionPois;
@@ -115,11 +116,29 @@ public class RegionPoiService {
     }
 
     /** 한 콘텐츠 타입(또는 {@code null}=전체)의 후보를 좌표 있는 것만 뽑는다. */
+    /**
+     * 한 콘텐츠 타입(또는 {@code null}=전체)의 후보를 좌표 있는 것만 뽑는다.
+     *
+     * <p><b>TourAPI 실패를 빈 결과로 낮춘다.</b> 예외를 그대로 올리면 인허가 데이터로 채우는 단계까지
+     * 가지 못하고 코스 생성이 통째로 502 가 된다 — 실제로 그랬다. 관광 API 일일 한도가 소진되자,
+     * DB 에 15만 건이 있는데도 코스가 안 나왔다.
+     *
+     * <p>외부가 죽어도 코스는 나가야 한다는 것이 장소 풀을 DB 화한 이유다(#144). 다만 조용히 넘기지
+     * 않는다 — degrade 한 사실을 warn 으로 남긴다. 후보가 인허가로도 안 채워지면 그때 404 가 나간다.
+     */
     private List<PoiCandidate> candidates(Region region, Integer contentTypeId) {
+        TourPoiResult result;
+        try {
+            result = tourApiClient.findByArea(
+                    region.getAreaCode(), region.getSigunguCode(), contentTypeId, CANDIDATE_ROWS);
+        } catch (RuntimeException e) {
+            log.warn("TourAPI 조회 실패 — 인허가 데이터로 대체합니다. regionId={} contentTypeId={} cause={}",
+                    region.getId(), contentTypeId, e.getClass().getSimpleName());
+            return List.of();
+        }
+
         List<PoiCandidate> out = new ArrayList<>();
-        for (TourPoi poi : tourApiClient
-                .findByArea(region.getAreaCode(), region.getSigunguCode(), contentTypeId, CANDIDATE_ROWS)
-                .items()) {
+        for (TourPoi poi : result.items()) {
             PoiCandidate candidate = toCandidate(poi);
             if (candidate != null) {
                 out.add(candidate); // 좌표·필수값 결여는 제외

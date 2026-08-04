@@ -284,6 +284,8 @@ jobs:
           # 상태 코드만 보면 "200 인데 내용이 빈" 배포를 성공으로 넘긴다. 실제로 그렇게 나갔다 —
           # 적재가 89곳 중 42곳에서 멈췄는데 목록 API 는 멀쩡히 200 을 줬다.
           # 장소 풀은 부팅 시 전량 적재되므로, 어느 지역이든 비어 있으면 적재가 깨진 것이다.
+          # 적재는 기동 뒤에도 이어진다(16만 건 배치). 기동 확인 직후에 물으면 아직 0 건이라,
+          # 실제로 그렇게 거짓 실패가 났다. 채워질 때까지 기다린 뒤 판정한다.
           for probe in "76 STAY" "1 SIGHT" "89 FOOD"; do
             set -- $probe
             # curl 성공 여부를 먼저 가른다. timeout·연결 오류로 끊긴 부분 응답에도 "totalElements" 가
@@ -300,11 +302,20 @@ jobs:
               rollback
             fi
             total=$(printf '%s' "$body" | sed -n 's/.*"totalElements":\([0-9]*\).*/\1/p')
+            # 아직 적재 중이면 잠시 뒤 다시 본다(최대 90초).
+            waited=0
+            while { [ -z "$total" ] || [ "$total" -lt 1 ] 2>/dev/null; } && [ "$waited" -lt 90 ]; do
+              sleep 5
+              waited=$((waited + 5))
+              body=$(curl -s --max-time 20 -w '\n%{http_code}' -u "$SMOKE_USER:$SMOKE_PASS" \
+                "http://localhost:8080/api/v1/regions/$1/places?kind=$2")
+              total=$(printf '%s' "$body" | sed -n 's/.*"totalElements":\([0-9]*\).*/\1/p')
+            done
             if [ -z "$total" ] || [ "$total" -lt 1 ] 2>/dev/null; then
-              echo "스모크 실패: 장소 풀이 비었습니다 — region=$1 kind=$2 total=${total:-파싱실패}"
+              echo "스모크 실패: 장소 풀이 비었습니다 — region=$1 kind=$2 total=${total:-파싱실패} (${waited}초 대기)"
               rollback
             fi
-            echo "스모크 통과: 장소 풀 region=$1 kind=$2 ($total건)"
+            echo "스모크 통과: 장소 풀 region=$1 kind=$2 ($total건, ${waited}초 대기)"
           done
 
           echo "배포 성공 — 기동·스모크 모두 통과"

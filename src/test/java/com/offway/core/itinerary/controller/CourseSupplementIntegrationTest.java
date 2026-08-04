@@ -105,6 +105,25 @@ class CourseSupplementIntegrationTest {
                         .value(hasItem(startsWith("LIC-"))));
     }
 
+    /**
+     * 관광 API 가 <b>예외</b>를 던져도 코스가 나가야 한다.
+     *
+     * <p>빈 결과만 다루면 부족하다. 일일 한도가 소진되면 TourAPI 클라이언트가 예외를 올리는데,
+     * 그대로 두면 인허가 데이터로 채우는 단계까지 가지 못하고 502 가 된다 — DB 에 15만 건이 있는데도
+     * 코스가 안 나왔다.
+     */
+    @Test
+    void 관광API가_예외를_던져도_코스가_나온다() throws Exception {
+        tourApiClient.respond(() -> {
+            throw com.offway.core.trip.domain.TourApiException.lookupFailed(new RuntimeException("일일 한도 소진"));
+        });
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body(UISEONG)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.days.length()").value(2));
+    }
+
     /** 오늘 실제로 겪은 상황 — 한도가 소진돼 TourAPI 가 아무것도 못 줄 때. */
     @Test
     void 관광API가_통째로_비어도_코스가_나온다() throws Exception {
