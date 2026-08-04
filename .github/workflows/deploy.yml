@@ -158,10 +158,17 @@ jobs:
           # 배포마다 쌓이는 dangling 이미지를 정리한다 — 인스턴스 디스크가 조용히 찬다.
           docker image prune -f
 
-          # SHA 태그는 롤백 대상이라 prune 이 지우지 않는다(태그가 붙어 있다). 대신 직접 최근 3개만 남긴다 —
-          # 무한히 쌓이면 디스크가 차고, 3개보다 오래된 버전으로 돌아갈 일은 사실상 없다.
+          # SHA 태그는 롤백 대상이라 prune 이 지우지 않는다(태그가 붙어 있다). 대신 직접 최근 N개만 남긴다 —
+          # 무한히 쌓이면 디스크가 찬다.
+          #
+          # **되돌아갈 이미지는 반드시 제외한다.** 하루에 여러 번 배포하면 롤백 대상이 보존 개수 밖으로
+          # 밀려나는데, 그걸 지우고 나면 롤백이 "이미지 없음" 으로 실패해 서버가 죽은 채 남는다.
+          # 실제로 그렇게 한 번 내려갔다.
+          PREV_TAG=$(cut -d: -f2 ~/offway/.prev-image 2>/dev/null || echo "")
           docker images --filter=reference='offway-core:*' --format '{{.Tag}} {{.CreatedAt}}' \
-            | grep -v '^latest ' | sort -k2 -r | tail -n +4 | awk '{print $1}' \
+            | grep -v '^latest ' \
+            | { [ -n "$PREV_TAG" ] && grep -v "^$PREV_TAG " || cat; } \
+            | sort -k2 -r | tail -n +5 | awk '{print $1}' \
             | xargs -r -I{} docker rmi "offway-core:{}" 2>/dev/null || true
           REMOTE
 
@@ -191,6 +198,16 @@ jobs:
             PREV=$(cat ~/offway/.prev-image 2>/dev/null || echo "")
             if [ -z "$PREV" ]; then
               echo "되돌릴 이전 이미지가 없습니다(첫 배포). 컨테이너를 내린 채 둡니다."
+              exit 1
+            fi
+            if ! docker image inspect "$PREV" >/dev/null 2>&1; then
+              # 되돌아갈 이미지가 사라졌다. 죽은 채 두는 것이 가장 나쁘므로, 방금 배포한 것으로라도
+              # 서비스를 세운다 — 기동은 성공했고 스모크만 실패한 경우가 대부분이다.
+              echo "!! 롤백 이미지($PREV)가 없습니다. 방금 배포한 버전으로 서비스를 유지합니다 !!"
+              echo "!! 배포는 실패로 처리되지만 서버는 떠 있습니다. 내용을 확인하세요 !!"
+              docker rm -f offway-core 2>/dev/null || true
+              docker run -d --name offway-core --network offway-net --restart unless-stopped \
+                --env-file ~/offway/env.prod -p 8080:8080 offway-core:latest
               exit 1
             fi
             echo "── $PREV 로 롤백합니다 ──"
