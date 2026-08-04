@@ -55,6 +55,15 @@ public class LicensedPlaceRepositoryImpl implements LicensedPlaceRepository {
     }
 
     /**
+     * TRUNCATE 가 아니라 DELETE 를 쓴다 — TRUNCATE 는 DDL 이라 암묵적 커밋이 일어나, 뒤이은 적재가
+     * 실패해도 되돌릴 수 없다. 지우기와 채우기가 한 트랜잭션이어야 "빈 채로 남는" 상태가 안 생긴다.
+     */
+    @Override
+    public void deleteAll() {
+        jdbcTemplate.update("DELETE FROM licensed_place");
+    }
+
+    /**
      * JPA 대신 JDBC 배치를 쓰는 이유 — {@code saveAll} 은 영속성 컨텍스트에 16만 엔티티를 쌓고 건건이 INSERT 를
      * 날려 부팅이 분 단위로 늘어난다. 여기서 만드는 행은 이후 수정되지 않는 읽기 전용 레퍼런스라 영속성 컨텍스트가 필요 없다.
      */

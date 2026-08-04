@@ -29,6 +29,7 @@ import pathlib
 import re
 import struct
 import sys
+import unicodedata
 import zipfile
 
 # 시도별 다운로드 코드 — `file.localdata.go.kr/file/download-all?orgCode=<코드>_ALL`
@@ -242,9 +243,13 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
     for zip_path in zip_files:
         names = zip_entry_names(zip_path)
         archive = zipfile.ZipFile(zip_path)
-        # strict=True — 중앙 디렉터리 파싱 결과와 zipfile 의 엔트리 수가 어긋나면 이름이 밀린 채
-        # 엉뚱한 파일을 읽게 된다. 조용히 짧은 쪽에서 잘리지 않도록 그 자리에서 실패시킨다.
-        for name, info in zip(names, archive.infolist(), strict=True):
+        # 중앙 디렉터리 파싱 결과와 zipfile 의 엔트리 수가 어긋나면 이름이 밀린 채 엉뚱한 파일을
+        # 읽게 된다. zip() 은 조용히 짧은 쪽에서 자르므로 그 전에 막는다
+        # (zip(strict=True) 는 파이썬 3.10+ 라 여기서는 쓰지 않는다).
+        entries = archive.infolist()
+        if len(names) != len(entries):
+            raise ValueError(f"ZIP 엔트리 수가 어긋납니다: {zip_path} 이름 {len(names)} vs 엔트리 {len(entries)}")
+        for name, info in zip(names, entries):
             mapping = CATEGORIES.get(name)
             if mapping is None:
                 continue
@@ -285,9 +290,19 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
     # 같은 자리의 중복을 접는다. 원본에는 한 건물의 여러 업소가 같은 상호로 올라온다
     # (이마트 제천점 9건, 휴게소 3건 등). 코스에서는 한 곳이므로 하나만 남긴다.
     # 분류가 갈리면 관광 콘텐츠성이 높은 쪽을 남긴다.
+    # MySQL 의 기본 collation(utf8mb4_0900_ai_ci)이 같게 보는 것들을 여기서도 같게 본다.
+    # 정확 비교로만 접으면("IC펜션" 과 "ic펜션" 처럼) 적재 도중 유니크 위반이 나고 그 배치부터
+    # 통째로 실패한다 — 실제로 그 한 건 때문에 89곳 중 42곳만 실렸다.
+    #
+    # casefold 는 대소문자만 지운다. ai_ci 는 악센트도 무시하므로 NFD 로 분해해 결합 문자를
+    # 떼어낸 뒤 비교한다("Café" 와 "Cafe" 가 DB 에서 같은 값이다).
+    def fold(text: str) -> str:
+        decomposed = unicodedata.normalize("NFD", text)
+        return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+
     best: dict[tuple, tuple] = {}
     for row in rows:
-        key = (row[0], row[1], row[3], row[4])  # region_id · kind · name · address
+        key = (row[0], row[1], fold(row[3]), fold(row[4]))  # region_id · kind · name · address
         current = best.get(key)
         if current is None or CATEGORY_PRIORITY.get(row[2], 9) < CATEGORY_PRIORITY.get(current[2], 9):
             best[key] = row

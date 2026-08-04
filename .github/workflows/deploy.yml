@@ -241,6 +241,32 @@ jobs:
           smoke "카테고리 조회"          200 -u "$SMOKE_USER:$SMOKE_PASS" http://localhost:8080/api/v1/categories || rollback
           smoke "지역 장소 목록"          200 -u "$SMOKE_USER:$SMOKE_PASS" 'http://localhost:8080/api/v1/regions/76/places?kind=STAY' || rollback
 
+          # 상태 코드만 보면 "200 인데 내용이 빈" 배포를 성공으로 넘긴다. 실제로 그렇게 나갔다 —
+          # 적재가 89곳 중 42곳에서 멈췄는데 목록 API 는 멀쩡히 200 을 줬다.
+          # 장소 풀은 부팅 시 전량 적재되므로, 어느 지역이든 비어 있으면 적재가 깨진 것이다.
+          for probe in "76 STAY" "1 SIGHT" "89 FOOD"; do
+            set -- $probe
+            # curl 성공 여부를 먼저 가른다. timeout·연결 오류로 끊긴 부분 응답에도 "totalElements" 가
+            # 섞여 있을 수 있어, 바로 파싱하면 실패를 통과로 읽는다.
+            body=$(curl -s --max-time 20 -w '\n%{http_code}' -u "$SMOKE_USER:$SMOKE_PASS" \
+              "http://localhost:8080/api/v1/regions/$1/places?kind=$2")
+            if [ $? -ne 0 ]; then
+              echo "스모크 실패: 장소 풀 조회 실패(curl) — region=$1 kind=$2"
+              rollback
+            fi
+            status=$(printf '%s' "$body" | tail -n1)
+            if [ "$status" != "200" ]; then
+              echo "스모크 실패: 장소 풀 조회 HTTP $status — region=$1 kind=$2"
+              rollback
+            fi
+            total=$(printf '%s' "$body" | sed -n 's/.*"totalElements":\([0-9]*\).*/\1/p')
+            if [ -z "$total" ] || [ "$total" -lt 1 ] 2>/dev/null; then
+              echo "스모크 실패: 장소 풀이 비었습니다 — region=$1 kind=$2 total=${total:-파싱실패}"
+              rollback
+            fi
+            echo "스모크 통과: 장소 풀 region=$1 kind=$2 ($total건)"
+          done
+
           echo "배포 성공 — 기동·스모크 모두 통과"
           REMOTE
 
