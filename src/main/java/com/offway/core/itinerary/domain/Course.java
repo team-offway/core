@@ -105,9 +105,15 @@ public class Course {
         this.travelDate = travelDate;
     }
 
-    /** 하루 일정들을 묶어 코스를 만든다(생성용, 소유자 없음). 일수 상한(2박3일)과 일차 연속성을 스스로 검증한다. */
-    public static Course of(Long regionId, Density density, TransportMode transport, List<DaySchedule> days) {
-        return new Course(null, regionId, density, transport, days, null);
+    /**
+     * 하루 일정들을 묶어 코스를 만든다(생성용, 소유자 없음). 일수 상한(2박3일)과 일차 연속성을 스스로 검증한다.
+     *
+     * <p>여행 날짜를 함께 담는다 — 화면이 {@code day 1  5.1/금} 을 그리려면 며칠째가 몇 일인지 알아야 하고,
+     * 그 근거가 여기서 끊기면 생성 응답의 날짜가 통째로 빈다(#141).
+     */
+    public static Course of(
+            Long regionId, Density density, TransportMode transport, List<DaySchedule> days, LocalDate travelDate) {
+        return new Course(null, regionId, density, transport, days, travelDate);
     }
 
     /** 게스트 소유로 코스를 만든다(저장용). 게스트 ID 는 공백일 수 없고 길이 상한을 넘지 않는다(빈 값이면 모든 요청이 한 묶음을 공유). */
@@ -166,6 +172,23 @@ public class Course {
     /** 코스 전체 슬롯(장소) 수. */
     public int totalSlots() {
         return days.stream().mapToInt(DaySchedule::slotCount).sum();
+    }
+
+    /**
+     * 며칠째가 실제로 몇 월 며칠인지(#141). 화면이 {@code day 1  7.26/토} 를 그리는 재료다.
+     *
+     * <p>프론트가 더할 수도 있지만 서버가 답한다 — 이미 같은 날짜로 날씨·혜택을 매칭하고 있어, 계산 주체가
+     * 둘로 갈리면 어긋날 여지가 생긴다.
+     *
+     * @param travelDate 여행 시작일. 날짜 없이 저장된 코스(#111 이전)는 null 이다
+     * @param dayNumber 며칠째(1부터)
+     * @return 그날의 날짜. 시작일을 모르면 null — 없는 것을 지어내지 않는다
+     */
+    public static LocalDate dateOfDay(LocalDate travelDate, int dayNumber) {
+        if (travelDate == null) {
+            return null;
+        }
+        return travelDate.plusDays(dayNumber - 1L);
     }
 
     private static void requireSequentialDays(List<DaySchedule> days) {

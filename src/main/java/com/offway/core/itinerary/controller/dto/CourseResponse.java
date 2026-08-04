@@ -7,8 +7,10 @@ import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.service.dto.TrainAccess;
 import com.offway.core.weather.domain.DailyWeather;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
+import java.util.stream.IntStream;
 import java.util.List;
 
 /**
@@ -22,9 +24,19 @@ import java.util.List;
  * @param density 일정 밀도(PACKED·RELAXED)
  * @param days 날짜별 일정
  * @param benefits 적용 혜택 뱃지
- * @param weather 여행 날짜의 코스 지역 날씨(생성 시점만 — 저장 코스·예보범위 밖·미조회면 null)
  * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근(자차·저장 코스는 null)
  */
+/**
+ * 값이 없는 선택 필드는 내려보내지 않는다.
+ *
+ * <p>인허가 데이터로 채운 슬롯은 사진·소개가 없어 매번 {@code null} 이 실린다. 슬롯이 스무 개면 그만큼
+ * 빈 칸이 오가는데, 클라이언트 입장에서 "필드가 없다" 와 "null 이다" 는 어차피 같은 분기다.
+ *
+ * <p>전역 설정(spring.jackson.default-property-inclusion)으로 켜지 않는다 — 응답 래퍼의
+ * {@code data}·{@code pageResponse} 는 <b>null 로 나가는 것이 계약</b>이라(exception-and-response 규약)
+ * 전역으로 걸면 그 약속이 깨진다.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record CourseResponse(
         Long courseId,
         long regionId,
@@ -34,7 +46,6 @@ public record CourseResponse(
         String density,
         List<Day> days,
         List<Benefit> benefits,
-        @Schema(description = "여행 날짜의 코스 지역 날씨 (없으면 null)", nullable = true) Weather weather,
         @Schema(description = "대중교통 코스의 출발지→지역 열차 접근 (자차·저장 코스는 null)", nullable = true)
                 TrainAccessResponse trainAccess) {
 
@@ -46,20 +57,55 @@ public record CourseResponse(
                 course.getTravelDays(),
                 course.getTravelDate(),
                 course.getDensity().name(),
-                course.getDays().stream().map(Day::from).toList(),
+                course.getDays().stream()
+                        .map(day -> Day.from(
+                                day,
+                                course.getTravelDate(),
+                                generated.regionName(),
+                                generated.weatherByDay().get(day.getDayNumber())))
+                        .toList(),
                 generated.benefits().stream().map(Benefit::from).toList(),
-                generated.weather() == null ? null : Weather.from(generated.weather()),
                 generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()));
     }
 
     /**
      * @param day 며칠째(1부터)
+     * @param date 그날의 실제 날짜 (여행 시작일 없이 저장된 코스는 null)
+     * @param weather 그날의 날씨 (예보 범위 밖·조회 실패면 null)
+     * @param dayOfWeek 요일 (날짜가 없으면 null)
      * @param items 그 날의 방문 순서대로의 장소
      */
-    public record Day(int day, List<Item> items) {
+    /**
+     * 값이 없는 선택 필드는 내려보내지 않는다.
+     *
+     * <p>인허가 데이터로 채운 슬롯은 사진·소개가 없어 매번 {@code null} 이 실린다. 슬롯이 스무 개면 그만큼
+     * 빈 칸이 오가는데, 클라이언트 입장에서 "필드가 없다" 와 "null 이다" 는 어차피 같은 분기다.
+     *
+     * <p>전역 설정(spring.jackson.default-property-inclusion)으로 켜지 않는다 — 응답 래퍼의
+     * {@code data}·{@code pageResponse} 는 <b>null 로 나가는 것이 계약</b>이라(exception-and-response 규약)
+     * 전역으로 걸면 그 약속이 깨진다.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Day(
+            int day,
+            @Schema(example = "2026-07-26", nullable = true) LocalDate date,
+            @Schema(description = "요일", example = "SATURDAY", nullable = true) String dayOfWeek,
+            @Schema(description = "그날의 날씨 (예보 없으면 null)", nullable = true) Weather weather,
+            List<Item> items) {
 
-        static Day from(DaySchedule schedule) {
-            return new Day(schedule.getDayNumber(), schedule.getSlots().stream().map(Item::from).toList());
+        static Day from(
+                DaySchedule schedule, LocalDate travelDate, String regionName, DailyWeather weather) {
+            LocalDate date = Course.dateOfDay(travelDate, schedule.getDayNumber());
+            List<Slot> slots = schedule.getSlots();
+            List<Item> items = IntStream.range(0, slots.size())
+                    .mapToObj(i -> Item.from(slots.get(i), schedule.distanceFromPrevMeters(i), regionName))
+                    .toList();
+            return new Day(
+                    schedule.getDayNumber(),
+                    date,
+                    date == null ? null : date.getDayOfWeek().name(),
+                    weather == null ? null : Weather.from(weather),
+                    items);
         }
     }
 
@@ -77,6 +123,17 @@ public record CourseResponse(
      * @param lng 경도
      * @param travelMinutes 직전 장소에서의 이동시간(분, 첫 장소는 0)
      */
+    /**
+     * 값이 없는 선택 필드는 내려보내지 않는다.
+     *
+     * <p>인허가 데이터로 채운 슬롯은 사진·소개가 없어 매번 {@code null} 이 실린다. 슬롯이 스무 개면 그만큼
+     * 빈 칸이 오가는데, 클라이언트 입장에서 "필드가 없다" 와 "null 이다" 는 어차피 같은 분기다.
+     *
+     * <p>전역 설정(spring.jackson.default-property-inclusion)으로 켜지 않는다 — 응답 래퍼의
+     * {@code data}·{@code pageResponse} 는 <b>null 로 나가는 것이 계약</b>이라(exception-and-response 규약)
+     * 전역으로 걸면 그 약속이 깨진다.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Item(
             int order,
             String timeOfDay,
@@ -89,9 +146,12 @@ public record CourseResponse(
             @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase,
             double lat,
             double lng,
-            int travelMinutes) {
+            int travelMinutes,
+            @Schema(description = "앞 장소와의 직선거리(m). 첫 장소는 null", example = "8300", nullable = true)
+                    Integer distanceFromPrevMeters,
+            @Schema(description = "코스 지역의 짧은 이름", example = "정선군", nullable = true) String regionName) {
 
-        static Item from(Slot slot) {
+        static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName) {
             return new Item(
                     slot.getOrderInDay(),
                     slot.getTimeOfDay().name(),
@@ -104,7 +164,9 @@ public record CourseResponse(
                     slot.getCatchphrase(),
                     slot.getLat(),
                     slot.getLng(),
-                    slot.getTravelMinutesFromPrev());
+                    slot.getTravelMinutesFromPrev(),
+                    distanceFromPrevMeters,
+                    regionName);
         }
     }
 
@@ -127,6 +189,17 @@ public record CourseResponse(
      * @param sky 하늘 상태 문구(맑음·구름많음·흐림·정보 없음)
      * @param rainProbability 강수확률 최대(%, 없으면 null)
      */
+    /**
+     * 값이 없는 선택 필드는 내려보내지 않는다.
+     *
+     * <p>인허가 데이터로 채운 슬롯은 사진·소개가 없어 매번 {@code null} 이 실린다. 슬롯이 스무 개면 그만큼
+     * 빈 칸이 오가는데, 클라이언트 입장에서 "필드가 없다" 와 "null 이다" 는 어차피 같은 분기다.
+     *
+     * <p>전역 설정(spring.jackson.default-property-inclusion)으로 켜지 않는다 — 응답 래퍼의
+     * {@code data}·{@code pageResponse} 는 <b>null 로 나가는 것이 계약</b>이라(exception-and-response 규약)
+     * 전역으로 걸면 그 약속이 깨진다.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Weather(
             LocalDate date,
             @Schema(example = "18", nullable = true) Integer minTemp,

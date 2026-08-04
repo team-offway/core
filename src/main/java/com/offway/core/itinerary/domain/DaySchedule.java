@@ -1,5 +1,6 @@
 package com.offway.core.itinerary.domain;
 
+import com.offway.core.transport.domain.Coordinate;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -26,6 +27,9 @@ import lombok.NoArgsConstructor;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class DaySchedule {
+
+    /** km 로 계산한 대권거리를 화면 단위(m)로 바꾼다. */
+    private static final int METERS_PER_KM = 1000;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -61,6 +65,30 @@ public class DaySchedule {
     }
 
     /** 이 날의 슬롯 수. */
+    /**
+     * 앞 슬롯과의 직선거리(m) — 화면이 장소 사이에 {@code 8.3km}·{@code 154m} 를 그리는 재료다(#141).
+     *
+     * <p>좌표가 이미 있어 <b>추가 외부 호출이 없다.</b> 이동시간(TMAP 실측)과는 다른 값이다 — 그쪽은 도로를
+     * 따라가고 이쪽은 직선이라 값이 어긋나지만, 둘 다 사실이라 함께 보여줘도 된다.
+     *
+     * @param index 슬롯 위치(0부터)
+     * @return 앞 슬롯과의 거리(m). <b>첫 슬롯은 null</b> — 이동 전이라 0 이 아니라 없음이다
+     */
+    public Integer distanceFromPrevMeters(int index) {
+        if (index <= 0 || index >= slots.size()) {
+            return null;
+        }
+        Slot prev = slots.get(index - 1);
+        Slot current = slots.get(index);
+        if (prev.getLat() == null || prev.getLng() == null
+                || current.getLat() == null || current.getLng() == null) {
+            return null; // 좌표는 필수라 닿지 않는 게 정상이지만, 닿으면 지어내지 않는다
+        }
+        double km = new Coordinate(prev.getLat(), prev.getLng())
+                .haversineKmTo(new Coordinate(current.getLat(), current.getLng()));
+        return (int) Math.round(km * METERS_PER_KM);
+    }
+
     public int slotCount() {
         return slots.size();
     }
