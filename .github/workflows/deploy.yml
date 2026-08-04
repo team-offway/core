@@ -59,7 +59,7 @@ jobs:
       # 그대로면 SSH 가 timeout 으로 죽는다. 22번을 상시 개방하는 대신 이 실행의 러너 IP 만
       # 잠깐 열고, 끝나면(실패해도) 즉시 회수한다.
       - name: AWS 자격증명 설정
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
