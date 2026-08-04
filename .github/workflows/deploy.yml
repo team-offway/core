@@ -170,15 +170,20 @@ jobs:
       # 어느 쪽이든 실패하면 이전 이미지로 되돌린다. 자동 배포에서는 사람이 손으로 되돌릴 수 없다.
       - name: 기동 확인 · 스모크 · 실패 시 롤백
         run: |
-          # 스모크 계정을 러너에서 넘긴다. 서버의 env.prod 에는 bcrypt 해시만 있어 평문을 복원할 수 없다
-          # ({bcrypt} 접두어를 떼면 해시가 남을 뿐이다). 첫 자동 배포가 이걸 몰라 인증 401 로
-          # 거짓 롤백을 냈다 — 앱은 정상 기동한 상태였다.
+          # 스모크 비밀번호만 러너에서 넘긴다. 서버의 env.prod 에는 bcrypt 해시만 있어 평문을 복원할 수
+          # 없다({bcrypt} 접두어를 떼면 해시가 남을 뿐이다).
+          #
+          # 사용자명은 반대로 **서버 파일에서 읽는다.** 시크릿을 인자로 넘기면 값 끝의 개행 하나만으로도
+          # `-u "user\n:pass"` 가 되어 401 이 난다 — 실제로 그렇게 두 번 거짓 롤백이 났다.
+          # env.prod 에서 읽으면 그 줄만 잘라오므로 개행이 섞이지 않고, 서버가 실제로 쓰는 값과도 어긋나지 않는다.
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            'bash -s' -- "${{ secrets.OFFWAY_BASIC_USERNAME }}" "${{ secrets.OFFWAY_SMOKE_PASSWORD }}" <<'REMOTE'
+            'bash -s' -- "${{ secrets.OFFWAY_SMOKE_PASSWORD }}" <<'REMOTE'
           set -uo pipefail
-          SMOKE_USER="$1"
-          SMOKE_PASS="$2"
+          # 비밀번호도 같은 이유로 개행을 걷어낸다.
+          SMOKE_PASS=$(printf '%s' "$1" | tr -d '\r\n')
           cd ~/offway
+          # tr 로 개행·캐리지리턴을 걷어낸다. 시크릿을 파일에 쓸 때 끝에 붙었을 수 있다.
+          SMOKE_USER=$(grep '^OFFWAY_BASIC_USERNAME=' env.prod | cut -d= -f2- | tr -d '\r\n')
 
           rollback() {
             echo "── 배포 실패. 최근 로그 ──"
@@ -238,7 +243,11 @@ jobs:
           }
 
           smoke "인증 게이트(무인증 401)" 401 http://localhost:8080/api/v1/categories || rollback
-          smoke "카테고리 조회"          200 -u "$SMOKE_USER:$SMOKE_PASS" http://localhost:8080/api/v1/categories || rollback
+          if ! smoke "카테고리 조회" 200 -u "$SMOKE_USER:$SMOKE_PASS" http://localhost:8080/api/v1/categories; then
+            # 값은 남기지 않는다. 길이만으로 "빈 값인지·개행이 붙었는지" 는 충분히 가려진다.
+            echo "  (진단) 사용자명 길이=${#SMOKE_USER} 비밀번호 길이=${#SMOKE_PASS}"
+            rollback
+          fi
           smoke "지역 장소 목록"          200 -u "$SMOKE_USER:$SMOKE_PASS" 'http://localhost:8080/api/v1/regions/76/places?kind=STAY' || rollback
 
           # 상태 코드만 보면 "200 인데 내용이 빈" 배포를 성공으로 넘긴다. 실제로 그렇게 나갔다 —
