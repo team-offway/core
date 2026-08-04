@@ -138,6 +138,12 @@ jobs:
             exit 1
           fi
 
+          # 되돌아갈 지점을 먼저 적어 둔다. 자동 배포에서는 사람이 지켜보지 않으므로, 새 컨테이너가
+          # 안 뜨면 워크플로우가 스스로 이 이미지로 돌아가야 한다(아래 "기동 확인" 단계).
+          # 컨테이너가 없으면(첫 배포) 빈 파일이 되고, 그때는 롤백 대상이 없다는 뜻이다.
+          docker inspect -f '{{.Config.Image}}' offway-core > ~/offway/.prev-image 2>/dev/null || : > ~/offway/.prev-image
+          echo "이전 이미지: $(cat ~/offway/.prev-image || echo '(없음)')"
+
           # 새 컨테이너를 띄우기 전에 기존 것을 내린다. 같은 8080 을 쓰므로 공존할 수 없다.
           docker rm -f offway-core 2>/dev/null || true
 
@@ -160,22 +166,73 @@ jobs:
           REMOTE
 
       # 컨테이너가 떴다고 앱이 뜬 건 아니다. DB 접속 실패·마이그레이션 실패는 기동 중에 죽는다.
-      - name: 기동 확인
+      # 그리고 떴다고 기능이 되는 것도 아니다 — 스모크로 실제 응답까지 본 뒤에야 배포를 성공으로 친다.
+      # 어느 쪽이든 실패하면 이전 이미지로 되돌린다. 자동 배포에서는 사람이 손으로 되돌릴 수 없다.
+      - name: 기동 확인 · 스모크 · 실패 시 롤백
         run: |
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
-          set -euo pipefail
+          set -uo pipefail
+          cd ~/offway
+
+          rollback() {
+            echo "── 배포 실패. 최근 로그 ──"
+            docker logs --tail 120 offway-core 2>&1 || true
+            PREV=$(cat ~/offway/.prev-image 2>/dev/null || echo "")
+            if [ -z "$PREV" ]; then
+              echo "되돌릴 이전 이미지가 없습니다(첫 배포). 컨테이너를 내린 채 둡니다."
+              exit 1
+            fi
+            echo "── $PREV 로 롤백합니다 ──"
+            docker rm -f offway-core 2>/dev/null || true
+            docker run -d --name offway-core --network offway-net --restart unless-stopped \
+              --env-file ~/offway/env.prod -p 8080:8080 "$PREV"
+            for i in $(seq 1 30); do
+              c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:8080/api/v1/categories || true)
+              if [ "$c" = "401" ] || [ "$c" = "200" ]; then
+                echo "롤백 완료 — 이전 버전으로 서비스 중"
+                exit 1
+              fi
+              sleep 5
+            done
+            echo "롤백까지 실패했습니다. 수동 개입이 필요합니다."
+            exit 1
+          }
+
+          # ① 기동 — 401 도 정상이다(인증 게이트가 살아 있다는 뜻, #122)
+          up=""
           for i in $(seq 1 30); do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:8080/api/v1/categories || true)
-            # 401 도 정상 기동이다 — 인증 게이트가 살아 있다는 뜻이다(#122).
             if [ "$code" = "401" ] || [ "$code" = "200" ]; then
               echo "기동 확인 (HTTP $code, ${i}회 시도)"
-              exit 0
+              up=yes
+              break
             fi
             sleep 5
           done
-          echo "기동 실패 — 최근 로그:"
-          docker logs --tail 100 offway-core
-          exit 1
+          [ -n "$up" ] || rollback
+
+          # ② 스모크 — 실제 응답까지 본다.
+          #
+          # 외부 API 에 기대는 엔드포인트(코스 생성 등)는 일부러 넣지 않는다. 관광 API 한도가 소진되면
+          # 우리 배포는 멀쩡한데 롤백이 발동한다. 여기서는 우리 코드와 DB 만으로 답하는 것만 본다.
+          USER=$(grep '^OFFWAY_BASIC_USERNAME=' env.prod | cut -d= -f2-)
+          PASS=$(grep '^OFFWAY_BASIC_PASSWORD=' env.prod | cut -d= -f2- | sed 's/^{[a-z]*}//')
+
+          smoke() {
+            name="$1"; expect="$2"; shift 2
+            got=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@" || true)
+            if [ "$got" != "$expect" ]; then
+              echo "스모크 실패: $name — 기대 $expect, 실제 $got"
+              return 1
+            fi
+            echo "스모크 통과: $name ($got)"
+          }
+
+          smoke "인증 게이트(무인증 401)" 401 http://localhost:8080/api/v1/categories || rollback
+          smoke "카테고리 조회"          200 -u "$USER:$PASS" http://localhost:8080/api/v1/categories || rollback
+          smoke "지역 장소 목록"          200 -u "$USER:$PASS" 'http://localhost:8080/api/v1/regions/76/places?kind=STAY' || rollback
+
+          echo "배포 성공 — 기동·스모크 모두 통과"
           REMOTE
 
       # 배포가 실패해도 규칙은 반드시 회수한다 — 남으면 22번이 조금씩 영구 개방된다.
