@@ -37,10 +37,10 @@ class SlotDistanceTest {
     }
 
     @Test
-    void 좌표가_없는_슬롯은_거리를_구하지_않는다() {
-        // 좌표는 필수라 여기 닿지 않는 게 정상이지만, 닿으면 지어내지 않고 비운다.
+    void 같은_자리에_있는_두_슬롯은_0m_다() {
+        // 같은 건물의 다른 시설처럼 좌표가 겹칠 수 있다. 거리를 못 구하는 것(null)과 다르다.
         DaySchedule day = DaySchedule.of(1, List.of(slot(1, 37.5, 127.0), slot(2, 37.5, 127.0)));
 
-        assertEquals(0, day.distanceFromPrevMeters(1), "같은 좌표면 0m");
+        assertEquals(0, day.distanceFromPrevMeters(1));
     }
 }
