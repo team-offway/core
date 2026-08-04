@@ -303,7 +303,8 @@ class CourseGenerateIntegrationTest {
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(transitBody("CAR")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").value(NEAR_SEOUL))
-                .andExpect(jsonPath("$.data.trainAccess").value(nullValue()));
+                // 값이 없는 선택 필드는 응답에서 빠진다 — 자차 코스에는 열차 접근 정보가 없다.
+                .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
     }
 
     @Test
