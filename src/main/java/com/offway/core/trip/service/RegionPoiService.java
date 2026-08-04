@@ -2,9 +2,12 @@ package com.offway.core.trip.service;
 
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.trip.domain.LicensedPlace;
+import com.offway.core.trip.domain.PlaceKind;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.service.dto.PoiCandidate;
+import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.RegionPois;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,9 +36,13 @@ public class RegionPoiService {
     private static final int FOOD_TYPE = 39;
     private static final int STAY_TYPE = 32;
 
+    /** TourAPI 콘텐츠가 아님을 뜻하는 타입. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
+    private static final int LICENSED_CONTENT_TYPE = 0;
+
     private final RegionRepository regionRepository;
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
+    private final LicensedPlaceRepository licensedPlaceRepository;
 
     /** 지역의 후보 POI 를 세 풀로 분류해 돌려준다. 좌표가 없는 POI 는 지도·동선에 못 쓰므로 제외한다. */
     public RegionPois collect(long regionId) {
@@ -54,8 +61,57 @@ public class RegionPoiService {
         List<PoiCandidate> foods = candidates(region, FOOD_TYPE);
         List<PoiCandidate> stays = candidates(region, STAY_TYPE);
 
+        RegionPois pois = new RegionPois(sights, foods, stays);
         log.info("코스 POI 수집 regionId={} 볼거리={} 맛집={} 숙박={}", regionId, sights.size(), foods.size(), stays.size());
-        return new RegionPois(sights, foods, stays);
+        return pois.needsSupplement() ? supplement(pois, regionId) : pois;
+    }
+
+    /**
+     * TourAPI 가 못 채운 풀을 인허가 데이터로 메운다(#144).
+     *
+     * <p>TourAPI 숙박은 관광사업체 위주라 지방 숙소가 거의 없다 — 의성군이 1건이다. 그대로 두면 슬롯이 조용히 빠져
+     * "잘 곳 없는 2박3일" 이 200 으로 나간다. 인허가 데이터엔 사진·소개가 없으므로 <b>부족할 때만</b> 쓴다.
+     */
+    private RegionPois supplement(RegionPois pois, long regionId) {
+        // 모자란 풀만 조회한다 — 볼거리만 부족한 지역에서 숙소·맛집까지 끌어올 이유가 없다.
+        RegionPois supplemented = pois.supplementedWith(
+                pois.needsMoreSights() ? licensedCandidates(regionId, PlaceKind.SIGHT) : List.of(),
+                pois.needsMoreFoods() ? licensedCandidates(regionId, PlaceKind.FOOD) : List.of(),
+                pois.needsMoreStays() ? licensedCandidates(regionId, PlaceKind.STAY) : List.of());
+
+        // degrade 한 사실을 남긴다 — 보충이 조용히 일어나면 TourAPI 쪽 공백을 아무도 모른다.
+        log.info("인허가 데이터로 보충 regionId={} 볼거리={}→{} 맛집={}→{} 숙박={}→{}",
+                regionId,
+                pois.sights().size(), supplemented.sights().size(),
+                pois.foods().size(), supplemented.foods().size(),
+                pois.stays().size(), supplemented.stays().size());
+        return supplemented;
+    }
+
+    /**
+     * 인허가 장소를 후보로 옮긴다. 정렬·상한은 저장소 경계에서 끝난다 — 관광 콘텐츠성이 높은 분류
+     * (한옥·사찰·박물관)가 앞에 오므로, 모자란 만큼만 쓰일 때 더 나은 쪽이 먼저 뽑힌다.
+     */
+    private List<PoiCandidate> licensedCandidates(long regionId, PlaceKind kind) {
+        return licensedPlaceRepository.findCandidates(regionId, kind, CANDIDATE_ROWS).stream()
+                .map(RegionPoiService::toCandidate)
+                .toList();
+    }
+
+    /**
+     * 인허가 장소는 TourAPI 콘텐츠가 아니라 상세 조회 대상이 아니다. 식별자에 접두어를 붙여 두 출처를 구분할 수 있게 하고,
+     * 콘텐츠 타입은 "TourAPI 아님" 을 뜻하는 0 으로 둔다.
+     */
+    private static PoiCandidate toCandidate(LicensedPlace place) {
+        return new PoiCandidate(
+                place.publicId(),
+                LICENSED_CONTENT_TYPE,
+                place.getName(),
+                place.getLat(),
+                place.getLng(),
+                null, // 인허가 데이터에는 사진이 없다
+                place.getAddress(),
+                null); // 캐치프레이즈도 TourAPI 콘텐츠에만 붙는다
     }
 
     /** 한 콘텐츠 타입(또는 {@code null}=전체)의 후보를 좌표 있는 것만 뽑는다. */
