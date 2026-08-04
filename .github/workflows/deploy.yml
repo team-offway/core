@@ -170,8 +170,14 @@ jobs:
       # 어느 쪽이든 실패하면 이전 이미지로 되돌린다. 자동 배포에서는 사람이 손으로 되돌릴 수 없다.
       - name: 기동 확인 · 스모크 · 실패 시 롤백
         run: |
-          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          # 스모크 계정을 러너에서 넘긴다. 서버의 env.prod 에는 bcrypt 해시만 있어 평문을 복원할 수 없다
+          # ({bcrypt} 접두어를 떼면 해시가 남을 뿐이다). 첫 자동 배포가 이걸 몰라 인증 401 로
+          # 거짓 롤백을 냈다 — 앱은 정상 기동한 상태였다.
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'bash -s' -- "${{ secrets.OFFWAY_BASIC_USERNAME }}" "${{ secrets.OFFWAY_SMOKE_PASSWORD }}" <<'REMOTE'
           set -uo pipefail
+          SMOKE_USER="$1"
+          SMOKE_PASS="$2"
           cd ~/offway
 
           rollback() {
@@ -213,11 +219,14 @@ jobs:
 
           # ② 스모크 — 실제 응답까지 본다.
           #
+          # localhost 로 부른다. 같은 인스턴스 안의 loopback 이라 트래픽이 네트워크 인터페이스를
+          # 타지 않으므로 평문 HTTP 여도 도청 경로가 없다 — 이걸 엿보려면 이미 이 서버에 들어와
+          # 있어야 하고, 그 상황이면 env.prod(600)를 읽는 편이 빠르다.
+          # 반대로 러너에서 공인 IP 로 부르면 그때는 진짜 평문이 인터넷을 지난다. 여기서
+          # 서버 안쪽을 택한 이유다. 8080 에 TLS 를 붙이면 그때 https 로 바꾼다.
+          #
           # 외부 API 에 기대는 엔드포인트(코스 생성 등)는 일부러 넣지 않는다. 관광 API 한도가 소진되면
           # 우리 배포는 멀쩡한데 롤백이 발동한다. 여기서는 우리 코드와 DB 만으로 답하는 것만 본다.
-          USER=$(grep '^OFFWAY_BASIC_USERNAME=' env.prod | cut -d= -f2-)
-          PASS=$(grep '^OFFWAY_BASIC_PASSWORD=' env.prod | cut -d= -f2- | sed 's/^{[a-z]*}//')
-
           smoke() {
             name="$1"; expect="$2"; shift 2
             got=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@" || true)
@@ -229,8 +238,8 @@ jobs:
           }
 
           smoke "인증 게이트(무인증 401)" 401 http://localhost:8080/api/v1/categories || rollback
-          smoke "카테고리 조회"          200 -u "$USER:$PASS" http://localhost:8080/api/v1/categories || rollback
-          smoke "지역 장소 목록"          200 -u "$USER:$PASS" 'http://localhost:8080/api/v1/regions/76/places?kind=STAY' || rollback
+          smoke "카테고리 조회"          200 -u "$SMOKE_USER:$SMOKE_PASS" http://localhost:8080/api/v1/categories || rollback
+          smoke "지역 장소 목록"          200 -u "$SMOKE_USER:$SMOKE_PASS" 'http://localhost:8080/api/v1/regions/76/places?kind=STAY' || rollback
 
           echo "배포 성공 — 기동·스모크 모두 통과"
           REMOTE
