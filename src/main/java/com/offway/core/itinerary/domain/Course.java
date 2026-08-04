@@ -191,6 +191,21 @@ public class Course {
         return travelDate.plusDays(dayNumber - 1L);
     }
 
+    /**
+     * 이 하루가 실제로 몇 월 며칠인지 — <b>표시 번호가 아니라 달력 오프셋</b>으로 센다.
+     *
+     * <p>일정이 없는 날은 코스에서 빠지므로 표시 번호와 달력 위치가 어긋날 수 있다. 그때 표시 번호로
+     * 날짜를 세면 하루가 앞당겨진다(#159).
+     *
+     * @return 그날의 날짜. 여행 시작일을 모르면 null — 없는 것을 지어내지 않는다
+     */
+    public LocalDate dateOf(DaySchedule schedule) {
+        if (travelDate == null) {
+            return null;
+        }
+        return travelDate.plusDays(schedule.getDayOffset());
+    }
+
     private static void requireSequentialDays(List<DaySchedule> days) {
         for (int i = 0; i < days.size(); i++) {
             int expected = i + 1;

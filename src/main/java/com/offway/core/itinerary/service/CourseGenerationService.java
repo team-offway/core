@@ -285,7 +285,9 @@ public class CourseGenerationService {
 
             List<Slot> slots = arrangeDay(daySights, dayFoods, stay, command.transport(), start);
             if (!slots.isEmpty()) {
-                days.add(DaySchedule.of(days.size() + 1, slots)); // 빈 날은 건너뛰고 1부터 연속 번호
+                // 표시 번호는 1부터 연속(빈 날은 건너뛴다), 날짜 계산용 오프셋은 달력을 그대로 따른다.
+                // 둘을 겸하면 첫날이 빌 때 날짜와 날씨가 하루 앞당겨진다(#159).
+                days.add(DaySchedule.of(days.size() + 1, day - 1, slots));
             }
         }
         if (days.isEmpty()) {

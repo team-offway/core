@@ -35,9 +35,19 @@ public class DaySchedule {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** 며칠째(1부터). */
+    /** 화면에 보이는 며칠째(1부터 연속). Day 탭의 번호다. */
     @Column(name = "day_number", nullable = false)
     private int dayNumber;
+
+    /**
+     * 여행 시작일로부터 며칠 뒤인지(0부터). 날짜·날씨는 이 값으로 계산한다.
+     *
+     * <p><b>표시 번호와 나눠 두는 이유</b> — 일정이 하나도 없는 날은 코스에서 빠진다(늦게 도착해 아무것도
+     * 못 하는 날). 그러면 둘째 날이 {@code day 1} 이 되는데, 날짜까지 표시 번호로 계산하면 하루가
+     * 앞당겨진다. 화면의 탭은 1·2·3 으로 이어지되 날짜는 달력을 따라야 한다(#159).
+     */
+    @Column(name = "day_offset", nullable = false)
+    private int dayOffset;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(
@@ -47,21 +57,35 @@ public class DaySchedule {
     @OrderBy("orderInDay")
     private List<Slot> slots;
 
-    private DaySchedule(int dayNumber, List<Slot> slots) {
+    private DaySchedule(int dayNumber, int dayOffset, List<Slot> slots) {
         if (dayNumber < 1) {
             throw new IllegalArgumentException("일차는 1 이상이어야 합니다: " + dayNumber);
+        }
+        if (dayOffset < 0) {
+            throw new IllegalArgumentException("여행 시작일로부터의 일수는 0 이상이어야 합니다: " + dayOffset);
         }
         if (slots == null || slots.isEmpty()) {
             throw new IllegalArgumentException("하루에는 슬롯이 최소 하나 있어야 합니다");
         }
         requireSequentialOrder(slots);
         this.dayNumber = dayNumber;
+        this.dayOffset = dayOffset;
         this.slots = List.copyOf(slots);
     }
 
-    /** 하루 일정을 만든다. 슬롯 순서가 1부터 빠짐없이 이어지는지 검증한다. */
+    /**
+     * 하루 일정을 만든다. 슬롯 순서가 1부터 빠짐없이 이어지는지 검증한다.
+     *
+     * @param dayNumber 화면에 보이는 며칠째(1부터 연속)
+     * @param dayOffset 여행 시작일로부터 며칠 뒤인지(0부터) — 날짜·날씨 계산의 근거
+     */
+    public static DaySchedule of(int dayNumber, int dayOffset, List<Slot> slots) {
+        return new DaySchedule(dayNumber, dayOffset, slots);
+    }
+
+    /** 표시 번호와 달력 위치가 같은 경우(첫날부터 일정이 있는 흔한 코스). */
     public static DaySchedule of(int dayNumber, List<Slot> slots) {
-        return new DaySchedule(dayNumber, slots);
+        return new DaySchedule(dayNumber, dayNumber - 1, slots);
     }
 
     /** 이 날의 슬롯 수. */

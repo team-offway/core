@@ -95,7 +95,8 @@ public record CourseResponse(
 
         static Day from(
                 DaySchedule schedule, LocalDate travelDate, String regionName, DailyWeather weather) {
-            LocalDate date = Course.dateOfDay(travelDate, schedule.getDayNumber());
+            // 표시 번호가 아니라 달력 오프셋으로 센다 — 첫날이 빠진 코스에서 하루 앞당겨지지 않게(#159).
+            LocalDate date = travelDate == null ? null : travelDate.plusDays(schedule.getDayOffset());
             List<Slot> slots = schedule.getSlots();
             List<Item> items = IntStream.range(0, slots.size())
                     .mapToObj(i -> Item.from(slots.get(i), schedule.distanceFromPrevMeters(i), regionName))
