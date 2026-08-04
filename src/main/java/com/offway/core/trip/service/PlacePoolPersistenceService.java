@@ -2,7 +2,9 @@ package com.offway.core.trip.service;
 
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
+import com.offway.core.trip.repository.PlacePoolSourceRepository;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PlacePoolPersistenceService {
 
     private final LicensedPlaceRepository licensedPlaceRepository;
+    private final PlacePoolSourceRepository placePoolSourceRepository;
 
     /**
      * 기존 장소를 비우고 전량 다시 적재한다. 실패하면 예외를 던져 <b>비우기까지 함께</b> 롤백시킨다 —
@@ -36,9 +39,25 @@ public class PlacePoolPersistenceService {
      * @return 실제로 삽입된 건수
      */
     @Transactional
-    public int replaceAll(List<LicensedPlace> places) {
+    public int replaceAll(List<LicensedPlace> places, String checksum) {
         licensedPlaceRepository.deleteAll();
-        return licensedPlaceRepository.saveAll(places);
+        int inserted = licensedPlaceRepository.saveAll(places);
+        if (inserted != places.size()) {
+            // 던져야 DELETE 까지 함께 말린다. 여기서 그냥 돌려주면 트랜잭션이 커밋되고,
+            // 호출자가 로그를 남기든 말든 부분 적재가 DB 에 남는다.
+            throw new IllegalStateException(
+                    "장소 풀이 일부만 적재됐습니다. 기대=" + places.size() + " 실제=" + inserted);
+        }
+        // 출처 기록도 같은 트랜잭션이다. 따로 커밋되면 "적재는 실패했는데 체크섬은 남은" 상태가 되어
+        // 다음 기동이 이미 적재된 줄 알고 건너뛴다.
+        placePoolSourceRepository.record(checksum, inserted);
+        return inserted;
+    }
+
+    /** 마지막으로 적재한 파일의 체크섬. 적재된 적이 없으면 비어 있음. */
+    @Transactional(readOnly = true)
+    public Optional<String> loadedChecksum() {
+        return placePoolSourceRepository.findChecksum();
     }
 
     /** 이미 적재돼 있는지. */

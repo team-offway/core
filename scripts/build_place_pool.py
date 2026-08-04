@@ -29,6 +29,7 @@ import pathlib
 import re
 import struct
 import sys
+import unicodedata
 import zipfile
 
 # 시도별 다운로드 코드 — `file.localdata.go.kr/file/download-all?orgCode=<코드>_ALL`
@@ -289,12 +290,19 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
     # 같은 자리의 중복을 접는다. 원본에는 한 건물의 여러 업소가 같은 상호로 올라온다
     # (이마트 제천점 9건, 휴게소 3건 등). 코스에서는 한 곳이므로 하나만 남긴다.
     # 분류가 갈리면 관광 콘텐츠성이 높은 쪽을 남긴다.
-    # 키를 casefold 로 눕힌다. MySQL 의 기본 collation(utf8mb4_0900_ai_ci)은 대소문자·악센트를
-    # 무시해서, 파일에서 다른 문자열이어도 DB 에서는 같은 값이 된다. 정확 비교로만 접으면
-    # ("IC펜션" 과 "ic펜션" 처럼) 적재 도중 유니크 위반이 나고 그 배치부터 통째로 실패한다.
+    # MySQL 의 기본 collation(utf8mb4_0900_ai_ci)이 같게 보는 것들을 여기서도 같게 본다.
+    # 정확 비교로만 접으면("IC펜션" 과 "ic펜션" 처럼) 적재 도중 유니크 위반이 나고 그 배치부터
+    # 통째로 실패한다 — 실제로 그 한 건 때문에 89곳 중 42곳만 실렸다.
+    #
+    # casefold 는 대소문자만 지운다. ai_ci 는 악센트도 무시하므로 NFD 로 분해해 결합 문자를
+    # 떼어낸 뒤 비교한다("Café" 와 "Cafe" 가 DB 에서 같은 값이다).
+    def fold(text: str) -> str:
+        decomposed = unicodedata.normalize("NFD", text)
+        return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+
     best: dict[tuple, tuple] = {}
     for row in rows:
-        key = (row[0], row[1], row[3].casefold(), row[4].casefold())  # region_id · kind · name · address
+        key = (row[0], row[1], fold(row[3]), fold(row[4]))  # region_id · kind · name · address
         current = best.get(key)
         if current is None or CATEGORY_PRIORITY.get(row[2], 9) < CATEGORY_PRIORITY.get(current[2], 9):
             best[key] = row
