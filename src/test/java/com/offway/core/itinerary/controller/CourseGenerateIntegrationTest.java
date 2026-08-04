@@ -335,4 +335,44 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").value(NEAR_STATION))
                 .andExpect(jsonPath("$.data.trainAccess.status").value("NO_SERVICE_ON_DATE"));
     }
+
+    /**
+     * 첫날이 통째로 비면 그날은 코스에서 빠진다. 그때도 <b>둘째 날의 날짜가 둘째 날로</b> 나와야 한다.
+     *
+     * <p>예전에는 표시 번호로 날짜를 세서, 빠진 첫날만큼 날짜와 날씨가 하루씩 앞당겨졌다(#159).
+     */
+    @Test
+    void 첫날이_비어도_남은_날의_날짜가_밀리지_않는다() throws Exception {
+        // 밤 11시 도착 + 숙박 후보 없음 — 첫날에는 아무 슬롯도 잡히지 않는다.
+        // (숙박은 시간대 판정을 타지 않으므로, 후보가 있으면 밤늦게라도 첫날이 채워진다)
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                items.add(poi("s" + i, 12, 35.20 + i * 0.03, 129.02 + i * 0.01));
+            }
+            items.add(poi("f0", 39, 35.12, 129.04));
+            items.add(poi("f1", 39, 35.13, 129.05));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(23, 0));
+        // 날짜별로 다른 예보를 준다 — 날씨까지 하루 앞당겨지는지 가리려면 값이 갈려야 한다.
+        weatherClient.respondByDate(date -> Optional.of(new DailyWeather(
+                date, date.getDayOfMonth(), date.getDayOfMonth() + 10, SkyState.CLEAR, 20)));
+
+        String body = """
+                { "regionId": 1, "travelDays": 2, "density": "RELAXED", "transport": "TRANSIT",
+                  "originLat": 37.5665, "originLng": 126.9780, "travelDate": "2026-05-01" }""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                // 화면 탭은 1부터 이어진다
+                .andExpect(jsonPath("$.data.days[0].day").value(1))
+                // 날짜는 달력을 따른다 — 5/1 이 아니라 5/2
+                .andExpect(jsonPath("$.data.days[0].date").value("2026-05-02"))
+                .andExpect(jsonPath("$.data.days[0].dayOfWeek").value("SATURDAY"))
+                // 날씨도 그 날짜의 것이어야 한다. 표시 번호로 조회하면 5/1 예보가 붙는다
+                .andExpect(jsonPath("$.data.days[0].weather.minTemp").value(2))
+                // 요청한 출발일 자체는 그대로 보존된다
+                .andExpect(jsonPath("$.data.travelDate").value("2026-05-01"));
+    }
 }

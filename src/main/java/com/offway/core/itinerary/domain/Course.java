@@ -143,6 +143,9 @@ public class Course {
         if (travelDate == null) {
             throw new IllegalStateException("여행 날짜가 없는 코스의 종료일을 물었습니다: id=" + id);
         }
+        // 표시 일수로 센다. 첫날이 빠진 코스에서는 실제 여행 기간보다 하루 짧게 나오는데,
+        // 고치려면 가장 늦은 오프셋을 봐야 하고 그러자면 days 컬렉션을 건드린다 — LAZY 라
+        // 트랜잭션 밖에서 터진다(연차 차감이 그 경로다). 별도 작업으로 뺀다.
         return travelDate.plusDays(travelDays - 1L);
     }
 
@@ -189,6 +192,21 @@ public class Course {
             return null;
         }
         return travelDate.plusDays(dayNumber - 1L);
+    }
+
+    /**
+     * 이 하루가 실제로 몇 월 며칠인지 — <b>표시 번호가 아니라 달력 오프셋</b>으로 센다.
+     *
+     * <p>일정이 없는 날은 코스에서 빠지므로 표시 번호와 달력 위치가 어긋날 수 있다. 그때 표시 번호로
+     * 날짜를 세면 하루가 앞당겨진다(#159).
+     *
+     * @return 그날의 날짜. 여행 시작일을 모르면 null — 없는 것을 지어내지 않는다
+     */
+    public LocalDate dateOf(DaySchedule schedule) {
+        if (travelDate == null) {
+            return null;
+        }
+        return travelDate.plusDays(schedule.getDayOffset());
     }
 
     private static void requireSequentialDays(List<DaySchedule> days) {

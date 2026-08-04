@@ -177,14 +177,15 @@ public class CourseGenerationService {
             return Map.of();
         }
         Map<Integer, DailyWeather> byDay = new LinkedHashMap<>();
-        for (int dayNumber = 1; dayNumber <= course.getTravelDays(); dayNumber++) {
-            // 키는 반드시 그 Day 번호다 — 채워진 개수로 매기면 예보 없는 Day 를 건너뛸 때 뒤 Day 가 앞으로 밀린다.
-            int day = dayNumber;
+        for (DaySchedule schedule : course.getDays()) {
+            // 조회는 달력 오프셋으로 — 첫날이 빠진 코스에서 표시 번호로 날짜를 세면 하루 앞 예보가 붙는다(#159).
+            // 키는 표시 번호를 그대로 쓴다. 응답의 Day 와 짝이 맞아야 한다.
+            int day = schedule.getDayNumber();
             weatherService.dailyWeather(
                             hub.lat(), hub.lng(),
                             region == null ? null : region.getSido(),
                             region == null ? null : region.getSigungu(),
-                            Course.dateOfDay(command.travelDate(), day))
+                            course.dateOf(schedule))
                     .ifPresent(weather -> byDay.put(day, weather));
         }
         return byDay;
@@ -285,7 +286,9 @@ public class CourseGenerationService {
 
             List<Slot> slots = arrangeDay(daySights, dayFoods, stay, command.transport(), start);
             if (!slots.isEmpty()) {
-                days.add(DaySchedule.of(days.size() + 1, slots)); // 빈 날은 건너뛰고 1부터 연속 번호
+                // 표시 번호는 1부터 연속(빈 날은 건너뛴다), 날짜 계산용 오프셋은 달력을 그대로 따른다.
+                // 둘을 겸하면 첫날이 빌 때 날짜와 날씨가 하루 앞당겨진다(#159).
+                days.add(DaySchedule.of(days.size() + 1, day - 1, slots));
             }
         }
         if (days.isEmpty()) {
