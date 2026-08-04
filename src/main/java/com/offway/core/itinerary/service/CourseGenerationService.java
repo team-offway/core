@@ -106,7 +106,7 @@ public class CourseGenerationService {
 
         // ⑥ 슬롯 배치 → ⑨ 조립. 첫날은 도착 시각 이후 남는 시간대만 쓴다.
         List<DaySchedule> days = buildDays(command, firstDayStart(command, trainAccess), orderedSights, foods, stays);
-        Course course = Course.of(command.regionId(), command.density(), command.transport(), days);
+        Course course = Course.of(command.regionId(), command.density(), command.transport(), days, command.travelDate());
 
         // ⑧ 혜택 (policy)
         List<GeneratedCourse.Benefit> benefits = policyService.matchForRegion(command.regionId(), command.travelDate())
@@ -126,7 +126,8 @@ public class CourseGenerationService {
         log.info("코스 생성 regionId={} days={} slots={} benefits={} weather={} trainAccess={}",
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
                 weather != null, trainAccess != null ? trainAccess.status() : "N/A");
-        return new GeneratedCourse(course, benefits, weather, trainAccess);
+        return new GeneratedCourse(
+                course, benefits, weather, trainAccess, region == null ? null : region.getSigungu());
     }
 
     /**

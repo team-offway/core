@@ -9,6 +9,7 @@ import com.offway.core.transport.service.dto.TrainAccess;
 import com.offway.core.weather.domain.DailyWeather;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
+import java.util.stream.IntStream;
 import java.util.List;
 
 /**
@@ -46,7 +47,9 @@ public record CourseResponse(
                 course.getTravelDays(),
                 course.getTravelDate(),
                 course.getDensity().name(),
-                course.getDays().stream().map(Day::from).toList(),
+                course.getDays().stream()
+                        .map(day -> Day.from(day, course.getTravelDate(), generated.regionName()))
+                        .toList(),
                 generated.benefits().stream().map(Benefit::from).toList(),
                 generated.weather() == null ? null : Weather.from(generated.weather()),
                 generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()));
@@ -54,12 +57,27 @@ public record CourseResponse(
 
     /**
      * @param day 며칠째(1부터)
+     * @param date 그날의 실제 날짜 (여행 시작일 없이 저장된 코스는 null)
+     * @param dayOfWeek 요일 (날짜가 없으면 null)
      * @param items 그 날의 방문 순서대로의 장소
      */
-    public record Day(int day, List<Item> items) {
+    public record Day(
+            int day,
+            @Schema(example = "2026-07-26", nullable = true) LocalDate date,
+            @Schema(description = "요일", example = "SATURDAY", nullable = true) String dayOfWeek,
+            List<Item> items) {
 
-        static Day from(DaySchedule schedule) {
-            return new Day(schedule.getDayNumber(), schedule.getSlots().stream().map(Item::from).toList());
+        static Day from(DaySchedule schedule, LocalDate travelDate, String regionName) {
+            LocalDate date = Course.dateOfDay(travelDate, schedule.getDayNumber());
+            List<Slot> slots = schedule.getSlots();
+            List<Item> items = IntStream.range(0, slots.size())
+                    .mapToObj(i -> Item.from(slots.get(i), schedule.distanceFromPrevMeters(i), regionName))
+                    .toList();
+            return new Day(
+                    schedule.getDayNumber(),
+                    date,
+                    date == null ? null : date.getDayOfWeek().name(),
+                    items);
         }
     }
 
@@ -89,9 +107,12 @@ public record CourseResponse(
             @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase,
             double lat,
             double lng,
-            int travelMinutes) {
+            int travelMinutes,
+            @Schema(description = "앞 장소와의 직선거리(m). 첫 장소는 null", example = "8300", nullable = true)
+                    Integer distanceFromPrevMeters,
+            @Schema(description = "코스 지역의 짧은 이름", example = "정선군", nullable = true) String regionName) {
 
-        static Item from(Slot slot) {
+        static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName) {
             return new Item(
                     slot.getOrderInDay(),
                     slot.getTimeOfDay().name(),
@@ -104,7 +125,9 @@ public record CourseResponse(
                     slot.getCatchphrase(),
                     slot.getLat(),
                     slot.getLng(),
-                    slot.getTravelMinutesFromPrev());
+                    slot.getTravelMinutesFromPrev(),
+                    distanceFromPrevMeters,
+                    regionName);
         }
     }
 

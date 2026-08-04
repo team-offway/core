@@ -14,16 +14,18 @@ import java.util.List;
  * @param benefits 이 코스(지역·기간)에 적용되는 혜택 뱃지
  * @param weather 여행 날짜의 코스 지역 날씨(생성 시점만 — 저장 코스는 날짜가 없어 null, 미조회·실패도 null)
  * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근(자차·저장 코스는 null)
+ * @param regionName 코스 지역의 짧은 이름(예: 정선군) — 슬롯마다 "관광명소 · 정선군" 으로 붙는다(#141)
  */
-public record GeneratedCourse(Course course, List<Benefit> benefits, DailyWeather weather, TrainAccess trainAccess) {
+public record GeneratedCourse(
+        Course course, List<Benefit> benefits, DailyWeather weather, TrainAccess trainAccess, String regionName) {
 
     public GeneratedCourse {
         benefits = List.copyOf(benefits);
     }
 
-    /** 날씨·열차 접근 없이(저장 코스·조회 등). */
-    public static GeneratedCourse of(Course course, List<Benefit> benefits) {
-        return new GeneratedCourse(course, benefits, null, null);
+    /** 날씨·열차 접근 없이(저장 코스·조회 등). 지역명은 슬롯 표시에 쓰이므로 저장 코스도 채운다. */
+    public static GeneratedCourse of(Course course, List<Benefit> benefits, String regionName) {
+        return new GeneratedCourse(course, benefits, null, null, regionName);
     }
 
     /**

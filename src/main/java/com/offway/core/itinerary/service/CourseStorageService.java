@@ -10,6 +10,8 @@ import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.service.PolicyService;
+import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.domain.Region;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -31,6 +33,7 @@ public class CourseStorageService {
 
     private final CourseRepository courseRepository;
     private final PolicyService policyService;
+    private final RegionRepository regionRepository;
     private final CoursePersistenceService coursePersistenceService;
     private final MyLeaveService myLeaveService;
 
@@ -93,6 +96,11 @@ public class CourseStorageService {
                 .stream()
                 .map(policy -> new GeneratedCourse.Benefit(policy.getId(), policy.getType(), policy.badgeText()))
                 .toList();
-        return GeneratedCourse.of(course, benefits); // 저장 코스는 여행 날짜가 없어 날씨 미부착
+        // 지역명은 슬롯마다 "관광명소 · 정선군" 으로 붙어 저장 코스에도 필요하다(#141).
+        String regionName = regionRepository.findByIds(List.of(course.getRegionId())).stream()
+                .findFirst()
+                .map(Region::getSigungu)
+                .orElse(null);
+        return GeneratedCourse.of(course, benefits, regionName); // 저장 코스는 날짜가 없을 수 있어 날씨 미부착
     }
 }

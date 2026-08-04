@@ -100,6 +100,29 @@ class CourseGenerateIntegrationTest {
     }
 
     @Test
+    void 화면이_그릴_재료를_함께_내린다_날짜_요일_거리_지역명() throws Exception {
+        // day 1  5.1/금 · "관광명소 · 동구" · 장소 사이 거리 — 화면 명세(#141)가 요구하는 재료다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
+
+        String body = """
+                { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-05-01" }""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                // Day 가 실제 날짜와 요일을 안다 — 프론트가 travelDate 에 더하지 않아도 된다
+                .andExpect(jsonPath("$.data.days[0].date").value("2026-05-01"))
+                .andExpect(jsonPath("$.data.days[0].dayOfWeek").value("FRIDAY"))
+                .andExpect(jsonPath("$.data.days[1].date").value("2026-05-02"))
+                .andExpect(jsonPath("$.data.days[1].dayOfWeek").value("SATURDAY"))
+                // 첫 장소는 이동 전이라 거리가 '없음' 이다. 0 으로 두면 화면이 "0m" 를 그린다
+                .andExpect(jsonPath("$.data.days[0].items[0].distanceFromPrevMeters").doesNotExist())
+                .andExpect(jsonPath("$.data.days[0].items[1].distanceFromPrevMeters").isNumber())
+                // 슬롯마다 "관광명소 · 동구" 로 붙일 짧은 지역명
+                .andExpect(jsonPath("$.data.days[0].items[0].regionName").value("동구"));
+    }
+
+    @Test
     void 코스를_생성해_날짜별_타임라인과_혜택을_200으로_내린다() throws Exception {
         tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
 
