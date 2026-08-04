@@ -48,7 +48,7 @@ jobs:
           java-version: '25'
 
       - name: Gradle 준비 (의존성 캐시 포함)
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v6.2.0
 
       # 테스트까지 돌린다 — 배포 직전이 마지막 방어선이다.
       # 외부 API 키를 넘기지 않는다: 테스트가 실키로 외부를 호출해 일일 허용량을 태운 적이 있다(#110).

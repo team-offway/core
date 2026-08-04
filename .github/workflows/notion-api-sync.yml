@@ -37,7 +37,7 @@ jobs:
           java-version: '25'
 
       - name: Gradle 준비
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v6.2.0
 
       # 앱을 local(H2, 키 없음)로 잠깐 띄워 /v3/api-docs 를 받는다. springdoc 은 런타임 생성이라 부팅이 필요하다.
       - name: OpenAPI 덤프

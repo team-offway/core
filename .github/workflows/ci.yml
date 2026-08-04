@@ -33,7 +33,7 @@ jobs:
           java-version: '25'
 
       - name: Gradle 준비 (의존성 캐시 포함)
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v6.2.0
 
       # build = 컴파일 + 전체 테스트 + jar 조립.
       # test 만 돌리면 jar 조립 단계(리소스 중복·repackaging)에서 나는 문제를 놓친다.
@@ -144,7 +144,7 @@ jobs:
           java-version: '25'
 
       - name: Gradle 준비 (의존성 캐시 포함)
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v6.2.0
 
       # 테스트는 앞 잡이 이미 돌렸다. 여기서는 실행 가능한 jar 만 필요하다.
       - name: jar 조립
