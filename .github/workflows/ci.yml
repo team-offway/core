@@ -51,3 +51,182 @@ jobs:
             build/reports/tests/test
             build/test-results/test
           retention-days: 7
+
+  # 컨벤션은 PostToolUse 훅이 기계 강제하지만, 그 훅은 **에이전트가 파일을 고칠 때만** 돈다.
+  # 사람이 IDE 로 직접 편집하면 FK 제약·FetchType.EAGER·@MockBean 같은 것이 그대로 통과한다.
+  # 같은 스크립트를 CI 에서 전수로 돌려 어느 경로로 들어오든 막는다(정본은 훅 스크립트 하나뿐이라
+  # 규칙이 두 곳으로 갈리지 않는다).
+  convention:
+    name: 컨벤션 검사
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v7
+        with:
+          # 커밋 메시지 검사에 PR 의 커밋들이 필요하다. 얕은 클론이면 base 와 비교할 수 없다.
+          fetch-depth: 0
+
+      - name: 소스 전수 검사
+        run: |
+          set -uo pipefail
+          blocked=0
+          for f in $(git ls-files 'src/**/*.java' 'src/**/*.sql'); do
+            if ! out=$(sh .claude/hooks/convention-check.sh --file "$f" 2>&1); then
+              echo "── $f"
+              echo "$out" | sed 's/^/   /'
+              blocked=$((blocked + 1))
+            fi
+          done
+          if [ "$blocked" -gt 0 ]; then
+            echo "컨벤션 위반 ${blocked}건"
+            exit 1
+          fi
+          echo "컨벤션 검사 통과"
+
+      # 이 레포는 squash 머지라 PR 제목이 dev 의 커밋 제목이 된다. 그래도 개별 커밋을 검사하는 이유는,
+      # 커밋 하나짜리 PR 은 그 커밋 메시지가 그대로 올라가고 rebase 머지 여지도 남기 때문이다.
+      - name: 커밋 메시지 형식
+        if: github.event_name == 'pull_request'
+        run: |
+          set -uo pipefail
+          BASE="origin/${{ github.base_ref }}"
+          git fetch -q origin "${{ github.base_ref }}"
+          failed=0
+          for sha in $(git rev-list "$BASE..HEAD" --no-merges); do
+            git log -1 --format=%B "$sha" > /tmp/commit-msg-check
+            if ! out=$(sh .githooks/commit-msg /tmp/commit-msg-check 2>&1); then
+              echo "── $(git log -1 --format='%h %s' "$sha")"
+              echo "$out" | sed 's/^/   /'
+              failed=$((failed + 1))
+            fi
+          done
+          if [ "$failed" -gt 0 ]; then
+            echo "형식에 맞지 않는 커밋 ${failed}건"
+            exit 1
+          fi
+          echo "커밋 메시지 형식 통과"
+
+  # 테스트는 H2 로 돈다(부팅 비용·로컬 실행성). 그래서 **MySQL 에서만 나는 문제를 못 잡는다.**
+  # 실제로 겪었다 — `ALTER TABLE ... ALTER COLUMN c SET NOT NULL` 은 H2 에서 통과하지만 MySQL 은
+  # `MODIFY` 만 받는다. 눈으로 걸러서 넘어갔을 뿐, 다음에도 걸린다는 보장이 없다.
+  # 자동 배포로 전환한 뒤로는 이걸 배포 중에 알면 늦는다(운영 DB 에 절반만 적용된 채 기동이 실패한다).
+  #
+  # 여기서는 운영과 같은 MySQL 에 마이그레이션을 실제로 적용해 본다. 앱을 prod 프로파일로 띄우면
+  # Flyway 가 부팅 중에 전부 돌리므로, 문법·순서·checksum 문제가 이 단계에서 드러난다.
+  migration:
+    name: MySQL 마이그레이션 검증
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        # 운영과 같은 계열로 맞춘다. 여기서만 8.0 을 쓰면 검증의 의미가 준다.
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-verify
+          MYSQL_DATABASE: offway
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -p$MYSQL_ROOT_PASSWORD"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v7
+
+      - name: JDK 설치
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Gradle 준비 (의존성 캐시 포함)
+        uses: gradle/actions/setup-gradle@v6
+
+      # 테스트는 앞 잡이 이미 돌렸다. 여기서는 실행 가능한 jar 만 필요하다.
+      - name: jar 조립
+        run: ./gradlew bootJar --no-daemon
+
+      - name: prod 프로파일로 기동해 마이그레이션 적용
+        env:
+          SPRING_PROFILES_ACTIVE: prod
+          DB_URL: jdbc:mysql://127.0.0.1:3306/offway?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
+          DB_USERNAME: root
+          DB_PASSWORD: ci-verify
+          # 이 둘은 비면 부팅이 실패한다(열린 채 뜨는 쪽이 더 위험해서 그렇게 만들어 두었다).
+          # 검증용 더미이고 이 잡 밖으로 나가지 않는다.
+          OFFWAY_BASIC_USERNAME: ci
+          OFFWAY_BASIC_PASSWORD: '{noop}ci'
+        run: |
+          set -uo pipefail
+          JAR=$(ls build/libs/*.jar | grep -v plain | head -1)
+          java -jar "$JAR" --server.port=8081 > boot.log 2>&1 &
+          PID=$!
+
+          started=""
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:8081/api/v1/categories || true)
+            # 401 이면 기동 성공이다 — 인증 게이트가 살아 있다는 뜻이다.
+            if [ "$code" = "401" ] || [ "$code" = "200" ]; then
+              started=yes
+              break
+            fi
+            # 프로세스가 이미 죽었으면 더 기다릴 이유가 없다(마이그레이션 실패가 대부분 여기로 온다).
+            kill -0 "$PID" 2>/dev/null || break
+            sleep 2
+          done
+
+          if [ -z "$started" ]; then
+            echo "── 기동 실패. 로그 ──"
+            tail -120 boot.log
+            kill "$PID" 2>/dev/null || true
+            exit 1
+          fi
+          echo "기동 성공 — 마이그레이션이 MySQL 에 적용됐습니다."
+
+          # 떠 있는 김에 OpenAPI 스펙 생성까지 본다. springdoc 은 DTO 하나가 어긋나도 문서 생성이
+          # 통째로 깨지는데(Boot4/Jackson3 조합에서 실제로 겪었다), 앱은 멀쩡히 떠 있어서
+          # 배포 뒤 Swagger 를 열어봐야 안다. 여기서 한 번 부르면 그 자리에서 드러난다.
+          # 스펙 조회도 인증 게이트를 지난다 — 서버 전체가 authenticated 라 Swagger 도 예외가 아니다(#122).
+          spec=$(curl -s -o /tmp/api-docs.json -w '%{http_code}' --max-time 30 \
+            -u "$OFFWAY_BASIC_USERNAME:ci" http://localhost:8081/v3/api-docs || true)
+          if [ "$spec" != "200" ]; then
+            echo "OpenAPI 스펙 생성 실패 (HTTP $spec)"
+            tail -60 boot.log
+            kill "$PID" 2>/dev/null || true
+            exit 1
+          fi
+          paths=$(python3 -c "import json;print(len(json.load(open('/tmp/api-docs.json'))['paths']))")
+          echo "OpenAPI 스펙 생성 확인 — 엔드포인트 ${paths}개"
+
+          kill "$PID" 2>/dev/null || true
+
+      # 기동만 보면 "Flyway 가 아무것도 안 했는데 떴다" 를 못 가른다. 적용 이력을 직접 확인한다.
+      #
+      # versioned(V) 와 repeatable(R) 를 나눠 센다. 이력에서는 둘 다 type='SQL' 이고 version 컬럼의
+      # 유무로만 갈리므로, 합쳐 세면 R 하나 때문에 개수가 어긋난다.
+      - name: 적용 이력 확인
+        run: |
+          set -uo pipefail
+          MIG=src/main/resources/db/migration
+          query() {
+            mysql -h 127.0.0.1 -P 3306 -u root -pci-verify offway -N -B -e "$1" 2>/dev/null
+          }
+
+          V_FILES=$(ls "$MIG"/V*.sql 2>/dev/null | wc -l | tr -d ' ')
+          R_FILES=$(ls "$MIG"/R__*.sql 2>/dev/null | wc -l | tr -d ' ')
+          V_APPLIED=$(query "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1 AND version IS NOT NULL")
+          R_APPLIED=$(query "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1 AND version IS NULL AND type = 'SQL'")
+          FAILED=$(query "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 0")
+
+          echo "versioned  파일 ${V_FILES}개 · 적용 ${V_APPLIED}개"
+          echo "repeatable 파일 ${R_FILES}개 · 적용 ${R_APPLIED}개"
+          echo "실패 ${FAILED}개"
+
+          [ "$FAILED" = "0" ] || { echo "실패한 마이그레이션이 있습니다."; exit 1; }
+          # 파일 수와 적용 수가 어긋나면 일부가 조용히 건너뛰어진 것이다.
+          [ "$V_APPLIED" = "$V_FILES" ] || { echo "적용되지 않은 versioned 마이그레이션이 있습니다."; exit 1; }
+          [ "$R_APPLIED" = "$R_FILES" ] || { echo "적용되지 않은 repeatable 마이그레이션이 있습니다."; exit 1; }
