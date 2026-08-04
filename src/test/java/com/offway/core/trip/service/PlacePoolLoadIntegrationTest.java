@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.trip.domain.LicensedPlace;
+import com.offway.core.trip.domain.PlaceCategory;
 import com.offway.core.trip.domain.PlaceKind;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import java.util.List;
@@ -82,5 +83,32 @@ class PlacePoolLoadIntegrationTest {
         placePoolLoader.load();
 
         assertEquals(before, licensedPlaceRepository.count());
+    }
+
+    /**
+     * 절반만 실린 DB 를 정상으로 여기면 영영 고치지 못한다. 실제로 유니크 위반 하나로 89곳 중 42곳만
+     * 실린 채 배포됐고, 재배포해도 "이미 있음" 으로 건너뛰어 그대로였다.
+     */
+    @Test
+    void 적재가_파일과_어긋나면_다시_채운다() {
+        long full = licensedPlaceRepository.count();
+        assertTrue(full > 0);
+
+        // 일부만 실린 상태를 만든다 — 비우기만 하면 "처음 적재" 경로를 타서 자가 치유를 검증하지 못한다.
+        licensedPlaceRepository.deleteAll();
+        licensedPlaceRepository.saveAll(List.of(LicensedPlace.builder()
+                .regionId(UISEONG)
+                .kind(PlaceKind.STAY)
+                .category(PlaceCategory.LODGING)
+                .name("절반만 실린 흔적")
+                .address("경상북도 의성군 의성읍 어딘가 1")
+                .lat(36.35)
+                .lng(128.69)
+                .build()));
+        assertEquals(1, licensedPlaceRepository.count(), "일부만 남은 상태");
+
+        placePoolLoader.load();
+
+        assertEquals(full, licensedPlaceRepository.count(), "파일 전량으로 복구돼야 한다");
     }
 }

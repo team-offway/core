@@ -2,7 +2,6 @@ package com.offway.core.trip.service;
 
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.infrastructure.localdata.PlacePoolCsvReader;
-import com.offway.core.trip.repository.LicensedPlaceRepository;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
@@ -12,7 +11,6 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 장소 풀을 부팅 시 1회 적재한다(#144).
@@ -30,15 +28,15 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 public class PlacePoolLoader {
 
-    private final LicensedPlaceRepository licensedPlaceRepository;
+    private final PlacePoolPersistenceService persistenceService;
     private final PlacePoolCsvReader csvReader;
     private final Resource poolResource;
 
     public PlacePoolLoader(
-            LicensedPlaceRepository licensedPlaceRepository,
+            PlacePoolPersistenceService persistenceService,
             PlacePoolCsvReader csvReader,
             @Value("classpath:data/place-pool.csv.gz") Resource poolResource) {
-        this.licensedPlaceRepository = licensedPlaceRepository;
+        this.persistenceService = persistenceService;
         this.csvReader = csvReader;
         this.poolResource = poolResource;
     }
@@ -48,13 +46,7 @@ public class PlacePoolLoader {
      * 막지 않아야 한다.
      */
     @EventListener(ApplicationReadyEvent.class)
-    @Transactional
     public void load() {
-        long existing = licensedPlaceRepository.count();
-        if (existing > 0) {
-            log.info("장소 풀이 이미 적재돼 있어 건너뜁니다. count={}", existing);
-            return;
-        }
         if (!poolResource.exists()) {
             log.warn("장소 풀 파일이 없어 적재를 건너뜁니다: {}", poolResource.getDescription());
             return;
@@ -67,7 +59,24 @@ public class PlacePoolLoader {
                 log.warn("장소 풀 파일에서 읽은 장소가 없습니다: {}", poolResource.getDescription());
                 return;
             }
-            int inserted = licensedPlaceRepository.saveAll(places);
+
+            // 건수까지 맞아야 "이미 적재됨" 이다. 개수만 0인지 보면, 절반만 실린 DB 를 정상으로 여겨
+            // 영영 고치지 못한다 — 실제로 42곳만 실린 채 재배포해도 그대로였다.
+            // 파일이 갱신돼 건수가 달라진 경우도 같은 경로로 자연히 다시 채워진다.
+            long existing = persistenceService.count();
+            if (existing == places.size()) {
+                log.info("장소 풀이 이미 적재돼 있어 건너뜁니다. count={}", existing);
+                return;
+            }
+            if (existing > 0) {
+                log.warn("장소 풀이 파일과 어긋나 다시 채웁니다. DB={} 파일={}", existing, places.size());
+            }
+            int inserted = persistenceService.replaceAll(places);
+            if (inserted != places.size()) {
+                // 전량 아니면 실패다. 절반만 실린 채 "성공" 으로 넘어가면 목록이 200 을 주면서 비어 있다.
+                log.error("장소 풀이 일부만 적재됐습니다. 읽음={} 적재={}", places.size(), inserted);
+                return;
+            }
             log.info("장소 풀 적재 완료. count={} elapsed={}ms", inserted, elapsedMillis(startedAt));
         } catch (IOException | RuntimeException e) {
             // 적재 실패로 서버를 죽이지 않는다. 다만 조용히 넘기지도 않는다 — 이후 코스에서 후보가 빈다.

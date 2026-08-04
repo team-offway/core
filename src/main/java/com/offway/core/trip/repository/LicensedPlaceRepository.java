@@ -32,6 +32,9 @@ public interface LicensedPlaceRepository {
     /** 적재 여부 판정용 — 비어 있을 때만 채운다(멱등). */
     long count();
 
+    /** 전량 삭제 — 파일이 갱신됐거나 앞선 적재가 깨졌을 때 통째로 다시 채우기 위해. */
+    void deleteAll();
+
     /**
      * 대량 적재. 16만 건을 건건이 저장하면 부팅이 분 단위로 늘어나므로 JDBC 배치로 넣는다.
      *
