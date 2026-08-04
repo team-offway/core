@@ -1,0 +1,81 @@
+package com.offway.core.trip.service;
+
+import com.offway.core.trip.domain.LicensedPlace;
+import com.offway.core.trip.infrastructure.localdata.PlacePoolCsvReader;
+import com.offway.core.trip.repository.LicensedPlaceRepository;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.List;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.io.Resource;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 장소 풀을 부팅 시 1회 적재한다(#144).
+ *
+ * <p>인허가 데이터는 분기 단위로만 바뀌는 레퍼런스라 매 요청 다시 읽을 이유가 없다. 파일을 통째로 DB 에 옮겨두고,
+ * 이후 조회는 전부 로컬에서 끝낸다.
+ *
+ * <p><b>비어 있을 때만 채운다.</b> 재기동마다 다시 넣으면 부팅이 느려지고 중복이 쌓인다. 파일을 새로 받아 갱신하려면
+ * 테이블을 비우고 재기동한다 — 부분 갱신은 지금 필요하지 않다(분기 1회).
+ *
+ * <p>파일이 없어도 부팅을 막지 않는다. 외부 키가 없어도 뜨는 것과 같은 이유다 — 적재가 안 되면 그 조회만 비고,
+ * 서버가 통째로 안 뜨는 쪽이 훨씬 위험하다(로컬 실행성 불변식).
+ */
+@Slf4j
+@Component
+public class PlacePoolLoader {
+
+    private final LicensedPlaceRepository licensedPlaceRepository;
+    private final PlacePoolCsvReader csvReader;
+    private final Resource poolResource;
+
+    public PlacePoolLoader(
+            LicensedPlaceRepository licensedPlaceRepository,
+            PlacePoolCsvReader csvReader,
+            @Value("classpath:data/place-pool.csv.gz") Resource poolResource) {
+        this.licensedPlaceRepository = licensedPlaceRepository;
+        this.csvReader = csvReader;
+        this.poolResource = poolResource;
+    }
+
+    /**
+     * 기동이 끝난 뒤 적재한다. 마이그레이션(Flyway)이 테이블을 만든 뒤여야 하고, 적재가 늦어져도 기동 자체는
+     * 막지 않아야 한다.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    @Transactional
+    public void load() {
+        long existing = licensedPlaceRepository.count();
+        if (existing > 0) {
+            log.info("장소 풀이 이미 적재돼 있어 건너뜁니다. count={}", existing);
+            return;
+        }
+        if (!poolResource.exists()) {
+            log.warn("장소 풀 파일이 없어 적재를 건너뜁니다: {}", poolResource.getDescription());
+            return;
+        }
+
+        long startedAt = System.nanoTime();
+        try (InputStream in = poolResource.getInputStream()) {
+            List<LicensedPlace> places = csvReader.read(in);
+            if (places.isEmpty()) {
+                log.warn("장소 풀 파일에서 읽은 장소가 없습니다: {}", poolResource.getDescription());
+                return;
+            }
+            int inserted = licensedPlaceRepository.saveAll(places);
+            log.info("장소 풀 적재 완료. count={} elapsed={}ms", inserted, elapsedMillis(startedAt));
+        } catch (IOException e) {
+            // 적재 실패로 서버를 죽이지 않는다. 다만 조용히 넘기지도 않는다 — 이후 코스에서 후보가 빈다.
+            log.error("장소 풀 적재에 실패했습니다. 인허가 후보 없이 동작합니다.", e);
+        }
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return (System.nanoTime() - startedAt) / 1_000_000;
+    }
+}
