@@ -134,16 +134,28 @@ jobs:
           echo "기동 성공 — 마이그레이션이 MySQL 에 적용됐습니다."
 
       # 기동만 보면 "Flyway 가 아무것도 안 했는데 떴다" 를 못 가른다. 적용 이력을 직접 확인한다.
+      #
+      # versioned(V) 와 repeatable(R) 를 나눠 센다. 이력에서는 둘 다 type='SQL' 이고 version 컬럼의
+      # 유무로만 갈리므로, 합쳐 세면 R 하나 때문에 개수가 어긋난다.
       - name: 적용 이력 확인
         run: |
           set -uo pipefail
-          FILES=$(ls src/main/resources/db/migration/V*.sql | wc -l | tr -d ' ')
-          APPLIED=$(mysql -h 127.0.0.1 -P 3306 -u root -pci-verify offway -N -B \
-            -e "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1 AND type = 'SQL'")
-          FAILED=$(mysql -h 127.0.0.1 -P 3306 -u root -pci-verify offway -N -B \
-            -e "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 0")
-          echo "마이그레이션 파일 ${FILES}개 · 적용 성공 ${APPLIED}개 · 실패 ${FAILED}개"
+          MIG=src/main/resources/db/migration
+          query() {
+            mysql -h 127.0.0.1 -P 3306 -u root -pci-verify offway -N -B -e "$1" 2>/dev/null
+          }
+
+          V_FILES=$(ls "$MIG"/V*.sql 2>/dev/null | wc -l | tr -d ' ')
+          R_FILES=$(ls "$MIG"/R__*.sql 2>/dev/null | wc -l | tr -d ' ')
+          V_APPLIED=$(query "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1 AND version IS NOT NULL")
+          R_APPLIED=$(query "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1 AND version IS NULL AND type = 'SQL'")
+          FAILED=$(query "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 0")
+
+          echo "versioned  파일 ${V_FILES}개 · 적용 ${V_APPLIED}개"
+          echo "repeatable 파일 ${R_FILES}개 · 적용 ${R_APPLIED}개"
+          echo "실패 ${FAILED}개"
 
           [ "$FAILED" = "0" ] || { echo "실패한 마이그레이션이 있습니다."; exit 1; }
           # 파일 수와 적용 수가 어긋나면 일부가 조용히 건너뛰어진 것이다.
-          [ "$APPLIED" = "$FILES" ] || { echo "적용되지 않은 마이그레이션이 있습니다."; exit 1; }
+          [ "$V_APPLIED" = "$V_FILES" ] || { echo "적용되지 않은 versioned 마이그레이션이 있습니다."; exit 1; }
+          [ "$R_APPLIED" = "$R_FILES" ] || { echo "적용되지 않은 repeatable 마이그레이션이 있습니다."; exit 1; }
