@@ -1,10 +1,13 @@
 package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.LicensedPlace;
+import com.offway.core.trip.domain.PlaceCategory;
 import com.offway.core.trip.domain.PlaceKind;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -29,6 +32,13 @@ public class LicensedPlaceRepositoryImpl implements LicensedPlaceRepository {
     @Override
     public List<LicensedPlace> findByRegionAndKind(long regionId, PlaceKind kind) {
         return licensedPlaceJpaRepository.findByRegionIdAndKind(regionId, kind);
+    }
+
+    @Override
+    public Page<LicensedPlace> findPage(long regionId, PlaceKind kind, PlaceCategory category, Pageable pageable) {
+        return category == null
+                ? licensedPlaceJpaRepository.findByRegionIdAndKind(regionId, kind, pageable)
+                : licensedPlaceJpaRepository.findByRegionIdAndKindAndCategory(regionId, kind, category, pageable);
     }
 
     @Override

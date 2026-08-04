@@ -57,9 +57,56 @@ ORG_CODES = [
 CATEGORY_PRIORITY = {
     "HANOK": 0, "TOURIST_HOTEL": 0, "TOURIST_PENSION": 0, "TOURIST_RESTAURANT": 0,
     "TEMPLE": 0, "MUSEUM": 0, "THEME_PARK": 0, "CABLE_CAR": 0,
+    "KOREAN": 0, "SEAFOOD": 0, "TRADITIONAL_TEA": 0,
     "RURAL_HOMESTAY": 1, "CITY_HOMESTAY": 1, "RESTAURANT": 1, "BAKERY": 1,
     "RESORT": 1, "CAMPGROUND": 1, "THEATER": 1, "CULTURE_CENTER": 1, "SKI": 1,
-    "LODGING": 2, "CAFE": 2, "GOLF": 2,
+    "GLOBAL": 1, "NOODLE": 1, "BUFFET": 1, "COFFEE": 1, "DESSERT": 1,
+    "LODGING": 2, "GOLF": 2, "FASTFOOD": 2, "TEAROOM": 2,
+}
+
+# 음식점·휴게음식점은 파일 하나에 온갖 업태가 섞여 있다. 그대로 실으면 여행 코스에 호프집·편의점이
+# 배치되므로 `업태구분명` 으로 갈라 분류하고, 여행지 목록에 낼 수 없는 것은 통째로 뺀다.
+#
+# 값은 89곳 영업중 전수 분포에서 확인한 것이다(일반음식점 113,149건 · 휴게음식점 29,725건).
+FOOD_BY_UPTAE = {
+    "한식": ("FOOD", "KOREAN"),
+    "식육(숯불구이)": ("FOOD", "KOREAN"),
+    "횟집": ("FOOD", "SEAFOOD"),
+    "복어취급": ("FOOD", "SEAFOOD"),
+    "중국식": ("FOOD", "GLOBAL"),
+    "일식": ("FOOD", "GLOBAL"),
+    "경양식": ("FOOD", "GLOBAL"),
+    "패밀리레스트랑": ("FOOD", "GLOBAL"),
+    "외국음식전문점(인도,태국등)": ("FOOD", "GLOBAL"),
+    "냉면집": ("FOOD", "NOODLE"),
+    "분식": ("FOOD", "NOODLE"),
+    "김밥(도시락)": ("FOOD", "NOODLE"),
+    "뷔페식": ("FOOD", "BUFFET"),
+    "기타": ("FOOD", "RESTAURANT"),
+    "통닭(치킨)": ("FOOD", "FASTFOOD"),
+    "패스트푸드": ("FOOD", "FASTFOOD"),
+    "까페": ("CAFE", "COFFEE"),
+}
+
+CAFE_BY_UPTAE = {
+    "커피숍": ("CAFE", "COFFEE"),
+    "전통찻집": ("CAFE", "TRADITIONAL_TEA"),
+    "다방": ("CAFE", "TEAROOM"),
+    "아이스크림": ("CAFE", "DESSERT"),
+    "떡카페": ("CAFE", "DESSERT"),
+    "과자점": ("CAFE", "DESSERT"),
+    "기타 휴게음식점": ("CAFE", "COFFEE"),
+    "일반조리판매": ("FOOD", "NOODLE"),
+    "푸드트럭": ("FOOD", "NOODLE"),
+    "패스트푸드": ("FOOD", "FASTFOOD"),
+}
+
+# 여행지 목록에 낼 수 없는 업태 — 술집은 식사 슬롯이 될 수 없고, 편의점·부속매점은 목적지가 아니다.
+# 보신탕(탕류)은 노출 자체가 부적절하다고 보고 뺀다.
+EXCLUDED_UPTAE = {
+    "호프/통닭", "정종/대포집/소주방", "감성주점", "라이브카페", "단란주점", "유흥주점",
+    "탕류(보신용)",
+    "편의점", "고속도로", "백화점", "극장", "철도역구내", "유원지", "관광호텔", "키즈카페",
 }
 
 CATEGORIES = {
@@ -70,10 +117,10 @@ CATEGORIES = {
     "문화_관광숙박업.csv": ("STAY", "TOURIST_HOTEL"),
     "문화_관광펜션업.csv": ("STAY", "TOURIST_PENSION"),
     "문화_외국인관광도시민박업.csv": ("STAY", "CITY_HOMESTAY"),
-    # 음식
+    # 음식 — 업태로 다시 가른다(FOOD_BY_UPTAE·CAFE_BY_UPTAE)
     "식품_일반음식점.csv": ("FOOD", "RESTAURANT"),
-    "식품_휴게음식점.csv": ("FOOD", "CAFE"),
-    "식품_제과점영업.csv": ("FOOD", "BAKERY"),
+    "식품_휴게음식점.csv": ("CAFE", "COFFEE"),
+    "식품_제과점영업.csv": ("CAFE", "BAKERY"),
     "식품_관광식당.csv": ("FOOD", "TOURIST_RESTAURANT"),
     # 볼거리
     "문화_전통사찰.csv": ("SIGHT", "TEMPLE"),
@@ -155,6 +202,27 @@ def resolve_region(address: str, by_sigungu) -> int | None:
     return candidates[0][1] if len(candidates) == 1 else None
 
 
+def resolve_category(file_name: str, default_mapping: tuple, record: dict) -> tuple:
+    """업종 파일과 `업태구분명` 을 함께 보고 (종류, 분류)를 정한다.
+
+    숙박·볼거리는 파일 하나가 곧 한 분류라 기본값을 그대로 쓴다. 음식점·휴게음식점만 파일 안에
+    온갖 업태가 섞여 있어 다시 가른다 — 갈라 놓지 않으면 코스 식사 자리에 호프집이 들어간다.
+
+    @return (종류, 분류). 여행지로 낼 수 없는 업태면 (None, None)
+    """
+    if file_name not in ("식품_일반음식점.csv", "식품_휴게음식점.csv"):
+        return default_mapping
+
+    uptae = (record.get("업태구분명") or record.get("위생업태명") or "").strip()
+    if uptae in EXCLUDED_UPTAE:
+        return (None, None)
+
+    table = FOOD_BY_UPTAE if file_name == "식품_일반음식점.csv" else CAFE_BY_UPTAE
+    # 표에 없는 업태는 기본값으로 둔다. 원본에 새 업태가 생겨도 조용히 사라지지 않게 하기 위해서다
+    # (빠뜨림은 통계에 안 잡히지만, 기본 분류로 실리면 목록에서 눈에 띈다).
+    return table.get(uptae, default_mapping)
+
+
 def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Path) -> None:
     try:
         from pyproj import Transformer
@@ -178,12 +246,15 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
             mapping = CATEGORIES.get(name)
             if mapping is None:
                 continue
-            kind, category = mapping
             text = archive.read(info).decode("cp949", "replace")
             for record in csv.DictReader(text.splitlines()):
                 # 폐업·휴업을 걸러낸다. 경북 숙박은 41% 가 폐업이라, 두면 없어진 업소가 코스에 들어간다.
                 if not (record.get("영업상태명") or "").startswith("영업"):
                     stats["폐업·휴업"] += 1
+                    continue
+                kind, category = resolve_category(name, mapping, record)
+                if kind is None:
+                    stats["업태제외"] += 1
                     continue
                 address = (record.get("도로명주소") or record.get("지번주소") or "").strip()
                 region_id = resolve_region(address, by_sigungu)
@@ -236,8 +307,8 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
     missing = [rid for ids in by_sigungu.values() for _, rid in ids if per_region[rid] == 0]
     size_mb = out_path.stat().st_size / 1024 / 1024
     print(f"장소 {len(rows):,}건 → {out_path} ({size_mb:.1f} MB)")
-    print(f"  종류별: " + " · ".join(f"{k} {stats[k]:,}" for k in ("STAY", "FOOD", "SIGHT")))
-    print(f"  제외:   " + " · ".join(f"{k} {stats[k]:,}" for k in ("폐업·휴업", "좌표없음", "좌표이상", "상호없음") if stats[k]))
+    print(f"  종류별: " + " · ".join(f"{k} {stats[k]:,}" for k in ("STAY", "FOOD", "CAFE", "SIGHT")))
+    print(f"  제외:   " + " · ".join(f"{k} {stats[k]:,}" for k in ("폐업·휴업", "업태제외", "좌표없음", "좌표이상", "상호없음") if stats[k]))
     print(f"  중복 접기: {folded:,}건")
     print(f"  지역 커버: {len(per_region)}/89" + (f" — 빈 지역 {missing}" if missing else ""))
 
