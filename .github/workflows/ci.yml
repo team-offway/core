@@ -190,7 +190,9 @@ jobs:
           # 떠 있는 김에 OpenAPI 스펙 생성까지 본다. springdoc 은 DTO 하나가 어긋나도 문서 생성이
           # 통째로 깨지는데(Boot4/Jackson3 조합에서 실제로 겪었다), 앱은 멀쩡히 떠 있어서
           # 배포 뒤 Swagger 를 열어봐야 안다. 여기서 한 번 부르면 그 자리에서 드러난다.
-          spec=$(curl -s -o /tmp/api-docs.json -w '%{http_code}' --max-time 30 http://localhost:8081/v3/api-docs || true)
+          # 스펙 조회도 인증 게이트를 지난다 — 서버 전체가 authenticated 라 Swagger 도 예외가 아니다(#122).
+          spec=$(curl -s -o /tmp/api-docs.json -w '%{http_code}' --max-time 30 \
+            -u "$OFFWAY_BASIC_USERNAME:ci" http://localhost:8081/v3/api-docs || true)
           if [ "$spec" != "200" ]; then
             echo "OpenAPI 스펙 생성 실패 (HTTP $spec)"
             tail -60 boot.log
