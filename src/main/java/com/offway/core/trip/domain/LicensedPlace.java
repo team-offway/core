@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -45,6 +46,9 @@ public class LicensedPlace {
     private static final int MAX_NAME_LENGTH = 200;
     private static final int MAX_ADDRESS_LENGTH = 300;
     private static final int MAX_TEL_LENGTH = 40;
+
+    /** 공개 식별자 접두어 — TourAPI contentId(숫자 문자열)와 갈라 준다. */
+    private static final String ID_PREFIX = "LIC-";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -102,6 +106,37 @@ public class LicensedPlace {
     /** 이 장소의 좌표. 거리 계산·클러스터링은 좌표 값객체가 소유한다. */
     public Coordinate coordinate() {
         return new Coordinate(lat, lng);
+    }
+
+    /**
+     * 클라이언트에 나가는 식별자 — TourAPI contentId 와 섞이지 않게 접두어를 붙인다.
+     *
+     * <p>코스 응답의 {@code poiContentId} 에는 두 출처가 섞여 나간다. TourAPI 쪽은 숫자 문자열이라, 접두어 하나로
+     * 상세 조회가 어느 저장소를 봐야 하는지 갈린다. 규칙을 도메인이 소유해 만드는 쪽과 읽는 쪽이 어긋나지 않게 한다.
+     */
+    public static String publicId(Long id) {
+        return ID_PREFIX + Objects.requireNonNull(id, "장소 ID는 필수입니다");
+    }
+
+    /** 이 장소의 공개 식별자. */
+    public String publicId() {
+        return publicId(id);
+    }
+
+    /**
+     * 공개 식별자를 내부 ID 로 되돌린다.
+     *
+     * @return 우리 식별자면 내부 ID, 아니면 비어 있음(TourAPI contentId 등)
+     */
+    public static Optional<Long> parsePublicId(String publicId) {
+        if (publicId == null || !publicId.startsWith(ID_PREFIX)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(Long.parseLong(publicId.substring(ID_PREFIX.length())));
+        } catch (NumberFormatException e) {
+            return Optional.empty(); // "LIC-abc" 처럼 접두어만 흉내낸 값
+        }
     }
 
     /** 코스에 우선 채울 장소인가 — 한옥·사찰처럼 그 자체가 관광 콘텐츠인 분류. */

@@ -1,5 +1,7 @@
 package com.offway.core.itinerary.controller;
 
+import static org.hamcrest.Matchers.startsWith;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -11,6 +13,7 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
 import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
 import java.util.List;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -46,6 +49,9 @@ class CourseSupplementIntegrationTest {
 
     @Autowired
     private StubTourApiClient tourApiClient;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @TestConfiguration
     static class StubConfig {
@@ -112,8 +118,7 @@ class CourseSupplementIntegrationTest {
 
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body(UISEONG)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").value(
-                        org.hamcrest.Matchers.startsWith("LIC-")));
+                .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").value(startsWith("LIC-")));
     }
 
     /** 풀이 아예 없는 지역까지 구제하지는 않는다 — 없는 것을 지어내면 안 된다. */
@@ -124,5 +129,34 @@ class CourseSupplementIntegrationTest {
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("1")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-001"));
+    }
+
+    // ── 상세 조회(#144) ───────────────────────────────────────────
+
+    /**
+     * 코스에 실린 인허가 장소를 눌렀을 때 — TourAPI 에 물으면 없는 콘텐츠라 404 다. 백엔드가 우리 DB 로 답한다.
+     */
+    @Test
+    void 인허가_장소의_상세는_우리_DB가_답한다() throws Exception {
+        tourApiClient.respond(TourPoiResult::empty);
+
+        // 코스에 실제로 실린 식별자를 그대로 눌러본다
+        String poiId = objectMapper.readTree(
+                        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body(UISEONG)))
+                                .andReturn().getResponse().getContentAsString())
+                .path("data").path("days").get(0).path("items").get(0).path("poiContentId").asText();
+
+        mockMvc.perform(get("/api/v1/pois/{id}", poiId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.contentId").value(poiId))
+                .andExpect(jsonPath("$.data.title").isNotEmpty())
+                .andExpect(jsonPath("$.data.address").isNotEmpty());
+    }
+
+    @Test
+    void 없는_인허가_식별자는_404다() throws Exception {
+        mockMvc.perform(get("/api/v1/pois/{id}", "LIC-99999999"))
+                .andExpect(status().isNotFound());
     }
 }

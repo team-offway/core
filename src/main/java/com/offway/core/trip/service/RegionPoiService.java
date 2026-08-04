@@ -37,9 +37,6 @@ public class RegionPoiService {
     private static final int FOOD_TYPE = 39;
     private static final int STAY_TYPE = 32;
 
-    /** 인허가 장소 식별자 접두어 — TourAPI contentId 와 섞이지 않게 한다. */
-    private static final String LICENSED_ID_PREFIX = "LIC-";
-
     /** TourAPI 콘텐츠가 아님을 뜻하는 타입. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
     private static final int LICENSED_CONTENT_TYPE = 0;
 
@@ -108,7 +105,7 @@ public class RegionPoiService {
      */
     private static PoiCandidate toCandidate(LicensedPlace place) {
         return new PoiCandidate(
-                LICENSED_ID_PREFIX + place.getId(),
+                place.publicId(),
                 LICENSED_CONTENT_TYPE,
                 place.getName(),
                 place.getLat(),

@@ -3,6 +3,7 @@ package com.offway.core.trip.repository;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.PlaceKind;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -28,6 +29,11 @@ public class LicensedPlaceRepositoryImpl implements LicensedPlaceRepository {
     @Override
     public List<LicensedPlace> findByRegionAndKind(long regionId, PlaceKind kind) {
         return licensedPlaceJpaRepository.findByRegionIdAndKind(regionId, kind);
+    }
+
+    @Override
+    public Optional<LicensedPlace> findById(long id) {
+        return licensedPlaceJpaRepository.findById(id);
     }
 
     @Override

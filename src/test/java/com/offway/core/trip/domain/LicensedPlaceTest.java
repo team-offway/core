@@ -82,4 +82,28 @@ class LicensedPlaceTest {
         assertEquals(36.3527, place.coordinate().lat());
         assertEquals(128.6971, place.coordinate().lng());
     }
+
+    // ── 공개 식별자(#144) ─────────────────────────────────────────
+
+    @Test
+    void 공개_식별자는_접두어를_붙인다() {
+        assertEquals("LIC-42", LicensedPlace.publicId(42L));
+    }
+
+    @Test
+    void 공개_식별자를_다시_숫자로_되돌린다() {
+        assertEquals(java.util.Optional.of(42L), LicensedPlace.parsePublicId("LIC-42"));
+    }
+
+    /** TourAPI contentId 는 숫자 문자열이라 접두어가 없다. 남의 식별자를 우리 것으로 착각하면 안 된다. */
+    @ParameterizedTest
+    @ValueSource(strings = {"126508", "LIC-", "LIC-abc", "lic-42", "LIC-4 2", "", "  "})
+    void 우리_식별자가_아니면_비어_있다(String other) {
+        assertEquals(java.util.Optional.empty(), LicensedPlace.parsePublicId(other));
+    }
+
+    @Test
+    void null_식별자도_비어_있다() {
+        assertEquals(java.util.Optional.empty(), LicensedPlace.parsePublicId(null));
+    }
 }
