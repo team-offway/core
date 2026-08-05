@@ -71,8 +71,9 @@ class TrainInfoClientImpl implements TrainInfoClient {
     }
 
     private String call(UriComponentsBuilder builder) {
-        // serviceKey 는 hex 라 재인코딩해도 안전.
-        URI uri = builder.encode().build().toUri();
+        // serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(build(true)) — 다른 data.go.kr 어댑터와 같은 규약.
+        // 재인코딩하면 `%2B` 가 `%252B` 가 되어 서버가 다른 키로 읽는다(#165). 나머지 파라미터는 전부 ASCII 다.
+        URI uri = builder.build(true).toUri();
         return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
     }
 
