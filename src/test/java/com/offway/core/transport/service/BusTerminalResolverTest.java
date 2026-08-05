@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.transport.domain.BusTerminal;
+import com.offway.core.transport.domain.BusTerminalKind;
 import com.offway.core.transport.domain.Terminal;
 import com.offway.core.transport.repository.BusTerminalRepository;
 import java.util.List;
@@ -16,10 +17,11 @@ class BusTerminalResolverTest {
 
     /** 서울경부(강남)·태백·정선 고한사북. 좌표는 시드 실측값이다. */
     private static final List<BusTerminal> MASTER = List.of(
-            BusTerminal.of("NAEK010", "서울경부", 37.5049, 127.0044),
-            BusTerminal.of("NAEK274", "태백", 37.17698, 128.98524),
-            BusTerminal.of("NAEK222", "고한사북", 37.2126, 128.8253),
-            BusTerminal.of("NAEK999", "좌표없는곳", null, null));
+            BusTerminal.of("NAEK010", "서울경부", BusTerminalKind.EXPRESS, 37.5049, 127.0044),
+            BusTerminal.of("NAEK274", "태백", BusTerminalKind.EXPRESS, 37.17698, 128.98524),
+            BusTerminal.of("NAEK222", "고한사북", BusTerminalKind.EXPRESS, 37.2126, 128.8253),
+            BusTerminal.of("NAI0511601", "동서울", BusTerminalKind.INTERCITY, 37.5347, 127.0947),
+            BusTerminal.of("NAEK999", "좌표없는곳", BusTerminalKind.EXPRESS, null, null));
 
     private static BusTerminalResolver resolver() {
         BusTerminalRepository repo = () -> MASTER; // findAll 단일 메서드 → 람다
@@ -48,6 +50,13 @@ class BusTerminalResolverTest {
         Terminal terminal = resolver().nearest(37.5049, 127.0044).orElseThrow();
 
         assertEquals("NAEK010", terminal.code());
+    }
+
+    @Test
+    void 종류를_함께_알려준다() {
+        // 고속·시외는 구간 조회 API 가 달라, 최근접만 알고 종류를 모르면 어디에 물어야 할지 모른다.
+        assertEquals(BusTerminalKind.INTERCITY, resolver().nearest(37.5347, 127.0947).orElseThrow().kind());
+        assertEquals(BusTerminalKind.EXPRESS, resolver().nearest(37.17698, 128.98524).orElseThrow().kind());
     }
 
     @Test

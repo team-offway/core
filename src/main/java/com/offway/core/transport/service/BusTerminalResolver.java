@@ -41,6 +41,7 @@ public class BusTerminalResolver {
                 .map(entry -> new Terminal(
                         entry.getKey().getCode(),
                         entry.getKey().getName(),
+                        entry.getKey().getKind(),
                         new Coordinate(entry.getKey().getLat(), entry.getKey().getLng())));
     }
 

@@ -2,6 +2,8 @@ package com.offway.core.transport.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -38,21 +40,27 @@ public class BusTerminal {
     @Column(nullable = false, length = 64)
     private String name;
 
+    /** 고속·시외 중 어느 쪽인가 — 구간을 어느 API 로 물을지 정한다. */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private BusTerminalKind kind;
+
     private Double lat;
 
     private Double lng;
 
-    private BusTerminal(String code, String name, Double lat, Double lng) {
-        // 코드·이름은 누가 만들든 반드시 있어야 하는 불변식(좌표만 결측 허용) — DB flush 까지 미루지 않는다.
+    private BusTerminal(String code, String name, BusTerminalKind kind, Double lat, Double lng) {
+        // 코드·이름·종류는 누가 만들든 반드시 있어야 하는 불변식(좌표만 결측 허용) — DB flush 까지 미루지 않는다.
         this.code = Objects.requireNonNull(code, "터미널 코드는 null 일 수 없습니다.");
         this.name = Objects.requireNonNull(name, "터미널 이름은 null 일 수 없습니다.");
+        this.kind = Objects.requireNonNull(kind, "터미널 종류는 null 일 수 없습니다.");
         this.lat = lat;
         this.lng = lng;
     }
 
-    /** 코드·이름·좌표로 만든다(시드 로딩·테스트용). 좌표는 결측 가능. */
-    public static BusTerminal of(String code, String name, Double lat, Double lng) {
-        return new BusTerminal(code, name, lat, lng);
+    /** 코드·이름·종류·좌표로 만든다(시드 로딩·테스트용). 좌표는 결측 가능. */
+    public static BusTerminal of(String code, String name, BusTerminalKind kind, Double lat, Double lng) {
+        return new BusTerminal(code, name, kind, lat, lng);
     }
 
     /** 최근접 탐색에 쓸 수 있는가 — 좌표가 있어야 한다. */

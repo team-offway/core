@@ -10,13 +10,15 @@ import java.util.Objects;
  *
  * @param code TAGO 터미널 코드(예: {@code NAEK010})
  * @param name 터미널 이름(예: 서울경부)
+ * @param kind 고속·시외 — 구간을 어느 API 로 물을지 정한다
  * @param coordinate 터미널 좌표 — 해석이 좌표 최근접이라 해석된 터미널은 좌표를 반드시 가진다
  */
-public record Terminal(String code, String name, Coordinate coordinate) {
+public record Terminal(String code, String name, BusTerminalKind kind, Coordinate coordinate) {
 
     public Terminal {
         Objects.requireNonNull(code, "터미널 코드는 null 일 수 없습니다.");
         Objects.requireNonNull(name, "터미널 이름은 null 일 수 없습니다.");
+        Objects.requireNonNull(kind, "터미널 종류는 null 일 수 없습니다.");
         Objects.requireNonNull(coordinate, "터미널 좌표는 null 일 수 없습니다.");
     }
 }
