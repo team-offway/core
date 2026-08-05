@@ -22,7 +22,9 @@ ALTER TABLE bus_terminal ADD COLUMN kind VARCHAR(16);
 -- 기존 행은 전부 고속버스다(앞 마이그레이션이 넣은 452곳).
 UPDATE bus_terminal SET kind = 'EXPRESS' WHERE kind IS NULL;
 
-ALTER TABLE bus_terminal ALTER COLUMN kind SET NOT NULL;
+-- MySQL·H2 양쪽에서 도는 문법으로 쓴다. `ALTER COLUMN ... SET NOT NULL` 은 H2 에서만 돌고
+-- MySQL 은 1064(syntax error)를 낸다 — 로컬 H2 만 보고 넘기면 CI 의 MySQL 검증에서 잡힌다.
+ALTER TABLE bus_terminal MODIFY COLUMN kind VARCHAR(16) NOT NULL;
 
 CREATE INDEX idx_bus_terminal_kind ON bus_terminal (kind);
 
