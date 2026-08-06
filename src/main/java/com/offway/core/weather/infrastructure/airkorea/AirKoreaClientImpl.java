@@ -6,6 +6,8 @@ import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.weather.domain.AirGrade;
 import com.offway.core.weather.domain.AirQuality;
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
@@ -47,7 +49,9 @@ class AirKoreaClientImpl implements AirKoreaClient {
                 .queryParam("returnType", "json")
                 .queryParam("numOfRows", ROWS)
                 .queryParam("pageNo", 1)
-                .queryParam("sidoName", airKoreaSidoName)
+                // 시도명은 한글이라 여기서 직접 인코딩한다 — URI 를 통째로 재인코딩하면 serviceKey 까지 이중
+                // 인코딩돼 다른 키가 된다(#165).
+                .queryParam("sidoName", URLEncoder.encode(airKoreaSidoName, StandardCharsets.UTF_8))
                 .queryParam("ver", "1.3");
         try {
             return parse(call(builder));
@@ -58,8 +62,9 @@ class AirKoreaClientImpl implements AirKoreaClient {
     }
 
     private String call(UriComponentsBuilder builder) {
-        // sidoName 이 한글이라 인코딩이 필요하다. serviceKey 는 hex 라 재인코딩해도 안전.
-        URI uri = builder.encode().build().toUri();
+        // 인코딩이 필요한 값(한글 시도명)은 이미 넣을 때 인코딩했다. 여기서 통째로 다시 인코딩하면 serviceKey 의
+        // `%2B` 가 `%252B` 가 되어 서버가 다른 키로 읽는다(#165).
+        URI uri = builder.build(true).toUri();
         return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
     }
 
