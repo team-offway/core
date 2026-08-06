@@ -10,8 +10,17 @@ import org.junit.jupiter.api.Test;
 
 class TourPoiResultTest {
 
+    private static final int TOURIST_SPOT = 12;
+    private static final int CULTURE = 14;
+    private static final int RESTAURANT = 39;
+    private static final int STAY = 32;
+
     private static TourPoi poi(String lclsSystm1, String firstImage) {
-        return new TourPoi("id", 12, lclsSystm1, "제목", "주소", 34.3, 126.7, firstImage, null);
+        return typed(TOURIST_SPOT, lclsSystm1, firstImage);
+    }
+
+    private static TourPoi typed(int contentTypeId, String lclsSystm1, String firstImage) {
+        return new TourPoi("id", contentTypeId, lclsSystm1, "제목", "주소", 34.3, 126.7, firstImage, null);
     }
 
     @Test
@@ -44,5 +53,38 @@ class TourPoiResultTest {
         assertEquals(0, content.contentCount());
         assertNull(content.imageUrl());
         assertEquals(List.of(), content.categories());
+    }
+
+    @Test
+    void 대표사진은_음식점_숙박을_건너뛰고_관광지를_고른다() {
+        // 목록에는 숙박·음식점·쇼핑이 섞여 온다. "사진 있는 첫 POI" 를 쓰면 지역 카드에 남의 가게가 걸린다 —
+        // 실제로 공주시는 책방, 부산 동구는 횟집이 대표 사진이었다.
+        TourPoiResult result = new TourPoiResult(
+                List.of(
+                        typed(RESTAURANT, "FD", "http://횟집.jpg"),
+                        typed(STAY, "AC", "http://펜션.jpg"),
+                        typed(TOURIST_SPOT, "NA", "http://폭포.jpg")),
+                10);
+
+        assertEquals("http://폭포.jpg", result.toRegionContent().imageUrl());
+    }
+
+    @Test
+    void 관광지가_없으면_사진_있는_아무_곳이나_쓴다() {
+        // 사진을 통째로 비우는 것보다 낫다.
+        TourPoiResult result = new TourPoiResult(
+                List.of(typed(RESTAURANT, "FD", null), typed(CULTURE, "VE", "http://박물관.jpg")), 10);
+
+        assertEquals("http://박물관.jpg", result.toRegionContent().imageUrl());
+    }
+
+    @Test
+    void 관광지라도_사진이_없으면_건너뛴다() {
+        TourPoiResult result = new TourPoiResult(
+                List.of(typed(TOURIST_SPOT, "NA", null), typed(TOURIST_SPOT, "NA", "  "),
+                        typed(TOURIST_SPOT, "NA", "http://절.jpg")),
+                10);
+
+        assertEquals("http://절.jpg", result.toRegionContent().imageUrl());
     }
 }
