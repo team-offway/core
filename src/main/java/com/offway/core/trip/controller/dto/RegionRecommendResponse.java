@@ -1,5 +1,7 @@
 package com.offway.core.trip.controller.dto;
 
+import com.offway.core.common.logging.LogSummaries;
+import com.offway.core.common.logging.LogSummary;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.service.dto.RecommendedRegion;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -10,10 +12,21 @@ import java.util.List;
  *
  * @param regions 추천 지역 (랭킹 내림차순)
  */
-public record RegionRecommendResponse(List<Item> regions) {
+public record RegionRecommendResponse(List<Item> regions) implements LogSummary {
 
     public static RegionRecommendResponse from(List<RecommendedRegion> regions) {
         return new RegionRecommendResponse(regions.stream().map(Item::from).toList());
+    }
+
+    @Override
+    public String logSummary() {
+        return LogSummaries.list("추천", regions, item -> "%d:%s".formatted(item.regionId(), shortName(item.name())));
+    }
+
+    /** "완도군 · 전라남도" 에서 시군구만 — 로그 한 줄에 시도까지 넣으면 다섯 건에 길이가 두 배가 된다. */
+    private static String shortName(String name) {
+        int separator = name.indexOf(" · ");
+        return separator < 0 ? name : name.substring(0, separator);
     }
 
     /**
