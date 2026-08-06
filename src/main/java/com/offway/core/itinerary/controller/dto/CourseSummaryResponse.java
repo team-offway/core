@@ -27,6 +27,12 @@ public record CourseSummaryResponse(
                 Integer dDay,
         int travelDays,
         @Schema(example = "PACKED") String density,
+        @Schema(description = "지역명 (모르면 null)", example = "정선군", nullable = true) String regionName,
+        @Schema(
+                        description = "카드 대표 이미지 — 코스 첫 장소의 사진. 없으면 null",
+                        example = "http://tong.visitkorea.or.kr/cms/resource/1.jpg",
+                        nullable = true)
+                String coverImageUrl,
         int placeCount,
         @Schema(description = "이 코스로 연차를 차감했는가", example = "true") boolean leaveDeducted) {
 
@@ -38,6 +44,8 @@ public record CourseSummaryResponse(
                 myCourses.dDay(course),
                 course.getTravelDays(),
                 course.getDensity().name(),
+                myCourses.regionName(course),
+                course.coverImageUrl().orElse(null),
                 course.totalSlots(),
                 myCourses.isDeducted(course));
     }

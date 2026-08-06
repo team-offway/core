@@ -42,6 +42,9 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
     private static final ZoneId KMA_ZONE = ZoneId.of("Asia/Seoul"); // 발표일·발표시각은 KST 기준
     private static final DateTimeFormatter YMD = DateTimeFormatter.ofPattern("yyyyMMdd");
 
+    /** 하늘 상태의 대표 시각 — 밤 시간대가 하루를 대표하지 않게 정오를 쓴다. */
+    private static final String NOON = "1200";
+
     private final WebClient webClient;
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -99,7 +102,9 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
         String target = date.format(YMD);
         Integer minTemp = null;
         Integer maxTemp = null;
-        SkyState sky = SkyState.UNKNOWN;
+        String skyCode = null;
+        // 강수는 하루 중 **언제 오든** 살린다 — 정오만 보면 "오전 맑고 오후 비" 가 맑음으로 나간다.
+        SkyState precipitation = SkyState.UNKNOWN;
         Integer rainProb = null;
         boolean any = false;
 
@@ -123,14 +128,21 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
                     any = true;
                 }
                 case "SKY" -> {
-                    if (sky == SkyState.UNKNOWN || "1200".equals(item.path("fcstTime").asText())) {
-                        sky = SkyState.fromCode(value); // 정오값을 대표로
+                    if (skyCode == null || NOON.equals(item.path("fcstTime").asText())) {
+                        skyCode = value; // 정오값을 대표로 — 밤 시간대가 하루를 대표하지 않게
                     }
+                    any = true;
+                }
+                case "PTY" -> {
+                    // 하늘과 달리 정오를 고르지 않는다. 비·눈은 그날 한 번이라도 오면 챙겨야 한다.
+                    precipitation = precipitation.worseOf(SkyState.from(null, value));
                     any = true;
                 }
                 default -> { /* 사용하지 않는 카테고리(TMP 등)는 결과 유무에 영향 없음 */ }
             }
         }
+        // 강수가 있으면 하늘 상태를 덮는다(#135). 없으면 정오 하늘이 답이다.
+        SkyState sky = precipitation.hasPrecipitation() ? precipitation : SkyState.from(skyCode, null);
         return any ? Optional.of(new DailyWeather(date, minTemp, maxTemp, sky, rainProb)) : Optional.empty();
     }
 

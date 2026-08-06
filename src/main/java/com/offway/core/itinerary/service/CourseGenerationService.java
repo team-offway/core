@@ -25,7 +25,6 @@ import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.service.dto.RegionPois;
 import com.offway.core.weather.domain.DailyWeather;
-import com.offway.core.weather.service.WeatherService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -57,7 +56,7 @@ public class CourseGenerationService {
     private final RouteTimeProvider routeTimeProvider;
     private final RouteOptimizer routeOptimizer;
     private final PolicyService policyService;
-    private final WeatherService weatherService;
+    private final CourseWeatherProvider courseWeatherProvider;
     private final RegionRepository regionRepository;
     private final TrainAccessService trainAccessService;
 
@@ -119,7 +118,7 @@ public class CourseGenerationService {
         // 코스 지역 날씨를 Day 마다 따로 — 2박3일이면 날마다 다르다. 첫날 것으로 코스 전체를 대표하면 이튿날이 틀린다(#141).
         // 코스 중심(hub) 좌표로 조회하고, 시도·시군구를 함께 넘긴다: 나흘 뒤부터는 좌표 격자가 아니라
         // 광역 구역 단위 중기예보가 답한다(#129). 부가 정보라 미조회·실패·예보범위 밖인 Day 는 그냥 빈다.
-        Map<Integer, DailyWeather> weatherByDay = weatherByDay(command, course, region, hub);
+        Map<Integer, DailyWeather> weatherByDay = courseWeatherProvider.byDay(course, region, hub);
 
         log.info("코스 생성 regionId={} days={} slots={} benefits={} weatherDays={} trainAccess={}",
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
@@ -164,31 +163,6 @@ public class CourseGenerationService {
             return pool;
         }
         return pool.stream().filter(poi -> !excluded.contains(poi.contentId())).toList();
-    }
-
-    /**
-     * Day 별 날씨. 예보가 없는 Day 는 <b>키 자체를 넣지 않는다</b> — 화면이 Day 마다 독립적으로 판단한다.
-     *
-     * <p>날짜를 모르는 코스(저장 시 날짜 미입력)는 물어볼 기준이 없어 통째로 빈다.
-     */
-    private Map<Integer, DailyWeather> weatherByDay(
-            GenerateCourse command, Course course, Region region, Coordinate hub) {
-        if (command.travelDate() == null) {
-            return Map.of();
-        }
-        Map<Integer, DailyWeather> byDay = new LinkedHashMap<>();
-        for (DaySchedule schedule : course.getDays()) {
-            // 조회는 달력 오프셋으로 — 첫날이 빠진 코스에서 표시 번호로 날짜를 세면 하루 앞 예보가 붙는다(#159).
-            // 키는 표시 번호를 그대로 쓴다. 응답의 Day 와 짝이 맞아야 한다.
-            int day = schedule.getDayNumber();
-            weatherService.dailyWeather(
-                            hub.lat(), hub.lng(),
-                            region == null ? null : region.getSido(),
-                            region == null ? null : region.getSigungu(),
-                            course.dateOf(schedule))
-                    .ifPresent(weather -> byDay.put(day, weather));
-        }
-        return byDay;
     }
 
     /** 대중교통 코스의 출발지→지역 열차 접근. 출발·지역 좌표의 최근접 역으로 해석한다. */

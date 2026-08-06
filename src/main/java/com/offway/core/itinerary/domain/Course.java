@@ -1,5 +1,6 @@
 package com.offway.core.itinerary.domain;
 
+import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -17,6 +18,8 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
+
 import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -202,6 +205,40 @@ public class Course {
      *
      * @return 그날의 날짜. 여행 시작일을 모르면 null — 없는 것을 지어내지 않는다
      */
+    /**
+     * 목록 카드에 쓸 대표 이미지 — 첫 슬롯의 것(#171).
+     *
+     * <p>이미지가 없는 슬롯은 건너뛴다. 하나도 없으면 빈 Optional 이고 화면은 자리표시자를 쓴다.
+     */
+    public Optional<String> coverImageUrl() {
+        return days.stream()
+                .flatMap(day -> day.getSlots().stream())
+                .map(Slot::getImageUrl)
+                .filter(url -> url != null && !url.isBlank())
+                .findFirst();
+    }
+
+    /**
+     * 코스의 중심 좌표 — 날씨를 어느 지점으로 물을지의 기준(#169).
+     *
+     * <p>슬롯 좌표의 평균이다. 생성 경로는 볼거리 군집의 중심(hub)을 쓰는데, 저장 코스는 그 계산을 다시 하지
+     * 않고 이미 담긴 슬롯으로 구한다 — 날씨는 격자 단위라 이 정도 차이가 결과를 바꾸지 않는다.
+     *
+     * <p>좌표 없는 슬롯은 제외한다. 하나도 없으면 빈 Optional.
+     */
+    public Optional<Coordinate> center() {
+        List<Slot> located = days.stream()
+                .flatMap(day -> day.getSlots().stream())
+                .filter(slot -> slot.getLat() != null && slot.getLng() != null)
+                .toList();
+        if (located.isEmpty()) {
+            return Optional.empty();
+        }
+        double lat = located.stream().mapToDouble(Slot::getLat).average().orElseThrow();
+        double lng = located.stream().mapToDouble(Slot::getLng).average().orElseThrow();
+        return Optional.of(new Coordinate(lat, lng));
+    }
+
     public LocalDate dateOf(DaySchedule schedule) {
         if (travelDate == null) {
             return null;

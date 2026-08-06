@@ -9,10 +9,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.offway.core.weather.domain.DailyWeather;
+import com.offway.core.weather.domain.SkyState;
+import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
+import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
+import java.time.LocalDate;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -37,6 +47,24 @@ class CourseStorageIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private StubKmaWeatherClient weatherClient;
+
+    @TestConfiguration
+    static class StubConfig {
+
+        @Bean
+        @Primary
+        KmaWeatherClient stubKmaWeatherClient() {
+            return new StubKmaWeatherClient();
+        }
+    }
+
+    @AfterEach
+    void resetWeatherStub() {
+        weatherClient.reset(); // 공유 컨텍스트 — 앞 테스트가 세팅한 예보가 다음 테스트로 새지 않게
+    }
 
     /** 테스트마다 고유한 게스트 ID — 롤백 없이 "내 코스" 목록이 이전 실행과 섞이지 않게. */
     private static String uniqueGuest() {
@@ -237,5 +265,99 @@ class CourseStorageIntegrationTest {
         org.junit.jupiter.api.Assertions.assertEquals(
                 java.util.List.of(200, 404), statuses.stream().sorted().toList(),
                 "동시 삭제는 경합일 뿐 실패가 아니다. 실제=" + statuses);
+    }
+
+    // ── FE 가 준비를 끝냈는데 서버가 안 주던 것들 (#169 · #171) ───────────────────
+
+    /** 날짜·이미지가 있는 1박2일 코스 — 날씨와 대표 이미지를 함께 확인한다. */
+    private static String bodyWithDateAndImage(LocalDate travelDate) {
+        return """
+                { "regionId": 16, "density": "PACKED", "transport": "CAR", "travelDate": "%s", "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1",
+                     "lat":37.50,"lng":128.60,"travelMinutes":0,"imageUrl":"http://img/cover.jpg"}
+                  ]},
+                  { "day": 2, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c2","title":"장소2",
+                     "lat":37.51,"lng":128.61,"travelMinutes":0,"imageUrl":"http://img/second.jpg"}
+                  ]}
+                ]}""".formatted(travelDate);
+    }
+
+    private long save(String guest, String body) throws Exception {
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(saved, "$.data.courseId")).longValue();
+    }
+
+    @Test
+    void 저장한_코스_상세에도_날씨가_실린다() throws Exception {
+        // 생성 응답에는 날씨가 실리는데 저장 코스 조회에는 빠져 있어 화면이 비어 있었다(#169).
+        LocalDate travelDate = LocalDate.now().plusDays(1);
+        weatherClient.respondByDate(date ->
+                Optional.of(new DailyWeather(date, 18, 27, SkyState.RAIN, 80)));
+        String guest = uniqueGuest();
+        long courseId = save(guest, bodyWithDateAndImage(travelDate));
+
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].weather.sky").value("비"))
+                .andExpect(jsonPath("$.data.days[0].weather.minTemp").value(18))
+                .andExpect(jsonPath("$.data.days[0].weather.rainProbability").value(80))
+                // Day 마다 따로 묻는다 — 첫날 것으로 전체를 대표하면 이튿날이 틀린다
+                .andExpect(jsonPath("$.data.days[1].weather.date").value(travelDate.plusDays(1).toString()));
+    }
+
+    @Test
+    void 날짜없이_저장한_코스는_날씨가_비어_있다() throws Exception {
+        // 물어볼 기준이 없다. 지어내지 않고 비운다.
+        weatherClient.respond(() -> Optional.of(new DailyWeather(LocalDate.now(), 18, 27, SkyState.CLEAR, 0)));
+        String guest = uniqueGuest();
+        long courseId = save(guest, VALID_BODY);
+
+        // 키 자체가 빠진다 — "없는 값은 내려보내지 않는다"(응답 계약). null 로 내리지 않는다.
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].weather").doesNotExist());
+    }
+
+    @Test
+    void 목록에_지역명과_대표_이미지가_실린다() throws Exception {
+        // 없어서 FE 가 코스마다 상세를 한 번씩 더 불렀다(#171).
+        String guest = uniqueGuest();
+        save(guest, bodyWithDateAndImage(LocalDate.now().plusDays(1)));
+
+        mockMvc.perform(get(URL).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].regionName").value("정선군"))
+                .andExpect(jsonPath("$.data[0].coverImageUrl").value("http://img/cover.jpg"));
+    }
+
+    @Test
+    void 이미지가_없는_코스는_대표_이미지가_null이다() throws Exception {
+        String guest = uniqueGuest();
+        save(guest, VALID_BODY);
+
+        mockMvc.perform(get(URL).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].regionName").value("정선군"))
+                .andExpect(jsonPath("$.data[0].coverImageUrl").doesNotExist());
+    }
+
+    @Test
+    void 예보_범위_밖_여행은_날씨가_비어_있다() throws Exception {
+        // 우리가 답할 수 있는 것은 D+10 까지다(단기 D+0~3 · 중기 D+4~10). 그 밖은 기상청도 예보를 내지 않는다.
+        // 지어내지 않고 비운다 — 평년값으로 채우는 것은 후속(#133)이다.
+        weatherClient.respondByDate(date -> Optional.empty());
+        String guest = uniqueGuest();
+        long courseId = save(guest, bodyWithDateAndImage(LocalDate.now().plusDays(30)));
+
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].weather").doesNotExist())
+                // 날씨가 없어도 코스는 그대로 나간다 — 부가 정보다
+                .andExpect(jsonPath("$.data.days.length()").value(2));
     }
 }

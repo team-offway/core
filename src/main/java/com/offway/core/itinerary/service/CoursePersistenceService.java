@@ -35,6 +35,23 @@ public class CoursePersistenceService {
      * <p>동시에 같은 코스를 지우면 두 요청이 <b>둘 다 조회에 성공</b>하고, 뒤늦은 쪽이 커밋에서 "지울 행이 없다" 로
      * 실패한다({@code OptimisticLockingFailureException}). 그 번역은 호출자가 한다 — 여기서 잡으면 이미 늦다.
      */
+    /**
+     * 게스트 소유의 저장 코스를 읽는다 — <b>트랜잭션은 여기까지</b>(#169).
+     *
+     * <p>혜택·지역·날씨 조립은 호출자가 트랜잭션 밖에서 한다. 날씨는 외부 호출이라 read-timeout 이 길고,
+     * 트랜잭션 안에 넣으면 DB 커넥션을 그만큼 오래 잡는다(영속성 규약).
+     *
+     * <p>없거나 소유자가 아니면 존재 여부를 흘리지 않도록 똑같이 404.
+     */
+    @Transactional(readOnly = true)
+    public Course loadOwned(String guestId, long courseId) {
+        Course course = courseRepository
+                .findByIdAndGuestId(courseId, guestId)
+                .orElseThrow(ItineraryException::courseNotFound);
+        course.totalSlots(); // tx 안에서 days·slots 초기화(직렬화·조립은 tx 밖)
+        return course;
+    }
+
     @Transactional
     public void deleteOwned(String guestId, long courseId) {
         Course course = courseRepository
