@@ -160,6 +160,25 @@ class CourseRegenerateIntegrationTest {
     }
 
     @Test
+    void 같은_previousSeed로_두_번_부르면_같은_코스가_나온다() throws Exception {
+        // 씨앗을 맡겼을 때도 결과는 입력의 함수여야 한다.
+        //
+        // 예전에는 후보 씨앗을 전역 난수로 뽑아 같은 요청이 매번 다른 답을 냈다. 그러면 FE 가 네트워크 재시도로
+        // 같은 요청을 두 번 보냈을 때 화면이 이유 없이 바뀌고, 위의 "또 다른 코스" 테스트도 운에 따라 통과했다
+        // (CI 에서 실제로 간헐 실패했다). 무작위성을 없앤 것을 여기서 못 박는다.
+        tourApiClient.respond(() -> pois(RICH_SIGHTS));
+
+        String once = call(REGENERATE, "\"previousSeed\": 4242");
+        String twice = call(REGENERATE, "\"previousSeed\": 4242");
+
+        assertEquals(placesOf(once, "course."), placesOf(twice, "course."));
+        assertEquals(
+                ((Number) JsonPath.read(once, "$.data.seed")).longValue(),
+                ((Number) JsonPath.read(twice, "$.data.seed")).longValue(),
+                "고른 씨앗까지 같아야 한다 — 여기가 흔들리면 코스가 같은 것도 우연이다");
+    }
+
+    @Test
     void 후보가_모자라면_같은_코스라도_주되_달라지지_않았다고_알린다() throws Exception {
         // 인구감소지역은 볼거리가 필요 개수와 비슷한 경우가 흔하다. 조용히 같은 코스를 주면 안 된다.
         tourApiClient.respond(() -> pois(SCARCE_SIGHTS));

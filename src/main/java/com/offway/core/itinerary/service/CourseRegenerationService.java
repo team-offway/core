@@ -6,6 +6,7 @@ import com.offway.core.itinerary.service.dto.RegeneratedCourse;
 import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.dto.RegionPois;
 import java.util.Set;
+import java.util.SplittableRandom;
 import java.util.random.RandomGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,8 +54,8 @@ public class CourseRegenerationService {
     /**
      * 직전 코스와 다른 코스를 만든다.
      *
-     * <p>씨앗을 지정하지 않으면 무작위로 고른다. 지정하면 그 씨앗만 쓰고 시도하지 않는다 — <b>재현이 목적</b>인
-     * 호출이라 다르게 만들려고 씨앗을 바꿔 버리면 뜻이 뒤집힌다.
+     * <p>씨앗을 지정하지 않으면 <b>직전 씨앗에서 파생</b>해 고른다. 지정하면 그 씨앗만 쓰고 시도하지 않는다 —
+     * <b>재현이 목적</b>인 호출이라 다르게 만들려고 씨앗을 바꿔 버리면 뜻이 뒤집힌다.
      *
      * @param command 첫 생성과 같은 조건. {@code excludePoiContentIds} 로 "이 장소 말고" 를 함께 준다
      * @param requestedSeed 씨앗을 직접 고르면 그 값, 맡기면 {@code null}
@@ -68,7 +69,7 @@ public class CourseRegenerationService {
 
         long chosen = requestedSeed != null
                 ? requestedSeed
-                : seedMostDifferentFrom(command, pois, previousSights);
+                : seedMostDifferentFrom(command, pois, previousSights, previous);
 
         // 외부를 타는 조립은 여기 한 번뿐이다 — 보통 생성 한 번과 같은 비용이다.
         GeneratedCourse built = courseGenerationService.generate(command.withSeed(chosen), pois);
@@ -86,9 +87,17 @@ public class CourseRegenerationService {
      *
      * <p>충분히 다른 것을 찾으면 바로 멈춘다. 다 돌아도 못 찾으면 그중 가장 덜 겹치는 것을 쓴다 — 후보가 모자란
      * 지역에서도 무언가는 내려야 하고, 달라지지 않았다는 사실은 응답이 따로 알린다.
+     *
+     * <p><b>후보 씨앗은 직전 씨앗에서 파생한다({@link SplittableRandom}).</b> 전역 난수를 쓰면 같은 요청이 매번
+     * 다른 답을 낸다. 그러면 FE 가 네트워크 재시도로 같은 요청을 두 번 보냈을 때 화면이 이유 없이 바뀌고,
+     * 무엇보다 <b>이 동작을 검증하는 테스트가 확률적으로만 통과한다</b> — 실제로 CI 에서 간헐 실패했다.
+     *
+     * <p>파생이라도 다양성은 그대로다. "다시 추천받기" 는 매번 <b>직전 응답의 씨앗</b>을 넘기므로 씨앗이 계속
+     * 바뀌고, 그때마다 새 후보열이 나온다. 달라지는 축은 난수가 아니라 직전 씨앗이다.
      */
-    private long seedMostDifferentFrom(GenerateCourse command, RegionPois pois, Set<String> previousSights) {
-        RandomGenerator random = RandomGenerator.getDefault();
+    private long seedMostDifferentFrom(
+            GenerateCourse command, RegionPois pois, Set<String> previousSights, long previous) {
+        RandomGenerator random = new SplittableRandom(previous);
         long bestSeed = GenerateCourse.FIRST_SEED;
         double bestOverlap = Double.MAX_VALUE;
 

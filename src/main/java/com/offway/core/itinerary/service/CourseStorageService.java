@@ -14,7 +14,10 @@ import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.region.domain.Region;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -34,6 +37,7 @@ public class CourseStorageService {
     private final CourseRepository courseRepository;
     private final PolicyService policyService;
     private final RegionRepository regionRepository;
+    private final CourseWeatherProvider courseWeatherProvider;
     private final CoursePersistenceService coursePersistenceService;
     private final MyLeaveService myLeaveService;
 
@@ -54,19 +58,16 @@ public class CourseStorageService {
         LocalDate today = LocalDate.now(SERVICE_ZONE);
         List<Course> courses = scope.find(courseRepository, guestId, today);
         courses.forEach(Course::totalSlots); // 응답 직렬화는 tx 밖 — 애그리거트(days·slots)를 여기서 초기화
-        return new MyCourses(courses, myLeaveService.deductedCourseIds(guestId), today);
+        return new MyCourses(courses, myLeaveService.deductedCourseIds(guestId), regionNamesOf(courses), today);
     }
 
     /**
      * 게스트 소유의 저장 코스 상세(혜택 포함). 소유자 범위로만 조회해 남의 코스를 ID 만으로 볼 수 없게 한다. 없거나 소유자가
      * 아니면 존재 여부를 흘리지 않도록 똑같이 404.
      */
-    @Transactional(readOnly = true)
     public GeneratedCourse get(String guestId, long courseId) {
-        Course course = courseRepository
-                .findByIdAndGuestId(courseId, guestId)
-                .orElseThrow(ItineraryException::courseNotFound);
-        course.totalSlots(); // tx 안에서 days·slots 초기화(직렬화는 tx 밖)
+        // 로딩만 트랜잭션 안에서 한다(별도 빈이라 프록시를 탄다). 날씨는 외부 호출이라 밖에서 붙인다(#169).
+        Course course = coursePersistenceService.loadOwned(guestId, courseId);
         return withBenefits(course);
     }
 
@@ -91,16 +92,34 @@ public class CourseStorageService {
         }
     }
 
+    /**
+     * 코스들이 속한 지역명 — <b>한 번에 모아 조회한다</b>(#171).
+     *
+     * <p>코스마다 지역을 따로 읽으면 FE 의 N+1 을 서버로 옮긴 것뿐이다. 지역 ID 를 중복 없이 모아 한 번 부른다.
+     */
+    private Map<Long, String> regionNamesOf(List<Course> courses) {
+        List<Long> regionIds = courses.stream().map(Course::getRegionId).distinct().toList();
+        if (regionIds.isEmpty()) {
+            return Map.of();
+        }
+        return regionRepository.findByIds(regionIds).stream()
+                .collect(Collectors.toMap(Region::getId, Region::getSigungu, (a, b) -> a));
+    }
+
     private GeneratedCourse withBenefits(Course course) {
         List<GeneratedCourse.Benefit> benefits = policyService.matchForRegion(course.getRegionId(), LocalDate.now())
                 .stream()
                 .map(policy -> new GeneratedCourse.Benefit(policy.getId(), policy.getType(), policy.badgeText()))
                 .toList();
         // 지역명은 슬롯마다 "관광명소 · 정선군" 으로 붙어 저장 코스에도 필요하다(#141).
-        String regionName = regionRepository.findByIds(List.of(course.getRegionId())).stream()
+        Region region = regionRepository.findByIds(List.of(course.getRegionId())).stream()
                 .findFirst()
-                .map(Region::getSigungu)
                 .orElse(null);
-        return GeneratedCourse.of(course, benefits, regionName); // 저장 코스는 날짜가 없을 수 있어 날씨 미부착
+        // 저장 코스에도 날씨를 붙인다(#169) — 생성 응답에만 실리고 상세 조회에는 없어 화면이 비어 있었다.
+        // 날짜를 안 넣고 저장한 코스는 물어볼 기준이 없어 그대로 빈다.
+        Map<Integer, DailyWeather> weatherByDay =
+                courseWeatherProvider.byDay(course, region, course.center().orElse(null));
+        return new GeneratedCourse(
+                course, benefits, weatherByDay, null, region == null ? null : region.getSigungu());
     }
 }

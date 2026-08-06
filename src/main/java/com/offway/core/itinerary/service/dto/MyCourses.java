@@ -4,6 +4,7 @@ import com.offway.core.itinerary.domain.Course;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -14,13 +15,21 @@ import java.util.Set;
  *
  * @param courses 조회된 코스 (범위에 따라 정렬됨)
  * @param deductedCourseIds 연차를 차감한 코스 ID 들
+ * @param regionNames 코스가 속한 지역명(코스 ID 가 아니라 지역 ID 로 색인) — 목록 카드가 숫자 대신 이름을 쓴다(#171)
  * @param today D-day 계산 기준일
  */
-public record MyCourses(List<Course> courses, Set<Long> deductedCourseIds, LocalDate today) {
+public record MyCourses(
+        List<Course> courses, Set<Long> deductedCourseIds, Map<Long, String> regionNames, LocalDate today) {
 
     public MyCourses {
         courses = List.copyOf(courses);
         deductedCourseIds = Set.copyOf(deductedCourseIds);
+        regionNames = Map.copyOf(regionNames);
+    }
+
+    /** 코스가 속한 지역명. 모르면 null — 화면이 지역 칸을 비운다. */
+    public String regionName(Course course) {
+        return regionNames.get(course.getRegionId());
     }
 
     public boolean isDeducted(Course course) {
