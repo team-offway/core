@@ -28,19 +28,26 @@ class BusTerminalSeedIntegrationTest {
     private static final int EXPECTED_TERMINALS = EXPECTED_EXPRESS + EXPECTED_INTERCITY;
 
     /**
-     * 지오코딩으로 좌표를 확보한 행 수(2026-08-05 기준 고속 324 + 시외 336 = 660). 최근접 탐색이 쓸 수 있는
-     * 것은 이만큼이다.
+     * 검증을 통과해 좌표를 남긴 행 수 — 고속 195 + 시외 335 = 530(2026-08-06 실측).
      *
-     * <p>여유를 두고 하한만 본다 — 지오코딩을 다시 돌려 늘어나는 것은 정상이고, 줄어드는 것만 문제다.
+     * <p>이름만으로 지오코딩하면 동음이의·상호명에 걸리므로 <b>근거로 검증한 것만 남긴다</b> — 시외는
+     * API 가 주는 소재지와 대조하고, 고속은 소재지가 없어 좌표 충돌로 걸러낸다. 검증 못 한 좌표는 비운다.
+     *
+     * <p>정확한 값으로 고정한다. 하한만 보면 좌표가 조용히 줄어도 통과한다.
      */
-    private static final int MIN_WITH_COORDINATE = 640;
+    private static final int EXPECTED_WITH_COORDINATE = 530;
+
+    /** 인구감소지역 수 — 행안부 고시 89곳. */
+    private static final int EXPECTED_REGIONS = 89;
 
     /**
-     * 버스로 닿는 인구감소지역 수 — 고속·시외를 합쳐 실측 88곳이다(고속 84 · 시외 88).
+     * 버스로 닿는 인구감소지역 수 — 고속·시외를 합쳐 <b>88곳</b>이다(2026-08-06 실측).
      *
      * <p>못 닿는 곳은 <b>울릉군 하나</b>뿐이고, 섬이라 버스로는 애초에 갈 수 없다 — 여객선이 필요하다(#97).
+     *
+     * <p>정확한 값으로 고정한다. 하한을 느슨하게 두면 좌표가 여덟 곳 사라져도 통과해, 시드 회귀를 놓친다.
      */
-    private static final int MIN_REACHABLE_REGIONS = 80;
+    private static final int EXPECTED_REACHABLE_REGIONS = 88;
 
     /** 터미널이 이보다 멀면 "그 지역 터미널" 로 보지 않는다 — resolver 상한과 같은 값. */
     private static final double NEAR_KM = 30.0;
@@ -60,8 +67,8 @@ class BusTerminalSeedIntegrationTest {
 
         assertEquals(EXPECTED_TERMINALS, all.size(), "터미널 수가 다릅니다 — 마이그레이션이 잘렸는지 확인하세요");
         long withCoordinate = all.stream().filter(BusTerminal::hasCoordinate).count();
-        assertTrue(withCoordinate >= MIN_WITH_COORDINATE,
-                "좌표 있는 터미널이 " + withCoordinate + "곳뿐입니다 — 최근접 탐색이 그만큼 좁아집니다");
+        assertEquals(EXPECTED_WITH_COORDINATE, withCoordinate,
+                "좌표 있는 터미널 수가 다릅니다 — 시드·검증 규칙이 바뀌었는지 확인하세요");
     }
 
     @Test
@@ -88,13 +95,14 @@ class BusTerminalSeedIntegrationTest {
     void 인구감소지역_거의_전부가_버스로_닿는다() {
         // 이 수가 줄면 버스 안내가 조용히 사라진다. 시드·지오코딩 회귀를 여기서 잡는다.
         List<Region> regions = regionRepository.findAll();
+        assertEquals(EXPECTED_REGIONS, regions.size(), "인구감소지역 수가 다릅니다");
 
         long reachable = regions.stream()
                 .filter(region -> resolver.nearest(region.getLat(), region.getLng()).isPresent())
                 .count();
 
-        assertTrue(reachable >= MIN_REACHABLE_REGIONS,
-                "버스로 닿는 지역이 " + reachable + "곳뿐입니다(기대 " + MIN_REACHABLE_REGIONS + "곳 이상)");
+        assertEquals(EXPECTED_REACHABLE_REGIONS, reachable,
+                "버스로 닿는 지역 수가 다릅니다 — 시드·좌표 회귀를 의심하세요");
     }
 
     @Test

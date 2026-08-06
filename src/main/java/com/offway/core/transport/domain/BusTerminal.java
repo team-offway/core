@@ -54,6 +54,11 @@ public class BusTerminal {
         this.code = Objects.requireNonNull(code, "터미널 코드는 null 일 수 없습니다.");
         this.name = Objects.requireNonNull(name, "터미널 이름은 null 일 수 없습니다.");
         this.kind = Objects.requireNonNull(kind, "터미널 종류는 null 일 수 없습니다.");
+        // 좌표는 결측을 허용하되 **반쪽은 허용하지 않는다.** 한쪽만 있으면 hasCoordinate() 가 조용히
+        // 걸러내 시드·임포트 오류가 드러나지 않는다.
+        if ((lat == null) != (lng == null)) {
+            throw new IllegalArgumentException("위도와 경도는 함께 있거나 함께 없어야 합니다.");
+        }
         this.lat = lat;
         this.lng = lng;
     }
