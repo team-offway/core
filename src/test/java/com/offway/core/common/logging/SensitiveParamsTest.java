@@ -43,4 +43,19 @@ class SensitiveParamsTest {
     void null_이면_빈_문자열이다() {
         assertEquals("", SensitiveParams.maskQueryString(null));
     }
+
+    @Test
+    void 퍼센트_인코딩된_이름도_가린다() {
+        assertEquals("t%6Fken=***", SensitiveParams.maskQueryString("t%6Fken=secret"));
+    }
+
+    @Test
+    void 이름_앞뒤_공백이_있어도_가린다() {
+        assertEquals("+token=***", SensitiveParams.maskQueryString("+token=secret"));
+    }
+
+    @Test
+    void 깨진_퍼센트_인코딩이어도_예외_없이_통과한다() {
+        assertEquals("%zz=secret", SensitiveParams.maskQueryString("%zz=secret"));
+    }
 }

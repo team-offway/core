@@ -1,5 +1,7 @@
 package com.offway.core.common.logging;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Set;
@@ -38,9 +40,28 @@ public final class SensitiveParams {
         if (parts.length < NAME_VALUE_LIMIT) {
             return pair;
         }
-        if (MASKED_NAMES.contains(parts[0].toLowerCase(Locale.ROOT))) {
+        // 출력은 항상 원문(parts[0])을 쓴다 — 비교용으로만 디코딩·trim·소문자화한 이름을 쓰면
+        // 로그가 실제 요청과 달라진다.
+        if (MASKED_NAMES.contains(normalizeName(parts[0]))) {
             return parts[0] + NAME_VALUE_DELIMITER + MASK;
         }
         return pair;
+    }
+
+    /**
+     * 이름 비교용 정규화. {@code request.getQueryString()} 은 디코딩되지 않은 원문이라
+     * {@code t%6Fken} 처럼 퍼센트 인코딩된 이름이 {@code toLowerCase} 만으로는 매칭을 피해간다.
+     * 앞뒤 공백도 마찬가지로 매칭을 방해할 수 있어 함께 걷어낸다.
+     *
+     * <p>{@code URLDecoder.decode} 는 잘못된 {@code %} 시퀀스에 {@link IllegalArgumentException}
+     * 을 던진다. 로그를 찍다가 요청 처리가 죽으면 안 되므로, 디코딩이 실패하면 원문 이름으로
+     * 비교를 이어간다(마스킹 여부만 원문 기준으로 보수적으로 판단하게 된다).
+     */
+    private static String normalizeName(String rawName) {
+        try {
+            return URLDecoder.decode(rawName, StandardCharsets.UTF_8).trim().toLowerCase(Locale.ROOT);
+        } catch (IllegalArgumentException e) {
+            return rawName.trim().toLowerCase(Locale.ROOT);
+        }
     }
 }
