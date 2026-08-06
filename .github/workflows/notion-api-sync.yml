@@ -22,6 +22,21 @@ jobs:
   sync:
     name: OpenAPI → Notion
     runs-on: ubuntu-latest
+
+    # local 프로파일이 MySQL 로 뜬다(#175). 앱을 띄워야 OpenAPI 를 받을 수 있으므로 DB 가 필요하다.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: api-sync
+          MYSQL_DATABASE: offway
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -p$MYSQL_ROOT_PASSWORD"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - name: 체크아웃
         uses: actions/checkout@v7
@@ -39,8 +54,12 @@ jobs:
       - name: Gradle 준비
         uses: gradle/actions/setup-gradle@v6
 
-      # 앱을 local(H2, 키 없음)로 잠깐 띄워 /v3/api-docs 를 받는다. springdoc 은 런타임 생성이라 부팅이 필요하다.
+      # 앱을 local(키 없음)로 잠깐 띄워 /v3/api-docs 를 받는다. springdoc 은 런타임 생성이라 부팅이 필요하다.
+      # local 은 MySQL 로 뜨므로(#175) 위 서비스 컨테이너를 가리킨다.
       - name: OpenAPI 덤프
+        env:
+          OFFWAY_DB_USERNAME: root
+          OFFWAY_DB_PASSWORD: api-sync
         run: |
           SPRING_PROFILES_ACTIVE=local ./gradlew bootRun --no-daemon > boot.log 2>&1 &
           for i in $(seq 1 60); do

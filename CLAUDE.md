@@ -5,7 +5,7 @@ OffWay `core` 백엔드의 개발 규약. 항상 로드되는 메인 문서다.
 
 # OffWay `core` 프로젝트 컨벤션
 
-- **스택**: Spring Boot 4.1 · Java 25 · Lombok · JPA · Flyway · H2(local)/MySQL(prod) · Redis · Spring Security + OAuth2
+- **스택**: Spring Boot 4.1 · Java 25 · Lombok · JPA · Flyway · MySQL(로컬은 docker compose, 테스트는 Testcontainers) · Redis · Spring Security + OAuth2
 - **언어**: 커밋 메시지·PR·문서·주석은 한국어. 코드 식별자는 영어(단, 테스트 메서드명은 한국어 허용 — 테스트 규약 참고).
 - **구조**: package-by-feature. 도메인이 뚜렷하게 나뉘고 외부 API 연동을 격리한다.
 
@@ -60,12 +60,13 @@ OffWay `core` 백엔드의 개발 규약. 항상 로드되는 메인 문서다.
 
 ## 로컬 실행성 (불변식)
 
-**designated 브랜치는 `local` 프로파일에서 시크릿·외부 인프라 없이 부팅 가능해야 한다.**
+**designated 브랜치는 `local` 프로파일에서 시크릿·외부 API 키 없이 부팅 가능해야 한다.**
 
-- 로컬은 **H2 인메모리**로 뜬다. 외부 API 키·OAuth 시크릿·실 DB/Redis 가 없어도 **부팅 자체는 막히지 않는다** (실제 외부 호출만 실패).
-- 외부 API 클라이언트는 키가 없으면 **비활성/stub 으로 뜨게** 설계한다 (§추상화, `external` port 인터페이스).
-- 부팅에 실 키·실 DB 를 강제하는 변경은 금지. 이 불변식을 깨면 FE 가 백엔드를 못 띄우고, CI 스모크(컨텍스트 로드)가 빨간불이 된다.
-- 실행: `SPRING_PROFILES_ACTIVE=local ./gradlew bootRun`. 운영은 `SPRING_PROFILES_ACTIVE=prod` + 환경변수.
+- **DB 는 도커로 띄운 MySQL 이다.** `docker compose up -d` 가 선행이다. 운영과 같은 DB 로 돌려야 하기 때문이다 — H2(`MODE=MySQL`)는 방언을 흉내 낼 뿐이라, 마이그레이션이 로컬에서 초록인 채 MySQL 에서 깨진 적이 있다(#175).
+- 외부 API 키·OAuth 시크릿이 **없어도 부팅 자체는 막히지 않는다** (실제 외부 호출만 실패). 외부 API 클라이언트는 키가 없으면 **비활성/stub 으로 뜨게** 설계한다 (§추상화, `external` port 인터페이스).
+- **테스트는 Testcontainers 로 MySQL 을 띄운다.** 개발자가 컨테이너를 손으로 관리하지 않고, 개발 중 데이터와도 섞이지 않는다. 도커가 없으면 테스트가 안 돈다.
+- 부팅에 실 키를 강제하는 변경은 금지. 이 불변식을 깨면 CI 스모크(컨텍스트 로드)가 빨간불이 된다.
+- 실행: `docker compose up -d && SPRING_PROFILES_ACTIVE=local ./gradlew bootRun`. 운영은 `SPRING_PROFILES_ACTIVE=prod` + 환경변수.
 
 ## 성능 · 외부 호출 (핵심 스타일)
 

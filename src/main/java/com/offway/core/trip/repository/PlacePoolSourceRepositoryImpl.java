@@ -29,7 +29,7 @@ public class PlacePoolSourceRepositoryImpl implements PlacePoolSourceRepository 
 
     @Override
     public void record(String checksum, int placeCount) {
-        // H2·MySQL 양쪽에서 도는 UPSERT 를 쓰지 않고 지운 뒤 넣는다. 행이 하나뿐이라 비용이 없고,
+        // UPSERT 대신 지운 뒤 넣는다. 행이 하나뿐이라 비용이 없고,
         // MERGE 방언 차이를 피할 수 있다. 호출자의 트랜잭션에 참여하므로 중간 상태가 보이지 않는다.
         jdbcTemplate.update("DELETE FROM place_pool_source WHERE id = ?", SINGLETON_ID);
         jdbcTemplate.update(
