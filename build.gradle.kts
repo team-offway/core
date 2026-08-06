@@ -18,8 +18,15 @@ repositories {
     mavenCentral()
 }
 
+// Testcontainers 버전은 Spring Boot BOM 이 관리하지 않아 자체 BOM 을 들여온다.
+// 버전 단일 진실 원천은 이 파일이다(CLAUDE.md §의존성 관리).
+dependencyManagement {
+    imports {
+        mavenBom("org.testcontainers:testcontainers-bom:2.0.5")
+    }
+}
+
 dependencies {
-    implementation("org.springframework.boot:spring-boot-h2console")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
@@ -34,10 +41,13 @@ dependencies {
     implementation("org.flywaydb:flyway-mysql")
     compileOnly("org.projectlombok:lombok")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
-    runtimeOnly("com.h2database:h2")
     runtimeOnly("com.mysql:mysql-connector-j")
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
+    // 테스트도 운영과 같은 MySQL 로 돈다 — H2 는 MODE=MySQL 이어도 문법·타입이 달라
+    // 마이그레이션이 로컬에서 초록인 채 MySQL 에서 깨졌다(#175).
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.testcontainers:testcontainers-mysql")
     testImplementation("org.springframework.boot:spring-boot-starter-data-redis-test")
     testImplementation("org.springframework.boot:spring-boot-starter-flyway-test")
     testImplementation("org.springframework.boot:spring-boot-starter-security-oauth2-client-test")

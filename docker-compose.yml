@@ -1,0 +1,39 @@
+# 로컬 개발용 MySQL (#175).
+#
+# 운영과 같은 DB 로 띄운다. H2 는 MODE=MySQL 이어도 문법·타입이 달라, 마이그레이션이 로컬에서
+# 초록인 채 MySQL 에서 깨진 적이 있다(#107).
+#
+#   docker compose up -d          기동
+#   docker compose down           정지 (데이터 유지)
+#   docker compose down -v        정지 + 데이터 삭제 (스키마를 처음부터 다시 만들 때)
+#
+# 테스트는 이 컨테이너를 쓰지 않는다 — Testcontainers 가 자기 컨테이너를 따로 띄운다.
+# 개발 중 데이터와 테스트가 서로 오염되지 않게 하려는 것이다.
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: offway-mysql
+    ports:
+      # 호스트에 이미 MySQL 이 있어도 부딪히지 않게 환경변수로 바꿀 수 있다.
+      - "${OFFWAY_DB_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: offway
+      MYSQL_USER: offway
+      MYSQL_PASSWORD: offway
+      TZ: Asia/Seoul
+    # 한글 지역명·터미널명이 그대로 들어간다. utf8mb4 가 아니면 시드가 "Data too long" 으로 깨진다.
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      # 부팅 직후 포트는 열려도 접속이 안 되는 구간이 있다. 앱·CI 가 그 구간을 안 만나게 한다.
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - offway-mysql-data:/var/lib/mysql
+
+volumes:
+  offway-mysql-data:

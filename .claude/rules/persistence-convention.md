@@ -34,7 +34,8 @@
 
 - **위치**: `src/main/resources/db/migration/`.
 - **네이밍**: `V{YYYYMMDDHHmmss}__{snake_case_description}.sql` (KST, 파일 만들 때 현 시각 `date +%Y%m%d%H%M%S`).
-- **MySQL / H2 양쪽 호환 SQL** 로 작성한다. 운영은 MySQL, 로컬은 H2(`MODE=MySQL`)로 같은 마이그레이션이 돌아야 한다(로컬 실행성 불변식).
+- **MySQL 문법으로 쓴다.** 로컬·테스트·운영이 전부 MySQL 이라 방언을 이중으로 맞출 이유가 없다(#175).
+  - 예전에는 로컬이 H2 였고 "양쪽 호환" 이 규칙이었다. 그 시절 `ALTER COLUMN ... SET NOT NULL`(H2 전용)이 로컬 787건 초록인 채 올라가 MySQL 에서 1064 로 깨졌다. 이제 테스트가 MySQL 이라 같은 실수가 로컬에서 바로 잡힌다.
 
 ### 규칙
 
