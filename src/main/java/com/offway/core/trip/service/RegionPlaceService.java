@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.response.Paging;
 import com.offway.core.trip.domain.PlaceCategory;
 import com.offway.core.trip.domain.PlaceKind;
 import com.offway.core.trip.domain.TripException;
@@ -21,11 +22,6 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class RegionPlaceService {
 
-    /** 한 번에 내려줄 수 있는 최대 개수. 지역당 수천 건이라 상한이 없으면 한 요청이 전부를 끌어온다. */
-    private static final int MAX_PAGE_SIZE = 100;
-
-    private static final int DEFAULT_PAGE_SIZE = 20;
-
     private final LicensedPlaceRepository licensedPlaceRepository;
 
     /**
@@ -43,10 +39,8 @@ public class RegionPlaceService {
         //
         // 분류(enum)가 아니라 fitnessRank 로 정렬한다 — 분류는 문자열로 저장돼 사전순이 적합도 순서와
         // 다르다(LODGING 이 TOURIST_HOTEL 보다 앞선다). 페이징이 걸려 정렬은 DB 가 해야 한다.
-        PageRequest pageRequest = PageRequest.of(
-                page == null ? 0 : Math.max(page, 0),
-                clampSize(size),
-                Sort.by(Sort.Order.asc("fitnessRank"), Sort.Order.asc("name")));
+        PageRequest pageRequest =
+                Paging.of(page, size, Sort.by(Sort.Order.asc("fitnessRank"), Sort.Order.asc("name")));
 
         return RegionPlaces.from(licensedPlaceRepository.findPage(regionId, kind, category, pageRequest));
     }
@@ -55,12 +49,5 @@ public class RegionPlaceService {
         if (category != null && category.kind() != kind) {
             throw TripException.categoryKindMismatch();
         }
-    }
-
-    private static int clampSize(Integer size) {
-        if (size == null) {
-            return DEFAULT_PAGE_SIZE;
-        }
-        return Math.clamp(size, 1, MAX_PAGE_SIZE);
     }
 }

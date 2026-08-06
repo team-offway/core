@@ -1,11 +1,13 @@
 package com.offway.core.itinerary.service.dto;
 
+import com.offway.core.common.response.PageResponse;
 import com.offway.core.itinerary.domain.Course;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.data.domain.Page;
 
 /**
  * "내 코스" 목록 조회 결과 — 코스들과, 화면이 함께 보여줘야 하는 부가 상태.
@@ -17,14 +19,51 @@ import java.util.Set;
  * @param deductedCourseIds 연차를 차감한 코스 ID 들
  * @param regionNames 코스가 속한 지역명(코스 ID 가 아니라 지역 ID 로 색인) — 목록 카드가 숫자 대신 이름을 쓴다(#171)
  * @param today D-day 계산 기준일
+ * @param page 0부터 시작하는 페이지 번호
+ * @param size 페이지 크기
+ * @param totalElements 범위에 맞는 전체 건수
+ * @param totalPages 전체 페이지 수
  */
 public record MyCourses(
-        List<Course> courses, Set<Long> deductedCourseIds, Map<Long, String> regionNames, LocalDate today) {
+        List<Course> courses,
+        Set<Long> deductedCourseIds,
+        Map<Long, String> regionNames,
+        LocalDate today,
+        int page,
+        int size,
+        long totalElements,
+        int totalPages) implements PageResponse.Paged {
 
     public MyCourses {
         courses = List.copyOf(courses);
         deductedCourseIds = Set.copyOf(deductedCourseIds);
         regionNames = Map.copyOf(regionNames);
+    }
+
+    /** 한 페이지 — 목록 화면이 쓰는 길(#105). */
+    public static MyCourses from(
+            Page<Course> page, Set<Long> deductedCourseIds, Map<Long, String> regionNames, LocalDate today) {
+        return new MyCourses(
+                page.getContent(),
+                deductedCourseIds,
+                regionNames,
+                today,
+                page.getNumber(),
+                page.getSize(),
+                page.getTotalElements(),
+                page.getTotalPages());
+    }
+
+    /**
+     * 페이지 없이 전부 — 서버 안에서 <b>더 걸러 쓰는</b> 호출자용(다녀온 여행 확인 등).
+     *
+     * <p>화면에 그대로 내리는 길이 아니다. 응답으로 나가는 목록은 {@link #from} 을 쓴다.
+     */
+    public static MyCourses all(
+            List<Course> courses, Set<Long> deductedCourseIds, Map<Long, String> regionNames, LocalDate today) {
+        return new MyCourses(
+                courses, deductedCourseIds, regionNames, today, 0, courses.size(), courses.size(),
+                courses.isEmpty() ? 0 : 1);
     }
 
     /** 코스가 속한 지역명. 모르면 null — 화면이 지역 칸을 비운다. */

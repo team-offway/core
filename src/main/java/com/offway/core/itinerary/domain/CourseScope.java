@@ -3,6 +3,8 @@ package com.offway.core.itinerary.domain;
 import com.offway.core.itinerary.repository.CourseRepository;
 import java.time.LocalDate;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 /**
  * "내 코스" 목록을 무엇으로 볼지 — 다가오는 여행 · 지난 여행 · 전부.
@@ -20,6 +22,12 @@ public enum CourseScope {
         public List<Course> find(CourseRepository repository, String guestId, LocalDate today) {
             return repository.findUpcoming(guestId, today);
         }
+
+        @Override
+        public Page<Course> find(
+                CourseRepository repository, String guestId, LocalDate today, Pageable pageable) {
+            return repository.findUpcoming(guestId, today, pageable);
+        }
     },
 
     /** 오늘 이전. 최근 여행이 위로 온다. */
@@ -27,6 +35,12 @@ public enum CourseScope {
         @Override
         public List<Course> find(CourseRepository repository, String guestId, LocalDate today) {
             return repository.findPast(guestId, today);
+        }
+
+        @Override
+        public Page<Course> find(
+                CourseRepository repository, String guestId, LocalDate today, Pageable pageable) {
+            return repository.findPast(guestId, today, pageable);
         }
     },
 
@@ -36,7 +50,17 @@ public enum CourseScope {
         public List<Course> find(CourseRepository repository, String guestId, LocalDate today) {
             return repository.findByGuestId(guestId);
         }
+
+        @Override
+        public Page<Course> find(
+                CourseRepository repository, String guestId, LocalDate today, Pageable pageable) {
+            return repository.findByGuestId(guestId, pageable);
+        }
     };
 
     public abstract List<Course> find(CourseRepository repository, String guestId, LocalDate today);
+
+    /** 같은 범위를 한 페이지만 — 목록 화면이 쓴다(#105). 정렬은 범위가 이미 소유한다. */
+    public abstract Page<Course> find(
+            CourseRepository repository, String guestId, LocalDate today, Pageable pageable);
 }

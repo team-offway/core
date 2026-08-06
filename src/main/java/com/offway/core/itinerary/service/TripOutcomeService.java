@@ -63,7 +63,8 @@ public class TripOutcomeService {
      * <p>여행 날짜 없이 저장된 코스는 애초에 {@link CourseScope#PAST} 에 들어오지 않는다. 지났는지 알 수 없다.
      */
     public PendingTrips pending(String guestId) {
-        MyCourses past = courseStorageService.myCourses(guestId, CourseScope.PAST);
+        // 페이지가 아니라 전부 — 여기서 더 거르므로(끝났나·답했나·차감했나) 잘라 오면 답이 달라진다.
+        MyCourses past = courseStorageService.allCourses(guestId, CourseScope.PAST);
         Set<Long> answered = tripOutcomeRepository.findAnsweredCourseIds(guestId);
 
         List<Course> waiting = past.courses().stream()
