@@ -6,8 +6,9 @@ package com.offway.core.common.logging;
  * <p>매핑 로직을 DTO 자신에 두는 프로젝트 규약(CLAUDE.md)의 연장이다 — {@code from(도메인)} 이 있는 자리에
  * {@code logSummary()} 도 둔다. 별도 Mapper·Formatter 빈을 만들지 않는다.
  *
- * <p>구현하지 않은 DTO 는 {@link RequestLoggingFilter} 가 기본 요약(타입명)으로 떨어뜨린다. 시끄러운
- * 엔드포인트부터 붙이고 나머지는 필요해질 때 붙인다.
+ * <p>구현하지 않은 DTO 는 요약을 내지 않는다 — {@link RequestLoggingFilter} 가 {@code req=[...]}·
+ * {@code res=[...]} 조각을 통째로 뺀다(기본 요약으로 떨어지는 것이 아니다). 시끄러운 엔드포인트부터 붙이고
+ * 나머지는 필요해질 때 붙인다.
  */
 public interface LogSummary {
 
