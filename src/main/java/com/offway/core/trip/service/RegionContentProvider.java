@@ -238,6 +238,28 @@ public class RegionContentProvider {
         return content;
     }
 
+    /**
+     * degrade 누적 횟수 — 워밍이 끝날 때 "몇 곳이 degrade 됐나" 를 한 줄로 남기기 위한 것.
+     *
+     * <p>줄마다 warn 이 찍혀도 <b>전체 규모는 세어 보기 전엔 모른다.</b> 한 곳이 실패한 것과 여든 곳이 실패한 것은
+     * 완전히 다른 사건인데 로그 모양은 같다.
+     */
+    private final java.util.concurrent.atomic.LongAdder degradedRegions = new java.util.concurrent.atomic.LongAdder();
+
+    /** 지금까지 degrade 된 횟수를 읽고 0 으로 되돌린다(워밍 한 회차 단위로 센다). */
+    public long drainDegradedCount() {
+        return degradedRegions.sumThenReset();
+    }
+
+    /** 예외 체인의 맨 끝 — {@code ReactiveException} 같은 껍데기가 아니라 실제 사유를 남긴다. */
+    private static String rootCauseOf(Throwable error) {
+        Throwable cause = error;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause.getClass().getSimpleName();
+    }
+
     /** 캐시 무효화 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트 격리용(캐시가 이전 시나리오를 물지 않게). */
     public void evictCache() {
         cache.evictAll();
@@ -256,8 +278,12 @@ public class RegionContentProvider {
                 return new Loaded<>(fresh, CACHE_TTL);
             } catch (TourApiException e) {
                 RegionContent fallback = stale != null ? stale : RegionContent.EMPTY;
-                log.warn("지역 콘텐츠 조회 실패 — {} 로 degrade region={}",
-                        stale != null ? "마지막 성공값" : "빈 콘텐츠", id, e);
+                degradedRegions.increment();
+                // 스택을 찍지 않는다. 외부 실패는 예상 범위 안의 사건이라 cause 면 충분한데, 예외를 넘기면
+                // Reactor 체크포인트까지 붙어 한 건이 60줄이 넘는다 — 89개 지역이면 로그가 수천 줄이 되고
+                // 정작 알아야 할 "몇 곳이 degrade 됐나" 가 그 안에 묻힌다.
+                log.warn("지역 콘텐츠 조회 실패 — {} 로 degrade region={} cause={}",
+                        stale != null ? "마지막 성공값" : "빈 콘텐츠", id, rootCauseOf(e));
                 return new Loaded<>(fallback, FAILURE_CACHE_TTL);
             }
         }, RegionContent.EMPTY);

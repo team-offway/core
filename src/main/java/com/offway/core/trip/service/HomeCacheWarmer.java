@@ -62,6 +62,14 @@ public class HomeCacheWarmer {
             log.warn("홈 캐시 워밍 — 랭킹 워밍 실패(계속)", e);
         }
         int warmed = warmContent(regions);
+        // degrade 는 지역마다 warn 이 찍히지만 그것만으로는 규모를 모른다 — 한 곳이 실패한 것과 여든 곳이
+        // 실패한 것은 완전히 다른 사건인데 로그 모양은 같다. 회차마다 합계를 한 줄로 남긴다(#191).
+        long degraded = regionContentProvider.drainDegradedCount();
+        if (degraded > 0) {
+            log.warn("홈 캐시 워밍(랭킹·콘텐츠) 완료 regions={}/{} — 외부 실패로 degrade {}건",
+                    warmed, regions.size(), degraded);
+            return;
+        }
         log.info("홈 캐시 워밍(랭킹·콘텐츠) 완료 regions={}/{}", warmed, regions.size());
     }
 
