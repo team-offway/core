@@ -1,12 +1,14 @@
 name: CI
 
-# dev 로 향하는 PR 과 dev 자체를 검사한다.
-# 배포가 없으므로 산출물(jar)은 업로드하지 않고 러너와 함께 버린다.
+# dev 로 향하는 PR 을 검사한다. 배포가 없으므로 산출물(jar)은 업로드하지 않고 러너와 함께 버린다.
+#
+# dev push 에는 걸지 않는다. 머지하면 Deploy 가 같은 `./gradlew build` 를 다시 돌리는데,
+# 두 워크플로가 **병렬**이라 CI 가 실패해도 배포는 그대로 진행됐다 — 막지 못하면서 시간만 두 배로 썼다.
+# 배포를 막는 것은 Deploy 안의 빌드 단계이고, PR 이 이미 같은 검사를 통과한 뒤에 머지된다.
 on:
   pull_request:
     branches: [dev]
-  push:
-    branches: [dev]
+  workflow_dispatch:
 
 # 같은 브랜치에 새 푸시가 오면 이전 실행을 취소한다 (러너 시간 낭비 방지).
 concurrency:
