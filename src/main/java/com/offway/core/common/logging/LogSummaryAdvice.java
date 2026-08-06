@@ -2,6 +2,7 @@ package com.offway.core.common.logging;
 
 import com.offway.core.common.response.ApiResponseBody;
 import java.lang.reflect.Type;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpInputMessage;
 import org.springframework.http.MediaType;
@@ -23,7 +24,12 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
  * "요청이 시작됐다" 는 신호라 경로만으로 충분하다.
  *
  * <p>응답은 직렬화 <b>직전</b>에 걷는다. 그래서 직렬화가 broken pipe 로 깨져도 "무엇을 만들었는지" 는 남는다.
+ *
+ * <p><b>{@code logSummary()} 는 DTO 가 직접 구현하는 코드라 로깅 목적과 무관한 버그(예: null 필드 접근)를
+ * 던질 수 있다.</b> 로깅은 부가 기능이라 정상 응답을 죽여선 안 된다 — try/catch 로 감싸 실패하면 그 요약만
+ * 건너뛴다({@link SensitiveParams#normalizeName} 이 잘못된 입력에 대해 취하는 태도와 같다).
  */
+@Slf4j
 @RestControllerAdvice
 public class LogSummaryAdvice implements RequestBodyAdvice, ResponseBodyAdvice<Object> {
 
@@ -49,7 +55,7 @@ public class LogSummaryAdvice implements RequestBodyAdvice, ResponseBodyAdvice<O
             Type targetType,
             Class<? extends HttpMessageConverter<?>> converterType) {
         if (body instanceof LogSummary summary) {
-            store(LogAttributes.REQUEST_SUMMARY, summary.logSummary());
+            storeSummary(LogAttributes.REQUEST_SUMMARY, summary);
         }
         return body;
     }
@@ -78,9 +84,25 @@ public class LogSummaryAdvice implements RequestBodyAdvice, ResponseBodyAdvice<O
             ServerHttpRequest request,
             ServerHttpResponse response) {
         if (body instanceof ApiResponseBody<?> wrapper && wrapper.data() instanceof LogSummary summary) {
-            store(LogAttributes.RESPONSE_SUMMARY, summary.logSummary());
+            storeSummary(LogAttributes.RESPONSE_SUMMARY, summary);
         }
         return body;
+    }
+
+    /**
+     * {@code summary.logSummary()} 를 안전망으로 감싼다. 여기서 던지면 {@code beforeBodyWrite} 호출부인
+     * 예외 리졸버가 잡아 정상 200 응답을 500으로 바꿔버린다 — 로깅이 요청을 죽이는 것은 본말전도다.
+     * 실패하면 이 요약만 건너뛰고(속성을 남기지 않음) debug 로 원인을 남긴다.
+     */
+    private static void storeSummary(String key, LogSummary summary) {
+        String value;
+        try {
+            value = summary.logSummary();
+        } catch (Exception e) {
+            log.debug("logSummary() 호출이 실패해 이 요약은 건너뜁니다. type={}", summary.getClass(), e);
+            return;
+        }
+        store(key, value);
     }
 
     private static void store(String key, String value) {
