@@ -77,7 +77,7 @@ public class CourseRegenerationService {
                 previousSights);
         boolean different = overlap < MAX_OVERLAP_RATIO;
         if (!different) {
-            log.info("재생성이 충분히 다른 코스를 못 만들었습니다 — 후보 부족 overlap={} seed={}", overlap, chosen);
+            log.debug("재생성이 충분히 다른 코스를 못 만들었습니다 — 후보 부족 overlap={} seed={}", overlap, chosen);
         }
         return new RegeneratedCourse(built, chosen, different, overlap);
     }

@@ -62,7 +62,7 @@ public class HomeCacheWarmer {
             log.warn("홈 캐시 워밍 — 랭킹 워밍 실패(계속)", e);
         }
         int warmed = warmContent(regions);
-        log.info("홈 캐시 워밍(랭킹·콘텐츠) 완료 regions={}/{}", warmed, regions.size());
+        log.debug("홈 캐시 워밍(랭킹·콘텐츠) 완료 regions={}/{}", warmed, regions.size());
     }
 
     /**
@@ -75,7 +75,7 @@ public class HomeCacheWarmer {
     public void warmTourClimate() {
         try {
             int days = tourClimateService.forecast().size();
-            log.info("홈 캐시 워밍(관광기후지수) 완료 days={}", days);
+            log.debug("홈 캐시 워밍(관광기후지수) 완료 days={}", days);
         } catch (RuntimeException e) {
             log.warn("홈 캐시 워밍 — 관광기후지수 워밍 실패(계속)", e);
         }
@@ -91,7 +91,7 @@ public class HomeCacheWarmer {
     public void warmMidTermForecast() {
         try {
             weatherService.warmMidTerm();
-            log.info("홈 캐시 워밍(중기예보) 완료");
+            log.debug("홈 캐시 워밍(중기예보) 완료");
         } catch (RuntimeException e) {
             log.warn("홈 캐시 워밍 — 중기예보 워밍 실패(계속)", e);
         }

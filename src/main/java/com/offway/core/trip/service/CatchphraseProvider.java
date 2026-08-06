@@ -47,7 +47,7 @@ public class CatchphraseProvider {
             }
             // 끝까지 읽은 뒤에만 발행한다 — 중간에 실패하면 일부 POI 만 캐치프레이즈가 붙는 부분 공개가 되므로 all-or-nothing.
             byContentId = Map.copyOf(map);
-            log.info("캐치프레이즈 로딩 {}건", byContentId.size());
+            log.debug("캐치프레이즈 로딩 {}건", byContentId.size());
         } catch (IOException e) {
             byContentId = Map.of(); // 부분 데이터 발행 금지 — 실패하면 전부 없음(캐치프레이즈는 부가 정보라 null 로 진행).
             log.warn("캐치프레이즈 CSV 로딩 실패 — 캐치프레이즈 없이 진행", e);

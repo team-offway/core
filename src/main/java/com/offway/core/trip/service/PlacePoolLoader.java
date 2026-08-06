@@ -69,10 +69,10 @@ public class PlacePoolLoader {
             String checksum = checksumOf();
             Optional<String> loaded = persistenceService.loadedChecksum();
             if (loaded.filter(checksum::equals).isPresent()) {
-                log.info("장소 풀이 이미 같은 파일로 적재돼 있어 건너뜁니다. count={}", persistenceService.count());
+                log.debug("장소 풀이 이미 같은 파일로 적재돼 있어 건너뜁니다. count={}", persistenceService.count());
                 return;
             }
-            loaded.ifPresent(previous -> log.info(
+            loaded.ifPresent(previous -> log.debug(
                     "장소 풀 파일이 바뀌어 다시 채웁니다. 이전={} 새것={}", shortHash(previous), shortHash(checksum)));
 
             List<LicensedPlace> places = readPlaces();
@@ -82,7 +82,7 @@ public class PlacePoolLoader {
             }
 
             int inserted = persistenceService.replaceAll(places, checksum);
-            log.info("장소 풀 적재 완료. count={} checksum={} elapsed={}ms",
+            log.debug("장소 풀 적재 완료. count={} checksum={} elapsed={}ms",
                     inserted, shortHash(checksum), elapsedMillis(startedAt));
         } catch (IOException | RuntimeException e) {
             // 적재 실패로 서버를 죽이지 않는다. 다만 조용히 넘기지도 않는다 — 이후 코스에서 후보가 빈다.

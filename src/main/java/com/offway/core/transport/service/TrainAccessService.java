@@ -37,7 +37,7 @@ public class TrainAccessService {
         Optional<Station> to = stationResolver.nearest(destLat, destLng);
         if (from.isEmpty() || to.isEmpty()) {
             // 오지 인구감소지역엔 흔한 정상 결과라 warn 이 아니다. 다만 어느 쪽이 없었는지는 남긴다.
-            log.info("열차 접근 불가 — 근교 역 없음 출발역={} 도착역={}",
+            log.debug("열차 접근 불가 — 근교 역 없음 출발역={} 도착역={}",
                     from.map(Station::name).orElse("없음"), to.map(Station::name).orElse("없음"));
             return TrainAccess.noStation(from.map(Station::name).orElse(null), to.map(Station::name).orElse(null));
         }
@@ -50,7 +50,7 @@ public class TrainAccessService {
             case TrainAvailability.Available a -> TrainAccess.available(fromName, toName, toPoint, a.fastest());
             case TrainAvailability.NoServiceOnDate n -> {
                 // 조회는 성공했고 그날 운행이 없을 뿐 — 정상 흐름이다.
-                log.info("열차 미운행 — {}→{} date={}", fromName, toName, date);
+                log.debug("열차 미운행 — {}→{} date={}", fromName, toName, date);
                 yield TrainAccess.noServiceOnDate(fromName, toName, toPoint);
             }
             case TrainAvailability.Unavailable u -> {
