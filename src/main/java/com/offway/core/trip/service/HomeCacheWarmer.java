@@ -57,9 +57,15 @@ public class HomeCacheWarmer {
         }
         // 각 단계를 격리한다 — 한 지역·랭킹의 예외가 나머지 워밍을 통째로 중단시키지 않게.
         try {
-            regionRankingService.rankByVisitors(regions); // 방문자 랭킹 캐시(실패해도 폴백)
+            // 원본이 완결된 달만 월 단위로 발행되므로, 지난달 집계를 이미 갖고 있으면 더 새 것은 없다(#193).
+            // 예전에는 6시간 TTL 로 하루 네 번, 배포마다 또 물어 같은 답을 반복 확인했다.
+            if (regionRankingService.hasLatest()) {
+                log.info("홈 캐시 워밍 — 방문자 집계가 이미 최신이라 건너뜁니다");
+            } else {
+                regionRankingService.refresh();
+            }
         } catch (RuntimeException e) {
-            log.warn("홈 캐시 워밍 — 랭킹 워밍 실패(계속)", e);
+            log.warn("홈 캐시 워밍 — 랭킹 갱신 실패(계속) cause={}", e.getClass().getSimpleName());
         }
         int warmed = warmContent(regions);
         log.info("홈 캐시 워밍(랭킹·콘텐츠) 완료 regions={}/{}", warmed, regions.size());

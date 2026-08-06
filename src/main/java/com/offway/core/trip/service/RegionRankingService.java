@@ -1,18 +1,19 @@
 package com.offway.core.trip.service;
 
-import com.offway.core.common.cache.ExternalDataCache;
-import com.offway.core.common.cache.ExternalDataCache.Loaded;
 import com.offway.core.region.domain.Region;
 import com.offway.core.trip.domain.PopulationDeclineStatus;
 import com.offway.core.trip.domain.RegionRanking;
 import com.offway.core.trip.domain.RegionScore;
+import com.offway.core.trip.domain.RegionVisitorAggregate;
 import com.offway.core.trip.domain.RegionVisitorStat;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.datalab.TourDataLabClient;
 import com.offway.core.trip.infrastructure.datalab.dto.RegionVisitor;
+import com.offway.core.trip.repository.RegionVisitorAggregateRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -75,31 +76,97 @@ public class RegionRankingService {
     private static final int VISITOR_PAGE_SIZE = 10_000;
     /** 페이지 폭주 안전장치 — total 이 잘못 크거나 페이지가 안 줄어도 무한 루프에 빠지지 않게 상한을 둔다. */
     private static final int MAX_PAGES = 50;
-    /** 성공 캐시 TTL — 월간·15일 지연 데이터라 길게 잡아도 신선도 손해가 없다. */
-    private static final Duration CACHE_TTL = Duration.ofHours(6);
-    /** 실패 캐시 TTL — 조회가 계속 실패해도 매 요청이 6초씩 재시도하지 않게 짧게 폴백값을 눌러둔다. */
-    private static final Duration FAILURE_CACHE_TTL = Duration.ofMinutes(5);
-    /** 방문자 집계는 전 지역 공통 단일 값이라 상수 키 하나로 캐시한다. */
-    private static final String VISITORS_KEY = "tourists";
+    private final TourDataLabClient tourDataLabClient;
+    private final RegionVisitorAggregateRepository aggregateRepository;
 
-    /** 보관할 키 수. 방문자 집계는 전 지역 공통 <b>단일 값</b>이라 상수 키 하나뿐이다({@link #VISITORS_KEY}). */
-    private static final int MAX_CACHED_AGGREGATES = 2;
+    /** 최초 적재가 진행 중인가 — 동시 요청이 같은 60초 집계를 겹쳐 돌리지 않게. */
+    private final java.util.concurrent.atomic.AtomicBoolean bootstrapping =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    /** 저장된 집계를 비운다 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트의 격리용. */
+    public void evictCache() {
+        aggregateRepository.replaceAll(List.of());
+    }
 
     /**
-     * <b>기다리지 않는다.</b> 이 loader 는 호출 하나가 아니라 {@link #AGGREGATE_DEADLINE} 짜리 집계라, 동시 요청이
-     * 기다려 봐야 대부분 상한에 걸려 결국 degrade 한다 — 그러면 즉시 degrade 보다 지연만 늘고 결과는 같다.
+     * 관광빅데이터를 다시 받아 <b>영속</b>한다 — 워머가 부른다(#193).
      *
-     * <p>대신 이 캐시는 {@code HomeCacheWarmer} 가 미리 데운다. 지연 적재에 기대지 않는 쪽이 옳은 캐시다.
+     * <p>비어 있으면 저장하지 않는다. 빈 집계로 덮으면 전 지역 방문자가 0이 돼 랭킹이 무의미해지는데,
+     * 그건 이전 값을 그대로 두는 것보다 나쁘다 — 미발행·장애가 지나가면 이전 달 값으로도 순위는 선다.
+     *
+     * <p>외부 호출은 트랜잭션 밖에서 끝난다. 영속화만 리포지토리(별도 빈)에 위임해 짧은 트랜잭션으로 묶는다.
      */
-    private static final Duration FIRST_LOAD_WAIT = Duration.ZERO;
+    public void refresh() {
+        Aggregated aggregated;
+        try {
+            aggregated = fetchTourists();
+        } catch (TourApiException e) {
+            // 방문자 집계는 랭킹 <b>가중치</b>일 뿐이라 조회 실패로 홈·추천을 막지 않는다. 저장된 이전 값이 있으면
+            // 그대로 쓰이고, 없으면 방문자 0 폴백으로 순위가 선다 — 어느 쪽이든 502 로 죽는 것보다 낫다.
+            log.warn("관광빅데이터 갱신 실패 — 이전 집계를 유지합니다 cause={}", e.getClass().getSimpleName());
+            return;
+        }
+        if (aggregated.byCode().isEmpty()) {
+            log.warn("관광빅데이터 갱신 결과가 비어 저장을 건너뜁니다 — 이전 집계를 유지합니다(저장={}건)",
+                    aggregateRepository.findAll().size());
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        List<RegionVisitorAggregate> rows = aggregated.byCode().entrySet().stream()
+                .map(entry -> RegionVisitorAggregate.of(
+                        entry.getKey(), aggregated.month(), entry.getValue().total, entry.getValue().observedDays(), now))
+                .toList();
+        aggregateRepository.replaceAll(rows);
+        log.info("관광빅데이터 갱신 완료 baseYm={} 지역={}건", aggregated.month(), rows.size());
+    }
 
-    private final TourDataLabClient tourDataLabClient;
-    private final ExternalDataCache<String, Map<String, VisitorAgg>> cache =
-            new ExternalDataCache<>(MAX_CACHED_AGGREGATES, FIRST_LOAD_WAIT);
+    /**
+     * 저장된 집계가 이미 <b>가장 최근 발행분</b>인가 — 그렇다면 외부를 부르지 않는다.
+     *
+     * <p>원본은 완결된 달만 월 단위로 발행되므로 지난달 것을 갖고 있으면 더 새 것은 존재하지 않는다.
+     * 예전에는 6시간 TTL 로 하루 네 번, 배포마다 또 물어 같은 답을 반복 확인했다.
+     */
+    public boolean hasLatest() {
+        YearMonth newestPossible = YearMonth.from(LocalDate.now()).minusMonths(1);
+        return aggregateRepository.findAll().stream()
+                .findFirst()
+                .filter(row -> !row.baseMonth().isBefore(newestPossible))
+                .isPresent();
+    }
 
-    /** 방문자 집계 캐시를 비운다 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트의 격리(캐시가 이전 시나리오를 물고 가지 않게)용. */
-    public void evictCache() {
-        cache.evictAll();
+    /**
+     * 저장된 집계를 랭킹이 쓰는 모양으로 되돌린다. 평상시엔 <b>DB 만 읽는다</b>.
+     *
+     * <p><b>비어 있을 때만</b> 한 번 받아 온다 — 새 환경에 처음 배포해 워머가 아직 안 돈 구간이다. 그마저 하지
+     * 않으면 전 지역 방문자가 0이 돼 랭킹이 무의미해진다.
+     *
+     * <p>동시 요청은 <b>기다리지 않는다</b>. 이 적재는 호출 하나가 아니라 {@link #AGGREGATE_DEADLINE} 짜리
+     * 집계라, 기다려 봐야 대부분 상한에 걸려 결국 같은 결과에 지연만 얹힌다. 첫 요청 하나만 채우고 나머지는
+     * 빈 가중치로 지나간다 — 다음 요청부터는 DB 에 있다.
+     */
+    private Map<String, VisitorAgg> stored() {
+        Map<String, VisitorAgg> byCode = read();
+        if (byCode.isEmpty() && bootstrapping.compareAndSet(false, true)) {
+            try {
+                refresh();
+            } finally {
+                bootstrapping.set(false);
+            }
+            return read();
+        }
+        return byCode;
+    }
+
+    private Map<String, VisitorAgg> read() {
+        Map<String, VisitorAgg> byCode = new HashMap<>();
+        for (RegionVisitorAggregate row : aggregateRepository.findAll()) {
+            byCode.put(row.getSignguCode(), VisitorAgg.of(row.getVisitorTotal(), row.getObservedDays()));
+        }
+        return byCode;
+    }
+
+    /** 집계 결과와 그 기준 달 — 어느 달 것인지 함께 저장해야 갱신 필요 여부를 판단할 수 있다. */
+    private record Aggregated(Map<String, VisitorAgg> byCode, YearMonth month) {
     }
 
     /** 주어진 지역들을 방문자 랭킹(점수 내림차순)으로 돌려준다. 키 없으면 방문자 0으로 랭킹(로컬 실행성). */
@@ -107,44 +174,9 @@ public class RegionRankingService {
         if (regions.isEmpty()) {
             return List.of();
         }
-        Map<String, VisitorAgg> visitorsByCode = aggregateTourists();
+        Map<String, VisitorAgg> visitorsByCode = stored();
         List<RegionVisitorStat> stats = regions.stream().map(region -> statOf(region, visitorsByCode)).toList();
         return RegionRanking.rank(stats);
-    }
-
-    /**
-     * 법정 시군구코드별 관광객 집계 — 캐시(single-flight) 우선. 조회가 실패하면 마지막 성공값(있으면)을, 없으면 빈 가중치를 폴백으로
-     * 쓰고 짧게 캐시해 실패 동안 요청이 몰리지 않게 한다. 어느 경우든 예외를 위로 던지지 않아 홈·추천이 502 로 죽지 않는다.
-     *
-     * <p><b>빈 집계는 성공으로 캐시하지 않는다.</b> 가중치가 없다는 점에서 실패와 결과가 같은데, 성공 TTL(길다)로 눌러두면
-     * 무의미한 랭킹이 그만큼 굳는다. 실패와 같은 짧은 TTL 로 두어 재시도를 유도한다.
-     */
-    private Map<String, VisitorAgg> aggregateTourists() {
-        return cache.get(VISITORS_KEY, (key, stale) -> {
-            try {
-                Map<String, VisitorAgg> fresh = fetchTourists();
-                if (fresh.isEmpty()) {
-                    return new Loaded<>(fallback(stale, "집계 결과 없음"), FAILURE_CACHE_TTL);
-                }
-                return new Loaded<>(fresh, CACHE_TTL);
-            } catch (TourApiException e) {
-                log.warn("관광빅데이터 호출이 예외로 끝났습니다", e); // 원인은 스택으로, 대응은 아래 fallback 로그로
-                return new Loaded<>(fallback(stale, "조회 실패"), FAILURE_CACHE_TTL);
-            }
-        }, Map.of());
-    }
-
-    /**
-     * 마지막 성공값이 있으면 그것을, 없으면 빈 가중치를 쓴다(홈·추천은 어느 쪽이든 유지된다).
-     *
-     * <p>{@code stale} 이 <b>비어 있는지</b>까지 본다. 빈 집계도 짧은 TTL 로 캐시되므로, 미발행이 이어지면 이전 사이클의
-     * {@code Map.of()} 가 그대로 {@code stale} 로 돌아온다. 그때 "마지막 성공값" 이라고 찍으면 한 번도 유효한 데이터를
-     * 받지 못한 상황을 정상처럼 보이게 해 장애 판단을 흐린다.
-     */
-    private Map<String, VisitorAgg> fallback(Map<String, VisitorAgg> stale, String reason) {
-        boolean hasStale = stale != null && !stale.isEmpty();
-        log.warn("관광빅데이터 {} — {} 로 폴백 랭킹(홈·추천은 유지)", reason, hasStale ? "마지막 성공값" : "빈 가중치");
-        return hasStale ? stale : Map.of();
     }
 
     /**
@@ -152,23 +184,23 @@ public class RegionRankingService {
      * 랭킹이 0 가중치로 죽지 않게. 끝까지 비면 warn 을 남긴다(빈 결과는 예외가 아니라 정상 응답으로 와서, 로그가 없으면
      * 랭킹이 무의미해진 것을 아무도 모른다).
      */
-    private Map<String, VisitorAgg> fetchTourists() {
+    private Aggregated fetchTourists() {
         Instant deadline = Instant.now().plus(AGGREGATE_DEADLINE);
         YearMonth month = YearMonth.from(LocalDate.now()).minusMonths(1);
         for (int back = 0; back < MAX_MONTHS_BACK; back++, month = month.minusMonths(1)) {
             Map<String, VisitorAgg> byCode = fetchMonthTail(month, deadline);
             if (!byCode.isEmpty()) {
-                return byCode;
+                return new Aggregated(byCode, month);
             }
             if (budgetExhausted(deadline)) {
                 // 빈 결과의 원인이 미발행이 아니라 시간 상한이다 — 이전 달로 물러서도 같은 상한에 걸린다.
-                log.warn("관광빅데이터 집계 시간 상한({}) 초과 — 방문자 가중치 없이 랭킹합니다", AGGREGATE_DEADLINE);
-                return Map.of();
+                log.warn("관광빅데이터 집계 시간 상한({}) 초과 — 갱신을 건너뜁니다", AGGREGATE_DEADLINE);
+                return new Aggregated(Map.of(), month);
             }
             log.info("관광빅데이터 {} 미발행(빈 결과) — 이전 달로 물러섭니다", month);
         }
-        log.warn("관광빅데이터 최근 {}개월이 모두 비었습니다 — 방문자 가중치 없이 랭킹합니다(순위가 사실상 무의미)", MAX_MONTHS_BACK);
-        return Map.of();
+        log.warn("관광빅데이터 최근 {}개월이 모두 비었습니다 — 갱신을 건너뜁니다", MAX_MONTHS_BACK);
+        return new Aggregated(Map.of(), month);
     }
 
     private static Duration remaining(Instant deadline) {
@@ -238,17 +270,31 @@ public class RegionRankingService {
             }
             return new RegionVisitorStat(region.getId(), 0, 0, PopulationDeclineStatus.TARGET);
         }
-        return new RegionVisitorStat(region.getId(), agg.total, agg.dates.size(), PopulationDeclineStatus.TARGET);
+        return new RegionVisitorStat(region.getId(), agg.total, agg.observedDays(), PopulationDeclineStatus.TARGET);
     }
 
     /** 시군구별 방문자 누적 — 관광객 합과 관측 일수(distinct 일자). */
     private static final class VisitorAgg {
         private double total;
         private final Set<LocalDate> dates = new HashSet<>();
+        /** 저장분에서 복원할 때는 날짜 목록이 없다 — 개수만 남아 있으므로 그것으로 대신한다. */
+        private int restoredDays;
 
         void add(LocalDate date, double count) {
             total += count;
             dates.add(date);
+        }
+
+        int observedDays() {
+            return dates.isEmpty() ? restoredDays : dates.size();
+        }
+
+        /** DB 에 저장된 집계를 랭킹이 쓰는 모양으로 되돌린다. */
+        static VisitorAgg of(double total, int observedDays) {
+            VisitorAgg agg = new VisitorAgg();
+            agg.total = total;
+            agg.restoredDays = observedDays;
+            return agg;
         }
     }
 }
