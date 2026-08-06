@@ -185,7 +185,7 @@ Authorization: Basic base64(아이디:비밀번호)
 
 | | 무엇 |
 |---|---|
-| **build & test** | 컴파일 + 테스트 522개 (H2 인메모리) |
+| **build & test** | 컴파일 + 전체 테스트 (Testcontainers MySQL) |
 | **컨벤션 검사** | FK 제약·`FetchType.EAGER`·`@MockBean`·`domain` setter 등을 소스 전수로 차단 + PR 커밋 메시지 형식 |
 | **MySQL 마이그레이션 검증** | 실제 MySQL 8.4에 Flyway 20개를 적용해 본다. H2로만 돌면 `ALTER COLUMN` vs `MODIFY` 같은 방언 차이를 배포 중에야 안다 |
 | **CodeRabbit** | 코드 리뷰 |
@@ -213,8 +213,10 @@ Authorization: Basic base64(아이디:비밀번호)
 
 ## 기술 스택
 
-Spring Boot 4.1 · Java 25 · Lombok · JPA · Flyway · H2(local)/MySQL(prod) · Redis · Spring Security · WebFlux(WebClient)
+Spring Boot 4.1 · Java 25 · Lombok · JPA · Flyway · MySQL · Redis · Spring Security · WebFlux(WebClient)
 
 > 버전의 단일 진실 원천은 [`build.gradle.kts`](build.gradle.kts).
 
-로컬은 **H2 인메모리**로 뜨며 **외부 API 키 없이도 부팅된다**(실제 호출만 비활성). 이건 규약이다 — 부팅에 실 키·실 DB를 강제하는 변경은 금지한다. 프론트가 백엔드를 못 띄우고 CI 스모크가 빨간불이 되기 때문이다.
+로컬은 **도커로 띄운 MySQL**을 쓴다(`docker compose up -d`). 운영과 같은 DB로 돌려야 마이그레이션 문법 오류를 로컬에서 잡을 수 있기 때문이다 — H2 시절엔 로컬이 전부 초록인데 MySQL에서 깨지는 일이 실제로 있었다.
+
+**외부 API 키는 없어도 부팅된다**(실제 호출만 비활성). 이건 규약이다 — 부팅에 실 키를 강제하는 변경은 금지한다. CI 스모크가 빨간불이 되기 때문이다.
