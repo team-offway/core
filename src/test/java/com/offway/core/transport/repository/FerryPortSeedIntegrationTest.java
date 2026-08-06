@@ -23,12 +23,14 @@ class FerryPortSeedIntegrationTest {
     private static final int EXPECTED_PORTS = 500;
 
     /**
-     * 지오코딩으로 좌표를 확보한 행 수(2026-08-05 기준 388).
+     * 검증을 통과해 좌표를 남긴 항구 수 — 387(2026-08-06 실측).
      *
      * <p>짧은 섬 이름이 상호명과 충돌해 엉뚱한 곳이 잡힌 것은 <b>좌표를 비웠다</b> — 틀린 좌표를 남기면 육지
-     * 한복판에서 "배로 갈 수 있다" 고 답하게 된다. 하한만 본다(다시 돌려 늘어나는 것은 정상).
+     * 한복판에서 "배로 갈 수 있다" 고 답하게 된다.
+     *
+     * <p>정확한 값으로 고정한다. 하한만 보면 좌표가 조용히 줄어도 통과해 회귀를 놓친다.
      */
-    private static final int MIN_WITH_COORDINATE = 370;
+    private static final int EXPECTED_WITH_COORDINATE = 387;
 
     @Autowired
     private FerryPortRepository portRepository;
@@ -42,8 +44,8 @@ class FerryPortSeedIntegrationTest {
 
         assertEquals(EXPECTED_PORTS, all.size(), "항구 수가 다릅니다 — 마이그레이션이 잘렸는지 확인하세요");
         long withCoordinate = all.stream().filter(FerryPort::hasCoordinate).count();
-        assertTrue(withCoordinate >= MIN_WITH_COORDINATE,
-                "좌표 있는 항구가 " + withCoordinate + "곳뿐입니다 — 최근접 탐색이 그만큼 좁아집니다");
+        assertEquals(EXPECTED_WITH_COORDINATE, withCoordinate,
+                "좌표 있는 항구 수가 다릅니다 — 시드·검증 규칙이 바뀌었는지 확인하세요");
     }
 
     @Test
