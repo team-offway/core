@@ -46,6 +46,15 @@ public class HubAttractionRefreshService {
      */
     private static final int MAX_MONTHS_BACK = 3;
 
+    /**
+     * 발행월을 판단할 때 물어보는 지역 수.
+     *
+     * <p><b>한 곳으로 판단하면 안 된다.</b> 그 지역만 데이터가 없어도 "미발행" 으로 읽혀 89곳 전체 갱신이
+     * 조용히 스킵된다 — 예외도 로그도 없이 대표 사진이 낡은 채로 남는다. 몇 곳을 확인해 한 곳이라도 있으면
+     * 그 달은 발행된 것으로 본다.
+     */
+    private static final int PUBLISH_PROBE_REGIONS = 3;
+
     private final HubAttractionClient hubAttractionClient;
     private final HubAttractionRepository hubAttractionRepository;
     private final RegionRepository regionRepository;
@@ -72,7 +81,7 @@ public class HubAttractionRefreshService {
         if (regions.isEmpty()) {
             return;
         }
-        YearMonth month = publishedMonth(regions.getFirst());
+        YearMonth month = publishedMonth(regions);
         if (month == null) {
             log.warn("중심 관광지 최근 {}개월이 모두 비었습니다 — 갱신을 건너뜁니다", MAX_MONTHS_BACK);
             return;
@@ -107,22 +116,29 @@ public class HubAttractionRefreshService {
     }
 
     /**
-     * 실제로 발행된 달을 찾는다 — 지역 하나로 탐색해 89번 반복하지 않는다.
+     * 실제로 발행된 달을 찾는다 — 89곳을 다 물어보지 않고 표본 몇 곳으로 가린다.
+     *
+     * <p>표본을 {@value #PUBLISH_PROBE_REGIONS}곳 두는 이유는 위 상수에 적었다. 한 곳이라도 결과가 있으면
+     * 그 달은 발행된 것이다.
      *
      * @return 발행된 달. {@value #MAX_MONTHS_BACK}개월을 물러서도 없으면 null
      */
-    private YearMonth publishedMonth(Region probe) {
+    private YearMonth publishedMonth(List<Region> regions) {
+        List<Region> probes = regions.subList(0, Math.min(PUBLISH_PROBE_REGIONS, regions.size()));
         YearMonth month = newestPossibleMonth();
         for (int back = 0; back < MAX_MONTHS_BACK; back++, month = month.minusMonths(1)) {
-            try {
-                if (!hubAttractionClient.findByRegion(probe.getLegalCode(), month, 1).isEmpty()) {
-                    return month;
+            for (Region probe : probes) {
+                try {
+                    if (!hubAttractionClient.findByRegion(probe.getLegalCode(), month, 1).isEmpty()) {
+                        return month;
+                    }
+                } catch (TourApiException e) {
+                    log.warn("중심 관광지 발행월 탐색 실패 month={} regionId={} cause={}",
+                            month, probe.getId(), e.getClass().getSimpleName());
+                    return null;
                 }
-            } catch (TourApiException e) {
-                log.warn("중심 관광지 발행월 탐색 실패 month={} cause={}", month, e.getClass().getSimpleName());
-                return null;
             }
-            log.info("중심 관광지 {} 미발행 — 이전 달로 물러섭니다", month);
+            log.info("중심 관광지 {} 미발행(표본 {}곳) — 이전 달로 물러섭니다", month, probes.size());
         }
         return null;
     }
