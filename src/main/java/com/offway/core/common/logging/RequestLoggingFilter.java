@@ -34,7 +34,12 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             Set.of("/actuator", "/swagger-ui", "/v3/api-docs", "/favicon.ico");
 
     private static final String ANONYMOUS = "anonymous";
-    private static final double MILLIS_PER_SECOND = 1000.0;
+    private static final double NANOS_PER_SECOND = 1_000_000_000.0;
+    private static final String SECONDS_FORMAT = "%.2f";
+    private static final String QUERY_FRAGMENT_FORMAT = " q=[%s]";
+    private static final String EXTERNAL_CALLS_FRAGMENT_FORMAT = " ext=[%s]";
+    private static final String REQUEST_SUMMARY_FRAGMENT_FORMAT = " req=[%s]";
+    private static final String RESPONSE_SUMMARY_FRAGMENT_FORMAT = " res=[%s]";
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -52,7 +57,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         String method = request.getMethod();
         String path = request.getRequestURI();
         String query = SensitiveParams.maskQueryString(request.getQueryString());
-        long startedAt = System.currentTimeMillis();
+        long startedAt = System.nanoTime();
 
         if (query.isEmpty()) {
             log.info("→ {} {}", method, path);
@@ -63,16 +68,16 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         try {
             chain.doFilter(request, response);
         } finally {
-            double seconds = (System.currentTimeMillis() - startedAt) / MILLIS_PER_SECOND;
+            double seconds = (System.nanoTime() - startedAt) / NANOS_PER_SECOND;
             log.info(
                     "← {} {} {} {}s user={}{}{}{}",
                     response.getStatus(),
                     method,
                     path,
-                    "%.2f".formatted(seconds),
+                    SECONDS_FORMAT.formatted(seconds),
                     currentUser(),
-                    query.isEmpty() ? "" : " q=[%s]".formatted(query),
-                    recorder.isEmpty() ? "" : " ext=[%s]".formatted(recorder.summary()),
+                    query.isEmpty() ? "" : QUERY_FRAGMENT_FORMAT.formatted(query),
+                    recorder.isEmpty() ? "" : EXTERNAL_CALLS_FRAGMENT_FORMAT.formatted(recorder.summary()),
                     summaries(request));
         }
     }
@@ -81,8 +86,8 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     private static String summaries(HttpServletRequest request) {
         String requestSummary = attribute(request, LogAttributes.REQUEST_SUMMARY);
         String responseSummary = attribute(request, LogAttributes.RESPONSE_SUMMARY);
-        return (requestSummary == null ? "" : " req=[%s]".formatted(requestSummary))
-                + (responseSummary == null ? "" : " res=[%s]".formatted(responseSummary));
+        return (requestSummary == null ? "" : REQUEST_SUMMARY_FRAGMENT_FORMAT.formatted(requestSummary))
+                + (responseSummary == null ? "" : RESPONSE_SUMMARY_FRAGMENT_FORMAT.formatted(responseSummary));
     }
 
     private static String attribute(HttpServletRequest request, String key) {
