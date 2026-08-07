@@ -50,7 +50,8 @@ public record CourseResponse(
         @Schema(description = "대중교통 코스의 출발지→지역 열차 접근 (자차·저장 코스는 null)", nullable = true)
                 TrainAccessResponse trainAccess) implements LogSummary {
 
-    private static final String LOG_FORMAT = "코스 regionId=%d days=%d slots=%d benefits=%d";
+    /** regionId 는 요청 쿼리에 이미 있으므로 되풀이하지 않는다. */
+    private static final String LOG_FORMAT = "코스 %d일 %d슬롯";
 
     public static CourseResponse from(GeneratedCourse generated) {
         Course course = generated.course();
@@ -78,7 +79,7 @@ public record CourseResponse(
                 : days.stream()
                         .mapToInt(day -> day.items() == null ? 0 : day.items().size())
                         .sum();
-        return LOG_FORMAT.formatted(regionId, travelDays, slots, benefits == null ? 0 : benefits.size());
+        return LOG_FORMAT.formatted(travelDays, slots);
     }
 
     /**

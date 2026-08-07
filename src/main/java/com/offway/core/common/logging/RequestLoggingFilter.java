@@ -13,18 +13,22 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * 요청 하나를 {@code →}·{@code ←} 두 줄로 남긴다.
+ * 요청 하나를 <b>한 줄</b>로 남긴다.
  *
- * <p><b>한 줄이다.</b> 여러 줄로 하면 {@code --grep} 이 안 걸리고, 터미널 컬러라이저의 칸 정렬이 깨지고,
- * 나중에 구조화 로그로 옮길 때 파싱이 어렵다.
+ * <pre>
+ * 200 GET  /api/v1/regions/76/places?kind=STAY 0.11s dev · 숙소 42건
+ * 201 POST /api/v1/courses?regionId=31 6.10s dev · 코스 26슬롯 ext=[tour 840ms×3]
+ * </pre>
  *
- * <p>{@code ←} 는 응답을 다 쓴 뒤 {@code finally} 에서 찍는다. 그래서 클라이언트가 중간에 끊어
- * broken pipe 가 난 요청도 "몇 초 걸렸고 어떤 status 로 끝났는지" 가 남는다. 이게 없어서 스레드 이름으로
- * 역추적해야 했던 사건이 있다(2026-08-06 12:37).
+ * <p><b>진입 줄을 따로 찍지 않는다.</b> 요청당 두 줄이면 운영 로그에서 사용자 흐름이 절반으로 희석된다.
+ * 진입 줄의 값은 "응답이 안 끝난 요청" 을 보여주는 것 하나인데, 그건 드물고 소요시간으로도 짐작된다 —
+ * 흐름을 훑는 일이 훨씬 잦으므로 그쪽을 택했다.
  *
- * <p>{@code ←} 줄에도 {@code q=[...]} 를 다시 싣는다. 상관관계 ID 가 없어 동시 요청이 뒤섞이면
- * {@code →} 줄만으로는 이 {@code ←} 가 어떤 요청의 응답인지 못 짚는다 — {@code ←} 줄 하나로 완결되게
- * 중복을 감수한다.
+ * <p>쿼리는 경로에 붙여 쓴다. 사람이 주소창에서 보는 모양 그대로라 별도 {@code q=[...]} 칸보다 빨리 읽힌다.
+ *
+ * <p>이 줄은 응답을 다 쓴 뒤 {@code finally} 에서 찍는다. 그래서 클라이언트가 중간에 끊어 broken pipe 가
+ * 난 요청도 "몇 초 걸렸고 어떤 status 로 끝났는지" 가 남는다. 이게 없어서 스레드 이름으로 역추적해야 했던
+ * 사건이 있다(2026-08-06 12:37).
  */
 @Slf4j
 @Component
@@ -36,10 +40,13 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     private static final String ANONYMOUS = "anonymous";
     private static final double NANOS_PER_SECOND = 1_000_000_000.0;
     private static final String SECONDS_FORMAT = "%.2f";
-    private static final String QUERY_FRAGMENT_FORMAT = " q=[%s]";
+    /** GET·POST 를 같은 폭으로 맞춰 경로가 세로로 정렬되게 한다. 훑을 때 눈이 경로를 따라 내려간다. */
+    private static final String METHOD_FORMAT = "%-4s";
+    private static final String QUERY_FORMAT = "?%s";
     private static final String EXTERNAL_CALLS_FRAGMENT_FORMAT = " ext=[%s]";
-    private static final String REQUEST_SUMMARY_FRAGMENT_FORMAT = " req=[%s]";
-    private static final String RESPONSE_SUMMARY_FRAGMENT_FORMAT = " res=[%s]";
+    /** 요약 앞의 가운뎃점 — 경로·시간·사용자(고정 정보)와 이번 요청의 결과를 눈으로 가른다. */
+    private static final String SUMMARY_FRAGMENT_FORMAT = " · %s";
+    private static final String SUMMARY_DELIMITER = " ";
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -59,35 +66,42 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         String query = SensitiveParams.maskQueryString(request.getQueryString());
         long startedAt = System.nanoTime();
 
-        if (query.isEmpty()) {
-            log.info("→ {} {}", method, path);
-        } else {
-            log.info("→ {} {}?{}", method, path, query);
-        }
-
         try {
             chain.doFilter(request, response);
         } finally {
             double seconds = (System.nanoTime() - startedAt) / NANOS_PER_SECOND;
             log.info(
-                    "← {} {} {} {}s user={}{}{}{}",
+                    "{} {} {}{} {}s {}{}{}",
                     response.getStatus(),
-                    method,
+                    METHOD_FORMAT.formatted(method),
                     path,
+                    query.isEmpty() ? "" : QUERY_FORMAT.formatted(query),
                     SECONDS_FORMAT.formatted(seconds),
                     currentUser(),
-                    query.isEmpty() ? "" : QUERY_FRAGMENT_FORMAT.formatted(query),
-                    recorder.isEmpty() ? "" : EXTERNAL_CALLS_FRAGMENT_FORMAT.formatted(recorder.summary()),
-                    summaries(request));
+                    summaries(request),
+                    recorder.isEmpty() ? "" : EXTERNAL_CALLS_FRAGMENT_FORMAT.formatted(recorder.summary()));
         }
     }
 
-    /** req=[...] res=[...] — 없는 쪽은 통째로 뺀다. 빈 대괄호는 "요약이 없다" 와 "DTO 가 안 냈다" 를 뭉갠다. */
+    /**
+     * 이 요청이 실제로 무엇을 주고받았는지 — 없으면 통째로 뺀다.
+     *
+     * <p>빈 칸을 남기지 않는 이유: {@code res=[]} 는 "결과가 없다" 와 "DTO 가 요약을 안 냈다" 를 뭉갠다.
+     * 게다가 요약이 없는 요청이 대다수라, 빈 칸을 남기면 줄만 길어지고 정보는 0 이다.
+     */
     private static String summaries(HttpServletRequest request) {
         String requestSummary = attribute(request, LogAttributes.REQUEST_SUMMARY);
         String responseSummary = attribute(request, LogAttributes.RESPONSE_SUMMARY);
-        return (requestSummary == null ? "" : REQUEST_SUMMARY_FRAGMENT_FORMAT.formatted(requestSummary))
-                + (responseSummary == null ? "" : RESPONSE_SUMMARY_FRAGMENT_FORMAT.formatted(responseSummary));
+        if (requestSummary == null && responseSummary == null) {
+            return "";
+        }
+        if (requestSummary == null) {
+            return SUMMARY_FRAGMENT_FORMAT.formatted(responseSummary);
+        }
+        if (responseSummary == null) {
+            return SUMMARY_FRAGMENT_FORMAT.formatted(requestSummary);
+        }
+        return SUMMARY_FRAGMENT_FORMAT.formatted(requestSummary + SUMMARY_DELIMITER + responseSummary);
     }
 
     private static String attribute(HttpServletRequest request, String key) {

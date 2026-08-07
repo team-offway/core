@@ -28,7 +28,8 @@ public record AvailableTimeResponse(
         @Schema(description = "편도 도달 한계(분)", example = "420") int maxReachMinutes)
         implements LogSummary {
 
-    private static final String LOG_FORMAT = "%s~%s travelDays=%d 소모연차=%.1f 도달한계=%d분";
+    /** 날짜는 경로·쿼리에 이미 드러나므로 로그에는 계산 결과만 남긴다. */
+    private static final String LOG_FORMAT = "%d일 연차%.1f 도달%d분";
 
     public static AvailableTimeResponse from(AvailableTimeResult result) {
         return new AvailableTimeResponse(
@@ -41,6 +42,6 @@ public record AvailableTimeResponse(
 
     @Override
     public String logSummary() {
-        return LOG_FORMAT.formatted(startDate, endDate, travelDays, consumedLeaveDays, maxReachMinutes);
+        return LOG_FORMAT.formatted(travelDays, consumedLeaveDays, maxReachMinutes);
     }
 }

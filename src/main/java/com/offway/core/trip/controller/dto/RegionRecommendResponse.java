@@ -20,13 +20,7 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
 
     @Override
     public String logSummary() {
-        return LogSummaries.list("추천", regions, item -> "%d:%s".formatted(item.regionId(), shortName(item.name())));
-    }
-
-    /** "완도군 · 전라남도" 에서 시군구만 — 로그 한 줄에 시도까지 넣으면 다섯 건에 길이가 두 배가 된다. */
-    private static String shortName(String name) {
-        int separator = name.indexOf(" · ");
-        return separator < 0 ? name : name.substring(0, separator);
+        return LogSummaries.count("추천", regions);
     }
 
     /**

@@ -33,7 +33,7 @@ public record RegionPlacesResponse(
 
     @Override
     public String logSummary() {
-        return LogSummaries.list(kindLabel, places, PlaceResponse::id);
+        return LogSummaries.count(kindLabel, places);
     }
 
     /**
