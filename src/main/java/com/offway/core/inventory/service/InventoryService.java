@@ -51,7 +51,7 @@ public class InventoryService {
     private ProbeResult runSafely(ExternalApiProbe probe) {
         try {
             ProbeResult r = probe.probe();
-            log.info("[inventory] {} · {} (status={})", r.name(), r.status(), r.httpStatus());
+            log.debug("[inventory] {} · {} (status={})", r.name(), r.status(), r.httpStatus());
             return r;
         } catch (Exception e) {
             log.warn("[inventory] 프로브 실패: {}", e.toString());

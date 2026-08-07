@@ -16,9 +16,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
+import reactor.util.retry.Retry;
 
 /**
  * 국문 관광정보(TourAPI · KorService2) adapter.
@@ -39,6 +42,38 @@ class TourApiClientImpl implements TourApiClient {
     private static final String DETAIL_WITH_TOUR = "/detailWithTour2";
 
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
+
+    /**
+     * 429 재시도 횟수·간격.
+     *
+     * <p><b>왜 필요한가.</b> 부팅 워밍이 89개 지역을 도는데, 동시성 상한(12)만으로는 <b>초당 호출 수</b>가 안 잡힌다.
+     * 실측(배포 로그)에서 200ms 안에 18건이 나가 초당 90건꼴이었고 제공기관이 429 를 던졌다.
+     *
+     * <p>그리고 <b>429 는 즉시 돌아온다</b> — 정상 응답은 수백 ms 걸리는데 실패는 10ms 안에 떨어지므로, 실패할수록
+     * 다음 호출이 더 빨리 나가 429 를 더 맞는 되먹임이 생긴다. 백오프가 그 고리를 끊는다: 실패한 워커가 쉬는 동안
+     * 전체 호출 속도가 저절로 내려간다.
+     *
+     * <p>지터를 넣는 이유는 12개 워커가 <b>같은 순간에</b> 깨어나 다시 몰리지 않게 하기 위해서다.
+     *
+     * <p>재시도는 <b>429 에만</b> 건다. timeout·5xx 는 이미 느린 상황이라 다시 걸면 지연만 곱해진다.
+     */
+    private static final int RATE_LIMIT_RETRIES = 2;
+
+    private static final Duration RATE_LIMIT_BACKOFF = Duration.ofMillis(400);
+
+    private static final double RATE_LIMIT_JITTER = 0.5;
+
+    /**
+     * 재시도까지 <b>포함한</b> 한 호출의 상한.
+     *
+     * <p>{@link #TIMEOUT} 은 시도 하나에만 걸린다. 재시도가 붙으면 재구독되므로 전체는 (시도 × 횟수 + 백오프)
+     * 까지 늘어난다 — 429 가 늦게 도착하는 경우 최악 20초에 가깝다. 그러면 팬아웃의 전체 상한을 넘겨 만료된
+     * 작업이 실행 슬롯을 계속 물고, 뒤이은 워밍·요청이 그만큼 밀린다.
+     *
+     * <p>그래서 재시도 바깥에 상한을 하나 더 둔다. 429 는 보통 즉시 돌아오므로 정상 경로에서는 이 상한에
+     * 닿지 않는다 — 느려졌을 때만 끊는 안전망이다.
+     */
+    private static final Duration RETRY_TOTAL_TIMEOUT = Duration.ofSeconds(8);
     private static final String MOBILE_OS = "ETC";
     private static final String MOBILE_APP = "offway";
     private static final Set<String> SUCCESS_CODES = Set.of("0000", "00");
@@ -177,8 +212,20 @@ class TourApiClientImpl implements TourApiClient {
                 .uri(uri)
                 .retrieve()
                 .bodyToMono(String.class)
+                // timeout 을 retryWhen 앞에 둔다 — 재시도마다 다시 구독되므로 이 상한은 시도 하나에 걸린다.
                 .timeout(TIMEOUT)
+                .retryWhen(Retry.backoff(RATE_LIMIT_RETRIES, RATE_LIMIT_BACKOFF)
+                        .jitter(RATE_LIMIT_JITTER)
+                        .filter(TourApiClientImpl::isRateLimited))
+                // 재시도 바깥의 상한 — 시도별 timeout 만으로는 전체가 곱해진다.
+                .timeout(RETRY_TOTAL_TIMEOUT)
                 .block();
+    }
+
+    /** 제공기관이 "지금은 많으니 잠시 뒤" 라고 답한 것인가. 이것만 재시도한다. */
+    private static boolean isRateLimited(Throwable error) {
+        return error instanceof WebClientResponseException response
+                && response.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS;
     }
 
     private TourPoiResult parseList(String body) throws Exception {

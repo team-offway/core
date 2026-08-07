@@ -67,7 +67,16 @@ public class HomeCacheWarmer {
         } catch (RuntimeException e) {
             log.warn("홈 캐시 워밍 — 랭킹 갱신 실패(계속) cause={}", e.getClass().getSimpleName());
         }
-        int warmed = warmContent(regions);
+        // degrade 는 지역마다 warn 이 찍히지만 그것만으로는 규모를 모른다 — 한 곳이 실패한 것과 여든 곳이
+        // 실패한 것은 완전히 다른 사건인데 로그 모양은 같다. 회차마다 합계를 한 줄로 남긴다(#191).
+        RegionContentProvider.RegionContents result = warmContent(regions);
+        int warmed = result.byRegionId().size();
+        int degraded = result.degraded();
+        if (degraded > 0) {
+            log.warn("홈 캐시 워밍(랭킹·콘텐츠) 완료 regions={}/{} — 외부 실패로 degrade {}건",
+                    warmed, regions.size(), degraded);
+            return;
+        }
         log.info("홈 캐시 워밍(랭킹·콘텐츠) 완료 regions={}/{}", warmed, regions.size());
     }
 
@@ -106,14 +115,26 @@ public class HomeCacheWarmer {
     /** 대기질(1h TTL) 워밍 — 50분 주기로 따로. 에어코리아는 시도당 수 초 걸려 요청 경로에서 부르면 홈이 느려진다. 시도 단위라 중복 제거. */
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = AIR_REFRESH_INTERVAL)
     public void warmAirQuality() {
-        List<Region> regions = loadRegions();
-        regions.stream().map(Region::getSido).distinct().forEach(sido -> {
+        List<String> sidos = loadRegions().stream().map(Region::getSido).distinct().toList();
+
+        int warmed = 0;
+        for (String sido : sidos) {
             try {
-                airQualityService.byRegionSido(sido);
+                if (airQualityService.byRegionSido(sido).isPresent()) {
+                    warmed++;
+                }
             } catch (RuntimeException e) {
-                log.warn("홈 캐시 워밍 — 대기질 워밍 실패 sido={}(계속)", sido, e);
+                log.debug("대기질 워밍 실패 sido={}(계속)", sido, e);
             }
-        });
+        }
+
+        // **시도별로 찍지 않고 한 줄로 묶는다.** 에어코리아가 통째로 죽으면 시도 수만큼 같은 줄이 쌓여
+        // 사용자 요청 로그를 밀어낸다. 반대로 아무것도 안 남기면 조용한 실패가 된다 — 건수 한 줄이 그 사이다.
+        if (warmed < sidos.size()) {
+            log.warn("홈 캐시 워밍(대기질) 일부 실패 — {}/{} 시도만 채웠습니다", warmed, sidos.size());
+        } else {
+            log.info("홈 캐시 워밍(대기질) 완료 sido={}", warmed);
+        }
     }
 
     private List<Region> loadRegions() {
@@ -132,9 +153,8 @@ public class HomeCacheWarmer {
      * <p>워밍이 자기 풀을 따로 들지 않는 이유 — <b>요청 경로와 같은 메서드를 쓰기 위해서다.</b> 상수만 공유하면 한쪽만
      * 고쳐질 수 있지만, 메서드를 공유하면 동시성이 갈릴 여지가 없다(성능 규약).
      */
-    private int warmContent(List<Region> regions) {
-        return regionContentProvider
-                .contentForAll(regions, regions, RegionContentProvider.WARMING_FANOUT_DEADLINE)
-                .size();
+    private RegionContentProvider.RegionContents warmContent(List<Region> regions) {
+        return regionContentProvider.contentForAll(
+                regions, regions, RegionContentProvider.WARMING_FANOUT_DEADLINE);
     }
 }
