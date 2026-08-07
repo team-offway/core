@@ -239,7 +239,7 @@ public class RegionContentProvider {
             }
         }
         if (content.neighborIncluded()) {
-            log.info("콘텐츠 확장 region={} → contentCount={} categories={}",
+            log.debug("콘텐츠 확장 region={} → contentCount={} categories={}",
                     region.getId(), content.contentCount(), content.categories().size());
         }
         return content;

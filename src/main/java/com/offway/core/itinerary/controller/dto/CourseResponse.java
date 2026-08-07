@@ -1,5 +1,6 @@
 package com.offway.core.itinerary.controller.dto;
 
+import com.offway.core.common.logging.LogSummary;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
@@ -47,7 +48,10 @@ public record CourseResponse(
         List<Day> days,
         List<Benefit> benefits,
         @Schema(description = "대중교통 코스의 출발지→지역 열차 접근 (자차·저장 코스는 null)", nullable = true)
-                TrainAccessResponse trainAccess) {
+                TrainAccessResponse trainAccess) implements LogSummary {
+
+    /** regionId 는 요청 쿼리에 이미 있으므로 되풀이하지 않는다. */
+    private static final String LOG_FORMAT = "코스 %d일 %d슬롯";
 
     public static CourseResponse from(GeneratedCourse generated) {
         Course course = generated.course();
@@ -66,6 +70,16 @@ public record CourseResponse(
                         .toList(),
                 generated.benefits().stream().map(Benefit::from).toList(),
                 generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()));
+    }
+
+    @Override
+    public String logSummary() {
+        int slots = days == null
+                ? 0
+                : days.stream()
+                        .mapToInt(day -> day.items() == null ? 0 : day.items().size())
+                        .sum();
+        return LOG_FORMAT.formatted(travelDays, slots);
     }
 
     /**
