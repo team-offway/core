@@ -31,6 +31,9 @@ class TourApiClientImplTest {
     private static final ExternalApiProperties NO_KEY =
             new ExternalApiProperties(new ExternalApiProperties.DataGoKr(null), null);
 
+    /** 최초 호출 1회 + 구현의 재시도 2회. 구현 상수가 줄면 여기가 먼저 깨져야 한다. */
+    private static final int ATTEMPTS_WITH_RETRIES = 3;
+
     private static WebClient stubbing(ClientResponse response) {
         ExchangeFunction stub = request -> Mono.just(response);
         return WebClient.builder().exchangeFunction(stub).build();
@@ -294,7 +297,9 @@ class TourApiClientImplTest {
         TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY);
 
         assertThrows(TourApiException.class, () -> client.findByArea(34, 1, null, 10));
-        assertTrue(sequence.calls() > 1, "적어도 한 번은 다시 걸어야 한다. 실제=" + sequence.calls());
+        // 최초 1회 + 재시도 2회. 정확히 세지 않으면 재시도 횟수가 줄어도 이 테스트가 통과해
+        // 상한이 조용히 바뀐다.
+        assertEquals(ATTEMPTS_WITH_RETRIES, sequence.calls(), "실제=" + sequence.calls());
     }
 
     @Test
