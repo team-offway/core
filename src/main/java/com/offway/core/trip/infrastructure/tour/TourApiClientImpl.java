@@ -63,7 +63,9 @@ class TourApiClientImpl implements TourApiClient {
             return TourPoiResult.empty();
         }
         UriComponentsBuilder builder = base(AREA_BASED)
-                .queryParam("arrange", "A") // 제목순
+                // 조회순. 제목순(A)이면 순서가 가나다일 뿐이라 "대표" 와 아무 상관이 없다 — 지역 카드 사진이
+                // 공주시는 "가가책방", 부산 동구는 "감포참가자미" 였다. 코스 후보 랭킹도 이 정렬에 기대고 있다.
+                .queryParam("arrange", "B")
                 .queryParam("areaCode", areaCode)
                 .queryParam("numOfRows", numOfRows);
         if (sigunguCode != null) {
