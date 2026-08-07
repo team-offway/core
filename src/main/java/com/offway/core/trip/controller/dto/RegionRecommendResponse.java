@@ -1,5 +1,7 @@
 package com.offway.core.trip.controller.dto;
 
+import com.offway.core.common.logging.LogSummaries;
+import com.offway.core.common.logging.LogSummary;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.service.dto.RecommendedRegion;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -10,10 +12,15 @@ import java.util.List;
  *
  * @param regions 추천 지역 (랭킹 내림차순)
  */
-public record RegionRecommendResponse(List<Item> regions) {
+public record RegionRecommendResponse(List<Item> regions) implements LogSummary {
 
     public static RegionRecommendResponse from(List<RecommendedRegion> regions) {
         return new RegionRecommendResponse(regions.stream().map(Item::from).toList());
+    }
+
+    @Override
+    public String logSummary() {
+        return LogSummaries.count("추천", regions);
     }
 
     /**

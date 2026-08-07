@@ -49,7 +49,7 @@ public class RegionPoiService {
     public RegionPois collect(long regionId) {
         List<Region> found = regionRepository.findByIds(List.of(regionId));
         if (found.isEmpty()) {
-            log.info("코스 POI 수집 — 없는 지역 regionId={}", regionId);
+            log.debug("코스 POI 수집 — 없는 지역 regionId={}", regionId);
             return RegionPois.empty();
         }
         Region region = found.get(0);
@@ -63,7 +63,7 @@ public class RegionPoiService {
         List<PoiCandidate> stays = candidates(region, STAY_TYPE);
 
         RegionPois pois = new RegionPois(sights, foods, stays);
-        log.info("코스 POI 수집 regionId={} 볼거리={} 맛집={} 숙박={}", regionId, sights.size(), foods.size(), stays.size());
+        log.debug("코스 POI 수집 regionId={} 볼거리={} 맛집={} 숙박={}", regionId, sights.size(), foods.size(), stays.size());
         return pois.needsSupplement() ? supplement(pois, regionId) : pois;
     }
 
