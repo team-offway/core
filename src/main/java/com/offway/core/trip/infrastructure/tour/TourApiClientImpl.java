@@ -62,6 +62,18 @@ class TourApiClientImpl implements TourApiClient {
     private static final Duration RATE_LIMIT_BACKOFF = Duration.ofMillis(400);
 
     private static final double RATE_LIMIT_JITTER = 0.5;
+
+    /**
+     * 재시도까지 <b>포함한</b> 한 호출의 상한.
+     *
+     * <p>{@link #TIMEOUT} 은 시도 하나에만 걸린다. 재시도가 붙으면 재구독되므로 전체는 (시도 × 횟수 + 백오프)
+     * 까지 늘어난다 — 429 가 늦게 도착하는 경우 최악 20초에 가깝다. 그러면 팬아웃의 전체 상한을 넘겨 만료된
+     * 작업이 실행 슬롯을 계속 물고, 뒤이은 워밍·요청이 그만큼 밀린다.
+     *
+     * <p>그래서 재시도 바깥에 상한을 하나 더 둔다. 429 는 보통 즉시 돌아오므로 정상 경로에서는 이 상한에
+     * 닿지 않는다 — 느려졌을 때만 끊는 안전망이다.
+     */
+    private static final Duration RETRY_TOTAL_TIMEOUT = Duration.ofSeconds(8);
     private static final String MOBILE_OS = "ETC";
     private static final String MOBILE_APP = "offway";
     private static final Set<String> SUCCESS_CODES = Set.of("0000", "00");
@@ -205,6 +217,8 @@ class TourApiClientImpl implements TourApiClient {
                 .retryWhen(Retry.backoff(RATE_LIMIT_RETRIES, RATE_LIMIT_BACKOFF)
                         .jitter(RATE_LIMIT_JITTER)
                         .filter(TourApiClientImpl::isRateLimited))
+                // 재시도 바깥의 상한 — 시도별 timeout 만으로는 전체가 곱해진다.
+                .timeout(RETRY_TOTAL_TIMEOUT)
                 .block();
     }
 

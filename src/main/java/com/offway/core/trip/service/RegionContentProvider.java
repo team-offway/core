@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -138,11 +139,13 @@ public class RegionContentProvider {
      *     {@link #WARMING_FANOUT_DEADLINE}
      * @return 지역ID → 콘텐츠. 채우지 못한 지역은 <b>키가 없다</b>(호출자가 빈 콘텐츠로 취급한다)
      */
-    public Map<Long, RegionContent> contentForAll(
+    public RegionContents contentForAll(
             List<Region> targets, List<Region> neighborPool, Duration deadline) {
         if (targets.isEmpty()) {
-            return Map.of();
+            return new RegionContents(Map.of(), 0);
         }
+        // 이 실행에서만 센다. 빈에 두면 요청 경로의 실패가 워밍 집계에 섞인다.
+        AtomicInteger degraded = new AtomicInteger();
         // 벽시계(Instant) 가 아니라 단조 시계로 잰다 — 시스템 시각이 보정되면 예산이 늘거나 즉시 만료된다.
         long deadlineNanos = System.nanoTime() + deadline.toNanos();
         Map<Long, RegionContent> contents = new ConcurrentHashMap<>();
@@ -156,7 +159,7 @@ public class RegionContentProvider {
             }
             Region region = targets.get(index);
             try {
-                futures.add(CompletableFuture.runAsync(fillTask(region, neighborPool, deadlineNanos, contents),
+                futures.add(CompletableFuture.runAsync(fillTask(region, neighborPool, deadlineNanos, contents, degraded),
                                 fanoutExecutor)
                         .exceptionally(error -> {
                             // contentFor 는 스스로 degrade 하는 게 계약이지만, 그 계약이 깨져도 나머지를 막지 않는다.
@@ -188,7 +191,7 @@ public class RegionContentProvider {
             Thread.currentThread().interrupt();
             log.warn("지역 콘텐츠 팬아웃이 중단됐습니다 — {}/{}건만 채웁니다", contents.size(), targets.size());
         }
-        return contents;
+        return new RegionContents(contents, degraded.get());
     }
 
     /**
@@ -202,12 +205,16 @@ public class RegionContentProvider {
      * 그걸 끊으려면 남은 예산을 {@code TourApiClient} 까지 내려야 하는데, 그 포트는 소비자가 넷이라 별도 작업이다.
      */
     private Runnable fillTask(
-            Region region, List<Region> neighborPool, long deadlineNanos, Map<Long, RegionContent> contents) {
+            Region region,
+            List<Region> neighborPool,
+            long deadlineNanos,
+            Map<Long, RegionContent> contents,
+            AtomicInteger degraded) {
         return () -> {
             if (isPast(deadlineNanos)) {
                 return;
             }
-            contents.put(region.getId(), contentFor(region, neighborPool));
+            contents.put(region.getId(), contentFor(region, neighborPool, degraded));
         };
     }
 
@@ -220,13 +227,13 @@ public class RegionContentProvider {
      * 한 지역의 콘텐츠. 볼거리가 충분하면 그대로, 부족하면 인접 50km 지역(가까운 순, 최대 {@value #MAX_NEIGHBORS}곳)을 충분해질
      * 때까지 병합한다. {@code neighborPool} 은 인접 후보(보통 전체 지역) — 자기 자신은 자동 제외한다.
      */
-    RegionContent contentFor(Region region, List<Region> neighborPool) {
-        RegionContent content = fetch(region);
+    RegionContent contentFor(Region region, List<Region> neighborPool, AtomicInteger degraded) {
+        RegionContent content = fetch(region, degraded);
         if (content.isSufficient()) {
             return content;
         }
         for (Region neighbor : nearestNeighbors(region, neighborPool)) {
-            content = content.expandedWith(fetch(neighbor));
+            content = content.expandedWith(fetch(neighbor, degraded));
             if (content.isSufficient()) {
                 break;
             }
@@ -239,16 +246,16 @@ public class RegionContentProvider {
     }
 
     /**
-     * degrade 누적 횟수 — 워밍이 끝날 때 "몇 곳이 degrade 됐나" 를 한 줄로 남기기 위한 것.
+     * 팬아웃 한 번의 결과 — 채운 콘텐츠와 그 실행에서 degrade 된 지역 수.
      *
-     * <p>줄마다 warn 이 찍혀도 <b>전체 규모는 세어 보기 전엔 모른다.</b> 한 곳이 실패한 것과 여든 곳이 실패한 것은
-     * 완전히 다른 사건인데 로그 모양은 같다.
+     * <p><b>왜 실행 단위인가.</b> 빈 필드에 누적하면 요청 경로의 실패가 워밍 로그에 섞이고(같은 팬아웃을 둘이
+     * 공유한다), 상한을 넘겨 늦게 끝난 작업이 다음 회차 집계에 들어간다. 그러면 "이번 워밍에서 몇 곳이
+     * degrade 됐나" 를 로그가 답하지 못한다 — 세어서 남기는 의미가 사라진다.
+     *
+     * @param byRegionId 지역별 콘텐츠
+     * @param degraded 이 실행에서 외부 실패로 degrade 된 지역 수
      */
-    private final java.util.concurrent.atomic.LongAdder degradedRegions = new java.util.concurrent.atomic.LongAdder();
-
-    /** 지금까지 degrade 된 횟수를 읽고 0 으로 되돌린다(워밍 한 회차 단위로 센다). */
-    public long drainDegradedCount() {
-        return degradedRegions.sumThenReset();
+    public record RegionContents(Map<Long, RegionContent> byRegionId, int degraded) {
     }
 
     /** 예외 체인의 맨 끝 — {@code ReactiveException} 같은 껍데기가 아니라 실제 사유를 남긴다. */
@@ -269,7 +276,7 @@ public class RegionContentProvider {
      * 지역 콘텐츠 조회 — 캐시(single-flight) 우선. 실패하면 콘텐츠는 부가 정보라 예외를 올리지 않고 마지막 성공값(있으면), 없으면
      * 빈 콘텐츠로 degrade 하고 짧게 캐시해 실패 동안 요청이 몰리지 않게 한다.
      */
-    private RegionContent fetch(Region region) {
+    private RegionContent fetch(Region region, AtomicInteger degraded) {
         return cache.get(region.getId(), (id, stale) -> {
             try {
                 RegionContent fresh = tourApiClient
@@ -278,7 +285,7 @@ public class RegionContentProvider {
                 return new Loaded<>(fresh, CACHE_TTL);
             } catch (TourApiException e) {
                 RegionContent fallback = stale != null ? stale : RegionContent.EMPTY;
-                degradedRegions.increment();
+                degraded.incrementAndGet();
                 // 스택을 찍지 않는다. 외부 실패는 예상 범위 안의 사건이라 cause 면 충분한데, 예외를 넘기면
                 // Reactor 체크포인트까지 붙어 한 건이 60줄이 넘는다 — 89개 지역이면 로그가 수천 줄이 되고
                 // 정작 알아야 할 "몇 곳이 degrade 됐나" 가 그 안에 묻힌다.
