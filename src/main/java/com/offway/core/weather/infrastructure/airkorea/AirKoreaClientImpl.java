@@ -56,7 +56,10 @@ class AirKoreaClientImpl implements AirKoreaClient {
         try {
             return parse(call(builder));
         } catch (Exception e) {
-            log.warn("에어코리아 대기질 조회 실패 — 생략 cause={}", e.getClass().getSimpleName());
+            // 호출 하나하나는 debug 다. 워밍이 시도 17곳을 순차로 도는데 에어코리아가 통째로 죽으면
+            // 한 번 돌 때마다 같은 warn 이 17줄 쌓여, 정작 봐야 할 사용자 요청 로그를 밀어낸다.
+            // degrade 신호는 HomeCacheWarmer 가 실패 건수를 한 줄로 묶어 warn 으로 올린다.
+            log.debug("에어코리아 대기질 조회 실패 — 생략 cause={}", e.getClass().getSimpleName());
             return Optional.empty();
         }
     }

@@ -100,14 +100,26 @@ public class HomeCacheWarmer {
     /** 대기질(1h TTL) 워밍 — 50분 주기로 따로. 에어코리아는 시도당 수 초 걸려 요청 경로에서 부르면 홈이 느려진다. 시도 단위라 중복 제거. */
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = AIR_REFRESH_INTERVAL)
     public void warmAirQuality() {
-        List<Region> regions = loadRegions();
-        regions.stream().map(Region::getSido).distinct().forEach(sido -> {
+        List<String> sidos = loadRegions().stream().map(Region::getSido).distinct().toList();
+
+        int warmed = 0;
+        for (String sido : sidos) {
             try {
-                airQualityService.byRegionSido(sido);
+                if (airQualityService.byRegionSido(sido).isPresent()) {
+                    warmed++;
+                }
             } catch (RuntimeException e) {
-                log.warn("홈 캐시 워밍 — 대기질 워밍 실패 sido={}(계속)", sido, e);
+                log.debug("대기질 워밍 실패 sido={}(계속)", sido, e);
             }
-        });
+        }
+
+        // **시도별로 찍지 않고 한 줄로 묶는다.** 에어코리아가 통째로 죽으면 시도 수만큼 같은 줄이 쌓여
+        // 사용자 요청 로그를 밀어낸다. 반대로 아무것도 안 남기면 조용한 실패가 된다 — 건수 한 줄이 그 사이다.
+        if (warmed < sidos.size()) {
+            log.warn("홈 캐시 워밍(대기질) 일부 실패 — {}/{} 시도만 채웠습니다", warmed, sidos.size());
+        } else {
+            log.info("홈 캐시 워밍(대기질) 완료 sido={}", warmed);
+        }
     }
 
     private List<Region> loadRegions() {
