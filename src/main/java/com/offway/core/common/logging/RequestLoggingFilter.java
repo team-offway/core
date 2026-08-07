@@ -5,8 +5,11 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.HexFormat;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -38,6 +41,8 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             Set.of("/actuator", "/swagger-ui", "/v3/api-docs", "/favicon.ico");
 
     private static final String ANONYMOUS = "anonymous";
+    /** 추적 id 길이(hex). 한 번에 살아 있는 요청 수가 많지 않아 6자면 눈으로 구분하기에 충분하다. */
+    private static final int TRACE_ID_BYTES = 3;
     private static final double NANOS_PER_SECOND = 1_000_000_000.0;
     private static final String SECONDS_FORMAT = "%.2f";
     /** GET·POST 를 같은 폭으로 맞춰 경로가 세로로 정렬되게 한다. 훑을 때 눈이 경로를 따라 내려간다. */
@@ -66,9 +71,13 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         String query = SensitiveParams.maskQueryString(request.getQueryString());
         long startedAt = System.nanoTime();
 
+        MDC.put(LogAttributes.TRACE_ID, newTraceId());
         try {
             chain.doFilter(request, response);
         } finally {
+            // 사용자는 인증 필터가 채운 뒤에야 알 수 있어 여기서 넣는다. 요청 줄에 함께 실리도록
+            // 로그를 찍기 전에 넣고, 아래 clear 로 같은 스레드의 다음 요청에 새지 않게 한다.
+            MDC.put(LogAttributes.USER_ID, currentUser());
             double seconds = (System.nanoTime() - startedAt) / NANOS_PER_SECOND;
             log.info(
                     "{} {} {}{} {}s {}{}{}",
@@ -80,7 +89,18 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
                     currentUser(),
                     summaries(request),
                     recorder.isEmpty() ? "" : EXTERNAL_CALLS_FRAGMENT_FORMAT.formatted(recorder.summary()));
+            // **반드시 지운다.** 톰캣은 스레드를 재사용하므로, 안 지우면 다음 요청이 앞 요청의 추적 id 를
+            // 그대로 달고 나간다 — 추적을 도우려던 것이 오히려 거짓 연결을 만든다.
+            MDC.remove(LogAttributes.TRACE_ID);
+            MDC.remove(LogAttributes.USER_ID);
         }
+    }
+
+    /** 짧은 hex 추적 id. 보안 토큰이 아니라 눈으로 묶는 표식이라 암호학적 난수가 필요 없다. */
+    private static String newTraceId() {
+        byte[] bytes = new byte[TRACE_ID_BYTES];
+        ThreadLocalRandom.current().nextBytes(bytes);
+        return HexFormat.of().formatHex(bytes);
     }
 
     /**
