@@ -102,12 +102,14 @@ class HubAttractionClientImplTest {
     }
 
     @Test
-    void 성공코드가_아니면_빈_목록이다() {
+    void 성공코드가_아니면_조회불가로_올린다() {
+        // 빈 목록으로 돌려주면 "미발행" 과 구분되지 않는다 — 할당량 초과가 발행 지연으로 읽혀 발행월 탐색이
+        // 이전 달들을 헛되이 순회하고, 호출자 집계에도 실패가 아니라 빈 응답으로 잡힌다.
         String body = """
                 {"response":{"header":{"resultCode":"22","resultMsg":"LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR"},
                 "body":{"items":{"item":[{"hubTatsNm":"공산성","hubRank":"1"}]}}}}""";
 
-        assertTrue(client(body).findByRegion(GONGJU, MONTH, 30).isEmpty());
+        assertThrows(TourApiException.class, () -> client(body).findByRegion(GONGJU, MONTH, 30));
     }
 
     @Test
@@ -149,7 +151,7 @@ class HubAttractionClientImplTest {
                 {"responseTime":"2026-08-09T17:24:22.692","resultCode":"11",
                  "resultMsg":"NO_MANDATORY_REQUEST_PARAMETERS_ERROR1(pageNo)"}""";
 
-        assertTrue(client(body).findByRegion(GONGJU, MONTH, 30).isEmpty());
+        assertThrows(TourApiException.class, () -> client(body).findByRegion(GONGJU, MONTH, 30));
     }
 
     @Test

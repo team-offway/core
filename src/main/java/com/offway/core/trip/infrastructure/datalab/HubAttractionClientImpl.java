@@ -112,9 +112,11 @@ class HubAttractionClientImpl implements HubAttractionClient {
             resultCode = root.path("resultCode").asText();
         }
         if (!SUCCESS_CODES.contains(resultCode)) {
-            // 빈 목록은 이전 값을 유지시키므로 그대로 두면 아무 흔적이 없다 — 왜 안 채워졌는지 남긴다.
+            // 빈 목록으로 돌려주면 "미발행" 과 구분되지 않는다 — 할당량 초과·파라미터 오류가 발행 지연으로
+            // 읽혀 발행월 탐색이 이전 달들을 헛되이 순회하고, 호출자의 집계에도 실패가 아니라 빈 응답으로
+            // 잡힌다. 조회 실패로 올려 그 지역만 이전 값을 유지하게 한다.
             log.warn("중심 관광지 조회가 실패 코드로 돌아왔습니다 resultCode={}", resultCode);
-            return List.of();
+            throw new IllegalStateException("중심 관광지 조회 실패 코드: " + resultCode);
         }
         JsonNode itemsNode = response.path("body").path("items");
         // 결과가 없으면 items 가 빈 문자열로 온다(data.go.kr 함정).
