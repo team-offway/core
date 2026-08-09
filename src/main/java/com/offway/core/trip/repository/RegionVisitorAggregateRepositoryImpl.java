@@ -1,7 +1,9 @@
 package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.RegionVisitorAggregate;
+import java.time.YearMonth;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +18,16 @@ public class RegionVisitorAggregateRepositoryImpl implements RegionVisitorAggreg
     @Override
     public List<RegionVisitorAggregate> findAll() {
         return jpaRepository.findAll();
+    }
+
+    @Override
+    public Optional<YearMonth> latestBaseMonth() {
+        return jpaRepository.findTopByOrderByBaseYmDesc().map(RegionVisitorAggregate::baseMonth);
+    }
+
+    @Override
+    public long count() {
+        return jpaRepository.count();
     }
 
     /**
