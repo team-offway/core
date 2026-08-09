@@ -107,7 +107,11 @@ public class CourseGenerationService {
 
         // ⑥ 슬롯 배치 → ⑨ 조립. 첫날은 도착 시각 이후 남는 시간대만 쓴다.
         List<DaySchedule> days = buildDays(command, firstDayStart(command, trainAccess), orderedSights, foods, stays);
-        Course course = Course.of(command.regionId(), command.density(), command.transport(), days, command.travelDate());
+        // 기간은 days.size() 가 아니라 **요청한 일수**다. 일정이 없는 날은 코스에서 빠지므로(#159) 둘이 갈린다 —
+        // 첫날이 이동뿐이어도 그날은 여행 중이고, 연차도 그만큼 나간다(#164).
+        Course course = Course.of(
+                command.regionId(), command.density(), command.transport(), days, command.travelDate(),
+                command.travelDays());
 
         // ⑧ 혜택 (policy)
         List<GeneratedCourse.Benefit> benefits = policyService.matchForRegion(command.regionId(), command.travelDate())
@@ -120,7 +124,7 @@ public class CourseGenerationService {
         // 광역 구역 단위 중기예보가 답한다(#129). 부가 정보라 미조회·실패·예보범위 밖인 Day 는 그냥 빈다.
         Map<Integer, DailyWeather> weatherByDay = courseWeatherProvider.byDay(course, region, hub);
 
-        log.info("코스 생성 regionId={} days={} slots={} benefits={} weatherDays={} trainAccess={}",
+        log.debug("코스 생성 regionId={} days={} slots={} benefits={} weatherDays={} trainAccess={}",
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
                 weatherByDay.size(), trainAccess != null ? trainAccess.status() : "N/A");
         return new GeneratedCourse(

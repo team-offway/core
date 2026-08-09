@@ -60,6 +60,27 @@ class CourseLeaveDeductionIntegrationTest {
               ]}
             ]}""";
 
+    /**
+     * 첫날이 이동뿐이라 일정에서 빠진 2박3일 코스 — 담긴 날은 둘인데 여행은 8/12~8/14 사흘이다(#159 · #164).
+     *
+     * <p>{@code travelDays} 로 달력 기간을 함께 보낸다. 이게 없으면 서버는 담긴 날 수(2)를 기간으로 보고
+     * 종료일을 하루 이르게 잡는다.
+     */
+    private static final String FIRST_DAY_EMPTY_COURSE = """
+            { "regionId": 16, "density": "PACKED", "transport": "TRANSIT", "travelDate": "2026-08-12",
+              "travelDays": 3, "days": [
+              { "day": 1, "items": [
+                {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":0}
+              ]},
+              { "day": 2, "items": [
+                {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c2","title":"장소2","lat":37.51,"lng":128.61,"travelMinutes":0}
+              ]}
+            ]}""";
+
+    /** 위와 같은 코스인데 {@code travelDays} 를 안 보낸 것 — 이 필드가 생기기 전 클라이언트와 같은 모양이다. */
+    private static final String FIRST_DAY_EMPTY_COURSE_WITHOUT_SPAN =
+            FIRST_DAY_EMPTY_COURSE.replace("\"travelDays\": 3,", "");
+
     /** 여행 날짜 없이 저장된 코스 — 이 컬럼이 생기기 전에 저장된 코스와 같은 모양이다. */
     private static final String COURSE_WITHOUT_DATE = """
             { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [
@@ -139,6 +160,35 @@ class CourseLeaveDeductionIntegrationTest {
                 .andExpect(jsonPath("$.data.remainingDays").value(13.0))
                 .andExpect(jsonPath("$.data.usages.length()").value(1))
                 .andExpect(jsonPath("$.data.usages[0].days").value(2.0));
+    }
+
+    @Test
+    void 첫날이_일정에서_빠져도_사흘치가_차감된다() throws Exception {
+        // 8/12(수)~8/14(금) 사흘 여행인데 일정은 이틀치뿐이다. 예전에는 담긴 날 수(2)로 종료일을 세서
+        // 8/13 에서 끊겼고, 그만큼 연차가 덜 차감됐다(#164).
+        holidays(Set.of());
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 15.0);
+        long courseId = saveCourse(guest, FIRST_DAY_EMPTY_COURSE);
+
+        deduct(guest, courseId, "{}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usedDays").value(3.0))
+                .andExpect(jsonPath("$.data.remainingDays").value(12.0));
+    }
+
+    @Test
+    void 기간을_안_보내면_담긴_날_수로_차감한다() throws Exception {
+        // 이 필드가 생기기 전 클라이언트와 같은 동작 — 기존 연동이 깨지지 않는다는 것을 못 박는다.
+        // 이 경우 첫날이 빠진 코스는 여전히 하루 덜 차감된다. 그래서 기간을 보내라고 문서에 적었다.
+        holidays(Set.of());
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 15.0);
+        long courseId = saveCourse(guest, FIRST_DAY_EMPTY_COURSE_WITHOUT_SPAN);
+
+        deduct(guest, courseId, "{}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usedDays").value(2.0));
     }
 
     @Test

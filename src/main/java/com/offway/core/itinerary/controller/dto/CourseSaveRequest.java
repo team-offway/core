@@ -10,6 +10,7 @@ import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.transport.domain.TransportMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -35,6 +36,16 @@ public record CourseSaveRequest(
                         example = "2026-08-14",
                         nullable = true)
                 LocalDate travelDate,
+        @Schema(
+                        description =
+                                "여행 기간(1~3). 생성 응답의 travelDays 를 그대로 돌려주면 된다. "
+                                        + "없으면 담아 보낸 날 수로 본다 — 첫날이 이동뿐이라 일정에서 빠진 코스는 "
+                                        + "이 값을 넣어야 종료일·연차 차감이 맞는다.",
+                        example = "3",
+                        nullable = true)
+                @Min(1)
+                @Max(Course.MAX_TRAVEL_DAYS)
+                Integer travelDays,
         @NotEmpty @Valid List<Day> days) {
 
     /**
@@ -46,7 +57,10 @@ public record CourseSaveRequest(
             List<DaySchedule> schedules = days.stream()
                     .map(day -> DaySchedule.of(day.day(), day.items().stream().map(Item::toSlot).toList()))
                     .toList();
-            return Course.ownedBy(guestId, regionId, density, transport, schedules, travelDate);
+            // 기간을 안 보낸 클라이언트는 담아 보낸 날 수로 본다 — 이 필드가 생기기 전과 같은 동작이라
+            // 기존 연동이 깨지지 않는다. 그 경우 첫날이 빠진 코스는 종료일이 하루 이른 채로 남는다(#164).
+            int span = travelDays != null ? travelDays : schedules.size();
+            return Course.ownedBy(guestId, regionId, density, transport, schedules, travelDate, span);
         } catch (IllegalArgumentException e) {
             throw ItineraryException.invalidCourse();
         }

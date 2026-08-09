@@ -77,7 +77,7 @@ public class LeaveService {
                 resolved.holidays(),
                 command.transport(),
                 command.halfDayStart());
-        log.info(
+        log.debug(
                 "가용시간 산출 {}~{} travelDays={} consumedLeave={} maxReachMin={}",
                 period.startDate(),
                 period.endDate(),
@@ -99,7 +99,7 @@ public class LeaveService {
                 .filter(SandwichHoliday::isGolden)
                 .filter(sandwich -> query.withinRemainingLeave(sandwich.leaveDays()))
                 .toList();
-        log.info("샌드위치 탐지 detected={} recommended={}", detected.size(), recommended.size());
+        log.debug("샌드위치 탐지 detected={} recommended={}", detected.size(), recommended.size());
         return recommended;
     }
 
