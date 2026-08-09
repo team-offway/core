@@ -8,13 +8,10 @@ import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.RegionContent;
 import com.offway.core.trip.domain.RegionScore;
 import com.offway.core.trip.service.dto.HomeResult;
-import com.offway.core.weather.domain.AirQuality;
-import com.offway.core.weather.service.AirQualityService;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -37,7 +34,6 @@ public class HomeService {
     private final RegionContentProvider regionContentProvider;
     private final RegionHeroPhotoProvider regionHeroPhotoProvider;
     private final PolicyService policyService;
-    private final AirQualityService airQualityService;
     private final MyLeaveService myLeaveService;
 
     /**
@@ -57,8 +53,9 @@ public class HomeService {
         List<RegionScore> top = ranked.stream().limit(HOME_REGION_LIMIT).toList();
         List<Region> topRegions = top.stream().map(score -> regionById.get(score.regionId())).toList();
 
-        // 외부(TourAPI)는 병렬, DB(혜택)는 일괄. 대기질은 시도 단위라 top-N 에서 겹치므로 시도별 1회만 조회한다
-        // — 캐시가 있어 대부분 즉답이고, 순차로 둬야 아래 맵을 스레드 안전성 걱정 없이 쓸 수 있다.
+        // 이 메서드는 이제 외부를 하나도 부르지 않는다 — 전부 DB 다. 예전에는 카드마다 시도별 대기질을
+        // 여기서 채웠는데, 에어코리아가 느린 시도를 만나면 그 지연을 사용자가 그대로 물어 홈이 24초 걸렸다.
+        // 실시간 대기질이 필요한 자리는 "지금 그 지역에 가 있는" 화면뿐이라 코스로 옮겼다.
         List<Long> topRegionIdsForContent = topRegions.stream().map(Region::getId).toList();
         // 저장된 값만 읽는다(#193) — 요청 경로에서 89곳 팬아웃을 돌리지 않는다.
         Map<Long, RegionContent> contents = regionContentProvider.storedForAll(topRegionIdsForContent);
@@ -67,11 +64,10 @@ public class HomeService {
         // 대표 사진은 DB 만 읽는다(#196) — 외부 호출이 늘지 않고, 지역마다 묻지 않게 한 번에 가져온다.
         // 홈은 여행월을 모르므로 계절 정렬은 하지 않는다.
         Map<Long, String> heroPhotos = regionHeroPhotoProvider.heroPhotoUrls(topRegionIds, null);
-        Map<String, Optional<AirQuality>> airBySido = new HashMap<>();
 
         List<HomeResult.RegionCard> cards = top.stream()
                 .map(score -> toCard(
-                        regionById.get(score.regionId()), score, contents, heroPhotos, policiesByRegion, airBySido))
+                        regionById.get(score.regionId()), score, contents, heroPhotos, policiesByRegion))
                 .toList();
         return new HomeResult(remainingLeaveDays, cards);
     }
@@ -81,14 +77,10 @@ public class HomeService {
             RegionScore score,
             Map<Long, RegionContent> contents,
             Map<Long, String> heroPhotos,
-            Map<Long, List<Policy>> policiesByRegion,
-            Map<String, Optional<AirQuality>> airBySido) {
+            Map<Long, List<Policy>> policiesByRegion) {
         RegionContent content = contents.getOrDefault(region.getId(), RegionContent.EMPTY);
         List<Policy> matched = policiesByRegion.getOrDefault(region.getId(), List.of());
         HomeResult.Benefit benefit = matched.isEmpty() ? null : toBenefit(matched.get(0));
-        AirQuality air = airBySido
-                .computeIfAbsent(region.getSido(), airQualityService::byRegionSido)
-                .orElse(null);
         return HomeResult.RegionCard.of(
                 region.getId(),
                 region.getSido(),
@@ -96,8 +88,7 @@ public class HomeService {
                 score.crowdLevel(),
                 content,
                 heroPhotos.get(region.getId()),
-                benefit,
-                air);
+                benefit);
     }
 
     private static HomeResult.Benefit toBenefit(Policy policy) {

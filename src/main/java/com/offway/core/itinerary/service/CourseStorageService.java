@@ -41,6 +41,7 @@ public class CourseStorageService {
     private final PolicyService policyService;
     private final RegionRepository regionRepository;
     private final CourseWeatherProvider courseWeatherProvider;
+    private final CourseAirQualityProvider courseAirQualityProvider;
     private final CoursePersistenceService coursePersistenceService;
     private final MyLeaveService myLeaveService;
     private final TrainAccessService trainAccessService;
@@ -164,7 +165,9 @@ public class CourseStorageService {
         Map<Integer, DailyWeather> weatherByDay =
                 courseWeatherProvider.byDay(course, region, course.center().orElse(null));
         TrainAccess trainAccess = withTrainAccess ? trainAccessFor(course, region) : null;
+        // 생성 응답에만 붙고 상세 조회에는 없으면 저장한 코스에서 값이 사라진다(#169 와 같은 실수).
         return new GeneratedCourse(
-                course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu());
+                course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
+                courseAirQualityProvider.of(course, region));
     }
 }
