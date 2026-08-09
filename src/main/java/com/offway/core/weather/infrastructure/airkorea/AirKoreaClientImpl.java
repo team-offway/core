@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import reactor.util.retry.Retry;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -29,6 +30,21 @@ class AirKoreaClientImpl implements AirKoreaClient {
             "https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getCtprvnRltmMesureDnsty";
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
     private static final int ROWS = 100;
+
+    /**
+     * 간헐 504 를 한 번만 다시 건다.
+     *
+     * <p>실측(2026-08-09, 시도 17곳 × 3회 = 51건)에서 <b>504 SERVICETIMEOUT_ERROR 가 5건</b> 나왔다.
+     * 시도를 가리지 않고 흩어져 있었고 3회 모두 실패한 시도는 없었다 — 제공기관 게이트웨이 문제다.
+     * 약 10% 간헐이라 한 번만 다시 걸어도 둘 다 실패할 확률은 1% 안팎으로 떨어진다.
+     *
+     * <p>여러 번 걸지 않는 이유: 캐시 TTL 이 1시간이라 실패가 굳으면 그동안 대기질이 비지만, 재시도를 늘리면
+     * 죽어 있는 동안 요청마다 지연이 곱해진다.
+     */
+    private static final int RETRY_ATTEMPTS = 1;
+
+    /** 재시도 사이 간격 — 게이트웨이가 숨 돌릴 만큼만. */
+    private static final Duration RETRY_BACKOFF = Duration.ofMillis(300);
 
     private final WebClient webClient;
     private final ExternalApiProperties props;
@@ -54,12 +70,17 @@ class AirKoreaClientImpl implements AirKoreaClient {
                 .queryParam("sidoName", URLEncoder.encode(airKoreaSidoName, StandardCharsets.UTF_8))
                 .queryParam("ver", "1.3");
         try {
-            return parse(call(builder));
+            return parse(airKoreaSidoName, call(builder));
         } catch (Exception e) {
             // 호출 하나하나는 debug 다. 워밍이 시도 17곳을 순차로 도는데 에어코리아가 통째로 죽으면
             // 한 번 돌 때마다 같은 warn 이 17줄 쌓여, 정작 봐야 할 사용자 요청 로그를 밀어낸다.
             // degrade 신호는 HomeCacheWarmer 가 실패 건수를 한 줄로 묶어 warn 으로 올린다.
-            log.debug("에어코리아 대기질 조회 실패 — 생략 cause={}", e.getClass().getSimpleName());
+            //
+            // 다만 <b>무엇이 실패했는지는 남긴다.</b> 예전에는 cause 가 늘 `ReactiveException` 이었다 —
+            // WebClient 가 감싼 껍데기라 키 문제인지 timeout 인지 제공기관 장애인지 구분할 수 없었고,
+            // 원인을 찾으려면 따로 실호출을 떠야 했다.
+            log.debug("에어코리아 대기질 조회 실패 — 생략 sido={} cause={}",
+                    airKoreaSidoName, rootCauseOf(e));
             return Optional.empty();
         }
     }
@@ -68,17 +89,32 @@ class AirKoreaClientImpl implements AirKoreaClient {
         // 인코딩이 필요한 값(한글 시도명)은 이미 넣을 때 인코딩했다. 여기서 통째로 다시 인코딩하면 serviceKey 의
         // `%2B` 가 `%252B` 가 되어 서버가 다른 키로 읽는다(#165).
         URI uri = builder.build(true).toUri();
-        return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
+        return webClient.get()
+                .uri(uri)
+                .retrieve()
+                .bodyToMono(String.class)
+                // timeout 을 retry 안쪽에 둬 시도 하나에 걸리게 한다 — 바깥에 두면 재시도까지 합쳐 6초가 된다.
+                .timeout(TIMEOUT)
+                .retryWhen(Retry.fixedDelay(RETRY_ATTEMPTS, RETRY_BACKOFF))
+                .block();
     }
 
-    private Optional<AirQuality> parse(String body) throws Exception {
+    private Optional<AirQuality> parse(String sido, String body) throws Exception {
         JsonNode response = objectMapper.readTree(body).path("response");
-        if (!"00".equals(response.path("header").path("resultCode").asText())) {
+        String resultCode = response.path("header").path("resultCode").asText();
+        if (!"00".equals(resultCode)) {
+            // 제공기관이 주는 사유를 그대로 남긴다 — 504 는 여기가 아니라 예외로 오지만,
+            // 키 만료·파라미터 오류는 성공 HTTP 에 실패 코드로 온다.
+            log.debug("에어코리아 실패 코드 sido={} resultCode={} msg={}",
+                    sido, resultCode, response.path("header").path("resultMsg").asText());
             return Optional.empty();
         }
         JsonNode itemsNode = response.path("body").path("items");
         JsonNode items = itemsNode.isArray() ? itemsNode : itemsNode.path("item");
         if (!items.isArray() || items.isEmpty()) {
+            // <b>성공 코드에 측정소 0건.</b> 504 와 결과는 같지만 원인이 다르다 — 실측에서 광주·전남이
+            // 3회 모두 이랬다. 예외가 아니라 아무 흔적이 없어, 구분해 남기지 않으면 계속 비는 것을 모른다.
+            log.warn("에어코리아 빈 응답(성공 코드에 측정소 0건) sido={}", sido);
             return Optional.empty();
         }
 
@@ -102,6 +138,19 @@ class AirKoreaClientImpl implements AirKoreaClient {
         }
         return Optional.of(new AirQuality(
                 average(pm10Sum, pm10Count), average(pm25Sum, pm25Count), worst));
+    }
+
+    /**
+     * 예외 체인의 맨 끝 — {@code ReactiveException} 같은 껍데기가 아니라 실제 사유를 남긴다.
+     *
+     * <p>이 로그가 늘 `ReactiveException` 만 찍어 원인을 못 찾던 것이 이 수정의 출발점이다(#184).
+     */
+    private static String rootCauseOf(Throwable error) {
+        Throwable cause = error;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause.getClass().getSimpleName() + ": " + cause.getMessage();
     }
 
     private static Integer average(long sum, int count) {
