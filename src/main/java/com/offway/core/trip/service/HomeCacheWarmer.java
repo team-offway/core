@@ -65,7 +65,9 @@ public class HomeCacheWarmer {
                 regionRankingService.refresh();
             }
         } catch (RuntimeException e) {
-            log.warn("홈 캐시 워밍 — 랭킹 갱신 실패(계속) cause={}", e.getClass().getSimpleName());
+            // 외부 실패(TourApiException)는 refresh() 안에서 이미 삼켜 cause 만 남는다 — 여기까지 오는 것은
+            // DB·설정 오류라 예상 범위 밖이다. 5시간 주기라 재현도 어려워 스택을 남긴다.
+            log.warn("홈 캐시 워밍 — 랭킹 갱신 실패(계속)", e);
         }
         // degrade 는 지역마다 warn 이 찍히지만 그것만으로는 규모를 모른다 — 한 곳이 실패한 것과 여든 곳이
         // 실패한 것은 완전히 다른 사건인데 로그 모양은 같다. 회차마다 합계를 한 줄로 남긴다(#191).

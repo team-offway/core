@@ -108,7 +108,7 @@ public class RegionRankingService {
         }
         if (aggregated.byCode().isEmpty()) {
             log.warn("관광빅데이터 갱신 결과가 비어 저장을 건너뜁니다 — 이전 집계를 유지합니다(저장={}건)",
-                    aggregateRepository.findAll().size());
+                    aggregateRepository.count());
             return;
         }
         LocalDateTime now = LocalDateTime.now();
@@ -128,9 +128,8 @@ public class RegionRankingService {
      */
     public boolean hasLatest() {
         YearMonth newestPossible = YearMonth.from(LocalDate.now()).minusMonths(1);
-        return aggregateRepository.findAll().stream()
-                .findFirst()
-                .filter(row -> !row.baseMonth().isBefore(newestPossible))
+        return aggregateRepository.latestBaseMonth()
+                .filter(baseMonth -> !baseMonth.isBefore(newestPossible))
                 .isPresent();
     }
 
@@ -143,12 +142,20 @@ public class RegionRankingService {
      * <p>동시 요청은 <b>기다리지 않는다</b>. 이 적재는 호출 하나가 아니라 {@link #AGGREGATE_DEADLINE} 짜리
      * 집계라, 기다려 봐야 대부분 상한에 걸려 결국 같은 결과에 지연만 얹힌다. 첫 요청 하나만 채우고 나머지는
      * 빈 가중치로 지나간다 — 다음 요청부터는 DB 에 있다.
+     *
+     * <p><b>적재가 실패해도 랭킹은 나간다.</b> {@link #refresh()} 는 {@link TourApiException} 만 삼키므로
+     * 영속화 충돌·락 타임아웃 같은 {@link RuntimeException} 은 여기까지 올라온다. 이 경로는 <b>요청 스레드</b>라
+     * (워머와 달리) 위에 안전망이 없어 그대로 두면 500 이 된다 — 가중치일 뿐인 값 때문에 홈·추천이 죽는 것은
+     * 이 클래스의 설계 의도와 정반대다. 빈 가중치로도 순위는 선다.
      */
     private Map<String, VisitorAgg> stored() {
         Map<String, VisitorAgg> byCode = read();
         if (byCode.isEmpty() && bootstrapping.compareAndSet(false, true)) {
             try {
                 refresh();
+            } catch (RuntimeException e) {
+                log.warn("방문자 집계 최초 적재 실패 — 빈 가중치로 진행합니다", e);
+                return byCode;
             } finally {
                 bootstrapping.set(false);
             }
