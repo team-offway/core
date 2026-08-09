@@ -3,6 +3,7 @@ package com.offway.core.trip.infrastructure.datalab;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.exception.RootCause;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.domain.VisitorType;
 import com.offway.core.trip.infrastructure.datalab.dto.RegionVisitor;
@@ -89,7 +90,7 @@ class TourDataLabClientImpl implements TourDataLabClient {
             return parse(body);
         } catch (Exception e) {
             // 쿼리스트링(키 포함)은 로그에 남기지 않는다.
-            log.warn("관광빅데이터 조회 실패 cause={}", e.getClass().getSimpleName());
+            log.warn("관광빅데이터 조회 실패 cause={}", RootCause.of(e));
             throw TourApiException.dataLabLookupFailed(e);
         }
     }

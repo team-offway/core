@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.exception.RootCause;
 import com.offway.core.region.domain.Region;
 import com.offway.core.trip.domain.PopulationDeclineStatus;
 import com.offway.core.trip.domain.RegionRanking;
@@ -83,6 +84,14 @@ public class RegionRankingService {
     private final java.util.concurrent.atomic.AtomicBoolean bootstrapping =
             new java.util.concurrent.atomic.AtomicBoolean();
 
+    /** 지금 들고 있는 집계가 어느 달 것인지 — 실패했을 때 "얼마나 낡았나" 를 로그가 답하게 한다. */
+    private String storedMonth() {
+        return aggregateRepository.findAll().stream()
+                .findFirst()
+                .map(row -> row.baseMonth().toString())
+                .orElse("없음");
+    }
+
     /** 저장된 집계를 비운다 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트의 격리용. */
     public void evictCache() {
         aggregateRepository.replaceAll(List.of());
@@ -95,21 +104,28 @@ public class RegionRankingService {
      * 그건 이전 값을 그대로 두는 것보다 나쁘다 — 미발행·장애가 지나가면 이전 달 값으로도 순위는 선다.
      *
      * <p>외부 호출은 트랜잭션 밖에서 끝난다. 영속화만 리포지토리(별도 빈)에 위임해 짧은 트랜잭션으로 묶는다.
+     *
+     * @return 새로 저장했으면 true. 실패·빈 결과로 이전 집계를 유지했으면 false — 호출자가 "완료" 라고
+     *     찍지 않게 하려는 것이다. 실패한 회차를 성공처럼 남기면 로그만 보고는 데이터가 언제부터 낡았는지 모른다
      */
-    public void refresh() {
+    public boolean refresh() {
         Aggregated aggregated;
         try {
             aggregated = fetchTourists();
         } catch (TourApiException e) {
             // 방문자 집계는 랭킹 <b>가중치</b>일 뿐이라 조회 실패로 홈·추천을 막지 않는다. 저장된 이전 값이 있으면
             // 그대로 쓰이고, 없으면 방문자 0 폴백으로 순위가 선다 — 어느 쪽이든 502 로 죽는 것보다 낫다.
-            log.warn("관광빅데이터 갱신 실패 — 이전 집계를 유지합니다 cause={}", e.getClass().getSimpleName());
-            return;
+            //
+            // 껍데기(TourApiException)가 아니라 체인 끝의 실제 사유를 남긴다 — timeout 인지 429 인지 구분이
+            // 안 되면 로그를 봐도 원인을 못 찾는다. 그리고 지금 무엇을 유지하고 있는지(어느 달)를 함께 남겨야
+            // 데이터가 얼마나 낡았는지 알 수 있다.
+            log.warn("관광빅데이터 갱신 실패 — 이전 집계 유지 storedBaseYm={} cause={}", storedMonth(), RootCause.of(e));
+            return false;
         }
         if (aggregated.byCode().isEmpty()) {
-            log.warn("관광빅데이터 갱신 결과가 비어 저장을 건너뜁니다 — 이전 집계를 유지합니다(저장={}건)",
-                    aggregateRepository.count());
-            return;
+            log.warn("관광빅데이터 갱신 결과가 비어 저장을 건너뜁니다 — 이전 집계 유지 storedBaseYm={} 저장={}건",
+                    storedMonth(), aggregateRepository.count());
+            return false;
         }
         LocalDateTime now = LocalDateTime.now();
         List<RegionVisitorAggregate> rows = aggregated.byCode().entrySet().stream()
@@ -118,6 +134,7 @@ public class RegionRankingService {
                 .toList();
         aggregateRepository.replaceAll(rows);
         log.info("관광빅데이터 갱신 완료 baseYm={} 지역={}건", aggregated.month(), rows.size());
+        return true;
     }
 
     /**

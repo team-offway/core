@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.cache.ExternalDataCache;
+import com.offway.core.common.exception.RootCause;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
 import com.offway.core.region.domain.Region;
 import com.offway.core.transport.domain.Coordinate;
@@ -281,14 +282,6 @@ public class RegionContentProvider {
     public record RegionContents(Map<Long, RegionContent> byRegionId, int degraded) {
     }
 
-    /** 예외 체인의 맨 끝 — {@code ReactiveException} 같은 껍데기가 아니라 실제 사유를 남긴다. */
-    private static String rootCauseOf(Throwable error) {
-        Throwable cause = error;
-        while (cause.getCause() != null && cause.getCause() != cause) {
-            cause = cause.getCause();
-        }
-        return cause.getClass().getSimpleName();
-    }
 
     /** 캐시 무효화 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트 격리용(캐시가 이전 시나리오를 물지 않게). */
     public void evictCache() {
@@ -313,7 +306,7 @@ public class RegionContentProvider {
                 // Reactor 체크포인트까지 붙어 한 건이 60줄이 넘는다 — 89개 지역이면 로그가 수천 줄이 되고
                 // 정작 알아야 할 "몇 곳이 degrade 됐나" 가 그 안에 묻힌다.
                 log.warn("지역 콘텐츠 조회 실패 — {} 로 degrade region={} cause={}",
-                        stale != null ? "마지막 성공값" : "빈 콘텐츠", id, rootCauseOf(e));
+                        stale != null ? "마지막 성공값" : "빈 콘텐츠", id, RootCause.of(e));
                 return new Loaded<>(fallback, FAILURE_CACHE_TTL);
             }
         }, RegionContent.EMPTY);
