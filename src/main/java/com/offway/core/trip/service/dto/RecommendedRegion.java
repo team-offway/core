@@ -32,7 +32,14 @@ public record RecommendedRegion(
         boolean neighborIncluded,
         List<Benefit> benefits) {
 
-    /** 랭킹·도달·혜택에 지역 콘텐츠를 얹어 결과 한 건을 만든다. */
+    /**
+     * 랭킹·도달·혜택에 지역 콘텐츠를 얹어 결과 한 건을 만든다.
+     *
+     * <p><b>대표 사진은 사다리로 고른다</b>(#196) — 중심 관광지 × 관광사진 갤러리가 먼저고, 못 고르면
+     * TourAPI 표본의 이미지로 내려간다.
+     *
+     * @param heroPhotoUrl 갤러리에서 고른 대표 사진. 못 골랐으면 null
+     */
     public static RecommendedRegion of(
             long regionId,
             String sido,
@@ -40,10 +47,14 @@ public record RecommendedRegion(
             int reachMinutes,
             CrowdLevel crowdLevel,
             RegionContent content,
+            String heroPhotoUrl,
             List<Benefit> benefits) {
         return new RecommendedRegion(
                 regionId, sido, sigungu, reachMinutes, crowdLevel,
-                content.contentCount(), content.imageUrl(), content.categories(), content.neighborIncluded(),
+                content.contentCount(),
+                heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl(),
+                content.categories(),
+                content.neighborIncluded(),
                 benefits);
     }
 
