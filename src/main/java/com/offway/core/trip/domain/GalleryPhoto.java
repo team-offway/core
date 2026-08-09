@@ -9,6 +9,7 @@ import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.AccessLevel;
@@ -109,7 +110,7 @@ public class GalleryPhoto {
         }
         try {
             return Optional.of(YearMonth.parse(photographyMonth, PHOTOGRAPHY_MONTH));
-        } catch (java.time.format.DateTimeParseException e) {
+        } catch (DateTimeParseException e) {
             return Optional.empty();
         }
     }

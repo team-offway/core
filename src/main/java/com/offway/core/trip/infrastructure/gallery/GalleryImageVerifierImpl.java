@@ -1,5 +1,6 @@
 package com.offway.core.trip.infrastructure.gallery;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
@@ -84,7 +85,9 @@ class GalleryImageVerifierImpl implements GalleryImageVerifier {
 
     private Mono<Boolean> isAlive(String url) {
         return webClient.get()
-                .uri(url)
+                // 외부에서 온 문자열이라 URI 템플릿으로 해석시키지 않는다 — 중괄호나 이미 인코딩된 문자가
+                // 섞이면 치환·이중 인코딩으로 엉뚱한 주소를 찌른다.
+                .uri(URI.create(url))
                 .retrieve()
                 .toBodilessEntity()
                 .timeout(TIMEOUT)

@@ -95,38 +95,64 @@ public class RegionHeroPhotoProvider {
                 .collect(Collectors.groupingBy(HubAttraction::getRegionId));
 
         Map<Long, String> urls = new HashMap<>();
+        int byHub = 0;
+        int byRegionPool = 0;
         for (Long regionId : regionIds) {
-            heroPhotoUrl(
-                            hubsByRegion.getOrDefault(regionId, List.of()),
-                            photosByRegion.getOrDefault(regionId, List.of()),
-                            travelMonth)
-                    .ifPresent(url -> urls.put(regionId, url));
+            List<HubAttraction> hubs = hubsByRegion.getOrDefault(regionId, List.of());
+            List<GalleryPhoto> photos = photosByRegion.getOrDefault(regionId, List.of());
+            Optional<GalleryPhoto> matched = matchByHub(hubs, photos, travelMonth);
+            if (matched.isPresent()) {
+                byHub++;
+            } else {
+                matched = anyRegionPhoto(photos, travelMonth);
+                if (matched.isPresent()) {
+                    byRegionPool++;
+                }
+            }
+            matched.ifPresent(photo -> urls.put(regionId, photo.getImageUrl()));
         }
+        // 세 갈래가 조용히 갈리면 원본이 나빠져 커버리지가 떨어져도 드러나지 않는다. 지역마다 남기면 카드
+        // 수만큼 쏟아지므로 집계만 한 줄 남긴다.
+        log.debug("지역 대표 사진 {}곳 — 중심 관광지 매칭 {} · 지역 사진 폴백 {} · TourAPI 위임 {}",
+                regionIds.size(), byHub, byRegionPool, regionIds.size() - urls.size());
         return urls;
     }
 
     /**
-     * 한 지역의 대표 사진 URL.
+     * 중심 관광지 순위대로 훑어 사진이 있는 첫 명소를 고른다.
      *
-     * @param hubAttractions 그 지역의 중심 관광지(순위 오름차순)
-     * @param photos 그 지역에 붙은 갤러리 사진
-     * @return 대표 사진 URL. 못 고르면 empty
+     * <p><b>사진 텍스트는 지역마다 한 번만 정규화한다.</b> 순위마다 다시 돌리면 순위 20개 × 사진 30장에
+     * 정규식이 600번 도는데, 정규화 결과는 순위와 무관한 값이다.
      */
-    private Optional<String> heroPhotoUrl(
+    private static Optional<GalleryPhoto> matchByHub(
             List<HubAttraction> hubAttractions, List<GalleryPhoto> photos, YearMonth travelMonth) {
-        if (photos.isEmpty()) {
+        if (photos.isEmpty() || hubAttractions.isEmpty()) {
             return Optional.empty();
         }
+        List<Matchable> candidates =
+                photos.stream().map(photo -> new Matchable(photo, normalized(photo.matchableText()))).toList();
         for (HubAttraction attraction : hubAttractions) {
             if (!isHeroCandidate(attraction)) {
                 continue;
             }
-            Optional<GalleryPhoto> matched = bestPhotoFor(attraction, photos, travelMonth);
-            if (matched.isPresent()) {
-                return matched.map(GalleryPhoto::getImageUrl);
+            String needle = normalized(baseName(attraction.getName()));
+            if (needle.isBlank()) {
+                continue;
+            }
+            List<GalleryPhoto> matched = candidates.stream()
+                    .filter(candidate -> candidate.text().contains(needle))
+                    .map(Matchable::photo)
+                    .toList();
+            Optional<GalleryPhoto> best = bestBySeason(matched, travelMonth);
+            if (best.isPresent()) {
+                return best;
             }
         }
-        return anyRegionPhoto(photos, travelMonth).map(GalleryPhoto::getImageUrl);
+        return Optional.empty();
+    }
+
+    /** 사진과 그 매칭용 정규화 텍스트 — 정규화를 순위 수만큼 되풀이하지 않으려고 짝으로 든다. */
+    private record Matchable(GalleryPhoto photo, String text) {
     }
 
     /**
@@ -155,23 +181,6 @@ public class RegionHeroPhotoProvider {
         return !NOT_HERO.matcher(baseName(attraction.getName())).find();
     }
 
-    /**
-     * 그 장소의 사진 중 가장 좋은 한 장.
-     *
-     * <p>여행월을 알면 <b>촬영월이 가까운</b> 것을 고른다 — 10월 여행에 설경을 내보내지 않는다. 촬영월이
-     * 없는 사진은 뒤로 밀되 버리지는 않는다(한 장뿐일 수 있다).
-     */
-    private static Optional<GalleryPhoto> bestPhotoFor(
-            HubAttraction attraction, List<GalleryPhoto> photos, YearMonth travelMonth) {
-        String needle = normalized(baseName(attraction.getName()));
-        if (needle.isBlank()) {
-            return Optional.empty();
-        }
-        List<GalleryPhoto> matched = photos.stream()
-                .filter(photo -> normalized(photo.matchableText()).contains(needle))
-                .toList();
-        return bestBySeason(matched, travelMonth);
-    }
 
     /**
      * 여행월과 계절이 가까운 한 장.

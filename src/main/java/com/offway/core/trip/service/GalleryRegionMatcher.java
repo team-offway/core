@@ -1,10 +1,13 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.region.domain.Region;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 갤러리 사진의 <b>촬영 위치 원문</b>을 우리 89곳에 붙인다(#196).
@@ -65,12 +68,27 @@ final class GalleryRegionMatcher {
     /** 시군구명 → regionId(그 이름이 유일할 때만 유효). */
     private final Map<String, Long> byNameOnly = new HashMap<>();
 
+    /**
+     * 훑는 순서를 고정한 시군구명 — <b>긴 이름부터</b>.
+     *
+     * <p>해시 순서로 돌면 원문에 시군구명이 둘 이상 들어 있을 때 어느 것이 먼저 걸릴지 실행마다 달라질 수
+     * 있다. 길이 내림차순이면 결과가 일정하고, 덤으로 <b>최장 일치</b>가 된다.
+     */
+    private final List<String> namesByLengthDesc;
+
+    /** 우리 시드에 있는 시도 정본 — 생성자에서 한 번 만든다(입력이 안 바뀌는 값). */
+    private final Set<String> knownSidos = new HashSet<>();
+
     GalleryRegionMatcher(List<RegionKey> regions) {
         for (RegionKey region : regions) {
             bySidoSigungu.put(key(region.sido(), region.sigungu()), region.id());
             nameCounts.merge(region.sigungu(), 1, Integer::sum);
             byNameOnly.put(region.sigungu(), region.id());
+            knownSidos.add(region.sido());
         }
+        namesByLengthDesc = byNameOnly.keySet().stream()
+                .sorted(Comparator.comparingInt(String::length).reversed().thenComparing(Comparator.naturalOrder()))
+                .toList();
     }
 
     /** 지역 엔티티에서 매처를 만든다. */
@@ -94,9 +112,9 @@ final class GalleryRegionMatcher {
 
         // 시도를 읽었으면 (시도, 시군구) 정확 매칭. 동명 시군구는 여기서 갈린다.
         if (sido != null) {
-            for (Map.Entry<String, Long> entry : byNameOnly.entrySet()) {
-                if (location.contains(entry.getKey())) {
-                    Long id = bySidoSigungu.get(key(sido, entry.getKey()));
+            for (String name : namesByLengthDesc) {
+                if (location.contains(name)) {
+                    Long id = bySidoSigungu.get(key(sido, name));
                     if (id != null) {
                         return Optional.of(id);
                     }
@@ -113,13 +131,12 @@ final class GalleryRegionMatcher {
      * 전국에서 유일한 이름은 시도가 없어도 안전하다.
      */
     private Optional<Long> matchByNameAlone(String location) {
-        for (Map.Entry<String, Long> entry : byNameOnly.entrySet()) {
-            String name = entry.getKey();
+        for (String name : namesByLengthDesc) {
             if (name.endsWith("구") || nameCounts.getOrDefault(name, 0) != 1) {
                 continue;
             }
             if (location.contains(name)) {
-                return Optional.of(entry.getValue());
+                return Optional.of(byNameOnly.get(name));
             }
         }
         return Optional.empty();
@@ -132,7 +149,7 @@ final class GalleryRegionMatcher {
             return null;
         }
         String canonical = SIDO_ALIASES.getOrDefault(first, first);
-        return bySidoSigungu.keySet().stream().anyMatch(k -> k.startsWith(canonical + " ")) ? canonical : null;
+        return knownSidos.contains(canonical) ? canonical : null;
     }
 
     private static String key(String sido, String sigungu) {

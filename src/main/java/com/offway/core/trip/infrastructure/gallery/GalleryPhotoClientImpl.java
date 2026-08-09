@@ -53,7 +53,7 @@ class GalleryPhotoClientImpl implements GalleryPhotoClient {
     @Override
     public List<GalleryPhotoItem> findPage(int pageNo, int rows) {
         if (!props.dataGoKr().hasKey()) {
-            log.info("데이터랩 키 없음 — 관광사진 갤러리 조회를 건너뜁니다");
+            log.info("관광사진 갤러리 키 없음 — 조회를 건너뜁니다");
             return List.of();
         }
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(URL)

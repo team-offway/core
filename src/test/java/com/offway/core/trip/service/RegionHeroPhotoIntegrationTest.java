@@ -60,16 +60,23 @@ class RegionHeroPhotoIntegrationTest {
                 .build();
     }
 
-    /** 갤러리 식별자는 삽입 순서대로 커지게 준다 — 동점일 때 이 값이 순서를 정한다. */
+    /**
+     * 갤러리 식별자는 삽입 순서대로 커지게 준다 — 동점일 때 이 값이 순서를 정한다.
+     *
+     * <p>제목·촬영월로 만들면 "같은 장소의 같은 달 사진 두 장" 을 넣는 순간 유니크 제약에 걸린다.
+     */
     private static int nextContentId = 1;
 
+    /**
+     * 촬영 위치는 <b>비워 둔다.</b> 지역은 {@code regionId} 로 직접 붙이므로 원문이 필요 없고, 고정 문자열을
+     * 두면 실제 지역과 어긋난 데이터가 남아 읽는 사람이 헷갈린다(정규화는 적재 쪽 테스트가 맡는다).
+     */
     private static GalleryPhoto photo(Long regionId, String title, String url, String month) {
         return GalleryPhoto.builder()
                 .galContentId(String.format("%06d", nextContentId++))
                 .title(title)
                 .imageUrl(url)
                 .photographyMonth(month)
-                .photographyLocation("충청남도 공주시")
                 .regionId(regionId)
                 .updatedAt(NOW)
                 .build();

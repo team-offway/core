@@ -91,4 +91,18 @@ class GalleryRegionMatcherTest {
     void 위치가_없으면_빈_값이다() {
         assertTrue(MATCHER.match(null).isEmpty());
     }
+
+    @Test
+    void 시도는_읽혔지만_우리_지역이_아니면_붙이지_않는다() {
+        // 갤러리 6,118건 중 4,300여 건이 우리 89곳 밖이다. 시도만 맞다고 아무 데나 붙이면 안 된다.
+        assertTrue(MATCHER.match("부산광역시 해운대구").isEmpty());
+        assertTrue(MATCHER.match("충청남도 천안시").isEmpty());
+    }
+
+    @Test
+    void 시군구명이_여럿_들어_있으면_긴_이름을_고른다() {
+        // 훑는 순서가 해시에 좌우되면 같은 원문이 실행마다 다른 지역에 붙을 수 있다.
+        // 길이 내림차순으로 고정해 결과가 일정하고 최장 일치가 되게 한다.
+        assertEquals(Optional.of(5L), MATCHER.match("강원특별자치도 고성군 거진읍"));
+    }
 }
