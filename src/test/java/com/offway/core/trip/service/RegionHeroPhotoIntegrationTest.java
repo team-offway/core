@@ -173,10 +173,39 @@ class RegionHeroPhotoIntegrationTest {
 
     @Test
     void 갤러리에_없으면_비워서_폴백에_넘긴다() {
-        // 장수군·의성군·의령군이 이 경우다. 지어내지 않고 호출자가 TourAPI 로 내려간다.
+        // 장수군이 이 경우다. 지어내지 않고 호출자가 TourAPI 로 내려간다.
         Long regionId = anyRegionId();
         hubAttractionRepository.replaceRegion(regionId, List.of(hub(regionId, 1, "이름없는곳", "관광지")));
         galleryPhotoRepository.replaceAll(List.of());
+
+        assertTrue(provider.heroPhotoUrls(List.of(regionId), null).isEmpty());
+    }
+
+    @Test
+    void 중심관광지와_못_이어도_그_지역_사진이_쌓였으면_쓴다() {
+        // 영암군이 이 경우다 — 중심 관광지 3위가 도갑사인데, 영암을 대표하는 월출산 사진이 갤러리에 13장
+        // 있었다. 이름이 안 맞는다고 그 지역에 쓸 사진이 없는 것은 아니다.
+        Long regionId = anyRegionId();
+        hubAttractionRepository.replaceRegion(regionId, List.of(hub(regionId, 1, "도갑사", "관광지")));
+        galleryPhotoRepository.replaceAll(List.of(
+                photo(regionId, "구정봉 여명", "http://img/wolchul1.jpg", "202405"),
+                photo(regionId, "푸른초원의 월출산", "http://img/wolchul2.jpg", "202405"),
+                photo(regionId, "월출산 운해 폭포", "http://img/wolchul3.jpg", "202405"),
+                photo(regionId, "녹차밭의 가을", "http://img/tea.jpg", "202405"),
+                photo(regionId, "영암 들녘", "http://img/field.jpg", "202405")));
+
+        assertEquals("http://img/wolchul1.jpg", provider.heroPhotoUrls(List.of(regionId), null).get(regionId));
+    }
+
+    @Test
+    void 그_지역_사진이_한두_장뿐이면_폴백에_넘긴다() {
+        // 영양군의 유일한 갤러리 사진은 '가마' 였다 — 그 지역을 대표한다기보다 우연히 찍힌 한 장이다.
+        // 그럴 바엔 TourAPI 가 주는 수하계곡이 낫다.
+        Long regionId = anyRegionId();
+        hubAttractionRepository.replaceRegion(regionId, List.of(hub(regionId, 1, "이름없는곳", "관광지")));
+        galleryPhotoRepository.replaceAll(List.of(
+                photo(regionId, "가마", "http://img/kiln.jpg", "202405"),
+                photo(regionId, "어느 골목", "http://img/alley.jpg", "202405")));
 
         assertTrue(provider.heroPhotoUrls(List.of(regionId), null).isEmpty());
     }

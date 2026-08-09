@@ -55,6 +55,14 @@ public class RegionHeroPhotoProvider {
     /** 매칭에서 무시하는 문자 — 표기 흔들림(띄어쓰기·가운뎃점)을 흡수한다. */
     private static final Pattern IGNORED_CHARS = Pattern.compile("[\\s\\-·,]");
 
+    /**
+     * 중심 관광지와 못 이었을 때 "그 지역 사진 아무거나" 로 내려가는 최소 보유량.
+     *
+     * <p>실측(2026-08-09) 분포에서 정했다 — 이 값을 넘는 곳(동구 30·영암 13·옹진 8·의령 5)은 그 지역을
+     * 대표할 사진이 실제로 쌓여 있었고, 미만인 곳(영양 1·의성 2)은 '가마' 처럼 우연히 찍힌 한 장이었다.
+     */
+    private static final int MIN_REGION_POOL = 5;
+
     private final GalleryPhotoRepository galleryPhotoRepository;
     private final HubAttractionRepository hubAttractionRepository;
 
@@ -96,7 +104,7 @@ public class RegionHeroPhotoProvider {
      */
     private Optional<String> heroPhotoUrl(
             List<HubAttraction> hubAttractions, List<GalleryPhoto> photos, YearMonth travelMonth) {
-        if (hubAttractions.isEmpty() || photos.isEmpty()) {
+        if (photos.isEmpty()) {
             return Optional.empty();
         }
         for (HubAttraction attraction : hubAttractions) {
@@ -108,7 +116,25 @@ public class RegionHeroPhotoProvider {
                 return matched.map(GalleryPhoto::getImageUrl);
             }
         }
-        return Optional.empty();
+        return anyRegionPhoto(photos, travelMonth).map(GalleryPhoto::getImageUrl);
+    }
+
+    /**
+     * 중심 관광지와 이어지지 않을 때 — <b>그 지역 사진이 충분히 쌓였으면</b> 그중 한 장을 쓴다.
+     *
+     * <p>중심 관광지 이름과 갤러리 제목이 안 맞는다고 해서 그 지역에 쓸 사진이 없는 것은 아니다. 실측
+     * (2026-08-09)에서 영암군이 그랬다 — 중심 관광지 3위가 도갑사라 그걸 찾는데, 정작 영암을 대표하는
+     * <b>월출산</b> 사진이 갤러리에 13장 있었다. 부산 동구도 산복도로·이바구길이 30장 쌓여 있었다.
+     *
+     * <p><b>{@value #MIN_REGION_POOL}장 이상일 때만</b> 쓴다. 한두 장뿐인 곳은 그 지역을 대표할 사진이
+     * 있다기보다 우연히 한 장 찍힌 쪽에 가깝다 — 실측에서 영양군의 유일한 사진은 '가마' 였고, 그럴 바엔
+     * TourAPI 로 내려가는 편이 낫다.
+     */
+    private static Optional<GalleryPhoto> anyRegionPhoto(List<GalleryPhoto> photos, YearMonth travelMonth) {
+        if (photos.size() < MIN_REGION_POOL) {
+            return Optional.empty();
+        }
+        return bestBySeason(photos, travelMonth);
     }
 
     /** 대표로 세울 만한 항목인가 — 관광지 대분류이면서 교통·숙박·상업시설이 아니어야 한다. */
@@ -134,13 +160,18 @@ public class RegionHeroPhotoProvider {
         List<GalleryPhoto> matched = photos.stream()
                 .filter(photo -> normalized(photo.matchableText()).contains(needle))
                 .toList();
-        if (matched.isEmpty()) {
+        return bestBySeason(matched, travelMonth);
+    }
+
+    /** 여행월과 계절이 가까운 한 장. 여행월을 모르면 첫 장. */
+    private static Optional<GalleryPhoto> bestBySeason(List<GalleryPhoto> photos, YearMonth travelMonth) {
+        if (photos.isEmpty()) {
             return Optional.empty();
         }
         if (travelMonth == null) {
-            return Optional.of(matched.getFirst());
+            return Optional.of(photos.getFirst());
         }
-        return matched.stream().min(Comparator.comparingInt(photo -> seasonDistance(photo, travelMonth)));
+        return photos.stream().min(Comparator.comparingInt(photo -> seasonDistance(photo, travelMonth)));
     }
 
     /**
