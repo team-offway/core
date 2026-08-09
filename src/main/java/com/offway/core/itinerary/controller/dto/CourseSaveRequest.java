@@ -17,6 +17,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
@@ -54,9 +55,8 @@ public record CourseSaveRequest(
      */
     public Course toCourse(String guestId) {
         try {
-            List<DaySchedule> schedules = days.stream()
-                    .map(day -> DaySchedule.of(day.day(), day.items().stream().map(Item::toSlot).toList()))
-                    .toList();
+            List<DaySchedule> schedules =
+                    days.stream().map(day -> day.toSchedule(travelDate)).toList();
             // 기간을 안 보낸 클라이언트는 담아 보낸 날 수로 본다 — 이 필드가 생기기 전과 같은 동작이라
             // 기존 연동이 깨지지 않는다. 그 경우 첫날이 빠진 코스는 종료일이 하루 이른 채로 남는다(#164).
             int span = travelDays != null ? travelDays : schedules.size();
@@ -67,12 +67,40 @@ public record CourseSaveRequest(
     }
 
     /**
-     * @param day 며칠째(1부터)
+     * @param day 며칠째(1부터) — 화면에 보이는 번호
+     * @param date 그 날의 실제 날짜. 생성 응답의 {@code date} 를 그대로 돌려주면 된다(없으면 null)
      * @param items 그 날의 방문 순서대로의 장소
      */
     public record Day(
             @NotNull @Min(1) Integer day,
+            @Schema(
+                            description = "그 날의 날짜. 생성 응답의 date 를 그대로 돌려주면 된다. "
+                                    + "없으면 며칠째를 그대로 달력 위치로 본다 — 첫날이 이동뿐이라 일정에서 빠진 코스는 "
+                                    + "이 값을 넣어야 저장 후 날짜가 생성 때와 같다.",
+                            example = "2026-09-12",
+                            nullable = true)
+                    LocalDate date,
             @NotEmpty @Valid List<Item> items) {
+
+        /**
+         * 도메인 하루로 바꾼다 — <b>달력 위치(오프셋)</b>를 여기서 정한다.
+         *
+         * <p>날짜를 받으면 여행 시작일로부터의 간격이 곧 오프셋이다. 못 받으면 {@code day - 1} 로 본다 —
+         * 이 필드가 생기기 전과 같은 동작이라 기존 연동이 깨지지 않는다. 다만 그 경우 첫날이 빠진 코스는
+         * 저장 후 날짜가 하루 당겨진 채로 남는다(이 이슈가 고치려는 것).
+         */
+        DaySchedule toSchedule(LocalDate travelDate) {
+            List<Slot> slots = items.stream().map(Item::toSlot).toList();
+            if (date == null || travelDate == null) {
+                return DaySchedule.of(day, slots);
+            }
+            long offset = ChronoUnit.DAYS.between(travelDate, date);
+            if (offset < 0 || offset > Integer.MAX_VALUE) {
+                // 여행 시작일보다 앞선 날짜다 — 기간 초과는 Course 가 잡지만 음수는 여기서 끊는다.
+                throw new IllegalArgumentException("여행 시작일보다 앞선 날짜입니다: " + date);
+            }
+            return DaySchedule.of(day, (int) offset, slots);
+        }
     }
 
     /**

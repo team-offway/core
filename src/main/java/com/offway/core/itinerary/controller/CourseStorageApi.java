@@ -21,7 +21,9 @@ public interface CourseStorageApi {
 
     @Operation(summary = "코스 저장", description = "생성한 코스를 게스트의 '내 코스'로 저장한다.")
     @ApiResponse(responseCode = "201", description = "저장 성공")
-    @ApiResponse(responseCode = "400", description = "게스트 ID 누락 · 코스 구성 오류(순서·좌표 등)")
+    @ApiResponse(
+            responseCode = "400",
+            description = "게스트 ID 누락 · 코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음")
     ApiResponseBody<CourseResponse> save(
             @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId, CourseSaveRequest request);
 
