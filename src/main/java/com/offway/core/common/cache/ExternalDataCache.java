@@ -238,7 +238,7 @@ public final class ExternalDataCache<K, V> {
                 removed++;
             }
         }
-        log.info("캐시 상한({}) 초과 — {}건 축출", maxEntries, removed);
+        log.debug("캐시 상한({}) 초과 — {}건 축출", maxEntries, removed);
     }
 
     /** 가장 먼저 만료될 것부터. 만료된 항목도 빼지 않는다 — ①에서 지워졌으면 no-op 이고, 아직 남았으면 먼저 나가야 한다. */

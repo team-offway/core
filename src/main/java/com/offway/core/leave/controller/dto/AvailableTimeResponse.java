@@ -1,5 +1,6 @@
 package com.offway.core.leave.controller.dto;
 
+import com.offway.core.common.logging.LogSummary;
 import com.offway.core.leave.service.dto.AvailableTimeResult;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
@@ -24,7 +25,11 @@ public record AvailableTimeResponse(
         @Schema(description = "확정된 여행 종료일", example = "2026-05-10") LocalDate endDate,
         @Schema(description = "여행 일수 (1=당일치기 · 2=1박2일 · 3=2박3일)", example = "3") int travelDays,
         @Schema(description = "소모 연차 (평일−공휴일, 반차 0.5)", example = "1.0") double consumedLeaveDays,
-        @Schema(description = "편도 도달 한계(분)", example = "420") int maxReachMinutes) {
+        @Schema(description = "편도 도달 한계(분)", example = "420") int maxReachMinutes)
+        implements LogSummary {
+
+    /** 날짜는 경로·쿼리에 이미 드러나므로 로그에는 계산 결과만 남긴다. */
+    private static final String LOG_FORMAT = "%d일 연차%.1f 도달%d분";
 
     public static AvailableTimeResponse from(AvailableTimeResult result) {
         return new AvailableTimeResponse(
@@ -33,5 +38,10 @@ public record AvailableTimeResponse(
                 result.availableTime().travelDays(),
                 result.availableTime().consumedLeaveDays(),
                 result.availableTime().maxReachMinutes());
+    }
+
+    @Override
+    public String logSummary() {
+        return LOG_FORMAT.formatted(travelDays, consumedLeaveDays, maxReachMinutes);
     }
 }

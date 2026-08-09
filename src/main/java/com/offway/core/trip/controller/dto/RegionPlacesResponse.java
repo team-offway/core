@@ -1,5 +1,7 @@
 package com.offway.core.trip.controller.dto;
 
+import com.offway.core.common.logging.LogSummaries;
+import com.offway.core.common.logging.LogSummary;
 import com.offway.core.trip.domain.PlaceCategory;
 import com.offway.core.trip.domain.PlaceKind;
 import com.offway.core.trip.service.dto.RegionPlaces;
@@ -19,7 +21,7 @@ public record RegionPlacesResponse(
         @Schema(description = "장소 종류", example = "STAY") PlaceKind kind,
         @Schema(description = "종류 표시명", example = "숙소") String kindLabel,
         @Schema(description = "이 종류의 분류 목록(필터 칩)") List<CategoryResponse> categories,
-        @Schema(description = "장소 목록") List<PlaceResponse> places) {
+        @Schema(description = "장소 목록") List<PlaceResponse> places) implements LogSummary {
 
     public static RegionPlacesResponse from(PlaceKind kind, RegionPlaces places) {
         return new RegionPlacesResponse(
@@ -27,6 +29,11 @@ public record RegionPlacesResponse(
                 kind.label(),
                 PlaceCategory.of(kind).stream().map(CategoryResponse::from).toList(),
                 places.places().stream().map(PlaceResponse::from).toList());
+    }
+
+    @Override
+    public String logSummary() {
+        return LogSummaries.count(kindLabel, places);
     }
 
     /**

@@ -58,7 +58,7 @@ public class HomeService {
 
         // 외부(TourAPI)는 병렬, DB(혜택)는 일괄. 대기질은 시도 단위라 top-N 에서 겹치므로 시도별 1회만 조회한다
         // — 캐시가 있어 대부분 즉답이고, 순차로 둬야 아래 맵을 스레드 안전성 걱정 없이 쓸 수 있다.
-        Map<Long, RegionContent> contents = regionContentProvider.contentForAll(topRegions, all, RegionContentProvider.REQUEST_FANOUT_DEADLINE);
+        Map<Long, RegionContent> contents = regionContentProvider.contentForAll(topRegions, all, RegionContentProvider.REQUEST_FANOUT_DEADLINE).byRegionId();
         Map<Long, List<Policy>> policiesByRegion =
                 policyService.matchForRegions(topRegions.stream().map(Region::getId).toList(), today);
         Map<String, Optional<AirQuality>> airBySido = new HashMap<>();
