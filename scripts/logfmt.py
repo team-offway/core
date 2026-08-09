@@ -20,7 +20,8 @@
     ... | logfmt.py --trace a1b2c3        # 그 요청만
     ... | logfmt.py --level WARN          # WARN 이상만
     ... | logfmt.py --grep 갤러리          # 메시지 정규식
-    ... | logfmt.py --compact --no-color  # 한 줄, 색 없음(파일로 저장할 때)
+    ... | logfmt.py --compact             # 한 줄로
+    ... | logfmt.py --color never         # 색 없이(파일로 저장할 때. 기본은 auto)
 """
 
 from __future__ import annotations
@@ -85,9 +86,9 @@ GUTTER = "▌"
 # traceId 폭 — `logging.pattern.level` 의 `%-6.6X{traceId}` 와 같은 값이라야 칸이 맞는다.
 TRACE_ID_WIDTH = 6
 
-# 로거 이름 칸 폭. 이 프로젝트에서 가장 긴 것이 40자 남짓이라 여유를 조금 얹었다. 넘치는 줄은 그만큼
-# 밀리지만, 대다수를 정렬해 두는 편이 전부를 자르는 것보다 낫다 — 이름 뒤쪽이 곧 클래스명이다.
-LOGGER_WIDTH = 42
+# 클래스명 칸 폭. 가장 긴 것이 34자(ApiResponseAuthenticationEntryPoint)라 그만큼 잡았다. 넘치는 줄은
+# 그만큼 밀리지만, 대다수를 정렬해 두는 편이 이름을 자르는 것보다 낫다.
+LOGGER_WIDTH = 34
 
 
 class Painter:
@@ -111,10 +112,13 @@ class Painter:
         return self(f"·{trace:<{TRACE_ID_WIDTH}}·", color, BOLD)
 
 
-def short_logger(logger: str) -> tuple[str, str]:
-    """`c.o.c.t.s.GalleryPhotoRefreshService` → (`c.o.c.t.s.`, `GalleryPhotoRefreshService`)."""
-    head, _, tail = logger.rpartition(".")
-    return (head + "." if head else ""), tail
+def short_logger(logger: str) -> str:
+    """`c.o.core.leave.service.MyLeaveService` → `MyLeaveService`.
+
+    패키지는 버린다. 이미 축약돼 있어(`c.o.c.t.s.`) 읽어도 뜻이 잘 안 잡히는데 칸만 차지하고, 클래스명만으로
+    이 프로젝트에서 헷갈리는 경우가 없다.
+    """
+    return logger.rpartition(".")[2]
 
 
 def duration_color(seconds: float) -> str:
@@ -199,11 +203,11 @@ def main() -> int:
         showing_previous = True
 
         color = LEVEL_COLOR.get(level, "")
-        package, cls = short_logger(matched.group("logger"))
+        cls = short_logger(matched.group("logger"))
         clock = matched.group("ts")[11:23]
         # traceId 가 없는 줄(배치·기동)도 같은 폭을 차지해야 오른쪽 칸이 안 흔들린다.
         chip = paint.trace_chip(trace) if trace else " " * (TRACE_ID_WIDTH + 2)
-        padding = " " * max(1, LOGGER_WIDTH - len(package) - len(cls))
+        padding = " " * max(1, LOGGER_WIDTH - len(cls))
 
         head = (
             paint(GUTTER, color, BOLD)
@@ -213,7 +217,6 @@ def main() -> int:
             + "  "
             + chip
             + "  "
-            + paint(package, DIM)
             + paint(cls, BOLD)
             + padding
             + paint(f"[{matched.group('thread').strip()}]", DIM)
