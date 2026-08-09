@@ -81,6 +81,21 @@ public class Course {
     @Column(name = "travel_date")
     private LocalDate travelDate;
 
+    /**
+     * 출발지 위도 — 대중교통 열차 접근을 <b>다시 계산</b>하려고 둔다(#187).
+     *
+     * <p>계산 결과가 아니라 입력을 저장한다. 열차 시간표는 바뀌므로 생성 시점의 시간을 그대로 보관하면
+     * 한 달 뒤 여행에서 낡은 시간을 보여주게 되고, 그건 없는 것보다 나쁘다.
+     *
+     * <p>이 필드가 생기기 전 코스와 자차 코스는 null 이다.
+     */
+    @Column(name = "origin_lat")
+    private Double originLat;
+
+    /** 출발지 경도 — {@link #originLat} 와 짝. */
+    @Column(name = "origin_lng")
+    private Double originLng;
+
     /** 소유 게스트 ID(저장된 코스만) — 로그인 전이라 클라이언트 게스트 식별자로 "내 코스"를 묶는다. 생성만 된 코스는 null. */
     @Column(name = "guest_id", length = MAX_GUEST_ID_LENGTH)
     private String guestId;
@@ -100,7 +115,9 @@ public class Course {
             TransportMode transport,
             List<DaySchedule> days,
             LocalDate travelDate,
-            int travelDays) {
+            int travelDays,
+            Double originLat,
+            Double originLng) {
         if (days == null || days.isEmpty()) {
             throw new IllegalArgumentException("코스에는 하루 이상이 있어야 합니다");
         }
@@ -117,6 +134,8 @@ public class Course {
         this.days = List.copyOf(days);
         this.travelDays = travelDays;
         this.travelDate = travelDate;
+        this.originLat = originLat;
+        this.originLng = originLng;
     }
 
     /**
@@ -132,10 +151,14 @@ public class Course {
             List<DaySchedule> days,
             LocalDate travelDate,
             int travelDays) {
-        return new Course(null, regionId, density, transport, days, travelDate, travelDays);
+        return new Course(null, regionId, density, transport, days, travelDate, travelDays, null, null);
     }
 
-    /** 게스트 소유로 코스를 만든다(저장용). 게스트 ID 는 공백일 수 없고 길이 상한을 넘지 않는다(빈 값이면 모든 요청이 한 묶음을 공유). */
+    /**
+     * 게스트 소유로 코스를 만든다(저장용). 게스트 ID 는 공백일 수 없고 길이 상한을 넘지 않는다(빈 값이면 모든 요청이 한 묶음을 공유).
+     *
+     * @param origin 출발지. 대중교통 열차 접근을 다시 계산하는 근거다(#187). 모르면 null
+     */
     public static Course ownedBy(
             String guestId,
             Long regionId,
@@ -143,7 +166,8 @@ public class Course {
             TransportMode transport,
             List<DaySchedule> days,
             LocalDate travelDate,
-            int travelDays) {
+            int travelDays,
+            Coordinate origin) {
         Objects.requireNonNull(guestId, "게스트 ID는 필수입니다");
         if (guestId.isBlank()) {
             throw new IllegalArgumentException("게스트 ID는 비어 있을 수 없습니다");
@@ -151,7 +175,20 @@ public class Course {
         if (guestId.length() > MAX_GUEST_ID_LENGTH) {
             throw new IllegalArgumentException("게스트 ID가 너무 깁니다: " + guestId.length());
         }
-        return new Course(guestId, regionId, density, transport, days, travelDate, travelDays);
+        return new Course(guestId, regionId, density, transport, days, travelDate, travelDays,
+                origin == null ? null : origin.lat(), origin == null ? null : origin.lng());
+    }
+
+    /**
+     * 저장된 출발지 — 대중교통 열차 접근을 다시 계산할 근거.
+     *
+     * @return 출발지. 자차 코스이거나 이 필드가 생기기 전에 저장된 코스면 empty
+     */
+    public Optional<Coordinate> origin() {
+        if (originLat == null || originLng == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new Coordinate(originLat, originLng));
     }
 
     /**
