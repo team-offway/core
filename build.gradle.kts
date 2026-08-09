@@ -35,6 +35,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3")
     implementation("com.fasterxml.jackson.core:jackson-databind")
+    // TourAPI 텍스트의 HTML 태그·엔티티 정제(#174). 정규식으로 하면 속성에 '>' 가 든 태그에서 텍스트가
+    // 잘리는데, 깨진 문구가 사용자에게 나가면 되돌리기 어렵다.
+    implementation("org.jsoup:jsoup:1.23.1")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-webservices")
