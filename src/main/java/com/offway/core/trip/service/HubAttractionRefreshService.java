@@ -10,6 +10,8 @@ import com.offway.core.trip.repository.HubAttractionRepository;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -42,18 +44,9 @@ public class HubAttractionRefreshService {
      * 발행 지연을 감안해 물러설 개월 수 — 시작월 <b>포함</b> {@code MAX_MONTHS_BACK + 1}개 달을 확인한다.
      *
      * <p>이번 달 것은 아직 없을 수 있다. 지난달부터 시작해 빈 결과면 이전 달로 물러선다 — 고정 지연을 가정하면
-     * 발행 공백에 걸려 <b>조용히</b> 빈 결과가 되고, 전 지역 중심 관광지가 사라진다.
+     * 발행 공백에 걸려 <b>조용히</b> 빈 결과가 되고, 중심 관광지가 사라진다.
      */
     private static final int MAX_MONTHS_BACK = 3;
-
-    /**
-     * 발행월을 판단할 때 물어보는 지역 수.
-     *
-     * <p><b>한 곳으로 판단하면 안 된다.</b> 그 지역만 데이터가 없어도 "미발행" 으로 읽혀 89곳 전체 갱신이
-     * 조용히 스킵된다 — 예외도 로그도 없이 대표 사진이 낡은 채로 남는다. 몇 곳을 확인해 한 곳이라도 있으면
-     * 그 달은 발행된 것으로 본다.
-     */
-    private static final int PUBLISH_PROBE_REGIONS = 3;
 
     private final HubAttractionClient hubAttractionClient;
     private final HubAttractionRepository hubAttractionRepository;
@@ -81,28 +74,26 @@ public class HubAttractionRefreshService {
         if (regions.isEmpty()) {
             return;
         }
-        YearMonth month = publishedMonth(regions);
-        if (month == null) {
-            log.warn("중심 관광지 최근 {}개월이 모두 비었습니다 — 갱신을 건너뜁니다", MAX_MONTHS_BACK);
-            return;
-        }
 
         int filled = 0;
         int empty = 0;
         int failed = 0;
+        Map<YearMonth, Integer> byMonth = new TreeMap<>();
         for (Region region : regions) {
             try {
-                List<HubAttractionItem> items =
-                        hubAttractionClient.findByRegion(region.getLegalCode(), month, ROWS_PER_REGION);
-                if (items.isEmpty()) {
+                Published published = fetchWithMonthFallback(region);
+                if (published == null) {
                     // 성공 코드에 빈 결과가 오는 API 다 — 덮지 않고 이전 값을 남긴다. 집계만으로는 어느 지역이
-                    // 왜 안 채워졌는지 모르므로 지역·달을 남긴다(발행 지연 vs 그 지역만 없음을 가른다).
+                    // 왜 안 채워졌는지 모르므로 지역을 남긴다.
                     empty++;
-                    log.warn("중심 관광지 빈 응답 — 이전 값을 유지합니다 regionId={} baseYm={}", region.getId(), month);
+                    log.warn("중심 관광지 빈 응답 — 이전 값을 유지합니다 regionId={} (최근 {}개월 모두 없음)",
+                            region.getId(), MAX_MONTHS_BACK + 1);
                     continue;
                 }
-                hubAttractionRepository.replaceRegion(
-                        region.getId(), items.stream().map(item -> item.toEntity(region.getId(), month)).toList());
+                hubAttractionRepository.replaceRegion(region.getId(), published.items().stream()
+                        .map(item -> item.toEntity(region.getId(), published.month()))
+                        .toList());
+                byMonth.merge(published.month(), 1, Integer::sum);
                 filled++;
             } catch (TourApiException e) {
                 failed++;
@@ -110,42 +101,43 @@ public class HubAttractionRefreshService {
                         region.getId(), e.getClass().getSimpleName());
             }
         }
+        // 기준월 분포를 남긴다 — 지역마다 발행월이 다르므로 단일 baseYm 으로는 사실을 못 적는다.
+        // 어떤 지역군이 이전 달로 물러섰는지가 여기서 드러난다.
         if (empty + failed > 0) {
-            log.warn("중심 관광지 갱신 완료 baseYm={} 성공={}/{} — 빈 응답 {}건·실패 {}건은 이전 값 유지",
-                    month, filled, regions.size(), empty, failed);
+            log.warn("중심 관광지 갱신 완료 지역={}/{} 기준월별={} — 빈 응답 {}건·실패 {}건은 이전 값 유지",
+                    filled, regions.size(), byMonth, empty, failed);
             return;
         }
-        log.info("중심 관광지 갱신 완료 baseYm={} 지역={}/{}", month, filled, regions.size());
+        log.info("중심 관광지 갱신 완료 지역={}/{} 기준월별={}", filled, regions.size(), byMonth);
     }
 
     /**
-     * 실제로 발행된 달을 찾는다 — 89곳을 다 물어보지 않고 표본 몇 곳으로 가린다.
+     * 그 지역이 <b>실제로 발행된</b> 달의 결과를 가져온다 — 지난달부터 시작해 비면 이전 달로 물러선다.
      *
-     * <p>표본을 {@value #PUBLISH_PROBE_REGIONS}곳 두는 이유는 위 상수에 적었다. 한 곳이라도 결과가 있으면
-     * 그 달은 발행된 것이다.
+     * <p><b>발행은 지역마다 다르다.</b> 실측(2026-08-09)에서 전남 16곳은 {@code 202607} 이 미발행이고
+     * {@code 202606} 에만 있었는데, 나머지 지역은 {@code 202607} 이 있었다. 예전처럼 표본 몇 곳으로 달 하나를
+     * 정해 전 지역에 쓰면 <b>전남이 통째로 빈 응답</b>이 되고, 빈 응답은 이전 값을 유지하므로 첫 적재에서는
+     * 그 16곳이 영영 채워지지 않는다.
      *
-     * @return 발행된 달. {@value #MAX_MONTHS_BACK}개월을 물러서도 없으면 null
+     * <p>호출 비용은 지역당 1회가 기본이고, 물러선 지역만 그만큼 늘어난다(실측 기준 16곳이 2회).
+     *
+     * @return 발행된 달과 그 결과. {@value #MAX_MONTHS_BACK}개월을 물러서도 비면 null
      */
-    private YearMonth publishedMonth(List<Region> regions) {
-        List<Region> probes = regions.subList(0, Math.min(PUBLISH_PROBE_REGIONS, regions.size()));
+    private Published fetchWithMonthFallback(Region region) {
         YearMonth month = newestPossibleMonth();
         // 경계를 포함한다 — 상수가 "물러설 개월 수" 이므로 시작월에서 그만큼 물러선 달까지 봐야 이름과 맞는다.
         for (int back = 0; back <= MAX_MONTHS_BACK; back++, month = month.minusMonths(1)) {
-            for (Region probe : probes) {
-                try {
-                    if (!hubAttractionClient.findByRegion(probe.getLegalCode(), month, 1).isEmpty()) {
-                        return month;
-                    }
-                } catch (TourApiException e) {
-                    // 다음 표본으로 넘어간다. 여기서 포기하면 표본을 여럿 두는 의미가 없어진다 —
-                    // 한 지역의 이상으로 89곳 갱신이 통째로 스킵되는 것을 막으려고 둔 장치다.
-                    log.warn("중심 관광지 발행월 탐색 실패 month={} regionId={} cause={}",
-                            month, probe.getId(), e.getClass().getSimpleName());
-                }
+            List<HubAttractionItem> items =
+                    hubAttractionClient.findByRegion(region.getLegalCode(), month, ROWS_PER_REGION);
+            if (!items.isEmpty()) {
+                return new Published(month, items);
             }
-            log.info("중심 관광지 {} 미발행(표본 {}곳) — 이전 달로 물러섭니다", month, probes.size());
         }
         return null;
+    }
+
+    /** 한 지역이 실제로 받은 결과와 그 기준월 — 지역마다 다를 수 있어 짝으로 다닌다. */
+    private record Published(YearMonth month, List<HubAttractionItem> items) {
     }
 
     /** 존재할 수 있는 가장 새 달. 이번 달은 아직 집계 중이라 지난달이 최선이다. */
@@ -159,9 +151,10 @@ public class HubAttractionRefreshService {
      * <p>한 곳만 보면 안 된다. 앞선 갱신에서 첫 지역만 성공하고 나머지가 빈 응답·실패로 남았을 때, 다음 스케줄이
      * "첫 지역이 최신" 이라는 이유로 전체를 건너뛴다 — 실패한 지역은 <b>영영 재시도되지 않는다.</b>
      *
-     * <p>대신 원본에 데이터가 아예 없는 지역이 하나라도 있으면 매일 전량을 다시 묻게 된다. 하루 한 번 89건이라
-     * 한도(#193)에는 여유가 있고, 그 지역이 어디인지는 갱신 때마다 빈 응답 warn 으로 드러난다 — 조용히
-     * 스킵되는 쪽보다 낫다.
+     * <p><b>실측상 이 스킵은 거의 걸리지 않는다.</b> 발행이 지역마다 달라(전남 16곳은 한 달 늦다) 전 지역이
+     * 같은 최신 달을 갖는 시점이 잘 오지 않기 때문이다. 즉 하루 한 번 89~105건을 다시 묻게 되는데, 한도
+     * (일 1,000건, #193)에는 여유가 있어 그대로 둔다 — 스킵을 살리려고 기준을 느슨하게 하면 새 달이 발행돼도
+     * 갱신하지 않게 되고, 그게 더 나쁘다.
      */
     private boolean hasMonth(YearMonth month) {
         List<Long> regionIds = regionRepository.findAll().stream().map(Region::getId).toList();

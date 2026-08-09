@@ -98,15 +98,14 @@ class HubAttractionRefreshIntegrationTest {
     }
 
     @Test
-    void 표본_한_곳이_실패해도_다음_표본으로_발행월을_찾는다() {
-        // 표본을 여럿 두는 이유가 한 지역의 이상으로 89곳이 통째로 스킵되는 것을 막기 위함이다.
+    void 한_지역이_실패해도_나머지는_채운다() {
         List<Region> regions = regionRepository.findAll();
         regions.forEach(region -> hubAttractionRepository.replaceRegion(region.getId(), List.of()));
         String firstCode = regions.getFirst().getLegalCode();
 
         hubAttractionClient.respond((legalCode, month) -> {
             if (legalCode.equals(firstCode)) {
-                throw TourApiException.lookupFailed(new RuntimeException("probe down"));
+                throw TourApiException.lookupFailed(new RuntimeException("upstream down"));
             }
             return List.of(item(1, "공산성", "관광지", "역사관광"));
         });
@@ -114,7 +113,31 @@ class HubAttractionRefreshIntegrationTest {
         refreshService.refresh();
 
         assertFalse(refreshService.forRegion(regions.get(1).getId()).isEmpty(),
-                "표본 하나가 실패했다고 나머지 지역 갱신까지 포기하면 안 된다");
+                "한 지역이 실패했다고 나머지 지역 갱신까지 포기하면 안 된다");
+    }
+
+    @Test
+    void 지역마다_발행월이_달라도_각자_자기_달로_채운다() {
+        // 실측(2026-08-09) — 전남 16곳은 202607 이 미발행이고 202606 에만 있는데 나머지 지역은 202607 이
+        // 있었다. 표본 몇 곳으로 달 하나를 정해 전 지역에 쓰면 전남이 통째로 빈 응답이 되고, 빈 응답은 이전
+        // 값을 유지하므로 첫 적재에서 그 16곳이 영영 안 채워진다.
+        List<Region> regions = regionRepository.findAll();
+        regions.forEach(region -> hubAttractionRepository.replaceRegion(region.getId(), List.of()));
+        YearMonth newest = lastMonth();
+        YearMonth older = newest.minusMonths(1);
+        String lateCode = regions.getLast().getLegalCode();
+
+        hubAttractionClient.respond((legalCode, month) -> {
+            boolean late = legalCode.equals(lateCode);
+            YearMonth published = late ? older : newest;
+            return month.equals(published) ? List.of(item(1, "공산성", "관광지", "역사관광")) : List.of();
+        });
+
+        refreshService.refresh();
+
+        assertEquals(newest, refreshService.forRegion(regions.getFirst().getId()).getFirst().baseMonth());
+        assertEquals(older, refreshService.forRegion(regions.getLast().getId()).getFirst().baseMonth(),
+                "한 달 늦게 발행되는 지역도 자기 달로 채워져야 한다");
     }
 
     @Test
