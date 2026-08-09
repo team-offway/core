@@ -27,7 +27,7 @@ public class GalleryPhotoRepositoryImpl implements GalleryPhotoRepository {
 
     @Override
     public List<GalleryPhoto> findByRegionId(Long regionId) {
-        return jpaRepository.findByRegionId(regionId);
+        return jpaRepository.findByRegionIdOrderByGalContentIdAsc(regionId);
     }
 
     @Override
@@ -35,7 +35,7 @@ public class GalleryPhotoRepositoryImpl implements GalleryPhotoRepository {
         if (regionIds.isEmpty()) {
             return List.of();
         }
-        return jpaRepository.findByRegionIdIn(regionIds);
+        return jpaRepository.findByRegionIdInOrderByRegionIdAscGalContentIdAsc(regionIds);
     }
 
     @Override

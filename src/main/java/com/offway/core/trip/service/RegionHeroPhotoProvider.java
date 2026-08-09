@@ -163,15 +163,18 @@ public class RegionHeroPhotoProvider {
         return bestBySeason(matched, travelMonth);
     }
 
-    /** 여행월과 계절이 가까운 한 장. 여행월을 모르면 첫 장. */
+    /**
+     * 여행월과 계절이 가까운 한 장.
+     *
+     * <p><b>동점은 갤러리 식별자로 가른다.</b> 그러지 않으면 같은 데이터로도 목록 순서에 따라 카드 사진이
+     * 바뀐다 — 계절 거리가 같은 사진은 흔하고, 여행월을 모르면 전부 동점이다.
+     */
     private static Optional<GalleryPhoto> bestBySeason(List<GalleryPhoto> photos, YearMonth travelMonth) {
-        if (photos.isEmpty()) {
-            return Optional.empty();
-        }
-        if (travelMonth == null) {
-            return Optional.of(photos.getFirst());
-        }
-        return photos.stream().min(Comparator.comparingInt(photo -> seasonDistance(photo, travelMonth)));
+        Comparator<GalleryPhoto> order = travelMonth == null
+                ? Comparator.comparing(GalleryPhoto::getGalContentId)
+                : Comparator.comparingInt((GalleryPhoto photo) -> seasonDistance(photo, travelMonth))
+                        .thenComparing(GalleryPhoto::getGalContentId);
+        return photos.stream().min(order);
     }
 
     /**

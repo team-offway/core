@@ -60,9 +60,12 @@ class RegionHeroPhotoIntegrationTest {
                 .build();
     }
 
+    /** 갤러리 식별자는 삽입 순서대로 커지게 준다 — 동점일 때 이 값이 순서를 정한다. */
+    private static int nextContentId = 1;
+
     private static GalleryPhoto photo(Long regionId, String title, String url, String month) {
         return GalleryPhoto.builder()
-                .galContentId(title + month)
+                .galContentId(String.format("%06d", nextContentId++))
                 .title(title)
                 .imageUrl(url)
                 .photographyMonth(month)
@@ -187,14 +190,16 @@ class RegionHeroPhotoIntegrationTest {
         // 있었다. 이름이 안 맞는다고 그 지역에 쓸 사진이 없는 것은 아니다.
         Long regionId = anyRegionId();
         hubAttractionRepository.replaceRegion(regionId, List.of(hub(regionId, 1, "도갑사", "관광지")));
+        // 갤러리 식별자가 가장 작은 것이 뽑힌다 — 계절 정보가 없으면 그 값이 유일한 순서 기준이다.
+        GalleryPhoto first = photo(regionId, "구정봉 여명", "http://img/wolchul1.jpg", "202405");
         galleryPhotoRepository.replaceAll(List.of(
-                photo(regionId, "구정봉 여명", "http://img/wolchul1.jpg", "202405"),
+                first,
                 photo(regionId, "푸른초원의 월출산", "http://img/wolchul2.jpg", "202405"),
                 photo(regionId, "월출산 운해 폭포", "http://img/wolchul3.jpg", "202405"),
                 photo(regionId, "녹차밭의 가을", "http://img/tea.jpg", "202405"),
                 photo(regionId, "영암 들녘", "http://img/field.jpg", "202405")));
 
-        assertEquals("http://img/wolchul1.jpg", provider.heroPhotoUrls(List.of(regionId), null).get(regionId));
+        assertEquals(first.getImageUrl(), provider.heroPhotoUrls(List.of(regionId), null).get(regionId));
     }
 
     @Test
