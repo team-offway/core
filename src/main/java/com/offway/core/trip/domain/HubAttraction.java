@@ -94,6 +94,15 @@ public class HubAttraction {
         this.lng = lng;
     }
 
+    /**
+     * 기준 연월의 <b>저장 표현</b>({@code yyyyMM}). 리포지토리 질의가 월을 문자열로 거를 때 쓴다.
+     *
+     * <p>고정폭이라 사전순 비교가 곧 시간순 비교다.
+     */
+    public static String toBaseYm(YearMonth month) {
+        return month.format(BASE_YM);
+    }
+
     public YearMonth baseMonth() {
         return YearMonth.parse(baseYm, BASE_YM);
     }

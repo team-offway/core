@@ -1,6 +1,7 @@
 package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.HubAttraction;
+import java.time.YearMonth;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -36,6 +37,14 @@ public class HubAttractionRepositoryImpl implements HubAttractionRepository {
     public void replaceRegion(Long regionId, List<HubAttraction> attractions) {
         jpaRepository.deleteByRegionId(regionId);
         jpaRepository.saveAll(attractions);
+    }
+
+    @Override
+    public long countRegionsWithMonthAtLeast(List<Long> regionIds, YearMonth month) {
+        if (regionIds.isEmpty()) {
+            return 0;
+        }
+        return jpaRepository.countRegionsWithBaseYmAtLeast(regionIds, HubAttraction.toBaseYm(month));
     }
 
     @Override

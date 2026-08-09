@@ -1,6 +1,7 @@
 package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.HubAttraction;
+import java.time.YearMonth;
 import java.util.List;
 
 /** 중심 관광지 영속 port. 구현은 {@link HubAttractionRepositoryImpl}. */
@@ -19,6 +20,14 @@ public interface HubAttractionRepository {
      * 사라진 곳이 계속 보인다.
      */
     void replaceRegion(Long regionId, List<HubAttraction> attractions);
+
+    /**
+     * 주어진 지역 중 {@code month} 이상 데이터를 <b>가진</b> 지역 수.
+     *
+     * <p>한 지역만 보고 "최신" 을 판단하면, 앞선 갱신에서 그 지역만 성공하고 나머지가 실패한 경우 다음
+     * 스케줄이 전체를 건너뛴다 — 실패한 지역은 영영 재시도되지 않는다. 전체 수와 비교해야 그 함정을 피한다.
+     */
+    long countRegionsWithMonthAtLeast(List<Long> regionIds, YearMonth month);
 
     long count();
 }

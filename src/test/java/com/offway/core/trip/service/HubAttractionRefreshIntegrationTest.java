@@ -4,15 +4,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.HubAttraction;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.datalab.HubAttractionClient;
 import com.offway.core.trip.infrastructure.datalab.StubHubAttractionClient;
 import com.offway.core.trip.infrastructure.datalab.dto.HubAttractionItem;
+import com.offway.core.trip.repository.HubAttractionRepository;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,6 +39,9 @@ class HubAttractionRefreshIntegrationTest {
 
     @Autowired
     private RegionRepository regionRepository;
+
+    @Autowired
+    private HubAttractionRepository hubAttractionRepository;
 
     @TestConfiguration
     static class StubConfig {
@@ -122,6 +128,28 @@ class HubAttractionRefreshIntegrationTest {
 
         List<HubAttraction> stored = refreshService.forRegion(anyRegionId());
         assertEquals(published, stored.getFirst().baseMonth());
+    }
+
+    @Test
+    void 일부_지역만_채워졌으면_다음_확인에서_다시_받는다() {
+        // 이전 테스트가 남긴 적재를 지우고 시작한다 — "일부만 채워진" 상태를 만드는 것이 이 테스트의 전제다.
+        List<Region> regions = regionRepository.findAll();
+        regions.forEach(region -> hubAttractionRepository.replaceRegion(region.getId(), List.of()));
+
+        // 첫 지역만 성공하고 나머지는 빈 응답으로 남는 상황.
+        String firstCode = regions.getFirst().getLegalCode();
+        hubAttractionClient.respond((legalCode, month) ->
+                legalCode.equals(firstCode) ? List.of(item(1, "공산성", "관광지", "역사관광")) : List.of());
+        refreshService.refresh();
+
+        AtomicBoolean called = new AtomicBoolean();
+        hubAttractionClient.respond((legalCode, month) -> {
+            called.set(true);
+            return List.of(item(1, "공산성", "관광지", "역사관광"));
+        });
+        refreshService.refreshIfStale();
+
+        assertTrue(called.get(), "첫 지역만 최신이라고 전체를 건너뛰면 나머지 88곳은 영영 안 채워진다");
     }
 
     @Test

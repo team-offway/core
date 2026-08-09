@@ -88,14 +88,17 @@ public class HubAttractionRefreshService {
         }
 
         int filled = 0;
+        int empty = 0;
         int failed = 0;
         for (Region region : regions) {
             try {
                 List<HubAttractionItem> items =
                         hubAttractionClient.findByRegion(region.getLegalCode(), month, ROWS_PER_REGION);
                 if (items.isEmpty()) {
-                    // 성공 코드에 빈 결과가 오는 API 다 — 덮지 않고 이전 값을 남긴다.
-                    failed++;
+                    // 성공 코드에 빈 결과가 오는 API 다 — 덮지 않고 이전 값을 남긴다. 집계만으로는 어느 지역이
+                    // 왜 안 채워졌는지 모르므로 지역·달을 남긴다(발행 지연 vs 그 지역만 없음을 가른다).
+                    empty++;
+                    log.warn("중심 관광지 빈 응답 — 이전 값을 유지합니다 regionId={} baseYm={}", region.getId(), month);
                     continue;
                 }
                 hubAttractionRepository.replaceRegion(
@@ -107,9 +110,9 @@ public class HubAttractionRefreshService {
                         region.getId(), e.getClass().getSimpleName());
             }
         }
-        if (failed > 0) {
-            log.warn("중심 관광지 갱신 완료 baseYm={} 성공={}/{} — 실패 {}건은 이전 값 유지",
-                    month, filled, regions.size(), failed);
+        if (empty + failed > 0) {
+            log.warn("중심 관광지 갱신 완료 baseYm={} 성공={}/{} — 빈 응답 {}건·실패 {}건은 이전 값 유지",
+                    month, filled, regions.size(), empty, failed);
             return;
         }
         log.info("중심 관광지 갱신 완료 baseYm={} 지역={}/{}", month, filled, regions.size());
@@ -148,16 +151,22 @@ public class HubAttractionRefreshService {
         return YearMonth.from(LocalDate.now()).minusMonths(1);
     }
 
-    /** 저장분이 그 달 것인가 — 하나만 확인하면 된다. 갱신은 전 지역을 같은 달로 채운다. */
+    /**
+     * <b>모든</b> 지역이 그 달 데이터를 갖고 있는가.
+     *
+     * <p>한 곳만 보면 안 된다. 앞선 갱신에서 첫 지역만 성공하고 나머지가 빈 응답·실패로 남았을 때, 다음 스케줄이
+     * "첫 지역이 최신" 이라는 이유로 전체를 건너뛴다 — 실패한 지역은 <b>영영 재시도되지 않는다.</b>
+     *
+     * <p>대신 원본에 데이터가 아예 없는 지역이 하나라도 있으면 매일 전량을 다시 묻게 된다. 하루 한 번 89건이라
+     * 한도(#193)에는 여유가 있고, 그 지역이 어디인지는 갱신 때마다 빈 응답 warn 으로 드러난다 — 조용히
+     * 스킵되는 쪽보다 낫다.
+     */
     private boolean hasMonth(YearMonth month) {
-        List<Region> regions = regionRepository.findAll();
-        if (regions.isEmpty()) {
+        List<Long> regionIds = regionRepository.findAll().stream().map(Region::getId).toList();
+        if (regionIds.isEmpty()) {
             return false;
         }
-        return hubAttractionRepository.findByRegionId(regions.getFirst().getId()).stream()
-                .findFirst()
-                .filter(attraction -> !attraction.baseMonth().isBefore(month))
-                .isPresent();
+        return hubAttractionRepository.countRegionsWithMonthAtLeast(regionIds, month) == regionIds.size();
     }
 
     /** 지역의 중심 관광지 — 순위 오름차순. 아직 적재 전이면 빈 목록이다. */
