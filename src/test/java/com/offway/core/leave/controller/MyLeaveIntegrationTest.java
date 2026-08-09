@@ -157,6 +157,29 @@ class MyLeaveIntegrationTest {
     }
 
     @Test
+    void 총_연차가_상한을_넘으면_400_LEAVE_009() throws Exception {
+        // 화면이 "최대 99일까지" 라고 안내한다 — 서버가 더 넉넉하면 화면을 안 거친 요청만 다른 규칙을 탄다(#142).
+        mockMvc.perform(patch(URL).header(GUEST_HEADER, "leave-bad")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 100}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LEAVE-009"));
+    }
+
+    @Test
+    void 총_연차_경계값_0과_99는_받는다() throws Exception {
+        // 화면 문구가 "0일보다 적게" · "최대 99일까지" 라 양끝은 유효하다.
+        mockMvc.perform(patch(URL).header(GUEST_HEADER, "leave-edge-0")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalDays").value(0.0));
+
+        mockMvc.perform(patch(URL).header(GUEST_HEADER, "leave-edge-99")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 99}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalDays").value(99.0));
+    }
+
+    @Test
     void 사용_증감이_0이면_400_LEAVE_010() throws Exception {
         mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, "leave-bad")
                         .contentType(MediaType.APPLICATION_JSON)
