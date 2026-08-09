@@ -15,13 +15,13 @@ import org.junit.jupiter.params.provider.ValueSource;
 class LeaveDaysTest {
 
     @ParameterizedTest
-    @ValueSource(doubles = {0, 0.5, 1, 1.5, 15, 365})
-    void 총_연차는_0에서_365_사이의_0점5_단위다(double days) {
+    @ValueSource(doubles = {0, 0.5, 1, 1.5, 15, 99})
+    void 총_연차는_0에서_99_사이의_0점5_단위다(double days) {
         assertTrue(LeaveDays.isValidTotal(days));
     }
 
     @ParameterizedTest
-    @ValueSource(doubles = {-0.5, -1, 0.3, 1.1, 365.5, 1000})
+    @ValueSource(doubles = {-0.5, -1, 0.3, 1.1, 99.5, 365, 1000})
     void 총_연차가_음수거나_상한_밖이거나_0점5_단위가_아니면_거부한다(double days) {
         assertFalse(LeaveDays.isValidTotal(days));
     }
