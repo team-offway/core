@@ -27,16 +27,19 @@ class LeaveDaysTest {
     }
 
     @ParameterizedTest
-    @ValueSource(doubles = {0.5, 1, 3, -0.5, -3})
-    void 사용_증감은_음수도_허용한다(double days) {
+    @ValueSource(doubles = {0.5, 1, 3, 99, -0.5, -3, -99})
+    void 사용_증감은_음수도_허용하고_상한은_총_연차와_같다(double days) {
         // 코스를 취소하면 음수 내역으로 되돌린다 — 행을 지우면 취소 이력이 사라진다.
+        // ±99 를 함께 둔 이유: 사용 증감도 MAX_TOTAL 을 쓰는데, 경계가 없으면 상한이 예전 365 로
+        // 남아 있어도 이 테스트가 통과한다(#142 가 99 로 좁힌 계약을 못 지킨다).
         assertTrue(LeaveDays.isValidUsage(days));
     }
 
     @ParameterizedTest
-    @ValueSource(doubles = {0, 0.3, -0.2, 400})
-    void 사용_증감이_0이거나_0점5_단위가_아니면_거부한다(double days) {
+    @ValueSource(doubles = {0, 0.3, -0.2, 99.5, -99.5, 400})
+    void 사용_증감이_0이거나_0점5_단위가_아니거나_상한_밖이면_거부한다(double days) {
         // 0 은 아무것도 바꾸지 않는 기록이라 소음이다.
+        // ±99.5 는 상한 바로 바깥 — 이게 없으면 상한이 365 여도 400 만 걸려 통과한다.
         assertFalse(LeaveDays.isValidUsage(days));
     }
 
