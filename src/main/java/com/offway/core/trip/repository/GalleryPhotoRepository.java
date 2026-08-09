@@ -20,14 +20,9 @@ public interface GalleryPhotoRepository {
     /** 여러 지역을 한 번에 — 목록 화면이 지역마다 묻지 않게(N+1 방지). */
     List<GalleryPhoto> findByRegionIds(List<Long> regionIds);
 
-    List<GalleryPhoto> findAll();
-
     /** 저장된 사진 수 — 적재가 돌았는지 판단하는 데 쓴다. */
     long count();
 
     /** 지역이 붙은 사진 수 — 정규화가 얼마나 매칭했는지. */
     long countWithRegion();
-
-    /** 정규화 결과를 반영한다. */
-    void saveAll(List<GalleryPhoto> photos);
 }

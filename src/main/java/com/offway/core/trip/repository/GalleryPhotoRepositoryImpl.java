@@ -39,11 +39,6 @@ public class GalleryPhotoRepositoryImpl implements GalleryPhotoRepository {
     }
 
     @Override
-    public List<GalleryPhoto> findAll() {
-        return jpaRepository.findAll();
-    }
-
-    @Override
     public long count() {
         return jpaRepository.count();
     }
@@ -51,11 +46,5 @@ public class GalleryPhotoRepositoryImpl implements GalleryPhotoRepository {
     @Override
     public long countWithRegion() {
         return jpaRepository.countWithRegion();
-    }
-
-    @Override
-    @Transactional
-    public void saveAll(List<GalleryPhoto> photos) {
-        jpaRepository.saveAll(photos);
     }
 }
