@@ -91,7 +91,12 @@ public record CourseSaveRequest(
          */
         DaySchedule toSchedule(LocalDate travelDate) {
             List<Slot> slots = items.stream().map(Item::toSlot).toList();
-            if (date == null || travelDate == null) {
+            if (date != null && travelDate == null) {
+                // 기준점이 없으면 날짜를 오프셋으로 옮길 수 없다. 조용히 무시하면 클라이언트가 지정한
+                // 날짜와 다른 값이 저장되고, 왜 달라졌는지 알 방법이 없다 — 모순된 요청이므로 거절한다.
+                throw new IllegalArgumentException("여행 시작일 없이 Day 날짜만 보낼 수 없습니다: " + date);
+            }
+            if (date == null) {
                 return DaySchedule.of(day, slots);
             }
             long offset = ChronoUnit.DAYS.between(travelDate, date);

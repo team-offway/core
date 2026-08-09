@@ -425,6 +425,22 @@ class CourseStorageIntegrationTest {
     }
 
     @Test
+    void 여행_시작일_없이_Day_날짜만_보내면_400이다() throws Exception {
+        // 기준점이 없으면 날짜를 오프셋으로 옮길 수 없다. 조용히 무시하면 지정한 날짜와 다른 값이 저장된다.
+        String body = """
+                { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [
+                  { "day": 1, "date": "2026-09-12", "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":0}
+                  ]}
+                ]}""";
+
+        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    @Test
     void 여행_기간을_넘는_날짜는_400이다() throws Exception {
         // 2026-09-11 시작 3일이면 9/13 이 마지막이다. 9/14 는 종료일 뒤라 앞뒤가 안 맞는다(#164).
         mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest())
