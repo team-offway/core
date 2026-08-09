@@ -30,8 +30,6 @@ public class RegionPlaceController implements RegionPlaceApi {
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
         RegionPlaces places = regionPlaceService.places(regionId, kind, category, page, size);
-        return ApiResponseBody.ok(
-                RegionPlacesResponse.from(kind, places),
-                new PageResponse(places.page(), places.size(), places.totalElements(), places.totalPages()));
+        return ApiResponseBody.ok(RegionPlacesResponse.from(kind, places), PageResponse.of(places));
     }
 }

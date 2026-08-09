@@ -2,6 +2,7 @@ package com.offway.core.itinerary.service;
 
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseScope;
+import com.offway.core.common.response.Paging;
 import com.offway.core.itinerary.service.dto.MyCourses;
 import com.offway.core.leave.service.MyLeaveService;
 import java.time.LocalDate;
@@ -20,6 +21,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,17 +50,34 @@ public class CourseStorageService {
     }
 
     /**
-     * 게스트의 저장 코스 목록 — 보는 범위({@link CourseScope})에 따라 다가오는 여행 · 지난 여행 · 전부.
+     * 게스트의 저장 코스 <b>한 페이지</b> — 보는 범위({@link CourseScope})에 따라 다가오는 여행 · 지난 여행 · 전부.
      *
      * <p>어느 코스를 연차 차감했는지 함께 준다. 화면이 "확정함" 을 표시하려면 필요한데, <b>코스마다 물으면 코스 수만큼
      * 쿼리가 늘어난다</b> — 한 번에 모아 온다.
+     *
+     * <p><b>페이지로 끊는 이유</b>(#105). 코스 하나가 애그리거트({@code DaySchedule}→{@code Slot})를 통째로
+     * 끌고 오므로, 코스가 쌓이면 목록 요청 한 번이 수백~수천 행을 힙에 올린다. 기본값·상한은 {@link Paging} 이 소유한다.
      */
     @Transactional(readOnly = true)
-    public MyCourses myCourses(String guestId, CourseScope scope) {
+    public MyCourses myCourses(String guestId, CourseScope scope, Integer page, Integer size) {
+        LocalDate today = LocalDate.now(SERVICE_ZONE);
+        Page<Course> found = scope.find(courseRepository, guestId, today, Paging.of(page, size));
+        List<Course> courses = found.getContent();
+        courses.forEach(Course::totalSlots); // 응답 직렬화는 tx 밖 — 애그리거트(days·slots)를 여기서 초기화
+        return MyCourses.from(found, myLeaveService.deductedCourseIds(guestId), regionNamesOf(courses), today);
+    }
+
+    /**
+     * 범위 안의 코스 <b>전부</b> — 서버 안에서 더 걸러 쓰는 호출자용(지난 여행 확인 등).
+     *
+     * <p>응답으로 그대로 나가는 길이 아니다. 화면에 내리는 목록은 {@link #myCourses} 로 페이지를 끊는다.
+     */
+    @Transactional(readOnly = true)
+    public MyCourses allCourses(String guestId, CourseScope scope) {
         LocalDate today = LocalDate.now(SERVICE_ZONE);
         List<Course> courses = scope.find(courseRepository, guestId, today);
-        courses.forEach(Course::totalSlots); // 응답 직렬화는 tx 밖 — 애그리거트(days·slots)를 여기서 초기화
-        return new MyCourses(courses, myLeaveService.deductedCourseIds(guestId), regionNamesOf(courses), today);
+        courses.forEach(Course::totalSlots);
+        return MyCourses.all(courses, myLeaveService.deductedCourseIds(guestId), regionNamesOf(courses), today);
     }
 
     /**
