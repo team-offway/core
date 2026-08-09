@@ -81,4 +81,32 @@ class CourseTest {
         assertThrows(IllegalArgumentException.class,
                 () -> Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 1)), null, 4));
     }
+
+    @Test
+    void 일차는_느는데_날짜가_거꾸로_가면_거부한다() {
+        // 기간 검사는 최대 오프셋만 보므로 이 조합을 통과시킨다 — 그러면 화면 순서와 날짜 순서가 역전된다.
+        assertThrows(IllegalArgumentException.class,
+                () -> Course.of(42L, Density.PACKED, TransportMode.CAR,
+                        List.of(DaySchedule.of(1, 1, List.of(slot(1))), DaySchedule.of(2, 0, List.of(slot(1)))),
+                        LocalDate.of(2026, 9, 11), 3));
+    }
+
+    @Test
+    void 두_일차가_같은_날짜를_가리키면_거부한다() {
+        // 하루를 두 번 쓰는 셈이라 그 날짜에 무엇이 있는지 답할 수 없다.
+        assertThrows(IllegalArgumentException.class,
+                () -> Course.of(42L, Density.PACKED, TransportMode.CAR,
+                        List.of(DaySchedule.of(1, 1, List.of(slot(1))), DaySchedule.of(2, 1, List.of(slot(1)))),
+                        LocalDate.of(2026, 9, 11), 3));
+    }
+
+    @Test
+    void 중간_날이_통째로_비어_오프셋이_건너뛰어도_받는다() {
+        // 엄격 증가면 충분하다 — 1씩 늘 것을 요구하면 중간이 빈 코스(#159)를 거부하게 된다.
+        Course course = Course.of(42L, Density.RELAXED, TransportMode.CAR,
+                List.of(DaySchedule.of(1, 0, List.of(slot(1))), DaySchedule.of(2, 2, List.of(slot(1)))),
+                LocalDate.of(2026, 9, 11), 3);
+
+        assertEquals(LocalDate.of(2026, 9, 13), course.dateOf(course.getDays().get(1)));
+    }
 }

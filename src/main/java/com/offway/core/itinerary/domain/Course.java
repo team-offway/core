@@ -108,6 +108,7 @@ public class Course {
             throw new IllegalArgumentException("코스는 최대 " + MAX_TRAVEL_DAYS + "일까지입니다: " + days.size());
         }
         requireSequentialDays(days);
+        requireIncreasingOffsets(days);
         requireSpanCovers(days, travelDays);
         this.guestId = guestId;
         this.regionId = Objects.requireNonNull(regionId, "지역 ID는 필수입니다");
@@ -277,6 +278,26 @@ public class Course {
         if (lastOffset >= travelDays) {
             throw new IllegalArgumentException(
                     "여행 기간 밖에 일정이 있습니다: 기간=" + travelDays + "일, 마지막 일정=" + (lastOffset + 1) + "일째");
+        }
+    }
+
+    /**
+     * 일차 순서대로 <b>달력도 앞으로만</b> 가는지 — 오프셋이 엄격히 증가해야 한다.
+     *
+     * <p>{@link #requireSpanCovers}는 최대 오프셋만 보므로 순서를 보지 못한다. 1일차에 오프셋 1, 2일차에 0을
+     * 넣어도 3일 기간이면 통과하는데, 그러면 화면 순서와 {@link #dateOf} 날짜 순서가 <b>역전</b>된다.
+     *
+     * <p>같은 오프셋 둘도 여기서 걸린다 — 하루를 두 번 쓰는 셈이라 그 날짜에 무엇이 있는지 답할 수 없다.
+     */
+    private static void requireIncreasingOffsets(List<DaySchedule> days) {
+        for (int i = 1; i < days.size(); i++) {
+            int previous = days.get(i - 1).getDayOffset();
+            int current = days.get(i).getDayOffset();
+            if (current <= previous) {
+                throw new IllegalArgumentException(
+                        "일차가 갈수록 날짜도 뒤여야 합니다: " + days.get(i - 1).getDayNumber() + "일차=시작+" + previous
+                                + "일, " + days.get(i).getDayNumber() + "일차=시작+" + current + "일");
+            }
         }
     }
 
