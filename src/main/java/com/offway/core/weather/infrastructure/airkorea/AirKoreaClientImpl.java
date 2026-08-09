@@ -14,6 +14,7 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /**
@@ -45,6 +46,18 @@ class AirKoreaClientImpl implements AirKoreaClient {
 
     /** 재시도 사이 간격 — 게이트웨이가 숨 돌릴 만큼만. */
     private static final Duration RETRY_BACKOFF = Duration.ofMillis(300);
+
+    /**
+     * 작업 전체 상한 — 재시도·백오프를 <b>포함</b>한 값이다.
+     *
+     * <p>호출 하나의 timeout 과 작업 전체의 deadline 은 별개다(성능 규약). {@link #TIMEOUT} 만 두면 시도
+     * 하나가 6초씩이라 재시도까지 12.3초가 되고, {@code AirController} 경로에서는 그 시간이 사용자 응답에
+     * 그대로 붙는다.
+     *
+     * <p>{@code TIMEOUT × 2 + 백오프} 에 여유를 조금 얹은 값이다 — 정상적인 재시도 한 번은 끊지 않으면서,
+     * 그보다 오래 끄는 경우는 여기서 자른다.
+     */
+    private static final Duration TOTAL_DEADLINE = Duration.ofMillis(13_000);
 
     private final WebClient webClient;
     private final ExternalApiProperties props;
@@ -95,8 +108,24 @@ class AirKoreaClientImpl implements AirKoreaClient {
                 .bodyToMono(String.class)
                 // timeout 을 retry 안쪽에 둬 시도 하나에 걸리게 한다 — 바깥에 두면 재시도까지 합쳐 6초가 된다.
                 .timeout(TIMEOUT)
-                .retryWhen(Retry.fixedDelay(RETRY_ATTEMPTS, RETRY_BACKOFF))
+                .retryWhen(Retry.fixedDelay(RETRY_ATTEMPTS, RETRY_BACKOFF).filter(AirKoreaClientImpl::isGatewayTimeout))
+                // 재시도 바깥의 전체 상한 — 호출 하나의 상한과 별개다(성능 규약).
+                .timeout(TOTAL_DEADLINE)
                 .block();
+    }
+
+    /**
+     * 다시 걸어볼 만한 실패인가 — <b>504 만</b>이다.
+     *
+     * <p>필터가 없으면 모든 예외를 재시도한다. 키 오류(401)·파라미터 오류(400)처럼 다시 걸어도 같은 답이
+     * 오는 것까지 한 번 더 물어 지연만 두 배가 되고, {@link #TIMEOUT} 이 만든 {@code TimeoutException} 도
+     * 재시도 대상이 된다 — 이미 너무 느려서 끊은 호출을 다시 걸어 <b>대기 시간을 두 배로 만드는</b> 셈이다.
+     *
+     * <p>재시도가 노린 것은 제공기관 게이트웨이의 간헐 504 하나다. 실측(2026-08-10, 51회)에서
+     * {@code SERVICETIMEOUT_ERROR} 는 전부 <b>HTTP 504</b> 로 왔고(16건, 31%), 성공은 전부 200 이었다.
+     */
+    private static boolean isGatewayTimeout(Throwable error) {
+        return error instanceof WebClientResponseException.GatewayTimeout;
     }
 
     private Optional<AirQuality> parse(String sido, String body) throws Exception {
