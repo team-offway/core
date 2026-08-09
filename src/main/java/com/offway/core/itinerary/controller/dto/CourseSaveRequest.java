@@ -7,6 +7,7 @@ import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.TimeOfDay;
+import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -26,6 +27,8 @@ import java.util.List;
  * @param regionId 코스 지역
  * @param density 일정 밀도
  * @param transport 이동수단
+ * @param originLat 출발지 위도(대중교통 열차 접근 재계산용, 없으면 null)
+ * @param originLng 출발지 경도(없으면 null)
  * @param days 날짜별 일정(최소 1일)
  */
 public record CourseSaveRequest(
@@ -47,6 +50,14 @@ public record CourseSaveRequest(
                 @Min(1)
                 @Max(Course.MAX_TRAVEL_DAYS)
                 Integer travelDays,
+        @Schema(
+                        description = "출발지 위도. 대중교통 코스는 이 값이 있어야 저장 후에도 열차 접근이 나온다 "
+                                + "(생성 요청에 보낸 값을 그대로 돌려주면 된다). 자차 코스는 필요 없다.",
+                        example = "37.5665",
+                        nullable = true)
+                Double originLat,
+        @Schema(description = "출발지 경도. originLat 와 짝.", example = "126.9780", nullable = true)
+                Double originLng,
         @NotEmpty @Valid List<Day> days) {
 
     /**
@@ -60,7 +71,14 @@ public record CourseSaveRequest(
             // 기간을 안 보낸 클라이언트는 담아 보낸 날 수로 본다 — 이 필드가 생기기 전과 같은 동작이라
             // 기존 연동이 깨지지 않는다. 그 경우 첫날이 빠진 코스는 종료일이 하루 이른 채로 남는다(#164).
             int span = travelDays != null ? travelDays : schedules.size();
-            return Course.ownedBy(guestId, regionId, density, transport, schedules, travelDate, span);
+            // 출발지는 위도·경도가 함께여야 좌표가 된다. 한쪽만 오면 조용히 버리지 않고 거절한다 —
+            // 클라이언트는 출발지를 보냈다고 여기는데 저장 코스에서 열차 접근이 비고, 그 이유를 알 수 없다.
+            // Day 날짜(#180)에서 시작일 없이 날짜만 온 요청을 거절한 것과 같은 판단이다.
+            if ((originLat == null) != (originLng == null)) {
+                throw new IllegalArgumentException("출발지는 위도·경도를 함께 보내야 합니다");
+            }
+            Coordinate origin = originLat == null ? null : new Coordinate(originLat, originLng);
+            return Course.ownedBy(guestId, regionId, density, transport, schedules, travelDate, span, origin);
         } catch (IllegalArgumentException e) {
             throw ItineraryException.invalidCourse();
         }
