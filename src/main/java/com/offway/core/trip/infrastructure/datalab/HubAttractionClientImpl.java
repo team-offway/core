@@ -24,8 +24,9 @@ import org.springframework.web.util.UriComponentsBuilder;
  * {@code signguCd=44150} 이다. TourAPI 코드(34/1)를 넣으면 {@code resultCode=0000} 에 {@code totalCount=0} 이
  * 돌아온다. 성공 코드라 조용히 빈 결과가 되므로 특히 조심해야 한다.
  *
- * <p><b>{@code pageNo} 가 필수다.</b> 빠뜨려도 성공 코드에 빈 결과가 온다 — 실제로 조사 중 이걸로 "최신 월이 없다"
- * 고 잘못 읽었다. 필수 파라미터 누락을 오류로 알려주지 않는 API 라 호출부에서 지켜야 한다.
+ * <p><b>{@code pageNo} 가 필수다.</b> 빠뜨리면 {@code resultCode=11}(NO_MANDATORY_REQUEST_PARAMETERS_ERROR)이
+ * 오는데, 그 응답은 {@code response} 래퍼 <b>없이</b> 최상위에 코드만 담아 온다. 래퍼만 보고 파싱하면 코드가 빈
+ * 문자열이 돼 <b>결과 없음과 구분되지 않는다</b> — 실제로 조사 중 이걸로 "최신 월이 없다" 고 잘못 읽었다.
  *
  * <p>키가 없으면 외부 호출 없이 빈 목록(로컬 실행성). 호출·파싱 실패는 {@link TourApiException}(502)으로 올린다.
  */
@@ -57,6 +58,7 @@ class HubAttractionClientImpl implements HubAttractionClient {
             log.info("데이터랩 키 없음 — 중심 관광지 조회를 건너뜁니다");
             return List.of();
         }
+        requireAreaCode(legalCode);
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(URL)
                 .queryParam("serviceKey", props.dataGoKr().serviceKey())
                 .queryParam("MobileOS", MOBILE_OS)
@@ -77,6 +79,23 @@ class HubAttractionClientImpl implements HubAttractionClient {
         }
     }
 
+    /**
+     * 시도코드를 떼어낼 수 있는 법정동 코드인가 — <b>URI 를 만들기 전에</b> 본다.
+     *
+     * <p>{@code substring} 이 던지는 NPE·{@code StringIndexOutOfBoundsException} 는
+     * {@link TourApiException} 이 아니라, 호출자({@code HubAttractionRefreshService})의 지역별 격리를
+     * 뚫고 올라가 <b>89곳 루프를 통째로 중단</b>시킨다. legal_code 가 빈 지역 하나가 나머지 88곳의 갱신을
+     * 막는 셈이라, 같은 실패 경로에 태워 그 지역만 건너뛰게 한다.
+     */
+    private static void requireAreaCode(String legalCode) {
+        if (legalCode == null || legalCode.length() < AREA_CODE_LENGTH) {
+            // 외부가 아니라 우리 시드가 원인이다 — 서비스 쪽 로그는 cause 클래스명만 남기므로 여기서 밝힌다.
+            log.warn("법정동 코드가 짧아 중심 관광지를 조회할 수 없습니다 legalCode={}", legalCode);
+            throw TourApiException.lookupFailed(
+                    new IllegalArgumentException("법정동 코드가 시도코드를 담기에 짧습니다: " + legalCode));
+        }
+    }
+
     private String call(UriComponentsBuilder builder) {
         // serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(#165).
         URI uri = builder.build(true).toUri();
@@ -84,8 +103,17 @@ class HubAttractionClientImpl implements HubAttractionClient {
     }
 
     private List<HubAttractionItem> parse(String body) throws Exception {
-        JsonNode response = objectMapper.readTree(body).path("response");
-        if (!SUCCESS_CODES.contains(response.path("header").path("resultCode").asText())) {
+        JsonNode root = objectMapper.readTree(body);
+        JsonNode response = root.path("response");
+        // 오류는 response 래퍼 <b>없이</b> 최상위로 온다(실측: pageNo 누락 → {"resultCode":"11", ...}).
+        // 래퍼만 보면 코드가 빈 문자열이 돼, 실패가 "결과 없음" 과 구분되지 않는다.
+        String resultCode = response.path("header").path("resultCode").asText(null);
+        if (resultCode == null) {
+            resultCode = root.path("resultCode").asText();
+        }
+        if (!SUCCESS_CODES.contains(resultCode)) {
+            // 빈 목록은 이전 값을 유지시키므로 그대로 두면 아무 흔적이 없다 — 왜 안 채워졌는지 남긴다.
+            log.warn("중심 관광지 조회가 실패 코드로 돌아왔습니다 resultCode={}", resultCode);
             return List.of();
         }
         JsonNode itemsNode = response.path("body").path("items");
@@ -97,13 +125,31 @@ class HubAttractionClientImpl implements HubAttractionClient {
         List<HubAttractionItem> parsed = new ArrayList<>();
         // 1건이면 item 이 배열이 아니라 단일 객체다(또 다른 함정).
         if (items.isObject()) {
-            parsed.add(toItem(items));
+            addIfComplete(parsed, items);
             return parsed;
         }
         for (JsonNode item : items) {
-            parsed.add(toItem(item));
+            addIfComplete(parsed, item);
         }
         return parsed;
+    }
+
+    /**
+     * 필수 값이 빠진 항목은 <b>어댑터에서</b> 버린다.
+     *
+     * <p>{@code path(...).asInt()} 는 필드가 없으면 0을, {@code asText()} 는 빈 문자열을 준다. 그대로 넘기면
+     * 한참 뒤 {@code toEntity()} 시점에 {@link IllegalArgumentException} 이 터지는데, 그 자리는 호출자의
+     * {@code catch (TourApiException)} 이 못 잡는 곳이라 <b>이상 데이터 한 건이 89곳 갱신을 통째로 멈춘다.</b>
+     *
+     * <p>스키마가 어긋난 것은 여기서 알아야 할 사건이므로 warn 을 남긴다 — 조용히 버리면 순위에 구멍이 나도 모른다.
+     */
+    private static void addIfComplete(List<HubAttractionItem> parsed, JsonNode node) {
+        HubAttractionItem item = toItem(node);
+        if (!item.isComplete()) {
+            log.warn("중심 관광지 항목에 필수 값이 없어 건너뜁니다 rank={} code={}", item.rank(), item.code());
+            return;
+        }
+        parsed.add(item);
     }
 
     private static HubAttractionItem toItem(JsonNode node) {

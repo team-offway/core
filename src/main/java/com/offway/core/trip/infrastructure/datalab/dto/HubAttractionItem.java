@@ -23,6 +23,20 @@ public record HubAttractionItem(
         Double lat,
         Double lng) {
 
+    /**
+     * 엔티티로 만들 수 있는가 — {@link HubAttraction} 생성자가 요구하는 값이 다 있는지 미리 본다.
+     *
+     * <p>어댑터가 이걸로 걸러야 하는 이유: 여기서 통과시키면 {@link #toEntity} 시점에 예외가 터지는데,
+     * 그 자리는 호출자가 외부 실패로 잡는 경계 밖이라 한 건이 배치 전체를 멈춘다.
+     */
+    public boolean isComplete() {
+        return rank >= 1 && hasText(code) && hasText(name);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
     /** 우리 지역에 붙여 영속 엔티티로. */
     public HubAttraction toEntity(Long regionId, YearMonth baseMonth) {
         return HubAttraction.builder()

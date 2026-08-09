@@ -141,4 +141,44 @@ class HubAttractionClientImplTest {
         // 빈 목록으로 삼키면 "미발행" 과 구분이 안 돼 이전 값을 덮을지 판단할 수 없다.
         assertThrows(TourApiException.class, () -> client("깨진 JSON").findByRegion(GONGJU, MONTH, 30));
     }
+
+    @Test
+    void 오류는_response_래퍼_없이_최상위로_온다() {
+        // 실측: pageNo 를 빠뜨리면 이 모양이 온다. 래퍼만 보면 코드가 빈 문자열이 돼 "결과 없음" 과 구분이 안 된다.
+        String body = """
+                {"responseTime":"2026-08-09T17:24:22.692","resultCode":"11",
+                 "resultMsg":"NO_MANDATORY_REQUEST_PARAMETERS_ERROR1(pageNo)"}""";
+
+        assertTrue(client(body).findByRegion(GONGJU, MONTH, 30).isEmpty());
+    }
+
+    @Test
+    void 법정동_코드가_짧으면_조회불가로_올린다() {
+        // 그냥 두면 substring 이 StringIndexOutOfBounds 를 던지는데, 그건 호출자의 지역별 격리를 뚫고
+        // 올라가 89곳 루프를 통째로 멈춘다. 같은 실패 경로에 태워 그 지역만 건너뛰게 한다.
+        String body = """
+                {"response":{"header":{"resultCode":"0000"},"body":{"items":""}}}""";
+
+        assertThrows(TourApiException.class, () -> client(body).findByRegion("4", MONTH, 30));
+        assertThrows(TourApiException.class, () -> client(body).findByRegion(null, MONTH, 30));
+    }
+
+    @Test
+    void 필수_값이_빠진_항목은_건너뛰고_나머지를_준다() {
+        // path().asInt() 는 없으면 0, asText() 는 빈 문자열을 준다 — 그대로 넘기면 한참 뒤 toEntity() 에서
+        // IllegalArgumentException 이 터지고, 그 자리는 호출자가 외부 실패로 잡는 경계 밖이다.
+        String body = """
+                {"response":{"header":{"resultCode":"0000"},
+                "body":{"items":{"item":[
+                  {"hubTatsCd":"c1","hubTatsNm":"공산성","hubRank":"1"},
+                  {"hubTatsNm":"코드없음","hubRank":"2"},
+                  {"hubTatsCd":"c3","hubRank":"3"},
+                  {"hubTatsCd":"c4","hubTatsNm":"순위없음"}
+                ]}}}}""";
+
+        List<HubAttractionItem> items = client(body).findByRegion(GONGJU, MONTH, 30);
+
+        assertEquals(1, items.size(), "온전한 1건만 남는다");
+        assertEquals("공산성", items.getFirst().name());
+    }
 }
