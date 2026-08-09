@@ -124,7 +124,7 @@ public class CourseGenerationService {
         // 광역 구역 단위 중기예보가 답한다(#129). 부가 정보라 미조회·실패·예보범위 밖인 Day 는 그냥 빈다.
         Map<Integer, DailyWeather> weatherByDay = courseWeatherProvider.byDay(course, region, hub);
 
-        log.info("코스 생성 regionId={} days={} slots={} benefits={} weatherDays={} trainAccess={}",
+        log.debug("코스 생성 regionId={} days={} slots={} benefits={} weatherDays={} trainAccess={}",
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
                 weatherByDay.size(), trainAccess != null ? trainAccess.status() : "N/A");
         return new GeneratedCourse(

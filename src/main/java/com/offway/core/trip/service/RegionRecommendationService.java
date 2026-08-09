@@ -65,7 +65,7 @@ public class RegionRecommendationService {
         List<RegionScore> ranked = regionRankingService.rankByVisitors(reachable);
         List<RegionScore> candidates = ranked.stream().limit(CONTENT_LOOKUP_LIMIT).toList();
         if (ranked.size() > candidates.size()) {
-            log.info("추천 후보 상한 적용 ranked={} → {}건 노출", ranked.size(), candidates.size());
+            log.debug("추천 후보 상한 적용 ranked={} → {}건 노출", ranked.size(), candidates.size());
         }
 
         // 3. 후보별 콘텐츠 부착(TourAPI, 부족 시 50km 확장) + 혜택 조립 — tx 밖 외부 호출
@@ -78,7 +78,7 @@ public class RegionRecommendationService {
 
         // 외부(TourAPI)는 병렬, DB(혜택)는 일괄 — 성격이 다르다. 혜택까지 병렬로 돌리면 후보 수만큼 커넥션을
         // 잡으려 들어 커넥션 풀에서 경합한다. 쿼리 수를 줄이는 게 맞지 스레드를 늘릴 일이 아니다.
-        Map<Long, RegionContent> contents = regionContentProvider.contentForAll(candidateRegions, allRegions, RegionContentProvider.REQUEST_FANOUT_DEADLINE);
+        Map<Long, RegionContent> contents = regionContentProvider.contentForAll(candidateRegions, allRegions, RegionContentProvider.REQUEST_FANOUT_DEADLINE).byRegionId();
         Map<Long, List<Policy>> policiesByRegion = policyService.matchForRegions(
                 candidateRegions.stream().map(Region::getId).toList(), today);
 
@@ -97,7 +97,7 @@ public class RegionRecommendationService {
 
         // 4. 무드 필터 — 해당 카테고리 콘텐츠가 있는 지역을 앞세운다(재정렬). 매칭이 하나도 없으면 랭킹 순 유지(빈 결과 방지, F6)
         List<RecommendedRegion> ordered = RecommendedRegion.orderByMood(result, command.mood());
-        log.info("여행지 추천 reachable={} 노출={} mood={}", reachable.size(), ordered.size(), command.mood());
+        log.debug("여행지 추천 reachable={} 노출={} mood={}", reachable.size(), ordered.size(), command.mood());
         return ordered;
     }
 

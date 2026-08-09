@@ -38,6 +38,9 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
     /** 브라우저가 인증 팝업을 띄우게 하는 challenge. realm 은 팝업에 표시되는 이름이다. */
     private static final String BASIC_CHALLENGE = "Basic realm=\"OffWay\", charset=\"UTF-8\"";
 
+    /** 이 접두어로 시작하는 경로만 우리 API 다. 나머지 401 은 스캐너 소음으로 본다. */
+    private static final String API_PATH_PREFIX = "/api/";
+
     private final ObjectMapper objectMapper;
 
     @Override
@@ -47,7 +50,15 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
         // 게이트를 뚫으려는 시도를 나중에라도 파악할 수 있게 흔적을 남긴다. 사용자명·자격증명은 절대 남기지
         // 않는다 — 오타로 비밀번호가 username 자리에 들어오는 일이 흔하고, 그게 그대로 로그에 박힌다.
         // 레벨은 info 다: 401 은 클라이언트 계약 위반이라 서버 입장에서는 정상 흐름이다(로깅 규약).
-        log.info("인증 실패 — 401 method={} path={}", request.getMethod(), request.getRequestURI());
+        // 우리 API 경로가 아닌 401 은 debug 다. 공인 IP 에 붙은 서버라 /Login·/wp-admin 같은 스캐너가
+        // 쉬지 않고 두드리는데, 그걸 info 로 두면 정작 봐야 할 사용자 요청 로그가 그 사이에 묻힌다.
+        // 우리 엔드포인트를 향한 401 은 진짜 인증 문제일 수 있으므로 그대로 info 로 남긴다.
+        String path = request.getRequestURI();
+        if (path.startsWith(API_PATH_PREFIX)) {
+            log.info("인증 실패 — 401 method={} path={}", request.getMethod(), path);
+        } else {
+            log.debug("인증 실패(비 API 경로) — 401 method={} path={}", request.getMethod(), path);
+        }
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, BASIC_CHALLENGE);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
