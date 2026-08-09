@@ -14,7 +14,7 @@ class RecommendedRegionTest {
     private static RecommendedRegion region(long id, Category... categories) {
         return RecommendedRegion.of(
                 id, "시도", "시군구" + id, 60, CrowdLevel.LOW,
-                new RegionContent(10, null, List.of(categories), false), List.of());
+                new RegionContent(10, null, List.of(categories), false), null, List.of());
     }
 
     private static List<Long> ids(List<RecommendedRegion> regions) {

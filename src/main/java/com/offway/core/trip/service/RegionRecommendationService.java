@@ -40,6 +40,7 @@ public class RegionRecommendationService {
     private final TravelTimeProvider travelTimeProvider;
     private final RegionRankingService regionRankingService;
     private final RegionContentProvider regionContentProvider;
+    private final RegionHeroPhotoProvider regionHeroPhotoProvider;
     private final PolicyService policyService;
 
     public List<RecommendedRegion> recommend(RecommendRegions command) {
@@ -79,8 +80,11 @@ public class RegionRecommendationService {
         // 외부(TourAPI)는 병렬, DB(혜택)는 일괄 — 성격이 다르다. 혜택까지 병렬로 돌리면 후보 수만큼 커넥션을
         // 잡으려 들어 커넥션 풀에서 경합한다. 쿼리 수를 줄이는 게 맞지 스레드를 늘릴 일이 아니다.
         Map<Long, RegionContent> contents = regionContentProvider.contentForAll(candidateRegions, allRegions, RegionContentProvider.REQUEST_FANOUT_DEADLINE).byRegionId();
-        Map<Long, List<Policy>> policiesByRegion = policyService.matchForRegions(
-                candidateRegions.stream().map(Region::getId).toList(), today);
+        List<Long> candidateIds = candidateRegions.stream().map(Region::getId).toList();
+        Map<Long, List<Policy>> policiesByRegion = policyService.matchForRegions(candidateIds, today);
+        // 대표 사진은 DB 만 읽는다(#196) — 외부 호출이 늘지 않는다. 추천 요청에 여행 날짜가 없어 계절 정렬은
+        // 하지 않는다(날짜를 받게 되면 그때 넘긴다).
+        Map<Long, String> heroPhotos = regionHeroPhotoProvider.heroPhotoUrls(candidateIds, null);
 
         List<RecommendedRegion> result = new ArrayList<>();
         for (RegionScore score : candidates) {
@@ -92,7 +96,8 @@ public class RegionRecommendationService {
                             .toList();
             result.add(RecommendedRegion.of(
                     region.getId(), region.getSido(), region.getSigungu(),
-                    reachByRegion.get(region.getId()), score.crowdLevel(), content, benefits));
+                    reachByRegion.get(region.getId()), score.crowdLevel(), content,
+                    heroPhotos.get(region.getId()), benefits));
         }
 
         // 4. 무드 필터 — 해당 카테고리 콘텐츠가 있는 지역을 앞세운다(재정렬). 매칭이 하나도 없으면 랭킹 순 유지(빈 결과 방지, F6)
