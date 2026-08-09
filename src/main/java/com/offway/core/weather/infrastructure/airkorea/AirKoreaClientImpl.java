@@ -27,7 +27,23 @@ class AirKoreaClientImpl implements AirKoreaClient {
 
     private static final String URL =
             "https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getCtprvnRltmMesureDnsty";
-    private static final Duration TIMEOUT = Duration.ofSeconds(6);
+    /**
+     * 호출 상한 — 실측 분포에서 정했다(2026-08-10, 시도 17곳 각 1회).
+     *
+     * <pre>
+     *   성공 13곳  0.082 0.096 0.110 0.121 0.121 0.139 0.145 0.181 0.181 0.186 0.199 0.225 0.283초
+     *   실패  4곳  5.03 · 5.10 · 10.25 · 10.35초 → SERVICETIMEOUT_ERROR (에어코리아 게이트웨이가 스스로 끊는 값)
+     * </pre>
+     *
+     * <p><b>백분위로 정하지 않았다.</b> 표본이 17건뿐이라 p99 를 주장할 수 없다. 대신 분포가 <b>두 무리로
+     * 완전히 갈린다</b> — 성공은 0.28초 안에 다 오고, 그 밖은 5초·10초짜리 게이트웨이 타임아웃이다. 그 사이가
+     * 통째로 비어 있으므로, 상한을 그 골짜기 안에 두면 어디에 두든 성공은 다 잡고 실패는 다 끊는다. 가장 느린
+     * 성공(0.283초)의 다섯 배로 잡아 네트워크가 나쁜 날의 여유까지 뒀다.
+     *
+     * <p>예전 6초는 성공을 잡는 값이 아니라 <b>죽은 시도를 6초 기다리는</b> 값이었다. 홈이 시도 넷을 순차로
+     * 물어 24초 걸린 요청이 실제로 있었다(그래서 대기질을 홈에서 코스로 옮겼다).
+     */
+    private static final Duration TIMEOUT = Duration.ofMillis(1500);
     private static final int ROWS = 100;
 
     private final WebClient webClient;
