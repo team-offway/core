@@ -48,6 +48,9 @@ public class CourseAirQualityProvider {
         if (!course.covers(LocalDate.now(SERVICE_ZONE))) {
             return null;
         }
-        return airQualityService.byRegionSido(region.getSido()).orElse(null);
+        // 워밍이 채워 둔 값만 쓴다 — 요청 경로에서 에어코리아를 직접 부르지 않는다. 실측(102회)에서 그 API 는
+        // 호출의 36%가 실패하고 성공도 p95 가 5.4초라, 어떤 timeout 을 골라도 부르는 순간 사용자가 그 분포를
+        // 떠안는다. 없으면 없는 채로 내린다.
+        return airQualityService.cached(region.getSido()).orElse(null);
     }
 }

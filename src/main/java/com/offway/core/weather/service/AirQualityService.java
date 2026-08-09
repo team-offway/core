@@ -49,6 +49,20 @@ public class AirQualityService {
         }, Optional.empty());
     }
 
+    /**
+     * <b>워밍이 채워 둔 값만</b> 준다 — 없으면 외부를 부르지 않고 빈 Optional.
+     *
+     * <p>요청 경로용이다. 대기질은 부가 정보라 사용자를 기다리게 할 값이 아닌데, 에어코리아는 그 대가가
+     * 특히 크다 — 실측(2026-08-10, 102회)에서 <b>호출의 36%가 실패했고 성공도 p95 가 5.4초</b>였다.
+     * 어떤 timeout 을 골라도 요청 경로에서 부르는 한 사용자가 그 분포를 떠안는다(홈이 24초 걸린 이유).
+     *
+     * <p>워밍이 50분 주기로 시도 전부를 채우고 TTL 이 1시간이라, 정상 상태에서는 늘 값이 있다. 워밍이
+     * 실패한 시도만 빈 채로 나가는데, 그건 "그 지역 대기질을 지금 모른다" 는 사실 그대로다.
+     */
+    public Optional<AirQuality> cached(String sido) {
+        return cache.peek(SidoName.toShort(sido)).orElse(Optional.empty());
+    }
+
     /** 캐시 무효화 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트 격리용. */
     public void evictCache() {
         cache.evictAll();

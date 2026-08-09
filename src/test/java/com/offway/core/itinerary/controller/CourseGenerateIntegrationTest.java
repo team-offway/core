@@ -393,25 +393,21 @@ class CourseGenerateIntegrationTest {
     }
 
     /**
-     * 실시간 대기질은 <b>오늘 여행 중인 코스에만</b> 실린다.
+     * 실시간 대기질은 <b>워밍이 채워 둔 값</b>으로만, <b>오늘 여행 중인 코스에만</b> 실린다.
      *
-     * <p>예전에는 홈 카드마다 시도별로 물었는데, 에어코리아가 느린 시도를 만나면 그 지연을 사용자가 그대로
-     * 물어 홈이 24초 걸렸다(실측 2026-08-10). 실시간 값이 쓸모 있는 자리는 "지금 그 지역에 가 있는" 화면뿐이라
-     * 여기로 옮겼다.
+     * <p>예전에는 홈 카드마다 시도별로 <b>요청 경로에서</b> 물었다. 에어코리아는 실측(2026-08-10, 102회)에서
+     * 호출의 36%가 실패하고 성공도 p95 가 5.4초라, 그 분포를 사용자가 그대로 떠안아 홈이 24초 걸렸다.
+     * 그래서 자리를 코스로 옮기고, 값은 캐시에 있는 것만 쓰게 했다.
      */
     @Test
-    void 오늘_떠나는_코스에는_실시간_대기질이_실린다() throws Exception {
+    void 오늘_떠나는_코스에는_워밍된_대기질이_실린다() throws Exception {
         tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
         weatherClient.respondByDate(date -> Optional.empty());
+        airQualityService.evictCache();
         airKoreaClient.respond(() -> Optional.of(new AirQuality(45, 23, AirGrade.MODERATE)));
-        airQualityService.evictCache(); // 공유 싱글톤 — 앞 테스트가 채운 값이 살아남지 않게
+        airQualityService.byRegionSido(REGION_SIDO); // 워밍 — 요청 경로는 이 값을 읽기만 한다
 
-        String body = """
-                { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
-                  "originLat": 35.10, "originLng": 129.03, "travelDate": "%s" }"""
-                .formatted(LocalDate.now(java.time.ZoneId.of("Asia/Seoul")));
-
-        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(generateBodyOn(today())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.airQuality.pm10").value(45))
                 .andExpect(jsonPath("$.data.airQuality.pm25").value(23))
@@ -419,22 +415,47 @@ class CourseGenerateIntegrationTest {
     }
 
     @Test
-    void 다음주_코스에는_대기질을_묻지도_않는다() throws Exception {
-        // 조회 자체를 안 해야 한다 — 실시간 값이라 여행일에 맞지도 않는데 외부 호출만 붙는다.
-        // stub 이 throw 라, 코스가 오늘을 안 덮는데 물으면 여기서 깨진다.
+    void 다음주_코스에는_워밍된_값이_있어도_대기질을_붙이지_않는다() throws Exception {
+        // 실시간 측정치라 여행일 상태가 아니다. 값이 있어도 붙이면 사용자가 여행일 공기질로 읽는다.
         tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
         weatherClient.respondByDate(date -> Optional.empty());
-        airKoreaClient.respond(() -> {
-            throw new AssertionError("오늘 여행 중이 아닌 코스인데 대기질을 조회했습니다");
-        });
+        airQualityService.evictCache();
+        airKoreaClient.respond(() -> Optional.of(new AirQuality(45, 23, AirGrade.MODERATE)));
+        airQualityService.byRegionSido(REGION_SIDO);
 
-        String body = """
-                { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
-                  "originLat": 35.10, "originLng": 129.03, "travelDate": "%s" }"""
-                .formatted(LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).plusDays(7));
-
-        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(generateBodyOn(today().plusDays(7))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.airQuality").doesNotExist());
+    }
+
+    @Test
+    void 워밍이_비어_있으면_요청_경로가_에어코리아를_부르지_않는다() throws Exception {
+        // 이게 24초의 원인이었다. 캐시가 비면 사용자 요청이 대신 물어 그 지연을 떠안았다.
+        // stub 이 throw 라, 요청 경로가 부르면 여기서 깨진다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
+        weatherClient.respondByDate(date -> Optional.empty());
+        airQualityService.evictCache();
+        airKoreaClient.respond(() -> {
+            throw new AssertionError("요청 경로가 에어코리아를 조회했습니다 — 캐시에 있는 값만 써야 합니다");
+        });
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(generateBodyOn(today())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.airQuality").doesNotExist());
+    }
+
+    /** 지역 1(부산광역시 동구)의 시도 — 대기질은 시도 단위 발표라 워밍 키가 된다. */
+    private static final String REGION_SIDO = "부산광역시";
+
+    private static LocalDate today() {
+        return LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+    }
+
+    private static String generateBodyOn(LocalDate travelDate) {
+        return """
+                { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "%s" }"""
+                .formatted(travelDate);
     }
 }

@@ -28,22 +28,24 @@ class AirKoreaClientImpl implements AirKoreaClient {
     private static final String URL =
             "https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getCtprvnRltmMesureDnsty";
     /**
-     * 호출 상한 — 실측 분포에서 정했다(2026-08-10, 시도 17곳 각 1회).
+     * 호출 상한 — 이제 <b>워밍(배경) 예산</b>이다. 요청 경로는 캐시에 있는 값만 쓰므로 사용자가 이 시간을
+     * 기다리지 않는다({@code AirQualityService#cached}).
+     *
+     * <p>실측(2026-08-10, 시도 17곳 × 6회 = 102건)이 이 API 의 성격을 보여준다.
      *
      * <pre>
-     *   성공 13곳  0.082 0.096 0.110 0.121 0.121 0.139 0.145 0.181 0.181 0.186 0.199 0.225 0.283초
-     *   실패  4곳  5.03 · 5.10 · 10.25 · 10.35초 → SERVICETIMEOUT_ERROR (에어코리아 게이트웨이가 스스로 끊는 값)
+     *   성공 65건  p50 0.157 · p90 2.74 · p95 5.42 · max 30.0초
+     *   실패 37건  5.0~12.8초 → SERVICETIMEOUT_ERROR   (실패율 36%)
      * </pre>
      *
-     * <p><b>백분위로 정하지 않았다.</b> 표본이 17건뿐이라 p99 를 주장할 수 없다. 대신 분포가 <b>두 무리로
-     * 완전히 갈린다</b> — 성공은 0.28초 안에 다 오고, 그 밖은 5초·10초짜리 게이트웨이 타임아웃이다. 그 사이가
-     * 통째로 비어 있으므로, 상한을 그 골짜기 안에 두면 어디에 두든 성공은 다 잡고 실패는 다 끊는다. 가장 느린
-     * 성공(0.283초)의 다섯 배로 잡아 네트워크가 나쁜 날의 여유까지 뒀다.
+     * <p><b>처음엔 17건만 재고 1.5초로 줄이려 했다.</b> 그 표본에서는 성공이 전부 0.3초 안에 왔고 실패는
+     * 5초·10초라 "분포가 두 무리로 갈린다" 고 봤는데, 표본을 여섯 배로 늘리자 성공이 30초까지 퍼졌다.
+     * 1.5초로 잘랐다면 <b>성공 응답의 15%를 죽였을</b> 것이다(규약의 "분포 안쪽을 자르면 간헐 실패가 된다").
      *
-     * <p>예전 6초는 성공을 잡는 값이 아니라 <b>죽은 시도를 6초 기다리는</b> 값이었다. 홈이 시도 넷을 순차로
-     * 물어 24초 걸린 요청이 실제로 있었다(그래서 대기질을 홈에서 코스로 옮겼다).
+     * <p>그래서 상한을 줄이는 대신 <b>요청 경로에서 이 호출을 뺐다.</b> 이만큼 흔들리는 API 는 어떤 값을
+     * 골라도 사용자가 기다릴 값이 못 된다. 6초는 성공의 약 95%를 잡는 배경 예산으로 남긴다.
      */
-    private static final Duration TIMEOUT = Duration.ofMillis(1500);
+    private static final Duration TIMEOUT = Duration.ofSeconds(6);
     private static final int ROWS = 100;
 
     private final WebClient webClient;

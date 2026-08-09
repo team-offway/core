@@ -53,9 +53,13 @@ public class HomeService {
         List<RegionScore> top = ranked.stream().limit(HOME_REGION_LIMIT).toList();
         List<Region> topRegions = top.stream().map(score -> regionById.get(score.regionId())).toList();
 
-        // 이 메서드는 이제 외부를 하나도 부르지 않는다 — 전부 DB 다. 예전에는 카드마다 시도별 대기질을
-        // 여기서 채웠는데, 에어코리아가 느린 시도를 만나면 그 지연을 사용자가 그대로 물어 홈이 24초 걸렸다.
-        // 실시간 대기질이 필요한 자리는 "지금 그 지역에 가 있는" 화면뿐이라 코스로 옮겼다.
+        // 정상 상태에서는 외부를 부르지 않는다 — 콘텐츠·대표사진·혜택이 전부 DB 다. 예전에는 카드마다
+        // 시도별 대기질을 여기서 채웠는데, 에어코리아가 느린 시도를 만나면 그 지연을 사용자가 그대로 물어
+        // 홈이 24초 걸렸다. 실시간 대기질이 필요한 자리는 "지금 그 지역에 가 있는" 화면뿐이라 코스로 옮겼다.
+        //
+        // "하나도 안 부른다" 는 아니다 — 방문자 집계가 <b>통째로 비어 있으면</b> 랭킹이 최초 적재를 한 번
+        // 시도한다(RegionRankingService.stored). 빈 환경에서만 걸리는 길이고 single-flight 로 묶여 있으며
+        // 실패해도 빈 가중치로 진행한다. 배포마다 되풀이되던 팬아웃과는 성격이 다르다.
         List<Long> topRegionIdsForContent = topRegions.stream().map(Region::getId).toList();
         // 저장된 값만 읽는다(#193) — 요청 경로에서 89곳 팬아웃을 돌리지 않는다.
         Map<Long, RegionContent> contents = regionContentProvider.storedForAll(topRegionIdsForContent);
