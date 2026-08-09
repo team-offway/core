@@ -7,6 +7,7 @@ import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.TimeOfDay;
+import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -25,6 +26,8 @@ import java.util.List;
  * @param regionId 코스 지역
  * @param density 일정 밀도
  * @param transport 이동수단
+ * @param originLat 출발지 위도(대중교통 열차 접근 재계산용, 없으면 null)
+ * @param originLng 출발지 경도(없으면 null)
  * @param days 날짜별 일정(최소 1일)
  */
 public record CourseSaveRequest(
@@ -46,6 +49,14 @@ public record CourseSaveRequest(
                 @Min(1)
                 @Max(Course.MAX_TRAVEL_DAYS)
                 Integer travelDays,
+        @Schema(
+                        description = "출발지 위도. 대중교통 코스는 이 값이 있어야 저장 후에도 열차 접근이 나온다 "
+                                + "(생성 요청에 보낸 값을 그대로 돌려주면 된다). 자차 코스는 필요 없다.",
+                        example = "37.5665",
+                        nullable = true)
+                Double originLat,
+        @Schema(description = "출발지 경도. originLat 와 짝.", example = "126.9780", nullable = true)
+                Double originLng,
         @NotEmpty @Valid List<Day> days) {
 
     /**
@@ -60,7 +71,11 @@ public record CourseSaveRequest(
             // 기간을 안 보낸 클라이언트는 담아 보낸 날 수로 본다 — 이 필드가 생기기 전과 같은 동작이라
             // 기존 연동이 깨지지 않는다. 그 경우 첫날이 빠진 코스는 종료일이 하루 이른 채로 남는다(#164).
             int span = travelDays != null ? travelDays : schedules.size();
-            return Course.ownedBy(guestId, regionId, density, transport, schedules, travelDate, span);
+            // 출발지는 둘 다 있어야 좌표가 된다 — 한쪽만 오면 없는 것으로 본다.
+            Coordinate origin = originLat != null && originLng != null
+                    ? new Coordinate(originLat, originLng)
+                    : null;
+            return Course.ownedBy(guestId, regionId, density, transport, schedules, travelDate, span, origin);
         } catch (IllegalArgumentException e) {
             throw ItineraryException.invalidCourse();
         }
