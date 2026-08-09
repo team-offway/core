@@ -432,6 +432,19 @@ class CourseStorageIntegrationTest {
     }
 
     @Test
+    void 출발지_좌표가_한쪽만_오면_400이다() throws Exception {
+        // 조용히 버리면 클라이언트는 출발지를 보냈다고 여기는데 저장 코스에서 열차 접근이 빈다.
+        // Day 날짜(#180)에서 시작일 없이 날짜만 온 요청을 거절한 것과 같은 판단이다.
+        String latOnly = transitBody(false).replace("\"travelDate\": \"2026-09-11\",",
+                "\"travelDate\": \"2026-09-11\", \"originLat\": 37.5547,");
+
+        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest())
+                        .contentType(MediaType.APPLICATION_JSON).content(latOnly))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    @Test
     void 자차_코스는_출발지가_있어도_열차_접근이_없다() throws Exception {
         // 자차는 열차 접근이 개념적으로 없다.
         trainArrives();

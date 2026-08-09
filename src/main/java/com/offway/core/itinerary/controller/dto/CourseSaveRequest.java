@@ -71,10 +71,13 @@ public record CourseSaveRequest(
             // 기간을 안 보낸 클라이언트는 담아 보낸 날 수로 본다 — 이 필드가 생기기 전과 같은 동작이라
             // 기존 연동이 깨지지 않는다. 그 경우 첫날이 빠진 코스는 종료일이 하루 이른 채로 남는다(#164).
             int span = travelDays != null ? travelDays : schedules.size();
-            // 출발지는 둘 다 있어야 좌표가 된다 — 한쪽만 오면 없는 것으로 본다.
-            Coordinate origin = originLat != null && originLng != null
-                    ? new Coordinate(originLat, originLng)
-                    : null;
+            // 출발지는 위도·경도가 함께여야 좌표가 된다. 한쪽만 오면 조용히 버리지 않고 거절한다 —
+            // 클라이언트는 출발지를 보냈다고 여기는데 저장 코스에서 열차 접근이 비고, 그 이유를 알 수 없다.
+            // Day 날짜(#180)에서 시작일 없이 날짜만 온 요청을 거절한 것과 같은 판단이다.
+            if ((originLat == null) != (originLng == null)) {
+                throw new IllegalArgumentException("출발지는 위도·경도를 함께 보내야 합니다");
+            }
+            Coordinate origin = originLat == null ? null : new Coordinate(originLat, originLng);
             return Course.ownedBy(guestId, regionId, density, transport, schedules, travelDate, span, origin);
         } catch (IllegalArgumentException e) {
             throw ItineraryException.invalidCourse();
