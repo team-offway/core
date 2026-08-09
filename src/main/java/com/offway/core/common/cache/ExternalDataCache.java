@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -185,6 +186,25 @@ public final class ExternalDataCache<K, V> {
             log.warn("첫 적재 대기가 중단됐습니다 — 폴백으로 degrade key={}", key);
         }
         return stalePolicy.degrade(null, noStaleFallback);
+    }
+
+    /**
+     * <b>적재하지 않고</b> 신선한 값만 꺼낸다 — 없으면 빈 Optional.
+     *
+     * <p>요청 경로가 외부를 물지 않아야 하는 값에 쓴다. {@link #get} 은 없으면 loader 를 돌려 사용자를
+     * 기다리게 하는데, <b>부가 정보</b>는 그럴 값이 아니다. 없으면 그냥 없는 채로 내리고, 채우는 일은 워밍에
+     * 맡긴다.
+     *
+     * <p>실제로 그 차이가 컸다. 에어코리아를 요청 경로에서 부르던 때 홈이 24초 걸렸고, 실측(2026-08-10,
+     * 102회)에서 그 API 는 <b>호출의 36%가 실패하고 성공도 p95 가 5.4초</b>였다. 어떤 timeout 을 골라도
+     * 요청 경로에서 부르는 한 사용자가 그 분포를 떠안는다.
+     *
+     * <p>만료된 값은 주지 않는다. 워밍 주기가 TTL 보다 짧으면 정상 상태에서 늘 신선하고, 워밍이 실패해
+     * 만료됐다면 "값이 없다" 가 사실에 가깝다.
+     */
+    public Optional<V> peek(K key) {
+        Entry<V> cached = cache.get(key);
+        return cached != null && cached.isFresh() ? Optional.ofNullable(cached.value()) : Optional.empty();
     }
 
     /** 캐시 무효화 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트 격리용. */

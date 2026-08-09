@@ -41,15 +41,23 @@ public class CourseStorageService {
     private final PolicyService policyService;
     private final RegionRepository regionRepository;
     private final CourseWeatherProvider courseWeatherProvider;
+    private final CourseAirQualityProvider courseAirQualityProvider;
     private final CoursePersistenceService coursePersistenceService;
     private final MyLeaveService myLeaveService;
     private final TrainAccessService trainAccessService;
 
     /** 이미 조립된 게스트 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
-    @Transactional
     public GeneratedCourse save(Course course) {
-        // 저장 응답은 트랜잭션 안이라 외부 호출을 붙이지 않는다 — 클라이언트는 방금 생성 응답에서 받은 값을 갖고 있다.
-        return withBenefits(courseRepository.save(course), false);
+        // 저장만 트랜잭션 안에서 한다(별도 빈이라 프록시를 탄다) — 조회 경로(get)와 같은 모양이다.
+        //
+        // 예전에는 이 메서드가 통째로 @Transactional 이었고, "트랜잭션 안이라 외부를 안 붙인다" 는 이유로
+        // 열차 접근만 껐다. 그런데 같은 조립 안에 날씨가 있어, 실제로는 커넥션을 잡은 채 기상청을 Day 수만큼
+        // 기다리고 있었다(실측 1.15초 × 3). 경계를 옮겨 조립 전체를 트랜잭션 밖으로 뺀다.
+        //
+        // 열차 접근은 여전히 붙이지 않는다 — 트랜잭션과 무관하게, 클라이언트가 방금 생성 응답에서 받은
+        // 값을 갖고 있어 다시 줄 이유가 없다(#187).
+        Course saved = coursePersistenceService.persist(course);
+        return withBenefits(saved, false);
     }
 
     /**
@@ -164,7 +172,9 @@ public class CourseStorageService {
         Map<Integer, DailyWeather> weatherByDay =
                 courseWeatherProvider.byDay(course, region, course.center().orElse(null));
         TrainAccess trainAccess = withTrainAccess ? trainAccessFor(course, region) : null;
+        // 생성 응답에만 붙고 상세 조회에는 없으면 저장한 코스에서 값이 사라진다(#169 와 같은 실수).
         return new GeneratedCourse(
-                course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu());
+                course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
+                courseAirQualityProvider.of(course, region));
     }
 }

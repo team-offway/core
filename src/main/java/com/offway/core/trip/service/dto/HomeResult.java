@@ -4,7 +4,6 @@ import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
-import com.offway.core.weather.domain.AirQuality;
 import java.util.List;
 
 /**
@@ -25,7 +24,6 @@ public record HomeResult(Double remainingLeaveDays, List<RegionCard> regions) {
      * @param imageUrl 대표 이미지 URL(없으면 null)
      * @param categories 볼거리 카테고리
      * @param benefit 대표 혜택(없으면 null)
-     * @param airQuality 지역 시도 실시간 대기질(없으면 null — 부가 정보라 실패해도 카드는 나온다)
      */
     public record RegionCard(
             long regionId,
@@ -34,11 +32,10 @@ public record HomeResult(Double remainingLeaveDays, List<RegionCard> regions) {
             CrowdLevel crowdLevel,
             String imageUrl,
             List<Category> categories,
-            Benefit benefit,
-            AirQuality airQuality) {
+            Benefit benefit) {
 
         /**
-         * 랭킹·혜택에 지역 콘텐츠(이미지·categories)와 실시간 대기질을 얹어 카드를 만든다.
+         * 랭킹·혜택에 지역 콘텐츠(이미지·categories)를 얹어 카드를 만든다.
          *
          * <p><b>대표 사진은 사다리로 고른다</b>(#196) — 중심 관광지 × 관광사진 갤러리가 먼저고, 못 고르면
          * TourAPI 표본의 이미지로 내려간다. 둘 다 없으면 null 이고 자리표시자는 FE 가 그린다.
@@ -52,8 +49,7 @@ public record HomeResult(Double remainingLeaveDays, List<RegionCard> regions) {
                 CrowdLevel crowdLevel,
                 RegionContent content,
                 String heroPhotoUrl,
-                Benefit benefit,
-                AirQuality airQuality) {
+                Benefit benefit) {
             return new RegionCard(
                     regionId,
                     sido,
@@ -61,8 +57,7 @@ public record HomeResult(Double remainingLeaveDays, List<RegionCard> regions) {
                     crowdLevel,
                     heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl(),
                     content.categories(),
-                    benefit,
-                    airQuality);
+                    benefit);
         }
     }
 
