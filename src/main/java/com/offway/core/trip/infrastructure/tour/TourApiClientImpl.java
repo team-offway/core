@@ -258,7 +258,11 @@ class TourApiClientImpl implements TourApiClient {
         if (node == null) {
             return Optional.empty();
         }
-        return Optional.of(new TourIntro(contentId, firstText(node, USE_TIME_FIELDS), firstText(node, REST_DATE_FIELDS)));
+        // 운영시간·휴무일에 <br> 이 줄 구분으로 들어온다(실측) — 매핑 시점에 정제해 화면이 그대로 쓰게 한다(#174).
+        return Optional.of(new TourIntro(
+                contentId,
+                TourText.clean(firstText(node, USE_TIME_FIELDS)),
+                TourText.clean(firstText(node, REST_DATE_FIELDS))));
     }
 
     private Optional<TourPoiDetail> parseDetail(String body) throws Exception {
@@ -273,16 +277,17 @@ class TourApiClientImpl implements TourApiClient {
         if (node == null) {
             return Optional.empty();
         }
+        // 화면에 그대로 나가는 텍스트만 정제한다 — 이미지 URL·좌표는 손대지 않는다(#174).
         return Optional.of(new TourPoiDetail(
                 emptyToNull(text(node, "contentid")),
                 intOrNull(node, "contenttypeid"),
-                emptyToNull(text(node, "title")),
-                emptyToNull(text(node, "addr1")),
-                emptyToNull(text(node, "tel")),
+                TourText.clean(text(node, "title")),
+                TourText.clean(text(node, "addr1")),
+                TourText.clean(text(node, "tel")),
                 doubleOrNull(node, "mapy"),
                 doubleOrNull(node, "mapx"),
                 emptyToNull(text(node, "firstimage")),
-                emptyToNull(text(node, "overview"))));
+                TourText.clean(text(node, "overview"))));
     }
 
     private Optional<TourAccessibility> parseAccessibility(String body, String contentId) throws Exception {
