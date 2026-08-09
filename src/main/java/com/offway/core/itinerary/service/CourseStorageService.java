@@ -1,25 +1,28 @@
 package com.offway.core.itinerary.service;
 
+import com.offway.core.common.response.Paging;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseScope;
-import com.offway.core.itinerary.service.dto.MyCourses;
-import com.offway.core.leave.service.MyLeaveService;
-import java.time.LocalDate;
-import java.time.ZoneId;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
+import com.offway.core.itinerary.service.dto.MyCourses;
+import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.policy.service.PolicyService;
-import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.region.domain.Region;
+import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.transport.service.dto.TrainAccess;
+import com.offway.core.transport.domain.TransportMode;
+import com.offway.core.transport.service.TrainAccessService;
+import com.offway.core.weather.domain.DailyWeather;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,25 +43,44 @@ public class CourseStorageService {
     private final CourseWeatherProvider courseWeatherProvider;
     private final CoursePersistenceService coursePersistenceService;
     private final MyLeaveService myLeaveService;
+    private final TrainAccessService trainAccessService;
 
     /** 이미 조립된 게스트 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
     @Transactional
     public GeneratedCourse save(Course course) {
-        return withBenefits(courseRepository.save(course));
+        // 저장 응답은 트랜잭션 안이라 외부 호출을 붙이지 않는다 — 클라이언트는 방금 생성 응답에서 받은 값을 갖고 있다.
+        return withBenefits(courseRepository.save(course), false);
     }
 
     /**
-     * 게스트의 저장 코스 목록 — 보는 범위({@link CourseScope})에 따라 다가오는 여행 · 지난 여행 · 전부.
+     * 게스트의 저장 코스 <b>한 페이지</b> — 보는 범위({@link CourseScope})에 따라 다가오는 여행 · 지난 여행 · 전부.
      *
      * <p>어느 코스를 연차 차감했는지 함께 준다. 화면이 "확정함" 을 표시하려면 필요한데, <b>코스마다 물으면 코스 수만큼
      * 쿼리가 늘어난다</b> — 한 번에 모아 온다.
+     *
+     * <p><b>페이지로 끊는 이유</b>(#105). 코스 하나가 애그리거트({@code DaySchedule}→{@code Slot})를 통째로
+     * 끌고 오므로, 코스가 쌓이면 목록 요청 한 번이 수백~수천 행을 힙에 올린다. 기본값·상한은 {@link Paging} 이 소유한다.
      */
     @Transactional(readOnly = true)
-    public MyCourses myCourses(String guestId, CourseScope scope) {
+    public MyCourses myCourses(String guestId, CourseScope scope, Integer page, Integer size) {
+        LocalDate today = LocalDate.now(SERVICE_ZONE);
+        Page<Course> found = scope.find(courseRepository, guestId, today, Paging.of(page, size));
+        List<Course> courses = found.getContent();
+        courses.forEach(Course::totalSlots); // 응답 직렬화는 tx 밖 — 애그리거트(days·slots)를 여기서 초기화
+        return MyCourses.from(found, myLeaveService.deductedCourseIds(guestId), regionNamesOf(courses), today);
+    }
+
+    /**
+     * 범위 안의 코스 <b>전부</b> — 서버 안에서 더 걸러 쓰는 호출자용(지난 여행 확인 등).
+     *
+     * <p>응답으로 그대로 나가는 길이 아니다. 화면에 내리는 목록은 {@link #myCourses} 로 페이지를 끊는다.
+     */
+    @Transactional(readOnly = true)
+    public MyCourses allCourses(String guestId, CourseScope scope) {
         LocalDate today = LocalDate.now(SERVICE_ZONE);
         List<Course> courses = scope.find(courseRepository, guestId, today);
-        courses.forEach(Course::totalSlots); // 응답 직렬화는 tx 밖 — 애그리거트(days·slots)를 여기서 초기화
-        return new MyCourses(courses, myLeaveService.deductedCourseIds(guestId), regionNamesOf(courses), today);
+        courses.forEach(Course::totalSlots);
+        return MyCourses.all(courses, myLeaveService.deductedCourseIds(guestId), regionNamesOf(courses), today);
     }
 
     /**
@@ -68,7 +90,29 @@ public class CourseStorageService {
     public GeneratedCourse get(String guestId, long courseId) {
         // 로딩만 트랜잭션 안에서 한다(별도 빈이라 프록시를 탄다). 날씨는 외부 호출이라 밖에서 붙인다(#169).
         Course course = coursePersistenceService.loadOwned(guestId, courseId);
-        return withBenefits(course);
+        return withBenefits(course, true);
+    }
+
+    /**
+     * 저장 코스의 열차 접근을 <b>다시 계산</b>한다(#187) — 생성 때만 실리고 저장하면 사라지던 값이다.
+     *
+     * <p><b>결과가 아니라 입력(출발지)을 저장해 두고 여기서 계산한다.</b> 열차 시간표는 바뀌므로 생성 시점의
+     * 시간을 그대로 보관하면 한 달 뒤 여행에서 낡은 시간을 보여주게 되고, 그건 없는 것보다 나쁘다.
+     *
+     * <p><b>상세 조회에서만 부른다.</b> 목록({@link #myCourses})에서 하면 코스 수만큼 외부 호출이 붙고,
+     * 저장 응답은 트랜잭션 안이라 외부를 부르면 커넥션을 오래 잡는다(영속성 규약).
+     *
+     * @return 열차 접근. 자차 코스·출발지 없음·지역 좌표 없음이면 null(오류가 아니다)
+     */
+    private TrainAccess trainAccessFor(Course course, Region region) {
+        if (course.getTransport() != TransportMode.TRANSIT || region == null) {
+            return null;
+        }
+        // 이 필드가 생기기 전에 저장된 코스는 근거가 없다. 지어내지 않는다.
+        return course.origin()
+                .map(origin -> trainAccessService.accessTo(
+                        origin.lat(), origin.lng(), region.getLat(), region.getLng(), course.getTravelDate()))
+                .orElse(null);
     }
 
     /**
@@ -106,7 +150,7 @@ public class CourseStorageService {
                 .collect(Collectors.toMap(Region::getId, Region::getSigungu, (a, b) -> a));
     }
 
-    private GeneratedCourse withBenefits(Course course) {
+    private GeneratedCourse withBenefits(Course course, boolean withTrainAccess) {
         List<GeneratedCourse.Benefit> benefits = policyService.matchForRegion(course.getRegionId(), LocalDate.now())
                 .stream()
                 .map(policy -> new GeneratedCourse.Benefit(policy.getId(), policy.getType(), policy.badgeText()))
@@ -119,7 +163,8 @@ public class CourseStorageService {
         // 날짜를 안 넣고 저장한 코스는 물어볼 기준이 없어 그대로 빈다.
         Map<Integer, DailyWeather> weatherByDay =
                 courseWeatherProvider.byDay(course, region, course.center().orElse(null));
+        TrainAccess trainAccess = withTrainAccess ? trainAccessFor(course, region) : null;
         return new GeneratedCourse(
-                course, benefits, weatherByDay, null, region == null ? null : region.getSigungu());
+                course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu());
     }
 }

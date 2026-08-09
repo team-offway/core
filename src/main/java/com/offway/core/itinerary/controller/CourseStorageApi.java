@@ -21,7 +21,9 @@ public interface CourseStorageApi {
 
     @Operation(summary = "코스 저장", description = "생성한 코스를 게스트의 '내 코스'로 저장한다.")
     @ApiResponse(responseCode = "201", description = "저장 성공")
-    @ApiResponse(responseCode = "400", description = "게스트 ID 누락 · 코스 구성 오류(순서·좌표 등)")
+    @ApiResponse(
+            responseCode = "400",
+            description = "게스트 ID 누락 · 코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음")
     ApiResponseBody<CourseResponse> save(
             @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId, CourseSaveRequest request);
 
@@ -37,12 +39,17 @@ public interface CourseStorageApi {
                     각 항목은 `dDay`(오늘 기준 남은 날, 지난 여행이면 음수)와 `leaveDeducted`(연차 차감 여부)를 함께 준다.
 
                     **여행 날짜 없이 저장된 코스는 `ALL` 에만 나온다** — 날짜가 없으면 다가오는 여행인지 지난 여행인지
-                    판단할 근거가 없고, 아무 쪽에나 끼워 넣으면 화면이 조용히 거짓말을 한다.""")
-    @ApiResponse(responseCode = "200", description = "조회 성공(없으면 빈 목록)")
-    @ApiResponse(responseCode = "400", description = "게스트 ID 누락, 또는 scope 가 UPCOMING·PAST·ALL 이 아님")
+                    판단할 근거가 없고, 아무 쪽에나 끼워 넣으면 화면이 조용히 거짓말을 한다.
+
+                    **페이지로 끊어 준다.** 전체 건수·페이지 수는 응답 래퍼의 `pageResponse` 에 담긴다.
+                    `size` 는 최대 100 이며, 넘겨 보내면 거절하지 않고 100 으로 자른다 — 목록이 통째로 비는 것보다 낫다.""")
+    @ApiResponse(responseCode = "200", description = "조회 성공(없으면 빈 목록). 페이지 정보는 pageResponse")
+    @ApiResponse(responseCode = "400", description = "게스트 ID 누락, scope 가 UPCOMING·PAST·ALL 이 아님, 또는 page·size 가 정수가 아님")
     ApiResponseBody<List<CourseSummaryResponse>> myCourses(
             @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
-            @Parameter(description = "보는 범위", example = "UPCOMING") CourseScope scope);
+            @Parameter(description = "보는 범위", example = "UPCOMING") CourseScope scope,
+            @Parameter(description = "0부터 시작하는 페이지 번호. 없으면 0, 음수는 0 으로 자른다", example = "0") Integer page,
+            @Parameter(description = "페이지 크기. 없으면 20, 최대 100(초과분은 잘림)", example = "20") Integer size);
 
     @Operation(summary = "코스 상세", description = "저장 코스의 날짜별 타임라인과 혜택.")
     @ApiResponse(responseCode = "200", description = "조회 성공")

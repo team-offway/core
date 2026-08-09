@@ -1,0 +1,33 @@
+package com.offway.core.trip.repository;
+
+import com.offway.core.trip.domain.HubAttraction;
+import java.time.YearMonth;
+import java.util.List;
+
+/** 중심 관광지 영속 port. 구현은 {@link HubAttractionRepositoryImpl}. */
+public interface HubAttractionRepository {
+
+    /** 한 지역의 중심 관광지(순위 오름차순). */
+    List<HubAttraction> findByRegionId(Long regionId);
+
+    /** 여러 지역을 한 번에 — 목록 화면이 지역마다 묻지 않게(N+1 방지). */
+    List<HubAttraction> findByRegionIds(List<Long> regionIds);
+
+    /**
+     * 한 지역의 중심 관광지를 통째로 <b>교체</b>한다.
+     *
+     * <p>부분 갱신하지 않는다 — 순위는 달마다 새로 매겨지므로, 옛 달의 항목이 남으면 순위가 중복되거나
+     * 사라진 곳이 계속 보인다.
+     */
+    void replaceRegion(Long regionId, List<HubAttraction> attractions);
+
+    /**
+     * 주어진 지역 중 {@code month} 이상 데이터를 <b>가진</b> 지역 수.
+     *
+     * <p>한 지역만 보고 "최신" 을 판단하면, 앞선 갱신에서 그 지역만 성공하고 나머지가 실패한 경우 다음
+     * 스케줄이 전체를 건너뛴다 — 실패한 지역은 영영 재시도되지 않는다. 전체 수와 비교해야 그 함정을 피한다.
+     */
+    long countRegionsWithMonthAtLeast(List<Long> regionIds, YearMonth month);
+
+    long count();
+}

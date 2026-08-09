@@ -52,7 +52,15 @@ public class Course {
     @Column(name = "region_id", nullable = false)
     private Long regionId;
 
-    /** 여행 일수(1~3) — 하루 일정 수에서 도출된다. */
+    /**
+     * 여행 기간(1~3) — <b>달력으로 며칠짜리 여행인지</b>. 2박3일이면 3이다.
+     *
+     * <p><b>일정이 있는 날의 수가 아니다.</b> 예전에는 {@code days.size()} 를 넣었는데, 일정이 없는 날은 코스에서
+     * 빠지므로(#159) 첫날이 이동만 있는 여행에서 이 값이 실제 기간보다 짧아졌다. 그러면 {@link #travelEndDate()}
+     * 가 하루 이르게 나오고, 그 종료일로 <b>연차가 하루 덜 차감됐다</b>(#164).
+     *
+     * <p>표시 일수가 필요하면 {@code days.size()} 로 그때 세면 된다 — 저장할 이유가 없는 파생값이다.
+     */
     @Column(name = "travel_days", nullable = false)
     private int travelDays;
 
@@ -73,6 +81,21 @@ public class Course {
     @Column(name = "travel_date")
     private LocalDate travelDate;
 
+    /**
+     * 출발지 위도 — 대중교통 열차 접근을 <b>다시 계산</b>하려고 둔다(#187).
+     *
+     * <p>계산 결과가 아니라 입력을 저장한다. 열차 시간표는 바뀌므로 생성 시점의 시간을 그대로 보관하면
+     * 한 달 뒤 여행에서 낡은 시간을 보여주게 되고, 그건 없는 것보다 나쁘다.
+     *
+     * <p>이 필드가 생기기 전 코스와 자차 코스는 null 이다.
+     */
+    @Column(name = "origin_lat")
+    private Double originLat;
+
+    /** 출발지 경도 — {@link #originLat} 와 짝. */
+    @Column(name = "origin_lng")
+    private Double originLng;
+
     /** 소유 게스트 ID(저장된 코스만) — 로그인 전이라 클라이언트 게스트 식별자로 "내 코스"를 묶는다. 생성만 된 코스는 null. */
     @Column(name = "guest_id", length = MAX_GUEST_ID_LENGTH)
     private String guestId;
@@ -91,7 +114,10 @@ public class Course {
             Density density,
             TransportMode transport,
             List<DaySchedule> days,
-            LocalDate travelDate) {
+            LocalDate travelDate,
+            int travelDays,
+            Double originLat,
+            Double originLng) {
         if (days == null || days.isEmpty()) {
             throw new IllegalArgumentException("코스에는 하루 이상이 있어야 합니다");
         }
@@ -99,13 +125,17 @@ public class Course {
             throw new IllegalArgumentException("코스는 최대 " + MAX_TRAVEL_DAYS + "일까지입니다: " + days.size());
         }
         requireSequentialDays(days);
+        requireIncreasingOffsets(days);
+        requireSpanCovers(days, travelDays);
         this.guestId = guestId;
         this.regionId = Objects.requireNonNull(regionId, "지역 ID는 필수입니다");
         this.density = Objects.requireNonNull(density, "일정 밀도는 필수입니다");
         this.transport = Objects.requireNonNull(transport, "이동수단은 필수입니다");
         this.days = List.copyOf(days);
-        this.travelDays = days.size();
+        this.travelDays = travelDays;
         this.travelDate = travelDate;
+        this.originLat = originLat;
+        this.originLng = originLng;
     }
 
     /**
@@ -115,18 +145,29 @@ public class Course {
      * 그 근거가 여기서 끊기면 생성 응답의 날짜가 통째로 빈다(#141).
      */
     public static Course of(
-            Long regionId, Density density, TransportMode transport, List<DaySchedule> days, LocalDate travelDate) {
-        return new Course(null, regionId, density, transport, days, travelDate);
+            Long regionId,
+            Density density,
+            TransportMode transport,
+            List<DaySchedule> days,
+            LocalDate travelDate,
+            int travelDays) {
+        return new Course(null, regionId, density, transport, days, travelDate, travelDays, null, null);
     }
 
-    /** 게스트 소유로 코스를 만든다(저장용). 게스트 ID 는 공백일 수 없고 길이 상한을 넘지 않는다(빈 값이면 모든 요청이 한 묶음을 공유). */
+    /**
+     * 게스트 소유로 코스를 만든다(저장용). 게스트 ID 는 공백일 수 없고 길이 상한을 넘지 않는다(빈 값이면 모든 요청이 한 묶음을 공유).
+     *
+     * @param origin 출발지. 대중교통 열차 접근을 다시 계산하는 근거다(#187). 모르면 null
+     */
     public static Course ownedBy(
             String guestId,
             Long regionId,
             Density density,
             TransportMode transport,
             List<DaySchedule> days,
-            LocalDate travelDate) {
+            LocalDate travelDate,
+            int travelDays,
+            Coordinate origin) {
         Objects.requireNonNull(guestId, "게스트 ID는 필수입니다");
         if (guestId.isBlank()) {
             throw new IllegalArgumentException("게스트 ID는 비어 있을 수 없습니다");
@@ -134,21 +175,35 @@ public class Course {
         if (guestId.length() > MAX_GUEST_ID_LENGTH) {
             throw new IllegalArgumentException("게스트 ID가 너무 깁니다: " + guestId.length());
         }
-        return new Course(guestId, regionId, density, transport, days, travelDate);
+        return new Course(guestId, regionId, density, transport, days, travelDate, travelDays,
+                origin == null ? null : origin.lat(), origin == null ? null : origin.lng());
     }
 
     /**
-     * 여행 종료일 — 시작일에서 일수만큼. 1박2일이면 시작일 다음 날이다.
+     * 저장된 출발지 — 대중교통 열차 접근을 다시 계산할 근거.
+     *
+     * @return 출발지. 자차 코스이거나 이 필드가 생기기 전에 저장된 코스면 empty
+     */
+    public Optional<Coordinate> origin() {
+        if (originLat == null || originLng == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new Coordinate(originLat, originLng));
+    }
+
+    /**
+     * 여행 종료일 — 시작일에서 기간만큼. 1박2일이면 시작일 다음 날이다.
      *
      * <p>날짜가 없는 코스에서는 부를 수 없다. 부재가 계약(400)이라 {@link #requireTravelDate()} 로 먼저 거른다.
+     *
+     * <p><b>{@code days} 컬렉션을 보지 않는다.</b> {@code @OneToMany} 가 LAZY 라 트랜잭션 밖에서 건드리면
+     * 터지는데, 연차 차감 경로가 코스를 조회한 뒤 트랜잭션 밖에서 종료일을 묻는다. 기간을 컬럼으로 들고 있는
+     * 이유가 이것이다(#164).
      */
     public LocalDate travelEndDate() {
         if (travelDate == null) {
             throw new IllegalStateException("여행 날짜가 없는 코스의 종료일을 물었습니다: id=" + id);
         }
-        // 표시 일수로 센다. 첫날이 빠진 코스에서는 실제 여행 기간보다 하루 짧게 나오는데,
-        // 고치려면 가장 늦은 오프셋을 봐야 하고 그러자면 days 컬렉션을 건드린다 — LAZY 라
-        // 트랜잭션 밖에서 터진다(연차 차감이 그 경로다). 별도 작업으로 뺀다.
         return travelDate.plusDays(travelDays - 1L);
     }
 
@@ -198,14 +253,6 @@ public class Course {
     }
 
     /**
-     * 이 하루가 실제로 몇 월 며칠인지 — <b>표시 번호가 아니라 달력 오프셋</b>으로 센다.
-     *
-     * <p>일정이 없는 날은 코스에서 빠지므로 표시 번호와 달력 위치가 어긋날 수 있다. 그때 표시 번호로
-     * 날짜를 세면 하루가 앞당겨진다(#159).
-     *
-     * @return 그날의 날짜. 여행 시작일을 모르면 null — 없는 것을 지어내지 않는다
-     */
-    /**
      * 목록 카드에 쓸 대표 이미지 — 첫 슬롯의 것(#171).
      *
      * <p>이미지가 없는 슬롯은 건너뛴다. 하나도 없으면 빈 Optional 이고 화면은 자리표시자를 쓴다.
@@ -239,11 +286,56 @@ public class Course {
         return Optional.of(new Coordinate(lat, lng));
     }
 
+    /**
+     * 이 하루가 실제로 몇 월 며칠인지 — <b>표시 번호가 아니라 달력 오프셋</b>으로 센다.
+     *
+     * <p>일정이 없는 날은 코스에서 빠지므로 표시 번호와 달력 위치가 어긋날 수 있다. 그때 표시 번호로
+     * 날짜를 세면 하루가 앞당겨진다(#159).
+     *
+     * @return 그날의 날짜. 여행 시작일을 모르면 null — 없는 것을 지어내지 않는다
+     */
     public LocalDate dateOf(DaySchedule schedule) {
         if (travelDate == null) {
             return null;
         }
         return travelDate.plusDays(schedule.getDayOffset());
+    }
+
+    /**
+     * 여행 기간이 실제 일정을 담을 수 있는지 — <b>기간 밖에 놓인 하루가 있으면 안 된다.</b>
+     *
+     * <p>일차 오프셋이 기간을 넘으면 종료일보다 뒤에 일정이 있다는 뜻이라 앞뒤가 맞지 않는다. 기간을 잘못
+     * 넘기면 여기서 걸린다 — 조용히 통과하면 연차 차감이 그만큼 어긋난다.
+     */
+    private static void requireSpanCovers(List<DaySchedule> days, int travelDays) {
+        if (travelDays < 1 || travelDays > MAX_TRAVEL_DAYS) {
+            throw new IllegalArgumentException("여행 기간은 1~" + MAX_TRAVEL_DAYS + "일이어야 합니다: " + travelDays);
+        }
+        int lastOffset = days.stream().mapToInt(DaySchedule::getDayOffset).max().orElseThrow();
+        if (lastOffset >= travelDays) {
+            throw new IllegalArgumentException(
+                    "여행 기간 밖에 일정이 있습니다: 기간=" + travelDays + "일, 마지막 일정=" + (lastOffset + 1) + "일째");
+        }
+    }
+
+    /**
+     * 일차 순서대로 <b>달력도 앞으로만</b> 가는지 — 오프셋이 엄격히 증가해야 한다.
+     *
+     * <p>{@link #requireSpanCovers}는 최대 오프셋만 보므로 순서를 보지 못한다. 1일차에 오프셋 1, 2일차에 0을
+     * 넣어도 3일 기간이면 통과하는데, 그러면 화면 순서와 {@link #dateOf} 날짜 순서가 <b>역전</b>된다.
+     *
+     * <p>같은 오프셋 둘도 여기서 걸린다 — 하루를 두 번 쓰는 셈이라 그 날짜에 무엇이 있는지 답할 수 없다.
+     */
+    private static void requireIncreasingOffsets(List<DaySchedule> days) {
+        for (int i = 1; i < days.size(); i++) {
+            int previous = days.get(i - 1).getDayOffset();
+            int current = days.get(i).getDayOffset();
+            if (current <= previous) {
+                throw new IllegalArgumentException(
+                        "일차가 갈수록 날짜도 뒤여야 합니다: " + days.get(i - 1).getDayNumber() + "일차=시작+" + previous
+                                + "일, " + days.get(i).getDayNumber() + "일차=시작+" + current + "일");
+            }
+        }
     }
 
     private static void requireSequentialDays(List<DaySchedule> days) {

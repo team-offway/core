@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.common.response.PageResponse;
 import com.offway.core.itinerary.service.TripOutcomeService;
 import com.offway.core.itinerary.controller.dto.TripOutcomeRequest;
 import com.offway.core.itinerary.controller.dto.PendingTripsResponse;
@@ -8,6 +9,7 @@ import com.offway.core.leave.controller.dto.MyLeaveResponse;
 import com.offway.core.itinerary.service.CourseLeaveDeductionService;
 import com.offway.core.itinerary.controller.dto.CourseLeaveDeductionRequest;
 import com.offway.core.itinerary.domain.CourseScope;
+import com.offway.core.itinerary.service.dto.MyCourses;
 import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.itinerary.controller.dto.CourseSaveRequest;
 import com.offway.core.itinerary.controller.dto.CourseSummaryResponse;
@@ -50,8 +52,11 @@ public class CourseStorageController implements CourseStorageApi {
     @GetMapping
     public ApiResponseBody<List<CourseSummaryResponse>> myCourses(
             @RequestHeader(GUEST_HEADER) String guestId,
-            @RequestParam(defaultValue = "ALL") CourseScope scope) {
-        return ApiResponseBody.ok(CourseSummaryResponse.listFrom(courseStorageService.myCourses(guestId, scope)));
+            @RequestParam(defaultValue = "ALL") CourseScope scope,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        MyCourses myCourses = courseStorageService.myCourses(guestId, scope, page, size);
+        return ApiResponseBody.ok(CourseSummaryResponse.listFrom(myCourses), PageResponse.of(myCourses));
     }
 
     @Override

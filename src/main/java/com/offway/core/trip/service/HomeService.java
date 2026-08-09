@@ -35,6 +35,7 @@ public class HomeService {
     private final RegionRepository regionRepository;
     private final RegionRankingService regionRankingService;
     private final RegionContentProvider regionContentProvider;
+    private final RegionHeroPhotoProvider regionHeroPhotoProvider;
     private final PolicyService policyService;
     private final AirQualityService airQualityService;
     private final MyLeaveService myLeaveService;
@@ -58,14 +59,19 @@ public class HomeService {
 
         // 외부(TourAPI)는 병렬, DB(혜택)는 일괄. 대기질은 시도 단위라 top-N 에서 겹치므로 시도별 1회만 조회한다
         // — 캐시가 있어 대부분 즉답이고, 순차로 둬야 아래 맵을 스레드 안전성 걱정 없이 쓸 수 있다.
-        Map<Long, RegionContent> contents = regionContentProvider.contentForAll(topRegions, all, RegionContentProvider.REQUEST_FANOUT_DEADLINE).byRegionId();
-        Map<Long, List<Policy>> policiesByRegion =
-                policyService.matchForRegions(topRegions.stream().map(Region::getId).toList(), today);
+        List<Long> topRegionIdsForContent = topRegions.stream().map(Region::getId).toList();
+        // 저장된 값만 읽는다(#193) — 요청 경로에서 89곳 팬아웃을 돌리지 않는다.
+        Map<Long, RegionContent> contents = regionContentProvider.storedForAll(topRegionIdsForContent);
+        List<Long> topRegionIds = topRegions.stream().map(Region::getId).toList();
+        Map<Long, List<Policy>> policiesByRegion = policyService.matchForRegions(topRegionIds, today);
+        // 대표 사진은 DB 만 읽는다(#196) — 외부 호출이 늘지 않고, 지역마다 묻지 않게 한 번에 가져온다.
+        // 홈은 여행월을 모르므로 계절 정렬은 하지 않는다.
+        Map<Long, String> heroPhotos = regionHeroPhotoProvider.heroPhotoUrls(topRegionIds, null);
         Map<String, Optional<AirQuality>> airBySido = new HashMap<>();
 
         List<HomeResult.RegionCard> cards = top.stream()
                 .map(score -> toCard(
-                        regionById.get(score.regionId()), score, contents, policiesByRegion, airBySido))
+                        regionById.get(score.regionId()), score, contents, heroPhotos, policiesByRegion, airBySido))
                 .toList();
         return new HomeResult(remainingLeaveDays, cards);
     }
@@ -74,6 +80,7 @@ public class HomeService {
             Region region,
             RegionScore score,
             Map<Long, RegionContent> contents,
+            Map<Long, String> heroPhotos,
             Map<Long, List<Policy>> policiesByRegion,
             Map<String, Optional<AirQuality>> airBySido) {
         RegionContent content = contents.getOrDefault(region.getId(), RegionContent.EMPTY);
@@ -83,7 +90,14 @@ public class HomeService {
                 .computeIfAbsent(region.getSido(), airQualityService::byRegionSido)
                 .orElse(null);
         return HomeResult.RegionCard.of(
-                region.getId(), region.getSido(), region.getSigungu(), score.crowdLevel(), content, benefit, air);
+                region.getId(),
+                region.getSido(),
+                region.getSigungu(),
+                score.crowdLevel(),
+                content,
+                heroPhotos.get(region.getId()),
+                benefit,
+                air);
     }
 
     private static HomeResult.Benefit toBenefit(Policy policy) {

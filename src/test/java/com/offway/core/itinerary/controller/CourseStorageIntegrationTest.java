@@ -9,11 +9,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.offway.core.transport.infrastructure.tago.StubTrainInfoClient;
+import com.offway.core.transport.infrastructure.tago.TrainInfoClient;
+import com.offway.core.transport.service.TrainRouteService;
+import com.offway.core.transport.domain.TrainAvailability;
+import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.weather.domain.DailyWeather;
 import com.offway.core.weather.domain.SkyState;
 import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
 import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -51,8 +57,20 @@ class CourseStorageIntegrationTest {
     @Autowired
     private StubKmaWeatherClient weatherClient;
 
+    @Autowired
+    private StubTrainInfoClient trainInfoClient;
+
+    @Autowired
+    private TrainRouteService trainRouteService;
+
     @TestConfiguration
     static class StubConfig {
+
+        @Bean
+        @Primary
+        TrainInfoClient stubTrainInfoClient() {
+            return new StubTrainInfoClient();
+        }
 
         @Bean
         @Primary
@@ -359,5 +377,176 @@ class CourseStorageIntegrationTest {
                 .andExpect(jsonPath("$.data.days[0].weather").doesNotExist())
                 // 날씨가 없어도 코스는 그대로 나간다 — 부가 정보다
                 .andExpect(jsonPath("$.data.days.length()").value(2));
+    }
+
+    /** 정선(16) 근처로 도착하는 열차 — 저장 코스에서 다시 계산될 때 쓰인다. */
+    private void trainArrives() {
+        trainInfoClient.respond(() -> new TrainAvailability.Available(TrainLeg.of("KTX",
+                LocalDateTime.of(2026, 9, 11, 6, 0),
+                LocalDateTime.of(2026, 9, 11, 8, 30))));
+        trainRouteService.evictCache();
+    }
+
+    private static String transitBody(boolean withOrigin) {
+        String origin = withOrigin ? "\"originLat\": 37.5547, \"originLng\": 126.9707," : "";
+        return """
+                { "regionId": 16, "density": "PACKED", "transport": "TRANSIT",
+                  "travelDate": "2026-09-11", %s "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":0}
+                  ]}
+                ]}""".formatted(origin);
+    }
+
+    @Test
+    void 대중교통_코스는_저장_후에도_열차_접근이_나온다() throws Exception {
+        // 생성 때 "청량리 → 정선" 을 보고 저장했는데 다시 열면 비어 있었다(#187).
+        trainArrives();
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitBody(true)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.trainAccess.toStation").value("정선"));
+    }
+
+    @Test
+    void 출발지_없이_저장된_코스는_열차_접근이_비고_그게_오류가_아니다() throws Exception {
+        // 이 필드가 생기기 전에 저장된 코스가 이 경우다. 근거가 없으니 지어내지 않는다.
+        trainArrives();
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitBody(false)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.trainAccess").doesNotExist())
+                .andExpect(jsonPath("$.data.days.length()").value(1));
+    }
+
+    @Test
+    void 출발지_좌표가_한쪽만_오면_400이다() throws Exception {
+        // 조용히 버리면 클라이언트는 출발지를 보냈다고 여기는데 저장 코스에서 열차 접근이 빈다.
+        // Day 날짜(#180)에서 시작일 없이 날짜만 온 요청을 거절한 것과 같은 판단이다.
+        String latOnly = transitBody(false).replace("\"travelDate\": \"2026-09-11\",",
+                "\"travelDate\": \"2026-09-11\", \"originLat\": 37.5547,");
+
+        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest())
+                        .contentType(MediaType.APPLICATION_JSON).content(latOnly))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    @Test
+    void 자차_코스는_출발지가_있어도_열차_접근이_없다() throws Exception {
+        // 자차는 열차 접근이 개념적으로 없다.
+        trainArrives();
+        String guest = uniqueGuest();
+        String body = transitBody(true).replace("\"TRANSIT\"", "\"CAR\"");
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
+    }
+
+    /**
+     * 첫날이 이동뿐이라 일정에서 빠진 2박3일(#159) — 생성 응답은 Day 1 이 9/12, Day 2 가 9/13 이다.
+     *
+     * @param dayDates 각 Day 에 실어 보낼 date. null 이면 필드를 빼서 종전 동작을 재현한다
+     */
+    private static String firstDayEmptyBody(String... dayDates) {
+        String day1 = dayDates[0] == null ? "" : "\"date\":\"" + dayDates[0] + "\",";
+        String day2 = dayDates[1] == null ? "" : "\"date\":\"" + dayDates[1] + "\",";
+        return """
+                { "regionId": 16, "density": "PACKED", "transport": "CAR",
+                  "travelDate": "2026-09-11", "travelDays": 3, "days": [
+                  { "day": 1, %s "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":0}
+                  ]},
+                  { "day": 2, %s "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c2","title":"장소2","lat":37.51,"lng":128.61,"travelMinutes":0}
+                  ]}
+                ]}""".formatted(day1, day2);
+    }
+
+    @Test
+    void 날짜를_보내면_첫날이_빠진_코스도_생성_때와_같은_날짜로_저장된다() throws Exception {
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(firstDayEmptyBody("2026-09-12", "2026-09-13")))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        // 예전에는 며칠째를 그대로 달력 위치로 봐서 9/11·9/12 로 하루씩 당겨졌다.
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].date").value("2026-09-12"))
+                .andExpect(jsonPath("$.data.days[1].date").value("2026-09-13"));
+    }
+
+    @Test
+    void 날짜를_안_보내면_종전대로_며칠째를_달력_위치로_본다() throws Exception {
+        // 이 필드가 생기기 전 연동이 그대로 도는지 — 하위 호환.
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(firstDayEmptyBody(null, null)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].date").value("2026-09-11"))
+                .andExpect(jsonPath("$.data.days[1].date").value("2026-09-12"));
+    }
+
+    @Test
+    void 여행_시작일보다_앞선_날짜는_400이다() throws Exception {
+        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(firstDayEmptyBody("2026-09-10", "2026-09-13")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    @Test
+    void 여행_시작일_없이_Day_날짜만_보내면_400이다() throws Exception {
+        // 기준점이 없으면 날짜를 오프셋으로 옮길 수 없다. 조용히 무시하면 지정한 날짜와 다른 값이 저장된다.
+        String body = """
+                { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [
+                  { "day": 1, "date": "2026-09-12", "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":0}
+                  ]}
+                ]}""";
+
+        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    @Test
+    void 여행_기간을_넘는_날짜는_400이다() throws Exception {
+        // 2026-09-11 시작 3일이면 9/13 이 마지막이다. 9/14 는 종료일 뒤라 앞뒤가 안 맞는다(#164).
+        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(firstDayEmptyBody("2026-09-12", "2026-09-14")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
     }
 }

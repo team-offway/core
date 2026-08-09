@@ -58,7 +58,10 @@ class RegionRecommendIntegrationTest {
     @Autowired
     private com.offway.core.trip.service.RegionContentProvider regionContentProvider;
 
-    // 랭킹·콘텐츠 캐시는 공유 싱글톤 — 각 테스트가 자기 stub 시나리오를 타도록 캐시를 비운다(DB 롤백에 준하는 격리).
+    @Autowired
+    private com.offway.core.trip.service.RegionContentRefreshService regionContentRefreshService;
+
+    // 랭킹 캐시는 공유 싱글톤 — 각 테스트가 자기 stub 시나리오를 타도록 캐시를 비운다(DB 롤백에 준하는 격리).
     @org.junit.jupiter.api.BeforeEach
     void evictCaches() {
         regionRankingService.evictCache();
@@ -156,6 +159,8 @@ class RegionRecommendIntegrationTest {
                 Map.of(collision.targetCode(), collision.sharedName(),
                         collision.leakCode(), collision.sharedName())));
         tourApiClient.respond(RegionRecommendIntegrationTest::sufficientContent);
+        // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
+        regionContentRefreshService.refresh();
 
         String body = """
                 { "originLat": %s, "originLng": %s, "transport": "CAR", "maxReachMinutes": 30 }"""
@@ -178,6 +183,8 @@ class RegionRecommendIntegrationTest {
                 ? TourVisitorResult.empty()
                 : visitorsPerDay(Map.of("26170", 3_500.0), Map.of("26170", "동구")));
         tourApiClient.respond(RegionRecommendIntegrationTest::sufficientContent);
+        // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
+        regionContentRefreshService.refresh();
 
         String body = """
                 { "originLat": 37.49, "originLng": 127.02, "transport": "CAR", "maxReachMinutes": 100000 }""";
@@ -204,6 +211,8 @@ class RegionRecommendIntegrationTest {
     void 집계_시간_예산이_클라이언트까지_전달된다() throws Exception {
         dataLabClient.respond(() -> visitorsPerDay(Map.of("26170", 3_500.0), Map.of("26170", "동구")));
         tourApiClient.respond(RegionRecommendIntegrationTest::sufficientContent);
+        // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
+        regionContentRefreshService.refresh();
 
         String body = """
                 { "originLat": 35.1798, "originLng": 129.0750, "transport": "CAR", "maxReachMinutes": 30 }""";
@@ -223,6 +232,8 @@ class RegionRecommendIntegrationTest {
     void 도달_가능한_지역을_랭킹순으로_콘텐츠와_혜택뱃지와_함께_추천한다() throws Exception {
         dataLabClient.respond(TourVisitorResult::empty); // 방문자 데이터 없음 → 89 모두 동점(LOW), regionId 오름차순
         tourApiClient.respond(RegionRecommendIntegrationTest::sufficientContent);
+        // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
+        regionContentRefreshService.refresh();
 
         // 서울 출발 + 도달 한계 아주 크게 → 89 전부 도달 가능, 상위 20건만 콘텐츠 붙여 노출
         String body = """
@@ -248,6 +259,8 @@ class RegionRecommendIntegrationTest {
         // 모든 지역이 맛집(FD) 볼거리를 가진 것으로 stub → mood=FOOD 로 필터해도 결과가 유지된다
         TourPoi food = new TourPoi("200", 39, "FD", "완도 전복집", "전남 완도군", 34.3, 126.7, null, null);
         tourApiClient.respond(() -> new TourPoiResult(List.of(food), 20));
+        // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
+        regionContentRefreshService.refresh();
 
         String body = """
                 { "originLat": 37.49, "originLng": 127.02, "transport": "CAR", "maxReachMinutes": 100000,
@@ -265,6 +278,8 @@ class RegionRecommendIntegrationTest {
         // 모든 지역 볼거리 2개(충분 기준 9 미만) → 인접 50km 지역 콘텐츠로 확장(neighborIncluded)
         TourPoi few = new TourPoi("1", 12, "NA", "작은 볼거리", "강원", 37.4, 128.8, "http://img/n.jpg", null);
         tourApiClient.respond(() -> new TourPoiResult(List.of(few), 2));
+        // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
+        regionContentRefreshService.refresh();
 
         String body = """
                 { "originLat": 37.49, "originLng": 127.02, "transport": "CAR", "maxReachMinutes": 100000 }""";
@@ -305,6 +320,8 @@ class RegionRecommendIntegrationTest {
             throw TourApiException.dataLabLookupFailed(new RuntimeException("upstream down"));
         });
         tourApiClient.respond(RegionRecommendIntegrationTest::sufficientContent);
+        // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
+        regionContentRefreshService.refresh();
 
         String body = """
                 { "originLat": 37.49, "originLng": 127.02, "transport": "CAR", "maxReachMinutes": 100000 }""";

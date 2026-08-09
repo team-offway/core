@@ -138,6 +138,83 @@ class CoursePlanManagementIntegrationTest {
         return mockMvc.perform(get(COURSES).header("X-Guest-Id", guest).param("scope", scope));
     }
 
+    private ResultActions list(String guest, String scope, String page, String size) throws Exception {
+        return mockMvc.perform(get(COURSES).header("X-Guest-Id", guest)
+                .param("scope", scope).param("page", page).param("size", size));
+    }
+
+    /** 페이지 경계를 보려면 코스가 여럿이어야 한다 — 전부 같은 날짜라 저장 순서(최근이 위)로 정렬된다. */
+    private void saveCourses(String guest, int count) throws Exception {
+        for (int i = 0; i < count; i++) {
+            saveCourse(guest, LocalDate.now(KST).plusDays(10));
+        }
+    }
+
+    @Test
+    void 목록은_페이지_정보를_함께_준다() throws Exception {
+        String guest = uniqueGuest();
+        saveCourses(guest, 3);
+
+        list(guest, "ALL")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(3))
+                .andExpect(jsonPath("$.pageResponse.page").value(0))
+                .andExpect(jsonPath("$.pageResponse.size").value(20))
+                .andExpect(jsonPath("$.pageResponse.totalElements").value(3))
+                .andExpect(jsonPath("$.pageResponse.totalPages").value(1));
+    }
+
+    @Test
+    void 페이지를_넘기면_나머지가_나온다() throws Exception {
+        String guest = uniqueGuest();
+        saveCourses(guest, 3);
+
+        list(guest, "ALL", "0", "2")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.pageResponse.totalElements").value(3))
+                .andExpect(jsonPath("$.pageResponse.totalPages").value(2));
+
+        list(guest, "ALL", "1", "2")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.pageResponse.page").value(1));
+    }
+
+    @Test
+    void 상한을_넘는_size는_잘린다() throws Exception {
+        // 상한이 없으면 이 요청 한 번으로 페이지네이션이 없던 때와 같아진다(#105).
+        // 거절하지 않고 자르는 쪽을 택했다 — 목록이 통째로 비는 것보다 낫다.
+        String guest = uniqueGuest();
+        saveCourses(guest, 1);
+
+        list(guest, "ALL", "0", "100000")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pageResponse.size").value(100));
+    }
+
+    @Test
+    void 음수_페이지는_첫_페이지로_본다() throws Exception {
+        String guest = uniqueGuest();
+        saveCourses(guest, 1);
+
+        list(guest, "ALL", "-5", "20")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.pageResponse.page").value(0));
+    }
+
+    @Test
+    void 범위를_벗어난_페이지는_빈_목록이다() throws Exception {
+        String guest = uniqueGuest();
+        saveCourses(guest, 1);
+
+        list(guest, "ALL", "9", "20")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0))
+                .andExpect(jsonPath("$.pageResponse.totalElements").value(1));
+    }
+
     @Test
     void 차감을_취소하면_연차가_복구된다() throws Exception {
         noHolidays();

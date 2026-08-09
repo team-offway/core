@@ -58,9 +58,12 @@ class HomeIntegrationTest {
     private com.offway.core.trip.service.RegionContentProvider regionContentProvider;
 
     @Autowired
+    private com.offway.core.trip.service.RegionContentRefreshService regionContentRefreshService;
+
+    @Autowired
     private com.offway.core.weather.service.AirQualityService airQualityService;
 
-    // 랭킹·콘텐츠·대기질 캐시는 공유 싱글톤 — 각 테스트가 자기 stub 시나리오를 타도록 캐시를 비운다(DB 롤백에 준하는 격리).
+    // 랭킹·대기질 캐시는 공유 싱글톤 — 각 테스트가 자기 stub 시나리오를 타도록 캐시를 비운다(DB 롤백에 준하는 격리).
     @org.junit.jupiter.api.BeforeEach
     void evictCaches() {
         regionRankingService.evictCache();
@@ -100,6 +103,8 @@ class HomeIntegrationTest {
     void 남은연차_필터칩_추천지역을_콘텐츠와_함께_내려준다() throws Exception {
         dataLabClient.respond(TourVisitorResult::empty);
         tourApiClient.respond(HomeIntegrationTest::content);
+        // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
+        regionContentRefreshService.refresh();
         airKoreaClient.respond(() -> Optional.of(new AirQuality(45, 23, AirGrade.MODERATE)));
 
         // 홈의 남은 연차는 저장값에서 온다(#89) — 클라이언트가 넘긴 값을 되돌려주던 예전과 다르다.
@@ -135,6 +140,8 @@ class HomeIntegrationTest {
     void 남은연차가_없어도_200으로_내려준다() throws Exception {
         dataLabClient.respond(TourVisitorResult::empty);
         tourApiClient.respond(HomeIntegrationTest::content);
+        // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
+        regionContentRefreshService.refresh();
         // 대기질 조회 실패해도(빈 값) 카드는 나온다 — 부가 정보라 airQuality=null
         airKoreaClient.respond(Optional::empty);
 
@@ -153,6 +160,8 @@ class HomeIntegrationTest {
             throw TourApiException.dataLabLookupFailed(new RuntimeException("upstream down"));
         });
         tourApiClient.respond(HomeIntegrationTest::content);
+        // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
+        regionContentRefreshService.refresh();
         airKoreaClient.respond(Optional::empty);
 
         mockMvc.perform(get(URL).header("X-Guest-Id", GUEST))

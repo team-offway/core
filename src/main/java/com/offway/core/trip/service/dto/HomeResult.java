@@ -37,13 +37,21 @@ public record HomeResult(Double remainingLeaveDays, List<RegionCard> regions) {
             Benefit benefit,
             AirQuality airQuality) {
 
-        /** 랭킹·혜택에 지역 콘텐츠(이미지·categories)와 실시간 대기질을 얹어 카드를 만든다. */
+        /**
+         * 랭킹·혜택에 지역 콘텐츠(이미지·categories)와 실시간 대기질을 얹어 카드를 만든다.
+         *
+         * <p><b>대표 사진은 사다리로 고른다</b>(#196) — 중심 관광지 × 관광사진 갤러리가 먼저고, 못 고르면
+         * TourAPI 표본의 이미지로 내려간다. 둘 다 없으면 null 이고 자리표시자는 FE 가 그린다.
+         *
+         * @param heroPhotoUrl 갤러리에서 고른 대표 사진. 못 골랐으면 null
+         */
         public static RegionCard of(
                 long regionId,
                 String sido,
                 String sigungu,
                 CrowdLevel crowdLevel,
                 RegionContent content,
+                String heroPhotoUrl,
                 Benefit benefit,
                 AirQuality airQuality) {
             return new RegionCard(
@@ -51,7 +59,7 @@ public record HomeResult(Double remainingLeaveDays, List<RegionCard> regions) {
                     sido,
                     sigungu,
                     crowdLevel,
-                    content.imageUrl(),
+                    heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl(),
                     content.categories(),
                     benefit,
                     airQuality);

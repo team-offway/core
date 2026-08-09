@@ -36,6 +36,30 @@ public class LeaveController implements LeaveApi {
 }
 ```
 
+## 목록 페이지네이션
+
+**목록 API 는 페이지로 끊는다.** 상한 없는 목록은 데이터가 쌓이는 만큼 요청 하나의 로드량이 자란다 — 코스 목록이 실제로 그랬다(#105).
+
+- 요청 파라미터는 **`page`(0부터) · `size`** 두 개로 고정한다. `offset`·`limit`·`pageNo` 를 섞어 쓰지 않는다.
+- 둘 다 **선택**이다. 기본·상한은 `Paging` 이 단독으로 소유한다 — 엔드포인트마다 다시 정하면 같은 파라미터가 API 마다 다르게 동작한다.
+- **잘못된 값은 거절하지 않고 자른다.** 음수 page 는 0 으로, 상한 초과 size 는 상한으로. 목록 조회에서 이건 클라이언트 실수지 계약 위반이 아니고, 400 으로 끊으면 화면이 통째로 빈다.
+- **`size` 상한은 반드시 둔다.** 없으면 `size=100000` 한 번으로 페이지네이션이 없던 때와 같아진다.
+
+```java
+// 컨트롤러 — 파라미터는 선택, 해석은 서비스가 Paging 에 맡긴다
+@RequestParam(required = false) Integer page,
+@RequestParam(required = false) Integer size
+
+// 서비스
+Page<Course> found = scope.find(repository, guestId, today, Paging.of(page, size));
+```
+
+페이지 메타는 **응답 래퍼의 `pageResponse`** 로 나간다(`data` 안에 넣지 않는다). 조회 결과 dto 가 `PageResponse.Paged` 를 구현하면 컨트롤러는 `PageResponse.of(result)` 한 줄이다 — service dto 가 응답 타입을 몰라도 되게 하는 접점이다.
+
+`*Api` 에는 `page`·`size` 를 `@Parameter` 로 문서화하고, 기본값과 상한을 **숫자로** 적는다.
+
+> 애그리거트를 끌고 오는 엔티티는 컬렉션을 fetch join 한 채 페이징하지 않는다 — 페이징이 메모리에서 일어난다(`HHH000104`). 지연 로딩 + `default_batch_fetch_size` 로 묶는다.
+
 ## 응답 전수 문서화
 
 **`*Api` 의 각 메서드는 멀쩡한 클라이언트가 정상 요청으로 받을 수 있는 모든 응답을 `@ApiResponse` 로 문서화한다** — 성공과 도달 가능한 실패 전부.
