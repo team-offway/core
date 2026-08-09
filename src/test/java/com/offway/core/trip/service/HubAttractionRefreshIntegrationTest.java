@@ -72,12 +72,49 @@ class HubAttractionRefreshIntegrationTest {
 
         refreshService.refresh();
 
-        List<HubAttraction> stored = refreshService.forRegion(anyRegionId());
-        assertEquals(2, stored.size());
-        assertEquals(1, stored.getFirst().getHubRank());
-        assertEquals("공산성", stored.getFirst().getName());
-        assertEquals("역사관광", stored.getFirst().getCategoryMedium());
-        assertTrue(stored.getFirst().hasCoordinate(), "좌표가 없으면 슬롯에 넣거나 다른 소스와 이을 수 없다");
+        // 한 지역만 보면 루프가 첫 지역 뒤에 끝나도 통과한다 — 이름대로 전 지역을 확인한다.
+        List<Region> regions = regionRepository.findAll();
+        assertFalse(regions.isEmpty());
+        for (Region region : regions) {
+            List<HubAttraction> stored = refreshService.forRegion(region.getId());
+            assertEquals(2, stored.size(), "regionId=" + region.getId());
+            assertEquals(1, stored.getFirst().getHubRank(), "regionId=" + region.getId());
+            assertEquals("공산성", stored.getFirst().getName(), "regionId=" + region.getId());
+            assertEquals("역사관광", stored.getFirst().getCategoryMedium(), "regionId=" + region.getId());
+            assertTrue(stored.getFirst().hasCoordinate(), "좌표가 없으면 슬롯에 넣거나 다른 소스와 이을 수 없다");
+        }
+    }
+
+    @Test
+    void 발행이_최대치까지_밀려도_그_달을_찾는다() {
+        // MAX_MONTHS_BACK 이 3이면 3개월 전 달까지 봐야 한다 — 경계를 빼면 그 달만 있는 시점에 갱신이 멈춘다.
+        YearMonth published = lastMonth().minusMonths(3);
+        hubAttractionClient.respond((legalCode, month) ->
+                month.equals(published) ? List.of(item(1, "공산성", "관광지", "역사관광")) : List.of());
+
+        refreshService.refresh();
+
+        assertEquals(published, refreshService.forRegion(anyRegionId()).getFirst().baseMonth());
+    }
+
+    @Test
+    void 표본_한_곳이_실패해도_다음_표본으로_발행월을_찾는다() {
+        // 표본을 여럿 두는 이유가 한 지역의 이상으로 89곳이 통째로 스킵되는 것을 막기 위함이다.
+        List<Region> regions = regionRepository.findAll();
+        regions.forEach(region -> hubAttractionRepository.replaceRegion(region.getId(), List.of()));
+        String firstCode = regions.getFirst().getLegalCode();
+
+        hubAttractionClient.respond((legalCode, month) -> {
+            if (legalCode.equals(firstCode)) {
+                throw TourApiException.lookupFailed(new RuntimeException("probe down"));
+            }
+            return List.of(item(1, "공산성", "관광지", "역사관광"));
+        });
+
+        refreshService.refresh();
+
+        assertFalse(refreshService.forRegion(regions.get(1).getId()).isEmpty(),
+                "표본 하나가 실패했다고 나머지 지역 갱신까지 포기하면 안 된다");
     }
 
     @Test

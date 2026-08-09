@@ -39,7 +39,7 @@ public class HubAttractionRefreshService {
     private static final int ROWS_PER_REGION = 30;
 
     /**
-     * 발행 지연을 감안해 물러설 개월 수.
+     * 발행 지연을 감안해 물러설 개월 수 — 시작월 <b>포함</b> {@code MAX_MONTHS_BACK + 1}개 달을 확인한다.
      *
      * <p>이번 달 것은 아직 없을 수 있다. 지난달부터 시작해 빈 결과면 이전 달로 물러선다 — 고정 지연을 가정하면
      * 발행 공백에 걸려 <b>조용히</b> 빈 결과가 되고, 전 지역 중심 관광지가 사라진다.
@@ -129,16 +129,18 @@ public class HubAttractionRefreshService {
     private YearMonth publishedMonth(List<Region> regions) {
         List<Region> probes = regions.subList(0, Math.min(PUBLISH_PROBE_REGIONS, regions.size()));
         YearMonth month = newestPossibleMonth();
-        for (int back = 0; back < MAX_MONTHS_BACK; back++, month = month.minusMonths(1)) {
+        // 경계를 포함한다 — 상수가 "물러설 개월 수" 이므로 시작월에서 그만큼 물러선 달까지 봐야 이름과 맞는다.
+        for (int back = 0; back <= MAX_MONTHS_BACK; back++, month = month.minusMonths(1)) {
             for (Region probe : probes) {
                 try {
                     if (!hubAttractionClient.findByRegion(probe.getLegalCode(), month, 1).isEmpty()) {
                         return month;
                     }
                 } catch (TourApiException e) {
+                    // 다음 표본으로 넘어간다. 여기서 포기하면 표본을 여럿 두는 의미가 없어진다 —
+                    // 한 지역의 이상으로 89곳 갱신이 통째로 스킵되는 것을 막으려고 둔 장치다.
                     log.warn("중심 관광지 발행월 탐색 실패 month={} regionId={} cause={}",
                             month, probe.getId(), e.getClass().getSimpleName());
-                    return null;
                 }
             }
             log.info("중심 관광지 {} 미발행(표본 {}곳) — 이전 달로 물러섭니다", month, probes.size());
