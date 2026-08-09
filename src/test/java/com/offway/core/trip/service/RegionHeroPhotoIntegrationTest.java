@@ -133,6 +133,38 @@ class RegionHeroPhotoIntegrationTest {
     }
 
     @Test
+    void 골프클럽은_CC_든_GC_든_이름_끝이_아니어도_막는다() {
+        // 89곳 전수에서 GC 로 끝나는 골프장이 13곳이었다(가평베네스트GC·문경GC·알펜시아700GC 등).
+        // CC 가 중간에 오는 것도 있다(포웰CC프린세스).
+        Long regionId = anyRegionId();
+        hubAttractionRepository.replaceRegion(regionId, List.of(
+                hub(regionId, 1, "알펜시아700GC", "관광지"),
+                hub(regionId, 2, "포웰CC프린세스", "관광지"),
+                hub(regionId, 3, "월정사", "관광지")));
+        galleryPhotoRepository.replaceAll(List.of(
+                photo(regionId, "알펜시아700GC", "http://img/gc.jpg", "202405"),
+                photo(regionId, "포웰CC프린세스", "http://img/cc.jpg", "202405"),
+                photo(regionId, "평창 월정사", "http://img/temple.jpg", "202405")));
+
+        assertEquals("http://img/temple.jpg", provider.heroPhotoUrls(List.of(regionId), null).get(regionId));
+    }
+
+    @Test
+    void 스키_리조트는_이름에_리조트가_없어도_막는다() {
+        // "휘닉스 파크" 는 대분류 관광지·중분류 문화관광이고 이름에 리조트·스키장이 없다.
+        // 업태로는 안 잡히는 자리라 브랜드명으로 막는다.
+        Long regionId = anyRegionId();
+        hubAttractionRepository.replaceRegion(regionId, List.of(
+                hub(regionId, 1, "휘닉스 파크", "관광지"),
+                hub(regionId, 2, "대관령양떼목장", "관광지")));
+        galleryPhotoRepository.replaceAll(List.of(
+                photo(regionId, "휘닉스 평창", "http://img/ski.jpg", "202405"),
+                photo(regionId, "대관령양떼목장", "http://img/sheep.jpg", "202405")));
+
+        assertEquals("http://img/sheep.jpg", provider.heroPhotoUrls(List.of(regionId), null).get(regionId));
+    }
+
+    @Test
     void 여행월이_있으면_촬영월이_가까운_사진을_고른다() {
         // 10월 여행에 설경을 내보내지 않는다.
         Long regionId = anyRegionId();
