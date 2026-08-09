@@ -102,11 +102,11 @@ class RegionContentRefreshIntegrationTest {
     }
 
     @Test
-    void 조회가_실패해도_이전_적재가_남는다() {
+    void 조회가_실패해도_이전_값이_그대로_남는다() {
         regionContentProvider.evictCache();
         tourApiClient.respond(() -> poiResult(15));
         refreshService.refresh();
-        long before = regionContentRepository.count();
+        RegionContent before = regionContentProvider.storedForAll(allRegionIds()).get(anyRegionId());
 
         regionContentProvider.evictCache();
         tourApiClient.respond(() -> {
@@ -114,8 +114,11 @@ class RegionContentRefreshIntegrationTest {
         });
         refreshService.refresh();
 
-        // 전 지역이 degrade 하면 빈 콘텐츠가 채워지므로 행 수는 유지된다 — 중요한 것은 통째로 사라지지 않는 것.
-        assertEquals(before, regionContentRepository.count());
+        // 행 수만 보면 안 된다 — degrade 는 빈 콘텐츠를 주므로 행은 그대로인 채 <b>값만</b> 비워질 수 있다.
+        RegionContent after = regionContentProvider.storedForAll(allRegionIds()).get(anyRegionId());
+        assertEquals(before.contentCount(), after.contentCount(), "갱신 실패가 데이터 손실이 되면 안 된다");
+        assertEquals(before.imageUrl(), after.imageUrl());
+        assertEquals(before.categories(), after.categories());
     }
 
     @Test

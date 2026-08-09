@@ -6,6 +6,7 @@ import com.offway.core.trip.domain.RegionContent;
 import com.offway.core.trip.domain.StoredRegionContent;
 import com.offway.core.trip.repository.RegionContentRepository;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -62,16 +63,34 @@ public class RegionContentRefreshService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        List<StoredRegionContent> rows = byRegionId.entrySet().stream()
-                .map(entry -> StoredRegionContent.of(entry.getKey(), entry.getValue(), now))
-                .toList();
+        Map<Long, RegionContent> previous =
+                regionContentProvider.storedForAll(regions.stream().map(Region::getId).toList());
+
+        List<StoredRegionContent> rows = new ArrayList<>();
+        int kept = 0;
+        for (Region region : regions) {
+            RegionContent fresh = byRegionId.get(region.getId());
+            RegionContent stored = previous.get(region.getId());
+            // 조회가 degrade 하면 provider 가 빈 콘텐츠를 준다. 그걸 그대로 넣으면 전량 교체라 <b>멀쩡하던
+            // 지역이 빈 값으로 덮인다</b> — 갱신 실패가 데이터 손실이 되는 셈이다. 이전 값이 있으면 그것을 남긴다.
+            boolean usable = fresh != null && !RegionContent.EMPTY.equals(fresh);
+            if (!usable && stored != null) {
+                rows.add(StoredRegionContent.of(region.getId(), stored, now));
+                kept++;
+                continue;
+            }
+            if (usable) {
+                rows.add(StoredRegionContent.of(region.getId(), fresh, now));
+            }
+            // 새 값도 이전 값도 없으면 그 지역은 저장하지 않는다 — 호출자가 빈 콘텐츠로 취급한다.
+        }
         regionContentRepository.replaceAll(rows);
 
         int missing = regions.size() - rows.size();
-        if (missing > 0 || fetched.degraded() > 0) {
+        if (missing > 0 || kept > 0 || fetched.degraded() > 0) {
             // 조용히 넘어가면 커버리지가 줄어든 것을 아무도 모른다(#191 과 같은 형식).
-            log.warn("지역 콘텐츠 적재 완료 지역={}/{} — 못 채운 {}건·외부 degrade {}건",
-                    rows.size(), regions.size(), missing, fetched.degraded());
+            log.warn("지역 콘텐츠 적재 완료 지역={}/{} — 이전 값 유지 {}건·못 채운 {}건·외부 degrade {}건",
+                    rows.size(), regions.size(), kept, missing, fetched.degraded());
             return;
         }
         log.info("지역 콘텐츠 적재 완료 지역={}/{}", rows.size(), regions.size());
