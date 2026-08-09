@@ -30,7 +30,28 @@ public record GalleryPhotoItem(
      * (#195 에서 겪은 것과 같은 구조).
      */
     public boolean isComplete() {
-        return hasText(contentId) && hasText(title) && hasText(imageUrl);
+        return hasText(contentId) && hasText(title) && hasText(imageUrl) && fitsColumns();
+    }
+
+    /**
+     * 컬럼 길이에 들어가는가.
+     *
+     * <p>실측(2026-08-09)으로는 여유가 크다 — URL 최대 73자(컬럼 500), 키워드 167자(컬럼 2,000). 그래도
+     * 보는 이유는 <b>비대칭</b> 때문이다. 적재는 한 트랜잭션이라 한 건이 컬럼을 넘으면 그 주 적재가 통째로
+     * 실패하는데, 여기서 거르는 비용은 이 한 줄이다.
+     */
+    private boolean fitsColumns() {
+        return within(contentId, 32)
+                && within(title, 300)
+                && within(imageUrl, 500)
+                && within(photographyMonth, 6)
+                && within(photographyLocation, 300)
+                && within(photographer, 100)
+                && within(searchKeyword, 2_000);
+    }
+
+    private static boolean within(String value, int max) {
+        return value == null || value.length() <= max;
     }
 
     private static boolean hasText(String value) {

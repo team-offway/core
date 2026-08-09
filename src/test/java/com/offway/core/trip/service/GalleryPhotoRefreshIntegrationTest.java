@@ -152,6 +152,41 @@ class GalleryPhotoRefreshIntegrationTest {
     }
 
     @Test
+    void 페이지_상한에_닿으면_부분_수집을_버린다() {
+        // 상한은 totalCount 가 잘못 커지는 비정상 상황 대비인데, 하필 그때 부분 수집으로 전량을 덮으면
+        // 못 읽은 페이지의 지역들이 조용히 사라진다. 적재 자체를 건너뛰어 이전 값을 남긴다.
+        Region region = anyRegion();
+        String location = region.getSido() + " " + region.getSigungu();
+        galleryImageVerifier.allAlive();
+        respondOnce(List.of(item("c1", "이전사진", "http://img/old.jpg", location)));
+        refreshService.refresh();
+
+        // 페이지가 끝나지 않고 계속 가득 찬 응답을 준다 — 상한까지 돌게 된다.
+        galleryPhotoClient.respond((pageNo, rows) ->
+                java.util.stream.IntStream.range(0, rows)
+                        .mapToObj(i -> item("p" + pageNo + "-" + i, "새사진", "http://img/new.jpg", location))
+                        .toList());
+        refreshService.refresh();
+
+        assertEquals("이전사진", galleryPhotoRepository.findByRegionId(region.getId()).getFirst().getTitle());
+    }
+
+    @Test
+    void 컬럼_길이를_넘는_항목은_건너뛴다() {
+        // 적재가 한 트랜잭션이라 한 건이 컬럼을 넘으면 그 주 적재가 통째로 실패한다.
+        Region region = anyRegion();
+        String location = region.getSido() + " " + region.getSigungu();
+        galleryImageVerifier.allAlive();
+        respondOnce(List.of(
+                item("c1", "정상", "http://img/ok.jpg", location),
+                item("c2", "긴URL", "http://img/" + "x".repeat(500) + ".jpg", location)));
+
+        refreshService.refresh();
+
+        assertEquals(1, galleryPhotoRepository.count());
+    }
+
+    @Test
     void 빈_결과로_이전_적재를_덮지_않는다() {
         Region region = anyRegion();
         String location = region.getSido() + " " + region.getSigungu();

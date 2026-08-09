@@ -76,7 +76,14 @@ public class GalleryPhotoRefreshService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        List<GalleryPhoto> photos = items.stream().map(item -> item.toEntity(now)).toList();
+        // 적재는 한 트랜잭션이라 컬럼을 넘는 한 건이 그 주 적재를 통째로 실패시킨다. 어댑터도 같은 검사를
+        // 하지만 그건 실제 응답 경로뿐이고, 적재 실패를 막는 것은 적재하는 쪽의 책임이다.
+        List<GalleryPhotoItem> storable = items.stream().filter(GalleryPhotoItem::isComplete).toList();
+        if (storable.size() < items.size()) {
+            log.warn("관광사진 갤러리 항목 {}건이 필수 값 누락·길이 초과로 제외됐습니다(수집 {}건)",
+                    items.size() - storable.size(), items.size());
+        }
+        List<GalleryPhoto> photos = storable.stream().map(item -> item.toEntity(now)).toList();
         assignRegions(photos);
         List<GalleryPhoto> stored = withLiveImagesOnly(photos);
         galleryPhotoRepository.replaceAll(stored);
@@ -103,8 +110,10 @@ public class GalleryPhotoRefreshService {
                 return all;
             }
         }
-        log.warn("관광사진 갤러리 페이지 상한({}) 도달 — 수집 {}건", MAX_PAGES, all.size());
-        return all;
+        // 상한에 닿았다는 것은 끝을 못 봤다는 뜻이라 부분 수집이다. 그대로 돌려주면 호출자가 정상 결과로
+        // 알고 전량 교체해, 못 읽은 페이지의 지역들이 조용히 사라진다. 빈 목록으로 실패를 알린다.
+        log.warn("관광사진 갤러리 페이지 상한({}) 도달 — 부분 수집({}건)을 버립니다", MAX_PAGES, all.size());
+        return List.of();
     }
 
     /**

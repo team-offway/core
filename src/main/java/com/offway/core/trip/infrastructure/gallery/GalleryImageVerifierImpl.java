@@ -35,7 +35,7 @@ class GalleryImageVerifierImpl implements GalleryImageVerifier {
      * 확인 <b>전체</b>의 시간 상한.
      *
      * <p>호출 하나의 timeout 과 작업 전체의 deadline 은 별개다. 상대가 느려지면 장당 8초가 쌓여 배치가
-     * 끝나지 않으므로 전체 상한을 따로 둔다. 넘으면 그때까지 확인된 것만 쓴다.
+     * 끝나지 않으므로 전체 상한을 따로 둔다.
      */
     private static final Duration TOTAL_DEADLINE = Duration.ofMinutes(3);
 
@@ -45,19 +45,35 @@ class GalleryImageVerifierImpl implements GalleryImageVerifier {
         this.webClient = externalWebClient;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p><b>상한에 걸리면 부분 결과를 쓰지 않고 빈 집합을 준다.</b> 여기서 "확인된 것" 은 곧 살릴 사진이라,
+     * 절반만 확인하고 넘기면 나머지가 전부 죽은 것으로 취급돼 그만큼 사진이 사라진다. 확인 자체를 포기하면
+     * 호출자가 "확인 없이 적재" 경로를 타므로 그편이 안전하다.
+     */
     @Override
     public Set<String> aliveUrls(List<String> urls) {
         if (urls.isEmpty()) {
             return Set.of();
         }
         Set<String> alive = ConcurrentHashMap.newKeySet();
-        Flux.fromIterable(urls)
+        // take(Duration) 으로 자른다 — blockLast(Duration) 은 상한을 넘기면 결과 대신 예외를 던지고,
+        // 그 예외는 호출자의 catch(TourApiException) 를 지나쳐 스케줄러까지 올라가 적재를 통째로 멈춘다.
+        Long checked = Flux.fromIterable(urls)
                 .flatMap(url -> isAlive(url).doOnNext(ok -> {
                     if (ok) {
                         alive.add(url);
                     }
                 }), CONCURRENCY)
-                .blockLast(TOTAL_DEADLINE);
+                .take(TOTAL_DEADLINE)
+                .count()
+                .block();
+        if (checked == null || checked < urls.size()) {
+            log.warn("갤러리 이미지 생존 확인이 시간 상한({})을 넘겨 중단됐습니다 — 확인 {}/{}건, 결과를 버립니다",
+                    TOTAL_DEADLINE, checked == null ? 0 : checked, urls.size());
+            return Set.of();
+        }
         int dead = urls.size() - alive.size();
         if (dead > 0) {
             // 조용히 버리면 원본 품질이 나빠진 것을 아무도 모른다. 비율이 뛰면 여기서 드러난다.
