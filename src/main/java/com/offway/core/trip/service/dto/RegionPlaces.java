@@ -1,5 +1,6 @@
 package com.offway.core.trip.service.dto;
 
+import com.offway.core.common.response.PageResponse;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.PlaceCategory;
 import java.util.List;
@@ -14,7 +15,8 @@ import org.springframework.data.domain.Page;
  * @param totalElements 조건에 맞는 전체 건수
  * @param totalPages 전체 페이지 수
  */
-public record RegionPlaces(List<Place> places, int page, int size, long totalElements, int totalPages) {
+public record RegionPlaces(List<Place> places, int page, int size, long totalElements, int totalPages)
+        implements PageResponse.Paged {
 
     public RegionPlaces {
         places = List.copyOf(places);
