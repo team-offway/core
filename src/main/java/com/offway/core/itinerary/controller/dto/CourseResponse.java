@@ -25,7 +25,9 @@ import java.util.List;
  * @param density 일정 밀도(PACKED·RELAXED)
  * @param days 날짜별 일정
  * @param benefits 적용 혜택 뱃지
- * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근(자차·저장 코스는 null)
+ * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근. <b>null 은 오류가 아니다</b> — 자차 코스이거나,
+ *     출발지 없이 저장된 코스(저장 요청에 {@code originLat}·{@code originLng} 를 안 보낸 경우)다. 저장 코스도
+ *     출발지가 있으면 조회 시점에 다시 계산해 채운다(#187)
  */
 /**
  * 값이 없는 선택 필드는 내려보내지 않는다.
