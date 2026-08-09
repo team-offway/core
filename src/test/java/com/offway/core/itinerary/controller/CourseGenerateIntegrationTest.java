@@ -14,8 +14,12 @@ import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
+import com.offway.core.weather.domain.AirGrade;
+import com.offway.core.weather.domain.AirQuality;
 import com.offway.core.weather.domain.DailyWeather;
 import com.offway.core.weather.domain.SkyState;
+import com.offway.core.weather.infrastructure.airkorea.AirKoreaClient;
+import com.offway.core.weather.infrastructure.airkorea.StubAirKoreaClient;
 import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
 import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
 import java.time.LocalDate;
@@ -52,6 +56,12 @@ class CourseGenerateIntegrationTest {
     private StubKmaWeatherClient weatherClient;
 
     @Autowired
+    private StubAirKoreaClient airKoreaClient;
+
+    @Autowired
+    private com.offway.core.weather.service.AirQualityService airQualityService;
+
+    @Autowired
     private StubTrainInfoClient trainInfoClient;
 
     @Autowired
@@ -76,6 +86,12 @@ class CourseGenerateIntegrationTest {
         @Primary
         TrainInfoClient stubTrainInfoClient() {
             return new StubTrainInfoClient();
+        }
+
+        @Bean
+        @Primary
+        AirKoreaClient stubAirKoreaClient() {
+            return new StubAirKoreaClient();
         }
     }
 
@@ -374,5 +390,51 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.days[0].weather.minTemp").value(2))
                 // 요청한 출발일 자체는 그대로 보존된다
                 .andExpect(jsonPath("$.data.travelDate").value("2026-05-01"));
+    }
+
+    /**
+     * 실시간 대기질은 <b>오늘 여행 중인 코스에만</b> 실린다.
+     *
+     * <p>예전에는 홈 카드마다 시도별로 물었는데, 에어코리아가 느린 시도를 만나면 그 지연을 사용자가 그대로
+     * 물어 홈이 24초 걸렸다(실측 2026-08-10). 실시간 값이 쓸모 있는 자리는 "지금 그 지역에 가 있는" 화면뿐이라
+     * 여기로 옮겼다.
+     */
+    @Test
+    void 오늘_떠나는_코스에는_실시간_대기질이_실린다() throws Exception {
+        tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
+        weatherClient.respondByDate(date -> Optional.empty());
+        airKoreaClient.respond(() -> Optional.of(new AirQuality(45, 23, AirGrade.MODERATE)));
+        airQualityService.evictCache(); // 공유 싱글톤 — 앞 테스트가 채운 값이 살아남지 않게
+
+        String body = """
+                { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "%s" }"""
+                .formatted(LocalDate.now(java.time.ZoneId.of("Asia/Seoul")));
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.airQuality.pm10").value(45))
+                .andExpect(jsonPath("$.data.airQuality.pm25").value(23))
+                .andExpect(jsonPath("$.data.airQuality.grade").value("보통"));
+    }
+
+    @Test
+    void 다음주_코스에는_대기질을_묻지도_않는다() throws Exception {
+        // 조회 자체를 안 해야 한다 — 실시간 값이라 여행일에 맞지도 않는데 외부 호출만 붙는다.
+        // stub 이 throw 라, 코스가 오늘을 안 덮는데 물으면 여기서 깨진다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
+        weatherClient.respondByDate(date -> Optional.empty());
+        airKoreaClient.respond(() -> {
+            throw new AssertionError("오늘 여행 중이 아닌 코스인데 대기질을 조회했습니다");
+        });
+
+        String body = """
+                { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "%s" }"""
+                .formatted(LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).plusDays(7));
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.airQuality").doesNotExist());
     }
 }

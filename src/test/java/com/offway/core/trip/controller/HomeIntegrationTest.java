@@ -63,7 +63,7 @@ class HomeIntegrationTest {
     @Autowired
     private com.offway.core.weather.service.AirQualityService airQualityService;
 
-    // 랭킹·대기질 캐시는 공유 싱글톤 — 각 테스트가 자기 stub 시나리오를 타도록 캐시를 비운다(DB 롤백에 준하는 격리).
+    // 랭킹·콘텐츠 캐시는 공유 싱글톤 — 각 테스트가 자기 stub 시나리오를 타도록 캐시를 비운다(DB 롤백에 준하는 격리).
     @org.junit.jupiter.api.BeforeEach
     void evictCaches() {
         regionRankingService.evictCache();
@@ -105,7 +105,11 @@ class HomeIntegrationTest {
         tourApiClient.respond(HomeIntegrationTest::content);
         // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
         regionContentRefreshService.refresh();
-        airKoreaClient.respond(() -> Optional.of(new AirQuality(45, 23, AirGrade.MODERATE)));
+        // 홈은 대기질을 부르지 않는다 — 부르면 여기서 깨진다. 예전엔 카드마다 시도별로 물어 느린 시도를
+        // 만나면 홈이 24초 걸렸고, 그래서 코스로 옮겼다. 회귀하면 이 stub 이 먼저 잡는다.
+        airKoreaClient.respond(() -> {
+            throw new AssertionError("홈이 대기질을 조회했습니다 — 요청 경로에서 빠져 있어야 합니다");
+        });
 
         // 홈의 남은 연차는 저장값에서 온다(#89) — 클라이언트가 넘긴 값을 되돌려주던 예전과 다르다.
         // 그래서 먼저 저장해야 13 이 나온다. 이 두 단계가 실제 배선을 함께 검증한다.
@@ -130,10 +134,9 @@ class HomeIntegrationTest {
                 // 전 지역이 인구감소지역 → 대표 혜택으로 반값여행 뱃지
                 .andExpect(jsonPath("$.data.recommendedRegions[0].benefit.text").value("여행경비 50% 환급"))
                 .andExpect(jsonPath("$.data.recommendedRegions[0].benefit.policyType").value("REGIONAL_VOUCHER"))
-                // 지역 시도 실시간 대기질
-                .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality.pm10").value(45))
-                .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality.pm25").value(23))
-                .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality.grade").value("보통"));
+                // 대기질은 홈 계약에서 빠졌다 — 실시간 값이라 "다음 주 어디 갈까" 를 고르는 자리에 쓸모가 없고,
+                // 그것 하나 때문에 홈이 외부 호출을 물고 있었다.
+                .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality").doesNotExist());
     }
 
     @Test
@@ -142,15 +145,12 @@ class HomeIntegrationTest {
         tourApiClient.respond(HomeIntegrationTest::content);
         // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
         regionContentRefreshService.refresh();
-        // 대기질 조회 실패해도(빈 값) 카드는 나온다 — 부가 정보라 airQuality=null
-        airKoreaClient.respond(Optional::empty);
 
         mockMvc.perform(get(URL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.user.name").value("게스트"))
                 .andExpect(jsonPath("$.data.user.remainingLeaveDays").value(nullValue()))
-                .andExpect(jsonPath("$.data.recommendedRegions.length()").value(6))
-                .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality").value(nullValue()));
+                .andExpect(jsonPath("$.data.recommendedRegions.length()").value(6));
     }
 
     @Test
