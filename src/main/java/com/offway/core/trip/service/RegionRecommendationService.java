@@ -79,7 +79,9 @@ public class RegionRecommendationService {
 
         // 외부(TourAPI)는 병렬, DB(혜택)는 일괄 — 성격이 다르다. 혜택까지 병렬로 돌리면 후보 수만큼 커넥션을
         // 잡으려 들어 커넥션 풀에서 경합한다. 쿼리 수를 줄이는 게 맞지 스레드를 늘릴 일이 아니다.
-        Map<Long, RegionContent> contents = regionContentProvider.contentForAll(candidateRegions, allRegions, RegionContentProvider.REQUEST_FANOUT_DEADLINE).byRegionId();
+        // 저장된 값만 읽는다(#193) — 요청 경로에서 후보 지역 팬아웃을 돌리지 않는다.
+        Map<Long, RegionContent> contents =
+                regionContentProvider.storedForAll(candidateRegions.stream().map(Region::getId).toList());
         List<Long> candidateIds = candidateRegions.stream().map(Region::getId).toList();
         Map<Long, List<Policy>> policiesByRegion = policyService.matchForRegions(candidateIds, today);
         // 대표 사진은 DB 만 읽는다(#196) — 외부 호출이 늘지 않는다. 추천 요청에 여행 날짜가 없어 계절 정렬은

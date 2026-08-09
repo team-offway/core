@@ -5,8 +5,10 @@ import com.offway.core.common.cache.ExternalDataCache.Loaded;
 import com.offway.core.region.domain.Region;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.trip.domain.RegionContent;
+import com.offway.core.trip.domain.StoredRegionContent;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
+import com.offway.core.trip.repository.RegionContentRepository;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -23,6 +25,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -82,6 +85,7 @@ public class RegionContentProvider {
     public static final Duration WARMING_FANOUT_DEADLINE = Duration.ofMinutes(5);
 
     private final TourApiClient tourApiClient;
+    private final RegionContentRepository regionContentRepository;
     /**
      * 빈 지역에 동시 요청이 몰렸을 때 첫 적재를 기다릴 상한. loader 가 TourAPI <b>단일 호출</b>(timeout 6초)이라
      * 여유 1초를 얹었다.
@@ -122,6 +126,25 @@ public class RegionContentProvider {
     @PreDestroy
     void shutdownFanout() {
         fanoutExecutor.shutdownNow();
+    }
+
+    /**
+     * <b>저장된</b> 지역 콘텐츠를 읽는다 — 요청 경로가 쓰는 길이다(#193).
+     *
+     * <p>외부를 부르지 않는다. 예전에는 요청마다 89곳 팬아웃과 인접 병합을 돌렸는데, 캐시가 비면(배포 직후)
+     * 그 비용을 사용자가 그대로 떠안았다. 적재는 {@link RegionContentRefreshService} 가 하루 한 번 한다.
+     *
+     * <p>아직 적재 전이면 <b>키가 없다</b>. 콘텐츠는 화면의 부가 정보라 호출자가 빈 콘텐츠로 취급하면 되고,
+     * 그 자리에서 89곳을 긁어 사용자를 수십 초 기다리게 하지 않는다.
+     *
+     * @return 지역ID → 콘텐츠(인접 병합까지 끝난 값)
+     */
+    public Map<Long, RegionContent> storedForAll(List<Long> regionIds) {
+        if (regionIds.isEmpty()) {
+            return Map.of();
+        }
+        return regionContentRepository.findByRegionIds(regionIds).stream()
+                .collect(Collectors.toMap(StoredRegionContent::getRegionId, StoredRegionContent::toRegionContent));
     }
 
     /**

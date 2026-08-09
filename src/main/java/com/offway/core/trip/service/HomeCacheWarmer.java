@@ -69,17 +69,9 @@ public class HomeCacheWarmer {
             // DB·설정 오류라 예상 범위 밖이다. 5시간 주기라 재현도 어려워 스택을 남긴다.
             log.warn("홈 캐시 워밍 — 랭킹 갱신 실패(계속)", e);
         }
-        // degrade 는 지역마다 warn 이 찍히지만 그것만으로는 규모를 모른다 — 한 곳이 실패한 것과 여든 곳이
-        // 실패한 것은 완전히 다른 사건인데 로그 모양은 같다. 회차마다 합계를 한 줄로 남긴다(#191).
-        RegionContentProvider.RegionContents result = warmContent(regions);
-        int warmed = result.byRegionId().size();
-        int degraded = result.degraded();
-        if (degraded > 0) {
-            log.warn("홈 캐시 워밍(랭킹·콘텐츠) 완료 regions={}/{} — 외부 실패로 degrade {}건",
-                    warmed, regions.size(), degraded);
-            return;
-        }
-        log.info("홈 캐시 워밍(랭킹·콘텐츠) 완료 regions={}/{}", warmed, regions.size());
+        // 지역 콘텐츠는 더 이상 여기서 데우지 않는다 — DB 에 적재돼 있어 워밍할 캐시가 없다(#193).
+        // RegionContentRefreshService 가 하루 한 번 채운다.
+        log.info("홈 캐시 워밍(랭킹) 완료 regions={}", regions.size());
     }
 
     /**
@@ -148,15 +140,4 @@ public class HomeCacheWarmer {
         }
     }
 
-    /**
-     * 지역 콘텐츠를 데운다. 팬아웃(동시성 상한·지역별 예외 격리·전체 시간 상한)은 {@link RegionContentProvider} 가
-     * 소유하므로 여기서는 넘기기만 한다.
-     *
-     * <p>워밍이 자기 풀을 따로 들지 않는 이유 — <b>요청 경로와 같은 메서드를 쓰기 위해서다.</b> 상수만 공유하면 한쪽만
-     * 고쳐질 수 있지만, 메서드를 공유하면 동시성이 갈릴 여지가 없다(성능 규약).
-     */
-    private RegionContentProvider.RegionContents warmContent(List<Region> regions) {
-        return regionContentProvider.contentForAll(
-                regions, regions, RegionContentProvider.WARMING_FANOUT_DEADLINE);
-    }
 }
