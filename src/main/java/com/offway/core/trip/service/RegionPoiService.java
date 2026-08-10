@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.LicensedPlace;
@@ -132,8 +133,10 @@ public class RegionPoiService {
             result = tourApiClient.findByArea(
                     region.getAreaCode(), region.getSigunguCode(), contentTypeId, CANDIDATE_ROWS);
         } catch (RuntimeException e) {
+            // 껍데기(TourApiException)만 찍으면 429 인지 timeout 인지 갈리지 않는다. 어댑터가 목록 조회
+            // 실패를 DEBUG 로 내렸으므로, 이 줄이 그 사유를 남기는 유일한 자리다.
             log.warn("TourAPI 조회 실패 — 인허가 데이터로 대체합니다. regionId={} contentTypeId={} cause={}",
-                    region.getId(), contentTypeId, e.getClass().getSimpleName());
+                    region.getId(), contentTypeId, RootCause.of(e));
             return List.of();
         }
 

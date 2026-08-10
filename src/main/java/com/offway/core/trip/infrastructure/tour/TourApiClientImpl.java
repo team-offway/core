@@ -201,8 +201,11 @@ class TourApiClientImpl implements TourApiClient {
         try {
             return parseList(call(builder));
         } catch (Exception e) {
+            // 여기서는 WARN 을 올리지 않는다 — 목록 조회는 89개 지역 팬아웃이 부르는 자리라, 어댑터가
+            // 한 줄씩 남기면 같은 실패가 지역 수만큼 반복된다. 예외를 그대로 던지므로 사유는 사라지지
+            // 않고, 호출자(RegionContentProvider·RegionPoiService)가 자기 맥락과 함께 남긴다.
             // 쿼리스트링(키 포함)은 로그에 남기지 않는다 — RootCause 가 마스킹·제어문자 제거·길이 제한을 건다.
-            log.warn("TourAPI 조회 실패 op={} cause={}", op, RootCause.of(e));
+            log.debug("TourAPI 조회 실패 op={} cause={}", op, RootCause.of(e));
             throw TourApiException.lookupFailed(e);
         }
     }
