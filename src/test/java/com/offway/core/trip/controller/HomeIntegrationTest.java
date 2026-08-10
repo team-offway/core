@@ -131,9 +131,14 @@ class HomeIntegrationTest {
                 .andExpect(jsonPath("$.data.recommendedRegions[0].crowdLevel").value("LOW"))
                 .andExpect(jsonPath("$.data.recommendedRegions[0].imageUrl").value("http://img/1.jpg"))
                 .andExpect(jsonPath("$.data.recommendedRegions[0].categories[0].key").value("SIGHT"))
-                // 전 지역이 인구감소지역 → 대표 혜택으로 반값여행 뱃지
-                .andExpect(jsonPath("$.data.recommendedRegions[0].benefit.text").value("여행경비 50% 환급"))
-                .andExpect(jsonPath("$.data.recommendedRegions[0].benefit.policyType").value("REGIONAL_VOUCHER"))
+                // 혜택 뱃지 내용은 여기서 단언하지 않는다. 이 경로는 LocalDate.now() 로 매칭하는데,
+                // 진행 중인 캠페인은 기간이 끝나면 사라져 실행 시점에 따라 값이 달라진다. 실제로 이 자리는
+                // 반값여행 문구를 박아 두고 있었고, 대상 지역이 좁혀지자 곧바로 깨졌다(#217).
+                // 어느 지역에 어떤 정책이 붙는가는 날짜를 고정한 PolicyMatchIntegrationTest 가 소유한다.
+                //
+                // 구조 단언도 두지 않는다. 홈의 혜택은 배열이 아니라 <b>단수 nullable</b>({@code benefit})이라,
+                // 매칭이 없으면 필드 자체가 사라진다 — "있는지" 를 물어도 결국 날짜에 기대는 단언이 된다.
+                // (배열인 지역 추천 쪽은 항상 실려서 RegionRecommendIntegrationTest 가 구조를 지킨다.)
                 // 대기질은 홈 계약에서 빠졌다 — 실시간 값이라 "다음 주 어디 갈까" 를 고르는 자리에 쓸모가 없고,
                 // 그것 하나 때문에 홈이 외부 호출을 물고 있었다.
                 .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality").doesNotExist());

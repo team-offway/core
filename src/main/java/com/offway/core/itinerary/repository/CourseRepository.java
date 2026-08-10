@@ -31,6 +31,14 @@ public interface CourseRepository {
 
     Optional<Course> findByIdAndGuestId(Long id, String guestId);
 
+    /**
+     * 소유자 무관 조회 — <b>공유 링크 전용</b>(#143).
+     *
+     * <p>일반 상세 조회는 반드시 {@link #findByIdAndGuestId} 를 쓴다. 이 메서드로 열면 순번 ID 만으로 남의
+     * 코스를 훑을 수 있다. 여기서 접근을 막는 것은 소유자가 아니라 <b>추측 불가능한 토큰</b>이다.
+     */
+    Optional<Course> findById(Long id);
+
     /** 애그리거트 통째 삭제. 하위(DaySchedule·Slot)는 cascade·orphanRemoval 로 함께 지워진다. */
     void delete(Course course);
 }
