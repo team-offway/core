@@ -3,7 +3,7 @@ package com.offway.core.weather.infrastructure.airkorea;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
-import com.offway.core.common.exception.RootCause;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.weather.domain.AirGrade;
 import com.offway.core.weather.domain.AirQuality;
 import java.net.URI;

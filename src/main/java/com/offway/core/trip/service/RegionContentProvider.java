@@ -1,7 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.cache.ExternalDataCache;
-import com.offway.core.common.exception.RootCause;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
 import com.offway.core.region.domain.Region;
 import com.offway.core.transport.domain.Coordinate;

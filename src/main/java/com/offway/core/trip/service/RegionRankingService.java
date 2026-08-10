@@ -1,6 +1,6 @@
 package com.offway.core.trip.service;
 
-import com.offway.core.common.exception.RootCause;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.region.domain.Region;
 import com.offway.core.trip.domain.PopulationDeclineStatus;
 import com.offway.core.trip.domain.RegionRanking;
@@ -84,12 +84,14 @@ public class RegionRankingService {
     private final java.util.concurrent.atomic.AtomicBoolean bootstrapping =
             new java.util.concurrent.atomic.AtomicBoolean();
 
-    /** 지금 들고 있는 집계가 어느 달 것인지 — 실패했을 때 "얼마나 낡았나" 를 로그가 답하게 한다. */
+    /**
+     * 지금 들고 있는 집계가 어느 달 것인지 — 실패했을 때 "얼마나 낡았나" 를 로그가 답하게 한다.
+     *
+     * <p>{@code findAll().findFirst()} 로 읽지 않는다. 정렬이 보장되지 않아 첫 행이 최신이라는 근거가 없고,
+     * 한 값을 보려고 전 행을 메모리에 올릴 이유도 없다.
+     */
     private String storedMonth() {
-        return aggregateRepository.findAll().stream()
-                .findFirst()
-                .map(row -> row.baseMonth().toString())
-                .orElse("없음");
+        return aggregateRepository.latestBaseMonth().map(YearMonth::toString).orElse("없음");
     }
 
     /** 저장된 집계를 비운다 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트의 격리용. */

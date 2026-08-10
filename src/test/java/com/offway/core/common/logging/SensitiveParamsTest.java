@@ -97,4 +97,29 @@ class SensitiveParamsTest {
         assertTrue(rendered.endsWith("…"), "잘렸다는 표식이 있어야 한다. 실제 길이=" + rendered.length());
         assertTrue(rendered.length() < 80, "실제 길이=" + rendered.length());
     }
+
+    @Test
+    void 제어문자를_끼워_마스킹을_피할_수_없다() {
+        // to%0Aken 은 원문 기준으로 개행이 낀 이름이라 "token" 과 안 맞는데, 렌더링은 제어문자를 지운다.
+        // 판정과 표시가 갈리면 값이 그대로 나간다 — 판정도 표시될 이름으로 해야 한다.
+        assertEquals("token=***", SensitiveParams.readableParams("to%0Aken=secret"));
+    }
+
+    @Test
+    void 자유_텍스트의_비밀값을_가린다() {
+        // 예외 메시지에 요청 URL 이 통째로 들어오는 경우가 있다. 우리 외부 호출은 serviceKey 를 쿼리에 싣는다.
+        String message = "429 from GET https://apis.data.go.kr/x?serviceKey=abc123&areaCode=34";
+
+        String masked = SensitiveParams.maskSecretsInText(message);
+
+        assertFalse(masked.contains("abc123"), "실제=" + masked);
+        assertTrue(masked.contains("serviceKey=***"), "실제=" + masked);
+        assertTrue(masked.contains("areaCode=34"), "민감하지 않은 값은 남아야 한다. 실제=" + masked);
+    }
+
+    @Test
+    void 자유_텍스트가_비어도_깨지지_않는다() {
+        assertEquals("", SensitiveParams.maskSecretsInText(""));
+        assertEquals(null, SensitiveParams.maskSecretsInText(null));
+    }
 }

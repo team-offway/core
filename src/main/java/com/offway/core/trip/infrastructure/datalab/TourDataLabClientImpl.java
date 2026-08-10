@@ -3,7 +3,7 @@ package com.offway.core.trip.infrastructure.datalab;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
-import com.offway.core.common.exception.RootCause;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.domain.VisitorType;
 import com.offway.core.trip.infrastructure.datalab.dto.RegionVisitor;
