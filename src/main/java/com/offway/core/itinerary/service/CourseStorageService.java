@@ -243,7 +243,11 @@ public class CourseStorageService {
     }
 
     private GeneratedCourse withBenefits(Course course, boolean withTrainAccess) {
-        List<GeneratedCourse.Benefit> benefits = policyService.matchForRegion(course.getRegionId(), LocalDate.now())
+        // 혜택은 **여행일** 기준으로 매칭한다(#213). 정책에 유효기간이 있어 기준일이 결과를 가르는데,
+        // 여기만 오늘을 넘기고 있어 생성 응답과 상세 조회의 혜택이 어긋났다 — 저장하는 순간부터 갈리고
+        // 여행이 멀수록 벌어졌다. 날짜 없이 저장된 코스는 알 수 없어 오늘로 물러선다.
+        LocalDate benefitDate = course.travelDateOr(LocalDate.now(SERVICE_ZONE));
+        List<GeneratedCourse.Benefit> benefits = policyService.matchForRegion(course.getRegionId(), benefitDate)
                 .stream()
                 .map(policy -> new GeneratedCourse.Benefit(policy.getId(), policy.getType(), policy.badgeText()))
                 .toList();
