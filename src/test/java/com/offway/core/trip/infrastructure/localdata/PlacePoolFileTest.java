@@ -146,21 +146,37 @@ class PlacePoolFileTest {
     }
 
     /**
-     * 백화점 안 매장이 코스 후보로 들어오지 않는가(#222).
+     * 대형 상업시설 안 매장 제외 키워드 — {@code scripts/build_place_pool.py} 의
+     * {@code EXCLUDED_VENUE_KEYWORDS} 와 <b>같은 목록이어야 한다</b>.
+     *
+     * <p>스크립트는 파이썬이라 상수를 공유할 수 없어 여기 옮겨 적는다. 어긋나면 이 테스트가 통과하는데
+     * 배포 파일에는 남는 상황이 생기므로, 한쪽을 고치면 반드시 다른 쪽도 고친다.
+     */
+    private static final List<String> EXCLUDED_VENUE_KEYWORDS = List.of(
+            "백화점", "커넥트현대", "신세계센텀", "롯데몰", "현대시티",
+            "아울렛", "아웃렛", "쇼핑몰", "쇼핑센터");
+
+    /**
+     * 대형 상업시설 안 매장이 코스 후보로 들어오지 않는가(#222).
      *
      * <p>업태 필터는 업태가 정확히 '백화점' 인 것만 잡는다. 그 안의 식당은 업태가 한식·경양식이라 통과했고,
      * 부산 동구 코스에 커넥트현대 지하 푸드코트가 실제로 들어왔다.
+     *
+     * <p><b>상호와 주소를 합쳐서 본다.</b> 생성 스크립트가 그렇게 거르기 때문이다 — 한쪽만 보면
+     * "남천면가 커넥트현대점"(상호)은 잡고 "범일로 125, 현대백화점 부산점 9층"(주소)은 놓친다.
      */
     @Test
-    void 백화점_안_매장이_들어있지_않다() {
-        List<String> inDepartmentStore = places.stream()
-                .filter(place -> (place.getName() + " " + place.getAddress()).contains("백화점")
-                        || place.getName().contains("커넥트현대"))
+    void 대형_상업시설_안_매장이_들어있지_않다() {
+        List<String> inLargeVenue = places.stream()
+                .filter(place -> {
+                    String haystack = place.getName() + " " + place.getAddress();
+                    return EXCLUDED_VENUE_KEYWORDS.stream().anyMatch(haystack::contains);
+                })
                 .map(place -> place.getName() + " | " + place.getAddress())
                 .limit(5)
                 .toList();
 
-        assertEquals(List.of(), inDepartmentStore, "백화점 안 매장이 남아 있습니다");
+        assertEquals(List.of(), inLargeVenue, "대형 상업시설 안 매장이 남아 있습니다");
     }
 
     /**
