@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -78,15 +79,23 @@ class DegradeTallyTest {
     void 팬아웃에서_동시에_세도_총계가_맞는다() throws Exception {
         // 지역 콘텐츠는 89곳을 병렬로 돈다. 카운터가 경쟁하면 요약이 조용히 틀린다.
         DegradeTally tally = new DegradeTally();
+        AtomicInteger firstOccurrences = new AtomicInteger();
 
         CompletableFuture.allOf(IntStream.range(0, 200)
-                        .mapToObj(i -> CompletableFuture.runAsync(() -> tally.add(i % 2 == 0 ? "429" : "timeout")))
+                        .mapToObj(i -> CompletableFuture.runAsync(() -> {
+                            if (tally.add(i % 2 == 0 ? "429" : "timeout")) {
+                                firstOccurrences.incrementAndGet();
+                            }
+                        }))
                         .toArray(CompletableFuture[]::new))
                 .get();
 
         DegradeTally.Snapshot snapshot = tally.snapshot();
         assertEquals(200, snapshot.total());
         assertEquals("429=100, timeout=100", snapshot.summary());
+        // 사유마다 정확히 한 번만 참이어야 WARN 이 한 줄이다. 두 스레드가 동시에 첫 건이라 판단하면
+        // 같은 사유가 두 줄 남는데, 총계·요약만 보면 그 어긋남이 안 보인다.
+        assertEquals(2, firstOccurrences.get(), "사유는 429·timeout 둘뿐이다");
     }
 
     @Test
