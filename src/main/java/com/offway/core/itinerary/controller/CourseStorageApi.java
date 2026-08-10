@@ -20,7 +20,16 @@ import java.util.List;
 @Tag(name = "내 코스", description = "코스 저장 · 내 코스 목록·상세")
 public interface CourseStorageApi {
 
-    @Operation(summary = "코스 저장", description = "생성한 코스를 게스트의 '내 코스'로 저장한다.")
+    @Operation(
+            summary = "코스 저장",
+            description =
+                    """
+                    생성한 코스를 게스트의 '내 코스'로 저장한다.
+
+                    응답에 `shareToken` 이 함께 실린다(#143). 공유 URL 은 `/c/{shareToken}` 이고,
+                    받은 사람은 `GET /api/v1/public/courses/{shareToken}` 으로 인증 없이 볼 수 있다.
+                    **토큰이 있다고 공개된 것은 아니다** — 링크를 넘겨야 비로소 남이 볼 수 있다.
+                    """)
     @ApiResponse(responseCode = "201", description = "저장 성공")
     @ApiResponse(
             responseCode = "400",

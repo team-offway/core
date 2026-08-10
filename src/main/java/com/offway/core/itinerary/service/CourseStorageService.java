@@ -22,6 +22,8 @@ import java.util.Map;
 import java.util.OptionalDouble;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
@@ -31,12 +33,16 @@ import org.springframework.transaction.annotation.Transactional;
  * 코스 저장·조회(#33) — 생성된 코스를 게스트의 "내 코스"로 영속화하고 다시 꺼낸다. 혜택은 저장하지 않고 조회 시점에 정책 매칭으로
  * 다시 붙인다(저장 코스가 정책 변경에 뒤처지지 않게). 애그리거트 저장이라 외부 호출 없이 짧은 트랜잭션.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CourseStorageService {
 
     /** D-day·다가오는 여행 판정 기준 시간대. 서비스가 한국 여행을 다루므로 사용자 로캘과 무관하게 KST 다. */
     public static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
+
+    /** 공유 링크 발급이 예상 밖 제약에 걸렸을 때 — DB 메시지를 싣지 않는다(토큰이 들어 있다). */
+    private static final String SHARE_ISSUE_FAILED = "공유 링크를 발급하지 못했습니다 courseId=%d";
 
     private final CourseRepository courseRepository;
     private final PolicyService policyService;
@@ -59,7 +65,60 @@ public class CourseStorageService {
         // 열차 접근은 여전히 붙이지 않는다 — 트랜잭션과 무관하게, 클라이언트가 방금 생성 응답에서 받은
         // 값을 갖고 있어 다시 줄 이유가 없다(#187).
         Course saved = coursePersistenceService.persist(course);
-        return withBenefits(saved, false);
+        // 공유 토큰을 저장 응답에 함께 싣는다(#143) — 공유 버튼이 추가 왕복 없이 링크를 만들게.
+        // 토큰이 있다고 공개되는 것이 아니다. 링크를 넘겨야 비로소 남이 볼 수 있다.
+        return withBenefits(saved, false).withShareToken(shareTokenOf(saved.getId()));
+    }
+
+    /**
+     * 코스의 공유 토큰 — 동시에 발급하려는 경합을 흡수한다.
+     *
+     * <p>{@code findByCourseId} 후 {@code save} 사이에 다른 요청이 끼어들면 둘 다 "없다" 를 읽고 하나가
+     * 유니크 제약({@code uk_course_share_course})에 걸린다. 그대로 두면 500 이 나가는데, 사용자가 원한 상태
+     * (링크가 하나 있다)는 이미 이뤄져 있다.
+     *
+     * <p><b>중복인지 확인하고 삼킨다.</b> 확인 없이 삼키면 다른 제약 위반까지 조용히 넘어가, 토큰 없이
+     * 200 을 주고도 아무도 모른다 — 규약이 막는 '조용한 실패' 다.
+     *
+     * <p>지금 이 경합은 사실상 닿지 않는다(방금 만든 코스라 그 id 를 아는 요청이 하나뿐이다). 다만 발급을
+     * 별도 엔드포인트로 여는 순간 바로 도달 가능해지고, 이 메서드의 계약("코스당 링크 하나")은 그때도 같다.
+     */
+    private String shareTokenOf(Long courseId) {
+        try {
+            return coursePersistenceService.shareOf(courseId).getShareToken();
+        } catch (DataIntegrityViolationException e) {
+            return coursePersistenceService
+                    .findShare(courseId)
+                    .map(share -> {
+                        log.info("공유 링크 발급 경합 — 먼저 만들어진 링크를 그대로 씁니다 courseId={}", courseId);
+                        return share.getShareToken();
+                    })
+                    .orElseThrow(() -> {
+                        // **예외 객체를 그대로 찍지 않는다.** MySQL 의 중복 키 메시지는
+                        // `Duplicate entry 'xyz' for key 'uk_course_share_token'` 형태라 토큰이 그대로 실린다.
+                        // 그 토큰이 곧 공개 링크의 자격증명이라, 로그를 보는 사람이 남의 코스를 열 수 있게 된다
+                        // (로깅 규약: 토큰을 로그에 남기지 않는다).
+                        //
+                        // 하필 여기가 그 자리다 — course_id 중복은 위에서 처리됐으므로, 여기까지 왔다는 것은
+                        // 남은 제약(토큰 유니크)이 걸렸다는 뜻이고 그 메시지에 토큰이 들어 있다.
+                        log.error("공유 링크 발급 실패 — 중복이 아닌 제약 위반 courseId={} cause={}",
+                                courseId, e.getClass().getSimpleName());
+                        // **원본을 다시 던지지 않는다.** 던지면 전역 핸들러가 스택째 찍어 같은 값이 새어 나가,
+                        // 여기서 가린 것이 무의미해진다. 사유는 위 로그와 courseId 로 추적된다.
+                        return new IllegalStateException(SHARE_ISSUE_FAILED.formatted(courseId));
+                    });
+        }
+    }
+
+    /**
+     * 공유 링크로 여는 코스(#143) — <b>인증 없이, 소유자 확인 없이</b>.
+     *
+     * <p>접근을 막는 것은 소유자가 아니라 추측 불가능한 토큰이다. 그래서 이 경로는 소유자 식별자를 절대
+     * 반환하지 않는다 — 응답 조립은 {@link CourseResponse#publicView} 가 내부 식별자를 걷어낸다.
+     */
+    public GeneratedCourse findShared(String shareToken) {
+        Course course = coursePersistenceService.loadShared(shareToken);
+        return withBenefits(course, true);
     }
 
     /**
@@ -198,8 +257,9 @@ public class CourseStorageService {
                 courseWeatherProvider.byDay(course, region, course.center().orElse(null));
         TrainAccess trainAccess = withTrainAccess ? trainAccessFor(course, region) : null;
         // 생성 응답에만 붙고 상세 조회에는 없으면 저장한 코스에서 값이 사라진다(#169 와 같은 실수).
+        // 공유 토큰은 조립이 아니라 영속 경계에서 온다 — 필요한 호출자가 withShareToken 으로 얹는다(#143).
         return new GeneratedCourse(
                 course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
-                courseAirQualityProvider.of(course, region));
+                courseAirQualityProvider.of(course, region), null);
     }
 }
