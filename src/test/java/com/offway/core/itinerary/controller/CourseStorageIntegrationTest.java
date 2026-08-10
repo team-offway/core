@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -623,5 +624,97 @@ class CourseStorageIntegrationTest {
 
         assertEquals(onSave, onDetail, "저장 응답과 상세 조회의 혜택이 같아야 한다 travelDate=" + travelDate);
         return onDetail;
+    }
+
+    /** 이틀짜리 대중교통 코스 — 첫날을 걷어내도 코스가 남아야 판정을 볼 수 있다. */
+    private static String transitTwoDayBody(String travelDate) {
+        return """
+                { "regionId": 16, "density": "PACKED", "transport": "TRANSIT",
+                  "travelDate": "%s", "originLat": 37.5547, "originLng": 126.9707, "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":0}
+                  ]},
+                  { "day": 2, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c2","title":"장소2","lat":37.51,"lng":128.61,"travelMinutes":0}
+                  ]}
+                ]}""".formatted(travelDate);
+    }
+
+    private void trainArrivesAt(LocalDateTime arriveAt) {
+        trainInfoClient.respond(() -> new TrainAvailability.Available(
+                TrainLeg.of("KTX", arriveAt.minusHours(3), arriveAt)));
+        trainRouteService.evictCache();
+    }
+
+    /**
+     * 날짜를 옮겨 도착이 자정을 넘기면 <b>갈 수 없게 된 첫날 일정을 걷어낸다</b>(#214).
+     *
+     * <p>예전에는 열차 도착만 새 날짜로 다시 조회하고 슬롯은 저장된 그대로 뒀다. 그래서 도착 전 시간에
+     * 일정이 잡힌 코스가 남았다 — 화면상 멀쩡한데 실제로는 갈 수 없다.
+     */
+    @Test
+    void 날짜를_옮겨_도착이_자정을_넘기면_첫날_일정을_걷어낸다() throws Exception {
+        weatherClient.respondByDate(date -> Optional.empty());
+        trainArrivesAt(LocalDateTime.of(2026, 9, 11, 8, 30)); // 당일 오전 도착 — 첫날 일정 정상
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitTwoDayBody("2026-09-11")))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        trainArrivesAt(LocalDateTime.of(2026, 9, 21, 2, 0)); // 옮긴 날짜의 막차 — 자정을 넘겨 닿는다
+
+        mockMvc.perform(patch(URL + "/{id}", courseId).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"travelDate\": \"2026-09-20\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.firstDayChange").value("TRIMMED"))
+                // 첫날이 통째로 빠져 하루만 남고, 표시 번호는 1부터 다시 붙는다
+                .andExpect(jsonPath("$.data.days.length()").value(1))
+                .andExpect(jsonPath("$.data.days[0].day").value(1))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value("장소2"));
+    }
+
+    @Test
+    void 걷어낸_결과가_다시_열어도_남아_있다() throws Exception {
+        // 응답만 고치고 저장을 안 하면 다음 조회에서 갈 수 없는 일정이 되살아난다.
+        weatherClient.respondByDate(date -> Optional.empty());
+        trainArrivesAt(LocalDateTime.of(2026, 9, 11, 8, 30));
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitTwoDayBody("2026-09-11")))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        trainArrivesAt(LocalDateTime.of(2026, 9, 21, 2, 0));
+        mockMvc.perform(patch(URL + "/{id}", courseId).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"travelDate\": \"2026-09-20\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days.length()").value(1))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value("장소2"));
+    }
+
+    @Test
+    void 도착이_그대로면_첫날을_건드리지_않는다() throws Exception {
+        weatherClient.respondByDate(date -> Optional.empty());
+        trainArrivesAt(LocalDateTime.of(2026, 9, 11, 8, 30));
+        String guest = uniqueGuest();
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitTwoDayBody("2026-09-11")))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        trainArrivesAt(LocalDateTime.of(2026, 9, 20, 8, 30)); // 옮긴 날짜에도 오전 도착
+
+        mockMvc.perform(patch(URL + "/{id}", courseId).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"travelDate\": \"2026-09-20\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.firstDayChange").doesNotExist())
+                .andExpect(jsonPath("$.data.days.length()").value(2));
     }
 }

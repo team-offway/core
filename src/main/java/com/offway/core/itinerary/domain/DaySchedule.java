@@ -113,6 +113,19 @@ public class DaySchedule {
         return (int) Math.round(km * METERS_PER_KM);
     }
 
+    /**
+     * 표시 번호만 바꾼다 — 앞의 날이 통째로 빠져 번호를 다시 붙일 때(#214).
+     *
+     * <p><b>새 인스턴스를 만들지 않는다.</b> 슬롯은 이 애그리거트가 소유한 영속 엔티티라, 같은 것을 새
+     * {@code DaySchedule} 에 옮겨 담으면 orphanRemoval 이 옛 부모를 지우면서 슬롯까지 지운다.
+     */
+    void renumberTo(int dayNumber) {
+        if (dayNumber < 1) {
+            throw new IllegalArgumentException("일차는 1부터입니다: " + dayNumber);
+        }
+        this.dayNumber = dayNumber;
+    }
+
     public int slotCount() {
         return slots.size();
     }

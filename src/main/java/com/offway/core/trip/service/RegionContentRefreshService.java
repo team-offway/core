@@ -1,11 +1,14 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.RegionContent;
 import com.offway.core.trip.domain.StoredRegionContent;
 import com.offway.core.trip.repository.RegionContentRepository;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -33,23 +36,64 @@ public class RegionContentRefreshService {
     private static final String INITIAL_DELAY = "PT60S";
 
     /**
-     * 갱신 주기.
+     * 갱신 주기 — <b>주 1회</b>.
      *
-     * <p>원본(TourAPI 지역 콘텐츠)은 월 단위로도 잘 안 변한다. 하루 한 번이면 발행 주기보다 촘촘하고,
-     * 89곳 × (자기 + 인접)이라 하루 130건 안팎으로 한도에 여유가 있다.
+     * <p>원본(TourAPI 지역 콘텐츠)은 월 단위로도 잘 안 변한다. 같은 이유로 관광사진 갤러리도 이미 주 1회다.
+     *
+     * <p><b>하루 한 번이던 것을 주 1회로 늘렸다.</b> "하루 130건이면 한도에 여유가 있다" 고 봤는데, 그 계산이
+     * 부팅마다 도는 것을 세지 않았다. 배포가 잦은 날은 130 × 배포 횟수가 되어 실제로 TourAPI 일일 한도를
+     * 태웠다({@code LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR}).
      */
-    private static final String REFRESH_INTERVAL = "P1D";
+    private static final String REFRESH_INTERVAL = "P7D";
+
+    /** 배치 식별자 — {@code batch_run} 의 키다. 바꾸면 "한 번도 안 돈 것" 이 되어 그 주에 한 번 더 돈다. */
+    static final String BATCH_NAME = "region-content-refresh";
+
+    /** 실행 간격 — 위 주기와 같은 값이어야 한다. 재부팅이 이 창 안이면 외부를 아예 안 부른다. */
+    private static final Duration MIN_INTERVAL = Duration.ofDays(7);
+
+    /** "지금" 판정은 KST — 저장 시각도 같은 기준이라야 한다. */
+    private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
     private final RegionContentProvider regionContentProvider;
     private final RegionContentRepository regionContentRepository;
     private final RegionRepository regionRepository;
+    private final BatchRunRepository batchRunRepository;
 
+    /**
+     * 주 1회 — <b>그 주에 이미 돌았으면</b> 외부를 아예 안 부른다.
+     *
+     * <p>예전에는 건너뛰기가 없어 부팅할 때마다 89곳 × (자기 + 인접) ≈ 130회를 다시 쐈다. 배포가 잦은 날은
+     * 그만큼 곱해져 TourAPI 일일 한도를 태웠고, 그러면 코스 생성·장소 상세까지 함께 막힌다 —
+     * 같은 키를 여러 API 가 공유하기 때문이다.
+     *
+     * <p><b>결과가 아니라 실행을 기록한다.</b> 적재 결과로 판정하면 전부 실패한 회차에는 아무것도 안 써져
+     * 다음 부팅이 또 130회를 쏜다({@code HubAttractionRefreshService} 가 정확히 그랬다, #226).
+     */
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = REFRESH_INTERVAL)
+    public void refreshIfStale() {
+        LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+        if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
+            log.info("지역 콘텐츠를 최근 {}에 이미 갱신해 건너뜁니다", MIN_INTERVAL);
+            return;
+        }
+        // 실패해도 남긴다 — 안 남기면 같은 주에 재부팅마다 130회를 다시 쏜다.
+        batchRunRepository.markStarted(BATCH_NAME, now);
+        refresh();
+    }
+
+    /**
+     * 전 지역을 다시 받아 적재한다 — <b>건너뛰기 없이</b>.
+     *
+     * <p>주기 판단은 {@link #refreshIfStale} 이 소유한다. 여기를 직접 부르면 무조건 89곳 × (자기 + 인접)을
+     * 쏘므로, 운영에서는 스케줄러만 이 경로를 탄다.
+     */
     public void refresh() {
         List<Region> regions = regionRepository.findAll();
         if (regions.isEmpty()) {
             return;
         }
+        LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
         // 팬아웃(동시성 상한·지역별 예외 격리·전체 시간 상한)은 provider 가 소유한다. 배치라 사용자를
         // 기다리게 하지 않으므로 워밍용 시간 예산을 쓴다.
         RegionContentProvider.RegionContents fetched = regionContentProvider.contentForAll(
@@ -62,7 +106,6 @@ public class RegionContentRefreshService {
             return;
         }
 
-        LocalDateTime now = LocalDateTime.now();
         Map<Long, RegionContent> previous =
                 regionContentProvider.storedForAll(regions.stream().map(Region::getId).toList());
 

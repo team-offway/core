@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.region.domain.Region;
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.GalleryPhoto;
 import com.offway.core.trip.domain.TourApiException;
@@ -8,7 +9,9 @@ import com.offway.core.trip.infrastructure.gallery.GalleryImageVerifier;
 import com.offway.core.trip.infrastructure.gallery.GalleryPhotoClient;
 import com.offway.core.trip.infrastructure.gallery.dto.GalleryPhotoItem;
 import com.offway.core.trip.repository.GalleryPhotoRepository;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -42,6 +45,15 @@ public class GalleryPhotoRefreshService {
      */
     private static final String REFRESH_INTERVAL = "P7D";
 
+    /** 배치 식별자 — {@code batch_run} 의 키다. 바꾸면 "한 번도 안 돈 것" 이 되어 그 주에 한 번 더 돈다. */
+    static final String BATCH_NAME = "gallery-photo-refresh";
+
+    /** 실행 간격 — 위 주기와 같은 값이어야 한다. 재부팅이 이 창 안이면 외부를 아예 안 부른다. */
+    private static final Duration MIN_INTERVAL = Duration.ofDays(7);
+
+    /** "지금" 판정은 KST — 저장 시각도 같은 기준이라야 한다. */
+    private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
+
     /**
      * 페이지 크기 — 실측상 1,000 이 그대로 받아들여져 전량이 7페이지로 끝난다.
      *
@@ -57,8 +69,34 @@ public class GalleryPhotoRefreshService {
     private final GalleryImageVerifier galleryImageVerifier;
     private final GalleryPhotoRepository galleryPhotoRepository;
     private final RegionRepository regionRepository;
+    private final BatchRunRepository batchRunRepository;
 
+    /**
+     * 주 1회 — <b>그 주에 이미 돌았으면</b> 외부를 아예 안 부른다.
+     *
+     * <p>{@code fixedDelay} 는 <b>프로세스가 살아 있는 동안</b>의 간격이라, 재배포하면 주기가 처음부터
+     * 다시 센다. 그래서 주 1회로 잡아 뒀는데도 부팅마다 7회 조회 + 이미지 1,790건 생존 확인이 돌았다.
+     *
+     * <p><b>결과가 아니라 실행을 기록한다.</b> 적재 결과로 판정하면 전부 실패한 회차에는 아무것도 안 써져
+     * 다음 부팅이 또 돈다({@code HubAttractionRefreshService} 가 정확히 그랬다, #226).
+     */
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = REFRESH_INTERVAL)
+    public void refreshIfStale() {
+        LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+        if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
+            log.info("관광사진 갤러리를 최근 {}에 이미 적재해 건너뜁니다", MIN_INTERVAL);
+            return;
+        }
+        // 실패해도 남긴다 — 안 남기면 같은 주에 재부팅마다 다시 쏜다.
+        batchRunRepository.markStarted(BATCH_NAME, now);
+        refresh();
+    }
+
+    /**
+     * 전량을 다시 받아 적재한다 — <b>건너뛰기 없이</b>.
+     *
+     * <p>주기 판단은 {@link #refreshIfStale} 이 소유한다. 운영에서는 스케줄러만 이 경로를 탄다.
+     */
     public void refresh() {
         List<GalleryPhotoItem> items;
         try {
