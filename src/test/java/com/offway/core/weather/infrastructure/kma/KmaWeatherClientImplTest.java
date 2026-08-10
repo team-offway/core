@@ -154,6 +154,35 @@ class KmaWeatherClientImplTest {
         assertEquals(23, weather.maxTemp());
     }
 
+    /**
+     * 쿼터 소진·서비스 폐기는 HTTP 200 에 실패 코드로 온다. 예외가 아니라 아무 흔적이 없어, 조용히 날씨가
+     * 비는 것을 아무도 모른 채 지나간 적이 있다(#128). 빈 결과로 degrade 하되 흔적은 남겨야 한다.
+     */
+    @Test
+    void 실패_코드가_오면_빈결과지만_캐시하지_않고_다시_묻는다() {
+        String body = """
+                {"response":{"header":{"resultCode":"22","resultMsg":"LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR"},
+                "body":{"items":{"item":[]}}}}""";
+        AtomicInteger calls = new AtomicInteger();
+        WebClient counting = WebClient.builder()
+                .exchangeFunction(request -> {
+                    calls.incrementAndGet();
+                    return Mono.just(ClientResponse.create(HttpStatus.OK)
+                            .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                            .body(body)
+                            .build());
+                })
+                .build();
+        KmaWeatherClient client = new KmaWeatherClientImpl(counting, WITH_KEY);
+
+        assertTrue(client.dailyForecast(37.5665, 126.9780, DATE).isEmpty());
+        // 빈 결과를 성공 TTL 로 누르면 세 시간 동안 날씨가 통째로 빈다 — 캐시를 비우면 다시 물어야 한다.
+        client.evictCache();
+        assertTrue(client.dailyForecast(37.5665, 126.9780, DATE).isEmpty());
+
+        assertEquals(2, calls.get());
+    }
+
     @Test
     void 해당_날짜_예보가_없으면_빈결과다() {
         String body = """

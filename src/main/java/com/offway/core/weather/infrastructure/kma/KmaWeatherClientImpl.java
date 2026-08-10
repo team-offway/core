@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -39,7 +40,15 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
 
     private static final String URL = "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst";
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
-    private static final int ROWS = 1000; // 3일치 카테고리 예보가 수백 건이라 잘리지 않게 KMA 예시대로 1000
+    /**
+     * 한 페이지에 담을 행 수. 페이지를 넘기지 않으므로 응답 전체가 여기 들어와야 한다.
+     *
+     * <p>실측 907건({@code docs/external-api-inventory.md})이라 여유가 10% 남짓이다. 넘치면 뒷날 예보가
+     * 잘린 채 캐시되므로 {@code parseAll} 이 {@code totalCount} 를 보고 경고를 남긴다.
+     */
+    private static final int ROWS = 1000;
+
+    private static final String SUCCESS_CODE = "00";
     private static final int[] BASE_HOURS = {23, 20, 17, 14, 11, 8, 5, 2};
     private static final int PUBLISH_DELAY_MIN = 10; // 발표 후 제공까지 지연
     private static final ZoneId KMA_ZONE = ZoneId.of("Asia/Seoul"); // 발표일·발표시각은 KST 기준
@@ -117,6 +126,11 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
         return Optional.ofNullable(byDate.get(date));
     }
 
+    @Override
+    public void evictCache() {
+        cache.evictAll();
+    }
+
     private ExternalDataCache.Loaded<Map<LocalDate, DailyWeather>> load(ForecastKey key) {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(URL)
                 .queryParam("serviceKey", props.dataGoKr().serviceKey())
@@ -171,8 +185,22 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
      */
     private Map<LocalDate, DailyWeather> parseAll(String body) throws Exception {
         JsonNode response = objectMapper.readTree(body).path("response");
-        if (!"00".equals(response.path("header").path("resultCode").asText())) {
+        String resultCode = response.path("header").path("resultCode").asText();
+        if (!SUCCESS_CODE.equals(resultCode)) {
+            // **성공 HTTP 에 실패 코드로 오는 경우가 있다.** 일일 쿼터 소진(22)·서비스 폐기가 그렇다.
+            // 예외가 아니라 아무 흔적이 없어, 여기서 남기지 않으면 코스마다 날씨가 조용히 비고 아무도 모른다
+            // (#128 이 정확히 그렇게 죽어 있었다). 제공기관이 주는 사유를 그대로 옮긴다.
+            log.warn("기상청 단기예보 실패 코드 — 날씨 생략 resultCode={} msg={}",
+                    resultCode, response.path("header").path("resultMsg").asText());
             return Map.of();
+        }
+
+        // 페이지를 넘기지 않으므로 한 페이지에 다 들어와야 한다. 실측 907건(외부 API 인벤토리)이라 여유가
+        // 10% 남짓인데, 넘치면 마지막 날이 잘린 채 세 시간 동안 모두에게 나간다 — 잘렸다는 사실만은 남긴다.
+        int totalCount = response.path("body").path("totalCount").asInt();
+        if (totalCount > ROWS) {
+            log.warn("기상청 단기예보가 한 페이지를 넘었습니다 — 뒷날 예보가 잘립니다 totalCount={} rows={}",
+                    totalCount, ROWS);
         }
 
         Map<String, DayAccumulator> byDate = new LinkedHashMap<>();
@@ -254,12 +282,17 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
         }
     }
 
-    /** 예보일(yyyyMMdd). 형식이 어긋나면 그 날짜만 버린다. */
+    /**
+     * 예보일(yyyyMMdd). 형식이 어긋나면 그 날짜만 버린다.
+     *
+     * <p>warn 인 이유: 이건 데이터 하나가 이상한 것이 아니라 <b>제공기관이 형식을 바꿨다</b>는 신호일 수 있다.
+     * 그 경우 모든 날이 한꺼번에 빠지는데, debug 로 두면 날씨가 통째로 사라진 채 흔적이 없다.
+     */
     private static LocalDate parseDate(String ymd) {
         try {
             return LocalDate.parse(ymd, YMD);
-        } catch (java.time.format.DateTimeParseException e) {
-            log.debug("기상청 예보일 형식이 어긋나 건너뜁니다 fcstDate={}", ymd);
+        } catch (DateTimeParseException e) {
+            log.warn("기상청 예보일 형식이 어긋나 건너뜁니다 fcstDate={}", ymd);
             return null;
         }
     }
