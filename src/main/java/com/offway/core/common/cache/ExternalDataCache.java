@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import lombok.extern.slf4j.Slf4j;
 
@@ -65,6 +66,29 @@ public final class ExternalDataCache<K, V> {
      * 없다. 그때 폴백을 즉시 주면 한 명은 정상 값을, 다른 한 명은 실패를 받는다. 이 future 로 결과를 나눠 갖는다.
      */
     private final Map<K, CompletableFuture<V>> inFlight = new ConcurrentHashMap<>();
+
+    /**
+     * 무효화 세대 — {@link #evictAll()} 이 올린다.
+     *
+     * <p><b>무효화가 저장된 값만 비우면 옛 값이 되살아난다.</b> 로드가 시작된 뒤 무효화하면, 그 로드가
+     * 끝나면서 무효화 이전의 값을 다시 넣어 버린다. "강제 갱신했는데 안 바뀐다" 가 되고, 그때 원인을
+     * 캐시가 아니라 데이터나 외부 API 에서 찾기 시작하면 시간을 크게 버린다(#215).
+     *
+     * <p>그래서 로드를 시작할 때 세대를 적어 두고, 저장하기 직전에 같은 세대인지 본다. 다르면 그 결과는
+     * 이미 무효화된 세계의 값이라 버린다.
+     */
+    private final AtomicLong generation = new AtomicLong();
+
+    /**
+     * 세대 증가·맵 조작을 한 덩어리로 묶는 잠금.
+     *
+     * <p>세대만 비교하면 "같은 세대임을 확인한 직후 무효화되고, 그 뒤에 저장" 하는 창이 남는다. 그 창을
+     * 닫으려면 비교와 저장이 무효화와 겹치지 않아야 한다.
+     *
+     * <p><b>외부 I/O 동안에는 잡지 않는다.</b> 맵을 넣고 지우는 순간에만 잡으므로, "잠금을 들고 외부를
+     * 기다리지 않는다" 는 이 캐시의 성질은 그대로다.
+     */
+    private final Object evictLock = new Object();
 
     private final int maxEntries;
     private final Duration maxWaitForFirstLoad;
@@ -132,6 +156,8 @@ public final class ExternalDataCache<K, V> {
             }
             return awaitFirstLoad(key, running, stalePolicy, noStaleFallback);
         }
+        // 이 로드가 "어느 세대에서 시작했는지" 를 적어 둔다. 저장 직전에 비교해, 그사이 무효화됐으면 버린다.
+        long startedGeneration = generation.get();
         try {
             // double-check: 게이트 획득 사이 다른 스레드가 이미 갱신했을 수 있다.
             Entry<V> latest = cache.get(key);
@@ -150,7 +176,7 @@ public final class ExternalDataCache<K, V> {
                 log.warn("캐시 loader 가 예외를 던졌습니다 — degrade key={}", key, e);
                 return complete(mine, stalePolicy.degrade(stale, noStaleFallback));
             }
-            store(key, new Entry<>(loaded.value(), Instant.now().plus(loaded.ttl())));
+            storeIfCurrent(key, new Entry<>(loaded.value(), Instant.now().plus(loaded.ttl())), startedGeneration);
             return complete(mine, loaded.value());
         } finally {
             // 어떤 경로로 빠져나가도 기다리는 쪽을 매달아 두지 않는다. 위에서 이미 완료됐으면 no-op 이다.
@@ -207,14 +233,48 @@ public final class ExternalDataCache<K, V> {
         return cached != null && cached.isFresh() ? Optional.ofNullable(cached.value()) : Optional.empty();
     }
 
-    /** 캐시 무효화 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트 격리용. */
+    /**
+     * 캐시 무효화 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트 격리용.
+     *
+     * <p><b>진행 중인 로드까지 무효로 만든다.</b> 저장된 값만 비우면, 이미 시작된 로드가 끝나면서 옛 값을
+     * 다시 넣어 무효화가 없던 일이 된다(#215).
+     *
+     * <ul>
+     *   <li>세대를 올린다 — 이전 세대에서 시작된 로드의 결과는 저장되지 않는다.
+     *   <li>{@code inFlight} 도 비운다 — 무효화 직후 들어온 요청이 <b>옛 로드에 합류해</b> 그 결과를 받지
+     *       않게. 새로 시작하게 두는 편이 맞다.
+     * </ul>
+     *
+     * <p>이미 결과를 기다리고 있던 요청은 그 옛 값을 받는다. 그 요청은 무효화보다 먼저 시작했으므로
+     * 계약 위반이 아니다 — 무효화가 약속하는 것은 "이 시점 이후로 옛 값이 남지 않는다" 이다.
+     */
     public void evictAll() {
-        cache.clear();
+        synchronized (evictLock) {
+            generation.incrementAndGet();
+            cache.clear();
+            inFlight.clear();
+        }
     }
 
     /** 현재 보관 중인 엔트리 수 — 상한이 실제로 지켜지는지 확인하는 용도(테스트·운영 점검). */
     public int size() {
         return cache.size();
+    }
+
+    /**
+     * 시작할 때와 같은 세대일 때만 저장한다 — 그사이 무효화됐으면 버린다(#215).
+     *
+     * <p>비교와 저장을 한 덩어리로 묶어야 "확인 직후 무효화되고 그 뒤에 저장" 하는 창이 안 남는다.
+     */
+    private void storeIfCurrent(K key, Entry<V> entry, long startedGeneration) {
+        synchronized (evictLock) {
+            if (generation.get() != startedGeneration) {
+                // 무효화된 뒤 도착한 옛 결과다. 조용히 버리면 "왜 안 채워졌지" 가 되므로 남긴다.
+                log.debug("적재 중 캐시가 무효화되어 결과를 버립니다 key={}", key);
+                return;
+            }
+            store(key, entry);
+        }
     }
 
     /** 새 값을 넣고, 상한을 넘겼으면 축출한다. */
