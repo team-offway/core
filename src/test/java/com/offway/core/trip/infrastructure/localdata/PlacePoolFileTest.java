@@ -9,9 +9,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.BeforeAll;
@@ -29,6 +32,15 @@ import org.junit.jupiter.api.Test;
 class PlacePoolFileTest {
 
     private static final Path POOL_FILE = Path.of("src/main/resources/data/place-pool.csv.gz");
+
+    /** 지역의 정본. INSERT 순서가 곧 region_id 다(생성 스크립트와 같은 전제). */
+    private static final Path REGION_SEED =
+            Path.of("src/main/resources/db/migration/V20260718200440__create_region_and_seed.sql");
+
+    private static final Pattern SEED_ROW = Pattern.compile("\\('([^']+)','([^']+)'");
+
+    /** 같은 곳을 가리키는 다른 시도 표기 — 생성 스크립트의 SIDO_ALIASES 와 같아야 한다. */
+    private static final Map<String, String> SIDO_ALIASES = Map.of("전남광주통합특별시", "전라남도");
 
     private static final int REGION_COUNT = 89;
 
@@ -107,6 +119,77 @@ class PlacePoolFileTest {
                 .toList();
 
         assertEquals(List.of(), duplicates, "중복된 장소가 있습니다");
+    }
+
+    /**
+     * <b>장소의 주소가 자기 지역을 가리키는가</b>(#222).
+     *
+     * <p>생성 스크립트가 시군구 이름만 맞으면 시도가 달라도 붙이고 있었다. 89곳에 "동구" 는 부산 하나뿐이라
+     * 대구·대전·광주·울산 동구가 전부 부산 동구로 들어왔다 — 15,701건 중 부산이 1,816건(11.6%)뿐이었고,
+     * 부산 동구 코스에 수백 km 밖 식당이 뽑혔다.
+     *
+     * <p>좌표가 멀쩡해서 동선 계산은 되고, 화면에도 그럴듯하게 나온다. <b>지역명을 대조하지 않으면 아무도 모른다.</b>
+     */
+    @Test
+    void 모든_장소의_주소가_자기_지역과_일치한다() throws IOException {
+        Map<Long, String[]> seeded = seededRegions();
+
+        List<String> mismatched = places.stream()
+                .filter(place -> !addressMatchesRegion(place, seeded.get(place.getRegionId())))
+                .map(place -> place.getRegionId() + " " + String.join(" ", seeded.get(place.getRegionId()))
+                        + " ← " + place.getAddress())
+                .distinct()
+                .limit(5)
+                .toList();
+
+        assertEquals(List.of(), mismatched, "다른 지역 주소가 섞여 있습니다");
+    }
+
+    /**
+     * 백화점 안 매장이 코스 후보로 들어오지 않는가(#222).
+     *
+     * <p>업태 필터는 업태가 정확히 '백화점' 인 것만 잡는다. 그 안의 식당은 업태가 한식·경양식이라 통과했고,
+     * 부산 동구 코스에 커넥트현대 지하 푸드코트가 실제로 들어왔다.
+     */
+    @Test
+    void 백화점_안_매장이_들어있지_않다() {
+        List<String> inDepartmentStore = places.stream()
+                .filter(place -> (place.getName() + " " + place.getAddress()).contains("백화점")
+                        || place.getName().contains("커넥트현대"))
+                .map(place -> place.getName() + " | " + place.getAddress())
+                .limit(5)
+                .toList();
+
+        assertEquals(List.of(), inDepartmentStore, "백화점 안 매장이 남아 있습니다");
+    }
+
+    /**
+     * 시드를 읽어 {@code region_id → (시도, 시군구)} 로 만든다. INSERT 순서가 곧 id 라는 것은
+     * 생성 스크립트와 같은 전제다.
+     */
+    private static Map<Long, String[]> seededRegions() throws IOException {
+        String sql = Files.readString(REGION_SEED);
+        Matcher matcher = SEED_ROW.matcher(sql);
+        Map<Long, String[]> regions = new HashMap<>();
+        long id = 0;
+        while (matcher.find()) {
+            regions.put(++id, new String[] {matcher.group(1), matcher.group(2)});
+        }
+        assertEquals(REGION_COUNT, regions.size(), "지역 시드를 다 읽지 못했습니다");
+        return regions;
+    }
+
+    /** 시도 표기 차이만 흡수하고 나머지는 정확히 일치할 것을 요구한다 — 생성 스크립트의 규칙과 같다. */
+    private static boolean addressMatchesRegion(LicensedPlace place, String[] region) {
+        String[] parts = place.getAddress().split(" ");
+        if (parts.length < 2) {
+            return false;
+        }
+        return normalizeSido(parts[0]).equals(normalizeSido(region[0])) && parts[1].equals(region[1]);
+    }
+
+    private static String normalizeSido(String sido) {
+        return SIDO_ALIASES.getOrDefault(sido, sido);
     }
 
     /** 관광 API 가 사실상 비어 있던 지역이 실제로 메워졌는지 — 이 작업의 목적 그 자체다. */
