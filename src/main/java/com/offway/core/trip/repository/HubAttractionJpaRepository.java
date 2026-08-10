@@ -23,13 +23,4 @@ public interface HubAttractionJpaRepository extends JpaRepository<HubAttraction,
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from HubAttraction h where h.regionId = :regionId")
     void deleteByRegionId(@Param("regionId") Long regionId);
-
-    /**
-     * 그 달 이상 데이터를 가진 <b>지역 수</b>(중복 제거) — 지역마다 여러 순위가 있으므로 distinct 로 센다.
-     *
-     * <p>{@code base_ym} 은 {@code yyyyMM} 고정폭이라 문자열 비교가 곧 시간 비교다.
-     */
-    @Query("select count(distinct h.regionId) from HubAttraction h "
-            + "where h.regionId in :regionIds and h.baseYm >= :baseYm")
-    long countRegionsWithBaseYmAtLeast(@Param("regionIds") List<Long> regionIds, @Param("baseYm") String baseYm);
 }

@@ -43,6 +43,20 @@ class HubAttractionRefreshIntegrationTest {
     @Autowired
     private HubAttractionRepository hubAttractionRepository;
 
+    @Autowired
+    private com.offway.core.common.batch.repository.BatchRunRepository batchRunRepository;
+
+    /**
+     * 이 배치가 "오늘은 아직 안 돌았다" 인 상태로 만든다.
+     *
+     * <p>클래스에 {@code @Transactional} 이 없어 적재가 커밋된다. 실행 기록도 마찬가지라, 앞 테스트가
+     * 남긴 오늘 기록이 뒤 테스트를 통째로 건너뛰게 만든다 — 각 테스트가 자기 전제를 직접 만든다.
+     */
+    private void notRunToday() {
+        batchRunRepository.markStarted(
+                HubAttractionRefreshService.BATCH_NAME, LocalDate.now().minusDays(1).atTime(3, 0));
+    }
+
     @TestConfiguration
     static class StubConfig {
 
@@ -141,15 +155,47 @@ class HubAttractionRefreshIntegrationTest {
     }
 
     @Test
-    void 이미_최신이면_외부를_부르지_않는다() {
-        // 원본은 월 단위로 갱신된다 — 지난달 것을 갖고 있으면 더 새 것은 존재하지 않는다.
+    void 오늘_이미_돌았으면_외부를_부르지_않는다() {
+        // 원본은 월 단위로 갱신되므로 하루 한 번이면 충분하다. 예전에는 "89곳이 전부 최신 달을 가졌는가"
+        // 로 판정했는데, 지역마다 발행 시점이 달라 그 조건이 사실상 참이 되지 않아 부팅마다 89회를 쐈다.
+        notRunToday();
         hubAttractionClient.respond((legalCode, month) -> List.of(item(1, "공산성", "관광지", "역사관광")));
-        refreshService.refresh();
+        refreshService.refreshIfStale();
 
         hubAttractionClient.respond((legalCode, month) -> {
-            throw new AssertionError("이미 최신인데 외부를 불렀다");
+            throw new AssertionError("오늘 이미 돌았는데 외부를 불렀다");
         });
         refreshService.refreshIfStale();
+    }
+
+    @Test
+    void 전부_실패한_날에도_같은_날_다시_부르지_않는다() {
+        // 폭주를 끊는 핵심이다. 결과로 판정하면 전부 실패한 날에는 아무것도 안 써져 재부팅마다 또 89회를
+        // 쏜다 — 실제 로그의 16:07·16:13 이 그것이다. 그래서 성공·실패를 가리지 않고 실행을 기록한다.
+        notRunToday();
+        hubAttractionClient.respond((legalCode, month) -> {
+            throw TourApiException.lookupFailed(new RuntimeException("429 Too Many Requests"));
+        });
+        refreshService.refreshIfStale();
+
+        hubAttractionClient.respond((legalCode, month) -> {
+            throw new AssertionError("전부 실패했다고 같은 날 다시 부르면 한도만 더 태운다");
+        });
+        refreshService.refreshIfStale();
+    }
+
+    @Test
+    void 어제_돌았으면_오늘_다시_부른다() {
+        notRunToday();
+        AtomicBoolean called = new AtomicBoolean();
+        hubAttractionClient.respond((legalCode, month) -> {
+            called.set(true);
+            return List.of(item(1, "공산성", "관광지", "역사관광"));
+        });
+
+        refreshService.refreshIfStale();
+
+        assertTrue(called.get(), "하루가 지나면 다시 받아야 한다");
     }
 
     @Test
@@ -188,28 +234,6 @@ class HubAttractionRefreshIntegrationTest {
 
         List<HubAttraction> stored = refreshService.forRegion(anyRegionId());
         assertEquals(published, stored.getFirst().baseMonth());
-    }
-
-    @Test
-    void 일부_지역만_채워졌으면_다음_확인에서_다시_받는다() {
-        // 이전 테스트가 남긴 적재를 지우고 시작한다 — "일부만 채워진" 상태를 만드는 것이 이 테스트의 전제다.
-        List<Region> regions = regionRepository.findAll();
-        regions.forEach(region -> hubAttractionRepository.replaceRegion(region.getId(), List.of()));
-
-        // 첫 지역만 성공하고 나머지는 빈 응답으로 남는 상황.
-        String firstCode = regions.getFirst().getLegalCode();
-        hubAttractionClient.respond((legalCode, month) ->
-                legalCode.equals(firstCode) ? List.of(item(1, "공산성", "관광지", "역사관광")) : List.of());
-        refreshService.refresh();
-
-        AtomicBoolean called = new AtomicBoolean();
-        hubAttractionClient.respond((legalCode, month) -> {
-            called.set(true);
-            return List.of(item(1, "공산성", "관광지", "역사관광"));
-        });
-        refreshService.refreshIfStale();
-
-        assertTrue(called.get(), "첫 지역만 최신이라고 전체를 건너뛰면 나머지 88곳은 영영 안 채워진다");
     }
 
     @Test
