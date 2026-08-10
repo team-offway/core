@@ -89,7 +89,7 @@ public class RegionPoiService {
                 pois.needsMoreStays() ? licensedCandidates(regionId, PlaceKind.STAY) : List.of());
 
         // degrade 한 사실을 남긴다 — 보충이 조용히 일어나면 TourAPI 쪽 공백을 아무도 모른다.
-        log.info("인허가 데이터로 보충 regionId={} 볼거리={}→{} 맛집={}→{} 숙박={}→{}",
+        log.info("국가유산·인허가로 보충 regionId={} 볼거리={}→{} 맛집={}→{} 숙박={}→{}",
                 regionId,
                 pois.sights().size(), supplemented.sights().size(),
                 pois.foods().size(), supplemented.foods().size(),
