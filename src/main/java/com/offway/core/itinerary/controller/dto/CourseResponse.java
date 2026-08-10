@@ -64,10 +64,23 @@ public record CourseResponse(
         @Schema(
                         description = "코스 지역의 실시간 대기질. 오늘 여행 중인 코스에만 실린다 (조회 시점 측정치)",
                         nullable = true)
-                AirQualityResponse airQuality) implements LogSummary {
+                AirQualityResponse airQuality,
+        @Schema(
+                        description = "공유 링크 토큰 (저장 응답에만 실린다). 공유 URL 은 /c/{shareToken}",
+                        example = "a1B2c3D4e5F6g7H8i9J0kL",
+                        nullable = true)
+                String shareToken) implements LogSummary {
 
-    /** regionId 는 요청 쿼리에 이미 있으므로 되풀이하지 않는다. */
-    private static final String LOG_FORMAT = "코스 %d일 %d슬롯";
+    /**
+     * 예: {@code 정선군 코스 3일 26슬롯}.
+     *
+     * <p><b>지역명을 넣는다.</b> {@code regionId=16} 만으로는 로그를 훑을 때 어디 코스인지 알 수 없어 매번
+     * 지역 표를 찾아봐야 했다. 사람이 읽는 줄이므로 사람이 아는 이름으로 쓴다.
+     */
+    private static final String LOG_FORMAT = "%s 코스 %d일 %d슬롯";
+
+    /** 지역명이 없는 코스(슬롯이 비었거나 지역 조회 실패)에 쓸 대체 표기. */
+    private static final String UNKNOWN_REGION = "지역미상";
 
     public static CourseResponse from(GeneratedCourse generated) {
         Course course = generated.course();
@@ -87,7 +100,33 @@ public record CourseResponse(
                         .toList(),
                 generated.benefits().stream().map(Benefit::from).toList(),
                 generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()),
-                generated.airQuality() == null ? null : AirQualityResponse.from(generated.airQuality()));
+                generated.airQuality() == null ? null : AirQualityResponse.from(generated.airQuality()),
+                generated.shareToken());
+    }
+
+    /**
+     * 공유 링크로 여는 사람에게 주는 응답(#143) — <b>내부 식별자를 걷어낸다</b>.
+     *
+     * <p>{@code courseId} 와 {@code shareToken} 을 뺀다. 링크를 받은 사람은 이 코스를 수정·삭제할 수 없으므로
+     * 내부 순번을 알 이유가 없고, 알려주면 다른 경로를 두드려 볼 단서만 준다. 토큰은 이미 URL 에 있어
+     * 본문에 되돌려줄 이유가 없다.
+     *
+     * <p>{@code @JsonInclude(NON_NULL)} 이라 두 필드는 응답에서 <b>키 자체가 사라진다</b>.
+     */
+    public static CourseResponse publicView(GeneratedCourse generated) {
+        CourseResponse owned = from(generated);
+        return new CourseResponse(
+                null, // courseId — 내부 순번을 공개하지 않는다
+                owned.regionId(),
+                owned.travelDays(),
+                owned.travelDate(),
+                owned.density(),
+                owned.transport(),
+                owned.days(),
+                owned.benefits(),
+                owned.trainAccess(),
+                owned.airQuality(),
+                null); // shareToken — 이미 URL 에 있다
     }
 
     @Override
@@ -97,7 +136,21 @@ public record CourseResponse(
                 : days.stream()
                         .mapToInt(day -> day.items() == null ? 0 : day.items().size())
                         .sum();
-        return LOG_FORMAT.formatted(travelDays, slots);
+        return LOG_FORMAT.formatted(regionName(), travelDays, slots);
+    }
+
+    /** 지역명은 슬롯마다 붙어 있다(#141) — 첫 슬롯에서 꺼낸다. 코스 하나는 한 지역이라 어느 슬롯이든 같다. */
+    private String regionName() {
+        if (days == null) {
+            return UNKNOWN_REGION;
+        }
+        return days.stream()
+                .filter(day -> day.items() != null)
+                .flatMap(day -> day.items().stream())
+                .map(Item::regionName)
+                .filter(name -> name != null && !name.isBlank())
+                .findFirst()
+                .orElse(UNKNOWN_REGION);
     }
 
     /**

@@ -22,6 +22,11 @@ public class CourseRepositoryImpl implements CourseRepository {
     }
 
     @Override
+    public Optional<Course> findById(Long id) {
+        return courseJpaRepository.findById(id);
+    }
+
+    @Override
     public List<Course> findByGuestId(String guestId) {
         return courseJpaRepository.findByGuestIdOrderByIdDesc(guestId);
     }
