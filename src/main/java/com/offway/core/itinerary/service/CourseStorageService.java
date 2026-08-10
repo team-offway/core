@@ -3,9 +3,11 @@ package com.offway.core.itinerary.service;
 import com.offway.core.common.response.Paging;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseScope;
+import com.offway.core.itinerary.domain.DayStart;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
+import com.offway.core.itinerary.service.dto.GeneratedCourse.FirstDayChange;
 import com.offway.core.itinerary.service.dto.MyCourses;
 import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.policy.service.PolicyService;
@@ -181,8 +183,47 @@ public class CourseStorageService {
         OptionalDouble recalculated = courseLeaveDeductionService.recalculateFor(course, travelDate);
         Double deductionDays = recalculated.isPresent() ? recalculated.getAsDouble() : null;
         Course updated = coursePersistenceService.applyTravelDate(guestId, courseId, travelDate, deductionDays);
+
+        // 새 날짜의 도착 시각으로 첫날을 다시 판정한다(#214). 열차는 이미 새 날짜로 조회되는데 그 시각으로
+        // 내린 일정 판단은 저장된 옛것이라, 그대로 두면 도착 전 시간에 일정이 잡힌 코스가 남는다.
+        Region region = regionOf(updated);
+        TrainAccess trainAccess = trainAccessFor(updated, region);
+        FirstDayChange change = realignFirstDay(guestId, courseId, updated, travelDate, trainAccess);
+        Course finalCourse = change == FirstDayChange.TRIMMED
+                ? coursePersistenceService.loadOwned(guestId, courseId) // 걷어낸 결과로 다시 읽는다
+                : updated;
+
         // 상세 조회와 같은 모양으로 돌려준다 — 화면이 날짜·날씨·요일을 새 날짜 기준으로 다시 그려야 한다.
-        return withBenefits(updated, true);
+        return assemble(finalCourse, region, trainAccess).withFirstDayChange(change);
+    }
+
+    /**
+     * 새 날짜의 도착 시각으로 첫날을 맞춘다(#214) — <b>걷어내기만</b> 한다.
+     *
+     * <p>도착이 늦어져 갈 수 없게 된 슬롯은 서버가 지운다. 반대로 도착이 빨라져 첫날을 쓸 수 있게 됐다면
+     * 채울 후보가 저장 코스에 없어(슬롯만 남아 있다) 서버가 못 고친다 — 알리기만 하고 재생성은 사용자가 고른다.
+     *
+     * @return 뒤집힘이 없었으면 null
+     */
+    private FirstDayChange realignFirstDay(
+            String guestId, long courseId, Course course, LocalDate travelDate, TrainAccess trainAccess) {
+        if (trainAccess == null) {
+            return null; // 자차·출발지 없음 — 애초에 첫날 판단이 없다
+        }
+        DayStart start = trainAccess.arrivalAt()
+                .map(arriveAt -> DayStart.afterArriving(travelDate, arriveAt))
+                .orElseGet(DayStart::fullDay);
+
+        if (course.firstDayEmptyOnCalendar()) {
+            // 첫날이 비어 있는데 이제 쓸 수 있다 — 하루를 통째로 버리고 있다는 뜻이다.
+            return start.equals(DayStart.none()) ? null : FirstDayChange.FILLABLE;
+        }
+        int removed = coursePersistenceService.realignFirstDay(guestId, courseId, start);
+        if (removed == 0) {
+            return null;
+        }
+        log.info("날짜 수정으로 첫날 슬롯을 걷어냈습니다 courseId={} removed={}", courseId, removed);
+        return FirstDayChange.TRIMMED;
     }
 
     /**
@@ -243,6 +284,18 @@ public class CourseStorageService {
     }
 
     private GeneratedCourse withBenefits(Course course, boolean withTrainAccess) {
+        Region region = regionOf(course);
+        return assemble(course, region, withTrainAccess ? trainAccessFor(course, region) : null);
+    }
+
+    /** 코스 지역 — 슬롯 표시명·열차·대기질이 모두 이 값을 쓴다. 한 번만 읽는다. */
+    private Region regionOf(Course course) {
+        return regionRepository.findByIds(List.of(course.getRegionId())).stream()
+                .findFirst()
+                .orElse(null);
+    }
+
+    private GeneratedCourse assemble(Course course, Region region, TrainAccess trainAccess) {
         // 혜택은 **여행일** 기준으로 매칭한다(#213). 정책에 유효기간이 있어 기준일이 결과를 가르는데,
         // 여기만 오늘을 넘기고 있어 생성 응답과 상세 조회의 혜택이 어긋났다 — 저장하는 순간부터 갈리고
         // 여행이 멀수록 벌어졌다. 날짜 없이 저장된 코스는 알 수 없어 오늘로 물러선다.
@@ -251,19 +304,14 @@ public class CourseStorageService {
                 .stream()
                 .map(policy -> new GeneratedCourse.Benefit(policy.getId(), policy.getType(), policy.badgeText()))
                 .toList();
-        // 지역명은 슬롯마다 "관광명소 · 정선군" 으로 붙어 저장 코스에도 필요하다(#141).
-        Region region = regionRepository.findByIds(List.of(course.getRegionId())).stream()
-                .findFirst()
-                .orElse(null);
         // 저장 코스에도 날씨를 붙인다(#169) — 생성 응답에만 실리고 상세 조회에는 없어 화면이 비어 있었다.
         // 날짜를 안 넣고 저장한 코스는 물어볼 기준이 없어 그대로 빈다.
         Map<Integer, DailyWeather> weatherByDay =
                 courseWeatherProvider.byDay(course, region, course.center().orElse(null));
-        TrainAccess trainAccess = withTrainAccess ? trainAccessFor(course, region) : null;
         // 생성 응답에만 붙고 상세 조회에는 없으면 저장한 코스에서 값이 사라진다(#169 와 같은 실수).
         // 공유 토큰은 조립이 아니라 영속 경계에서 온다 — 필요한 호출자가 withShareToken 으로 얹는다(#143).
         return new GeneratedCourse(
                 course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
-                courseAirQualityProvider.of(course, region), null);
+                courseAirQualityProvider.of(course, region), null, null);
     }
 }

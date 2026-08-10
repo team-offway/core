@@ -17,6 +17,8 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -131,7 +133,7 @@ public class Course {
         this.regionId = Objects.requireNonNull(regionId, "지역 ID는 필수입니다");
         this.density = Objects.requireNonNull(density, "일정 밀도는 필수입니다");
         this.transport = Objects.requireNonNull(transport, "이동수단은 필수입니다");
-        this.days = List.copyOf(days);
+        this.days = new ArrayList<>(days);
         this.travelDays = travelDays;
         this.travelDate = travelDate;
         this.originLat = originLat;
@@ -229,6 +231,90 @@ public class Course {
      *
      * <p>여행 날짜가 없으면 언제인지 알 수 없으므로 거짓이다.
      */
+    /**
+     * 하루 일정들 — <b>읽기 전용</b>으로 준다.
+     *
+     * <p>내부는 가변 리스트다({@link #trimFirstDayTo} 가 첫날을 걷어내야 하고, JPA 의 orphanRemoval 은
+     * 컬렉션 <b>인스턴스를 바꾸지 말고</b> 내용을 고치라고 요구한다). 그렇다고 {@code @Getter} 가 그대로
+     * 내주면 밖에서 애그리거트를 헤집을 수 있으므로 여기서 감싼다.
+     */
+    public List<DaySchedule> getDays() {
+        return Collections.unmodifiableList(days);
+    }
+
+    /**
+     * 첫날에서 <b>도착 전 시간대</b> 슬롯을 걷어낸다 — 날짜를 옮겨 도착이 늦어졌을 때(#214).
+     *
+     * <p>여행 날짜를 옮기면 열차 도착 시각은 새 날짜로 다시 조회하는데, 그 시각으로 내린 일정 판단은 저장된
+     * 옛것이 남는다. 그래서 <b>도착 전 시간에 일정이 잡힌 코스</b>가 만들어진다 — 화면상 멀쩡한데 실제로는
+     * 갈 수 없다. 조용히 틀리는 쪽이라 그대로 둘 수 없다.
+     *
+     * <p><b>걷어내기만 한다.</b> 반대 방향(첫날이 비었는데 이제 일찍 닿는다)은 채울 후보가 저장 코스에 없어
+     * 외부를 다시 물어야 하고, 그러면 사용자가 고른 장소가 바뀐다. 그쪽은 호출자가 알려서 재생성을 권한다.
+     *
+     * <p><b>숙박은 남긴다.</b> 시간대 판정을 타지 않는 슬롯이다 — 밤늦게 닿아도 잘 곳은 필요하다
+     * (생성 때의 {@code arrangeDay} 와 같은 규칙).
+     *
+     * <p>첫날이 통째로 비면 그 날을 없애고 남은 날의 표시 번호를 다시 붙인다 — "일차는 1부터 연속" 이
+     * 이 애그리거트의 불변식이다. 달력 오프셋은 그대로 둔다(#159).
+     *
+     * @return 걷어낸 슬롯 수. 0 이면 바뀐 것이 없다
+     */
+    public int trimFirstDayTo(DayStart start) {
+        Objects.requireNonNull(start, "첫날 가용 시간대가 필요합니다");
+        DaySchedule first = days.getFirst();
+        List<Slot> kept = first.getSlots().stream()
+                .filter(slot -> slot.getKind() == SlotKind.STAY || start.allows(slot.getTimeOfDay()))
+                .toList();
+        int removed = first.slotCount() - kept.size();
+        if (removed == 0) {
+            return 0;
+        }
+
+        List<DaySchedule> rebuilt = new ArrayList<>();
+        if (!kept.isEmpty()) {
+            rebuilt.add(DaySchedule.of(first.getDayNumber(), first.getDayOffset(), renumber(kept)));
+        }
+        days.stream().skip(1).forEach(rebuilt::add);
+        if (rebuilt.isEmpty()) {
+            // 하루짜리 코스의 첫날이 통째로 빠지는 경우다. 코스는 하루 이상이 불변식이라 걷어내지 않는다 —
+            // 갈 수 없는 일정이 남지만, 코스를 없애는 것은 날짜 수정이 할 일이 아니다.
+            return 0;
+        }
+        // 첫날이 통째로 빠졌으면 표시 번호가 2 부터 시작한다 — 1 부터 연속으로 다시 붙인다.
+        // 번호만 바꾼다: 슬롯은 이 애그리거트가 소유한 영속 엔티티라 새 DaySchedule 에 옮겨 담으면
+        // orphanRemoval 이 옛 부모를 지우면서 슬롯까지 지운다.
+        for (int i = 0; i < rebuilt.size(); i++) {
+            rebuilt.get(i).renumberTo(i + 1);
+        }
+        days.clear();
+        days.addAll(rebuilt);
+        return removed;
+    }
+
+    /** 슬롯 순서를 1부터 다시 붙이고, 첫 슬롯의 이동시간을 0 으로 둔다(직전이 없어졌다). */
+    private static List<Slot> renumber(List<Slot> slots) {
+        List<Slot> renumbered = new ArrayList<>();
+        for (int i = 0; i < slots.size(); i++) {
+            Slot slot = slots.get(i);
+            renumbered.add(Slot.of(i + 1, slot.getTimeOfDay(), slot.getKind(), slot.getPoiContentId(),
+                    slot.getTitle(), slot.getLat(), slot.getLng(),
+                    i == 0 ? 0 : slot.getTravelMinutesFromPrev(),
+                    slot.getImageUrl(), slot.getAddress(), slot.getCatchphrase()));
+        }
+        return renumbered;
+    }
+
+    /**
+     * 첫날이 <b>달력상 비어 있는가</b> — 생성 때 자정을 넘겨 닿아 통째로 이동이었다는 뜻이다.
+     *
+     * <p>일정이 있는 날만 담기고 달력 오프셋은 그대로 두므로(#159), 첫 일정이 오프셋 0 이 아니면 그 앞의
+     * 하루가 비어 있는 것이다.
+     */
+    public boolean firstDayEmptyOnCalendar() {
+        return days.getFirst().getDayOffset() > 0;
+    }
+
     public boolean covers(LocalDate today) {
         return travelDate != null && !today.isBefore(travelDate) && !today.isAfter(travelEndDate());
     }

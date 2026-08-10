@@ -69,7 +69,15 @@ public record CourseResponse(
                         description = "공유 링크 토큰 (저장 응답에만 실린다). 공유 URL 은 /c/{shareToken}",
                         example = "a1B2c3D4e5F6g7H8i9J0kL",
                         nullable = true)
-                String shareToken) implements LogSummary {
+                String shareToken,
+        @Schema(
+                        description = "여행 날짜를 옮겨 첫날 판단이 뒤집혔을 때만 실린다. "
+                                + "TRIMMED — 도착이 늦어져 갈 수 없게 된 일정을 서버가 걷어냈다. "
+                                + "FILLABLE — 도착이 빨라져 첫날을 쓸 수 있게 됐다(재생성을 권한다). "
+                                + "그 밖에는 필드가 없다",
+                        example = "TRIMMED",
+                        nullable = true)
+                String firstDayChange) implements LogSummary {
 
     /**
      * 예: {@code 정선군 코스 3일 26슬롯}.
@@ -101,7 +109,8 @@ public record CourseResponse(
                 generated.benefits().stream().map(Benefit::from).toList(),
                 generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()),
                 generated.airQuality() == null ? null : AirQualityResponse.from(generated.airQuality()),
-                generated.shareToken());
+                generated.shareToken(),
+                generated.firstDayChange() == null ? null : generated.firstDayChange().name());
     }
 
     /**
@@ -126,7 +135,8 @@ public record CourseResponse(
                 owned.benefits(),
                 owned.trainAccess(),
                 owned.airQuality(),
-                null); // shareToken — 이미 URL 에 있다
+                null, // shareToken — 이미 URL 에 있다
+                null); // firstDayChange — 날짜 수정은 소유자만 한다
     }
 
     @Override
