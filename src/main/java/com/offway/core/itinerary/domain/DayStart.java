@@ -1,5 +1,7 @@
 package com.offway.core.itinerary.domain;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.Set;
@@ -30,6 +32,23 @@ public record DayStart(Set<TimeOfDay> usableSlots) {
     /** 그날은 일정이 없다 — 자정을 넘겨 닿는 경우. 숙박만 남는다. */
     public static DayStart none() {
         return new DayStart(Set.of());
+    }
+
+    /**
+     * 그 날짜에 <b>이 시각에 닿는다면</b> 첫날에 남는 시간대.
+     *
+     * <p>자정을 넘겨 닿으면 그날은 통째로 이동이다 — 시각만 보면 새벽 도착이 "오전부터 여유" 로 둔갑한다.
+     *
+     * <p>생성과 날짜 수정이 <b>같은 규칙을 써야 한다</b>(#214). 한쪽에만 두면 날짜를 옮겼을 때 도착 시각과
+     * 일정이 서로 다른 날짜를 근거로 삼는 코스가 만들어진다.
+     *
+     * @param travelDate 여행 시작일. 모르면 null — 자정 넘김을 판정할 기준이 없어 도착 시각만 본다
+     */
+    public static DayStart afterArriving(LocalDate travelDate, LocalDateTime arriveAt) {
+        if (travelDate != null && arriveAt.toLocalDate().isAfter(travelDate)) {
+            return none();
+        }
+        return arrivingAt(arriveAt.toLocalTime());
     }
 
     /** 이 시각에 닿았을 때 남는 슬롯 — 아직 닫히지 않은 것들. */
