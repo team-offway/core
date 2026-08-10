@@ -410,4 +410,71 @@ class ExternalDataCacheTest {
             pool.shutdownNow();
         }
     }
+
+    /**
+     * 무효화가 <b>진행 중인 로드까지</b> 무효로 만드는가(#215).
+     *
+     * <p>예전에는 저장된 값만 비웠다. 그래서 로드가 시작된 뒤 무효화하면 그 로드가 끝나면서 옛 값을 다시
+     * 넣어, "강제 갱신했는데 안 바뀐다" 가 됐다.
+     */
+    @Test
+    void 적재_중에_무효화하면_옛_값이_되살아나지_않는다() throws Exception {
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>(TEST_MAX_ENTRIES, TEST_FIRST_LOAD_WAIT);
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch evicted = new CountDownLatch(1);
+
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> loading = pool.submit(() -> cache.get(KEY, (key, stale) -> {
+                loadStarted.countDown();
+                awaitQuietly(evicted); // 무효화가 끼어드는 순간을 만든다
+                return new Loaded<>("옛값", LONG_TTL);
+            }, "폴백"));
+
+            assertTrue(loadStarted.await(AWAIT_SECONDS, TimeUnit.SECONDS), "적재가 시작돼야 한다");
+            cache.evictAll();
+            evicted.countDown();
+            assertEquals("옛값", loading.get(AWAIT_SECONDS, TimeUnit.SECONDS), "적재한 쪽은 자기 값을 받는다");
+
+            // 무효화 뒤의 조회는 새로 적재해야 한다 — 옛 값이 저장돼 있으면 loader 가 안 불린다.
+            AtomicInteger reloads = new AtomicInteger();
+            String after = cache.get(KEY, (key, stale) -> {
+                reloads.incrementAndGet();
+                return new Loaded<>("새값", LONG_TTL);
+            }, "폴백");
+
+            assertEquals("새값", after, "무효화 뒤에는 새로 적재한 값이어야 한다");
+            assertEquals(1, reloads.get(), "옛 값이 되살아났다면 loader 가 불리지 않는다");
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void 무효화_직후_요청은_진행_중이던_옛_적재에_합류하지_않는다() throws Exception {
+        ExternalDataCache<String, String> cache = new ExternalDataCache<>(TEST_MAX_ENTRIES, TEST_FIRST_LOAD_WAIT);
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch evicted = new CountDownLatch(1);
+
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> loading = pool.submit(() -> cache.get(KEY, (key, stale) -> {
+                loadStarted.countDown();
+                awaitQuietly(evicted);
+                return new Loaded<>("옛값", LONG_TTL);
+            }, "폴백"));
+
+            assertTrue(loadStarted.await(AWAIT_SECONDS, TimeUnit.SECONDS), "적재가 시작돼야 한다");
+            cache.evictAll();
+
+            // 무효화 직후 들어온 요청. 옛 적재에 합류하면 "옛값" 을 받는다.
+            String fresh = cache.get(KEY, (key, stale) -> new Loaded<>("새값", LONG_TTL), "폴백");
+            assertEquals("새값", fresh, "무효화 직후 요청이 옛 적재 결과를 받으면 안 된다");
+
+            evicted.countDown();
+            loading.get(AWAIT_SECONDS, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
 }
