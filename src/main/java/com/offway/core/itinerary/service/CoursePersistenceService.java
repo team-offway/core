@@ -52,6 +52,23 @@ public class CoursePersistenceService {
         return course;
     }
 
+    /**
+     * 코스를 저장한다 — <b>트랜잭션은 여기까지</b>.
+     *
+     * <p>{@link #loadOwned} 와 같은 이유다. 저장 뒤에 붙는 혜택·날씨·대기질 조립은 외부 호출을 포함하므로
+     * 트랜잭션 안에서 하면 DB 커넥션을 그 시간만큼 잡는다(영속성 규약). 기상청 단기예보만 해도 실측
+     * 1.15초짜리를 Day 수만큼 부른다.
+     *
+     * <p>예전에는 {@code save()} 가 통째로 {@code @Transactional} 이었다. 열차 접근만 빼면 된다고 봤는데,
+     * 같은 조립 안에 날씨가 있어 커넥션을 잡은 채 외부를 기다리고 있었다.
+     */
+    @Transactional
+    public Course persist(Course course) {
+        Course saved = courseRepository.save(course);
+        saved.totalSlots(); // tx 안에서 days·slots 초기화(직렬화·조립은 tx 밖)
+        return saved;
+    }
+
     @Transactional
     public void deleteOwned(String guestId, long courseId) {
         Course course = courseRepository

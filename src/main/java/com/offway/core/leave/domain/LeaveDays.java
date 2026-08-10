@@ -12,10 +12,15 @@ public final class LeaveDays {
     public static final double UNIT = 0.5;
 
     /**
-     * 총 연차 상한. 법정 연차가 25일 안팎이고 이월을 넉넉히 감안해도 이 값을 넘을 이유가 없다. 상한이 없으면 오타
-     * 하나로 비현실적인 값이 저장돼 이후 화면이 이상해진다.
+     * 총 연차 상한 — <b>화면이 사용자에게 약속한 값과 같다</b>(#142).
+     *
+     * <p>온보딩 화면이 "최대 99일까지 입력할 수 있어요" 라고 안내한다. 서버가 그보다 넉넉하면 화면을 거치지
+     * 않은 요청만 다른 규칙을 따르게 되고, 그건 계약이 두 개인 것과 같다.
+     *
+     * <p>예전 값은 365 였는데 "법정 연차 25일 안팎에 이월을 감안해도 넘을 이유가 없다" 는 설명과 어긋났다 —
+     * 365 는 1년 전체라 넉넉함이 아니라 사실상 상한이 없는 것에 가깝다.
      */
-    public static final double MAX_TOTAL = 365.0;
+    public static final double MAX_TOTAL = 99.0;
 
     private LeaveDays() {
     }
@@ -26,7 +31,7 @@ public final class LeaveDays {
         return Double.isFinite(days) && doubled == Math.rint(doubled);
     }
 
-    /** 총 연차로 쓸 수 있는 값인가 — 음수 불가, 상한 이하, 0.5 단위. */
+    /** 총 연차로 쓸 수 있는 값인가 — 음수 불가, 상한 이하, 0.5 단위. <b>0 과 상한은 허용</b>한다. */
     public static boolean isValidTotal(double days) {
         return isValidUnit(days) && days >= 0 && days <= MAX_TOTAL;
     }
