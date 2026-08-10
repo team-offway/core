@@ -1,5 +1,6 @@
 package com.offway.core.trip.controller.dto;
 
+import com.offway.core.common.logging.LogSummary;
 import com.offway.core.trip.domain.PoiContentType;
 import com.offway.core.trip.service.dto.PoiDetail;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -34,7 +35,16 @@ public record PoiDetailResponse(
         String overview,
         @Schema(example = "09:00~18:00") String useTime,
         @Schema(example = "연중무휴") String restDate,
-        @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase) {
+        @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase)
+        implements LogSummary {
+
+    /** 예: {@code 완도타워 전망대(관광지)}. id 는 경로에 이미 있으므로 되풀이하지 않는다. */
+    private static final String LOG_FORMAT = "%s(%s)";
+
+    @Override
+    public String logSummary() {
+        return LOG_FORMAT.formatted(title, typeLabel);
+    }
 
     public static PoiDetailResponse from(PoiDetail poi) {
         return new PoiDetailResponse(
