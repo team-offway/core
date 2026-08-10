@@ -154,7 +154,22 @@ class PlacePoolFileTest {
      */
     private static final List<String> EXCLUDED_VENUE_KEYWORDS = List.of(
             "백화점", "커넥트현대", "신세계센텀", "롯데몰", "현대시티",
-            "아울렛", "아웃렛", "쇼핑몰", "쇼핑센터");
+            "아울렛", "아웃렛", "쇼핑몰", "쇼핑센터",
+            "이마트", "홈플러스", "롯데마트", "하나로마트", "코스트코");
+
+    /** 위 키워드가 다른 상호의 일부로 걸리는 것 — 스크립트의 {@code VENUE_KEYWORD_EXCEPTIONS} 와 같다. */
+    private static final List<String> VENUE_KEYWORD_EXCEPTIONS =
+            List.of("제이마트", "아이마트", "타이마트", "씨케이마트");
+
+    /** 편의점 브랜드 — 스크립트의 {@code EXCLUDED_CONVENIENCE_BRANDS} 와 같다. 상호에서만 본다. */
+    private static final List<String> CONVENIENCE_BRANDS =
+            List.of("씨유", "GS25", "지에스25", "세븐일레븐", "미니스톱");
+
+    /** 스크립트의 {@code CONVENIENCE_BRAND_EXCEPTIONS} 와 같다. */
+    private static final List<String> CONVENIENCE_BRAND_EXCEPTIONS = List.of("씨유푸드", "씨유네");
+
+    /** 영문 CU 는 낱말 경계를 본다 — BANH CUON · WACU · CUBE · CUCO COFFEE 가 실제로 걸렸다. */
+    private static final Pattern CONVENIENCE_CU = Pattern.compile("(?<![A-Za-z])CU(?![A-Za-z])");
 
     /**
      * 대형 상업시설 안 매장이 코스 후보로 들어오지 않는가(#222).
@@ -170,13 +185,46 @@ class PlacePoolFileTest {
         List<String> inLargeVenue = places.stream()
                 .filter(place -> {
                     String haystack = place.getName() + " " + place.getAddress();
-                    return EXCLUDED_VENUE_KEYWORDS.stream().anyMatch(haystack::contains);
+                    for (String exception : VENUE_KEYWORD_EXCEPTIONS) {
+                        haystack = haystack.replace(exception, "");
+                    }
+                    String stripped = haystack;
+                    return EXCLUDED_VENUE_KEYWORDS.stream().anyMatch(stripped::contains);
                 })
                 .map(place -> place.getName() + " | " + place.getAddress())
                 .limit(5)
                 .toList();
 
         assertEquals(List.of(), inLargeVenue, "대형 상업시설 안 매장이 남아 있습니다");
+    }
+
+    /**
+     * 편의점이 코스 후보로 들어오지 않는가(#222).
+     *
+     * <p>업태 필터에 이미 "편의점" 이 있는데도, 휴게음식점·즉석판매로 등록돼 업태가 '커피'·'분식' 인
+     * 편의점이 502건 남아 있었다. "편의점·부속매점은 목적지가 아니다" 는 규칙이 새고 있던 것이다.
+     *
+     * <p><b>상호에서만 본다.</b> 편의점은 작아서 그 안에 다른 가게가 들어갈 수 없고, 주소에 브랜드가
+     * 있으면 "그 옆" 이라는 뜻이다. 숙박은 애초에 편의점일 수 없다(씨유민박·씨유비치).
+     */
+    @Test
+    void 편의점이_들어있지_않다() {
+        List<String> convenienceStores = places.stream()
+                .filter(place -> place.getKind() != PlaceKind.STAY)
+                .filter(place -> {
+                    String name = place.getName();
+                    for (String exception : CONVENIENCE_BRAND_EXCEPTIONS) {
+                        name = name.replace(exception, "");
+                    }
+                    String stripped = name;
+                    return CONVENIENCE_BRANDS.stream().anyMatch(stripped::contains)
+                            || CONVENIENCE_CU.matcher(stripped).find();
+                })
+                .map(place -> place.getName() + " | " + place.getAddress())
+                .limit(5)
+                .toList();
+
+        assertEquals(List.of(), convenienceStores, "편의점이 남아 있습니다");
     }
 
     /**

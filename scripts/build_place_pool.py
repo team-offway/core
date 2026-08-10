@@ -135,13 +135,50 @@ EXCLUDED_UPTAE = {
 EXCLUDED_VENUE_KEYWORDS = (
     "백화점", "커넥트현대", "신세계센텀", "롯데몰", "현대시티",
     "아울렛", "아웃렛", "쇼핑몰", "쇼핑센터",
+    "이마트", "홈플러스", "롯데마트", "하나로마트", "코스트코",
 )
+
+# 위 키워드가 **다른 상호의 일부로** 걸리는 경우. 배포 파일 122,074건을 전수로 훑어 뽑았다 —
+# 짐작이 아니라 실제로 있는 것만 담는다. 여기 담긴 이름은 시설명으로 보지 않는다.
+#
+#   더델리베이커리 제이마트점 · 파리바게뜨 제이마트점 · 제이마트주식회사   → "이마트" 가 낀다
+#   메가엠지씨커피 장락씨케이마트점 · 상주타이마트 · 봄봄 남지점(아이마트남지점)
+VENUE_KEYWORD_EXCEPTIONS = ("제이마트", "아이마트", "타이마트", "씨케이마트")
+
+# 편의점 브랜드 — EXCLUDED_UPTAE 의 "편의점" 이 못 잡는 것들.
+#
+# 업태가 '편의점' 인 것은 이미 위에서 빠지는데, 실제로는 휴게음식점·즉석판매로 등록돼 업태가
+# '커피'·'분식' 인 편의점이 502건 남아 있었다. "편의점·부속매점은 목적지가 아니다" 는 규칙이
+# 이미 있으므로 그 규칙이 새는 것을 막는다.
+#
+# **상호에서만 본다.** 편의점은 작아서 그 '안에' 다른 가게가 들어갈 수 없다. 주소에 브랜드가 있으면
+# "그 옆" 이라는 뜻이라 잡으면 안 된다.
+EXCLUDED_CONVENIENCE_BRANDS = ("씨유", "GS25", "지에스25", "세븐일레븐", "미니스톱")
+
+# 위와 같은 이유의 예외 — 전수에서 확인한 것만.
+#   씨유푸드(부산 서구) · 씨유네 붕어빵(김제) 은 편의점이 아니다.
+#   씨유민박·씨유비치는 숙박이라 아래 kind 조건이 따로 막는다.
+CONVENIENCE_BRAND_EXCEPTIONS = ("씨유푸드", "씨유네")
+
+# 영문 'CU' 는 낱말 경계를 봐야 한다 — BANH CUON·WACU·CUBE·CUCO COFFEE 가 실제로 걸렸다.
+CONVENIENCE_CU = re.compile(r"(?<![A-Za-z])CU(?![A-Za-z])")
 
 
 def in_excluded_venue(name: str, address: str) -> bool:
     """대형 상업시설 안 매장인가 — 상호·주소 어느 쪽에서든 걸린다."""
     haystack = f"{name} {address}"
+    for exception in VENUE_KEYWORD_EXCEPTIONS:
+        haystack = haystack.replace(exception, "")
     return any(keyword in haystack for keyword in EXCLUDED_VENUE_KEYWORDS)
+
+
+def is_convenience_store(name: str, kind: str) -> bool:
+    """편의점인가 — 상호로만 본다. 숙박은 애초에 편의점일 수 없다(씨유민박·씨유비치)."""
+    if kind == "STAY":
+        return False
+    for exception in CONVENIENCE_BRAND_EXCEPTIONS:
+        name = name.replace(exception, "")
+    return any(brand in name for brand in EXCLUDED_CONVENIENCE_BRANDS) or bool(CONVENIENCE_CU.search(name))
 
 CATEGORIES = {
     # 숙박
@@ -356,6 +393,9 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
                 if in_excluded_venue(name_value, address):
                     stats["대형시설내"] += 1
                     continue
+                if is_convenience_store(name_value, kind):
+                    stats["편의점"] += 1
+                    continue
                 rows.append(
                     (region_id, kind, category, name_value, address,
                      (record.get("전화번호") or "").strip(), f"{lat:.7f}", f"{lng:.7f}")
@@ -403,7 +443,7 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
     size_mb = out_path.stat().st_size / 1024 / 1024
     print(f"장소 {len(rows):,}건 → {out_path} ({size_mb:.1f} MB)")
     print("  종류별: " + " · ".join(f"{k} {stats[k]:,}" for k in ("STAY", "FOOD", "CAFE", "SIGHT")))
-    print("  제외:   " + " · ".join(f"{k} {stats[k]:,}" for k in ("폐업·휴업", "업태제외", "좌표없음", "좌표이상", "상호없음") if stats[k]))
+    print("  제외:   " + " · ".join(f"{k} {stats[k]:,}" for k in ("폐업·휴업", "업태제외", "좌표없음", "좌표이상", "상호없음", "대형시설내", "편의점") if stats[k]))
     print(f"  중복 접기: {folded:,}건")
     print(f"  지역 커버: {len(per_region)}/89" + (f" — 빈 지역 {missing}" if missing else ""))
 
