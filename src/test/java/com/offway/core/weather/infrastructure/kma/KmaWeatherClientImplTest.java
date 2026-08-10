@@ -183,6 +183,27 @@ class KmaWeatherClientImplTest {
         assertEquals(2, calls.get());
     }
 
+    /**
+     * 응답이 한 페이지를 넘으면 마지막 날이 카테고리가 덜 온 반쪽으로 잘린다. 그 날을 그대로 캐시하면
+     * 기온 없는 예보가 정상인 척 세 시간 동안 나간다 — 없는 것이 반쪽보다 정직하다.
+     */
+    @Test
+    void 응답이_잘렸으면_마지막_날은_버린다() {
+        String body = """
+                {"response":{"header":{"resultCode":"00"},
+                "body":{"totalCount":9999,"items":{"item":[
+                  {"category":"TMN","fcstDate":"20260501","fcstTime":"0600","fcstValue":"12.0"},
+                  {"category":"TMX","fcstDate":"20260501","fcstTime":"1500","fcstValue":"23.0"},
+                  {"category":"POP","fcstDate":"20260502","fcstTime":"1200","fcstValue":"30"}
+                ]}}}}""";
+        KmaWeatherClient client = client(body);
+
+        // 앞날은 온전하므로 그대로 준다.
+        assertEquals(12, client.dailyForecast(37.5665, 126.9780, DATE).orElseThrow().minTemp());
+        // 잘린 마지막 날(기온 없이 POP 만)은 내려보내지 않는다.
+        assertTrue(client.dailyForecast(37.5665, 126.9780, DATE.plusDays(1)).isEmpty());
+    }
+
     @Test
     void 해당_날짜_예보가_없으면_빈결과다() {
         String body = """

@@ -196,8 +196,9 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
         // 페이지를 넘기지 않으므로 한 페이지에 다 들어와야 한다. 실측 907건(외부 API 인벤토리)이라 여유가
         // 10% 남짓인데, 넘치면 마지막 날이 잘린 채 세 시간 동안 모두에게 나간다 — 잘렸다는 사실만은 남긴다.
         int totalCount = response.path("body").path("totalCount").asInt();
-        if (totalCount > ROWS) {
-            log.warn("기상청 단기예보가 한 페이지를 넘었습니다 — 뒷날 예보가 잘립니다 totalCount={} rows={}",
+        boolean truncated = totalCount > ROWS;
+        if (truncated) {
+            log.warn("기상청 단기예보가 한 페이지를 넘었습니다 — 마지막 날을 버립니다 totalCount={} rows={}",
                     totalCount, ROWS);
         }
 
@@ -226,6 +227,17 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
             }
             result.put(date, accumulator.toDailyWeather(date));
         });
+
+        // **잘렸으면 마지막 날은 버린다.** 응답은 날짜순이라 잘린 자리가 곧 마지막 날이고, 그 날은 카테고리가
+        // 덜 온 반쪽이다(POP 은 있는데 TMN·TMX 가 없는 식). `hasAny()` 는 true 라 그대로 두면 기온 없는 예보가
+        // 정상인 척 세 시간 동안 나간다 — 없는 것이 반쪽보다 정직하다.
+        //
+        // 다시 부르지는 않는다. 잘림은 응답 구조에서 오는 것이라 재시도해도 같은 답이 오고, 쿼터만 태운다.
+        // 상한을 올려야 한다는 신호는 위 warn 이 남긴다.
+        if (truncated && !result.isEmpty()) {
+            LocalDate last = result.keySet().stream().max(LocalDate::compareTo).orElseThrow();
+            result.remove(last);
+        }
         return Map.copyOf(result);
     }
 
