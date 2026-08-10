@@ -132,8 +132,12 @@ public class RegionContentRefreshService {
         int missing = regions.size() - rows.size();
         if (missing > 0 || kept > 0 || fetched.degraded() > 0) {
             // 조용히 넘어가면 커버리지가 줄어든 것을 아무도 모른다(#191 과 같은 형식).
-            log.warn("지역 콘텐츠 적재 완료 지역={}/{} — 이전 값 유지 {}건·못 채운 {}건·외부 degrade {}건",
-                    rows.size(), regions.size(), kept, missing, fetched.degraded());
+            //
+            // degrade 는 건수만으로는 대응을 못 정한다 — 전부 429 면 호출량 문제, timeout 이 섞였으면 외부
+            // 지연이라 처방이 갈린다. 그래서 사유별 내역을 함께 남긴다(#224).
+            log.warn("지역 콘텐츠 적재 완료 지역={}/{} — 이전 값 유지 {}건·못 채운 {}건·외부 degrade {}건{}",
+                    rows.size(), regions.size(), kept, missing, fetched.degraded(),
+                    fetched.degradeSummary().isEmpty() ? "" : "(" + fetched.degradeSummary() + ")");
             return;
         }
         log.info("지역 콘텐츠 적재 완료 지역={}/{}", rows.size(), regions.size());

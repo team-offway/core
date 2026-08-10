@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.cache.ExternalDataCache;
+import com.offway.core.common.logging.DegradeTally;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
 import com.offway.core.region.domain.Region;
@@ -19,7 +20,6 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -166,10 +166,10 @@ public class RegionContentProvider {
     public RegionContents contentForAll(
             List<Region> targets, List<Region> neighborPool, Duration deadline) {
         if (targets.isEmpty()) {
-            return new RegionContents(Map.of(), 0);
+            return RegionContents.empty();
         }
         // 이 실행에서만 센다. 빈에 두면 요청 경로의 실패가 워밍 집계에 섞인다.
-        AtomicInteger degraded = new AtomicInteger();
+        DegradeTally degraded = new DegradeTally();
         // 벽시계(Instant) 가 아니라 단조 시계로 잰다 — 시스템 시각이 보정되면 예산이 늘거나 즉시 만료된다.
         long deadlineNanos = System.nanoTime() + deadline.toNanos();
         Map<Long, RegionContent> contents = new ConcurrentHashMap<>();
@@ -215,7 +215,7 @@ public class RegionContentProvider {
             Thread.currentThread().interrupt();
             log.warn("지역 콘텐츠 팬아웃이 중단됐습니다 — {}/{}건만 채웁니다", contents.size(), targets.size());
         }
-        return new RegionContents(contents, degraded.get());
+        return new RegionContents(contents, degraded.total(), degraded.summary());
     }
 
     /**
@@ -233,7 +233,7 @@ public class RegionContentProvider {
             List<Region> neighborPool,
             long deadlineNanos,
             Map<Long, RegionContent> contents,
-            AtomicInteger degraded) {
+            DegradeTally degraded) {
         return () -> {
             if (isPast(deadlineNanos)) {
                 return;
@@ -251,7 +251,7 @@ public class RegionContentProvider {
      * 한 지역의 콘텐츠. 볼거리가 충분하면 그대로, 부족하면 인접 50km 지역(가까운 순, 최대 {@value #MAX_NEIGHBORS}곳)을 충분해질
      * 때까지 병합한다. {@code neighborPool} 은 인접 후보(보통 전체 지역) — 자기 자신은 자동 제외한다.
      */
-    RegionContent contentFor(Region region, List<Region> neighborPool, AtomicInteger degraded) {
+    RegionContent contentFor(Region region, List<Region> neighborPool, DegradeTally degraded) {
         RegionContent content = fetch(region, degraded);
         if (content.isSufficient()) {
             return content;
@@ -278,8 +278,14 @@ public class RegionContentProvider {
      *
      * @param byRegionId 지역별 콘텐츠
      * @param degraded 이 실행에서 외부 실패로 degrade 된 지역 수
+     * @param degradeSummary 그 실패의 사유별 내역({@code 429=39, TimeoutException=1}). degrade 가 없으면 빈 문자열
      */
-    public record RegionContents(Map<Long, RegionContent> byRegionId, int degraded) {
+    public record RegionContents(Map<Long, RegionContent> byRegionId, int degraded, String degradeSummary) {
+
+        /** 채울 대상이 없었던 실행 — degrade 도 없다. */
+        static RegionContents empty() {
+            return new RegionContents(Map.of(), 0, "");
+        }
     }
 
 
@@ -292,7 +298,7 @@ public class RegionContentProvider {
      * 지역 콘텐츠 조회 — 캐시(single-flight) 우선. 실패하면 콘텐츠는 부가 정보라 예외를 올리지 않고 마지막 성공값(있으면), 없으면
      * 빈 콘텐츠로 degrade 하고 짧게 캐시해 실패 동안 요청이 몰리지 않게 한다.
      */
-    private RegionContent fetch(Region region, AtomicInteger degraded) {
+    private RegionContent fetch(Region region, DegradeTally degraded) {
         return cache.get(region.getId(), (id, stale) -> {
             try {
                 RegionContent fresh = tourApiClient
@@ -301,12 +307,18 @@ public class RegionContentProvider {
                 return new Loaded<>(fresh, CACHE_TTL);
             } catch (TourApiException e) {
                 RegionContent fallback = stale != null ? stale : RegionContent.EMPTY;
-                degraded.incrementAndGet();
+                String source = stale != null ? "마지막 성공값" : "빈 콘텐츠";
                 // 스택을 찍지 않는다. 외부 실패는 예상 범위 안의 사건이라 cause 면 충분한데, 예외를 넘기면
                 // Reactor 체크포인트까지 붙어 한 건이 60줄이 넘는다 — 89개 지역이면 로그가 수천 줄이 되고
-                // 정작 알아야 할 "몇 곳이 degrade 됐나" 가 그 안에 묻힌다.
-                log.warn("지역 콘텐츠 조회 실패 — {} 로 degrade region={} cause={}",
-                        stale != null ? "마지막 성공값" : "빈 콘텐츠", id, RootCause.of(e));
+                // 정작 알아야 할 "몇 곳이 degrade 됐나" 가 그 안에 묻힌다(#191).
+                //
+                // 사유마다 첫 건만 WARN 으로 올린다. 89곳이 같은 이유로 실패하면 나머지 88줄은 같은 말이라
+                // 요약 한 줄이 대신한다. 그렇다고 전부 지우면 폴백이 정상처럼 보여 장애를 아무도 모른다.
+                if (degraded.add(RootCause.label(e))) {
+                    log.warn("지역 콘텐츠 조회 실패 — {} 로 degrade region={} cause={}", source, id, RootCause.of(e));
+                } else {
+                    log.debug("지역 콘텐츠 조회 실패 — {} 로 degrade region={} cause={}", source, id, RootCause.of(e));
+                }
                 return new Loaded<>(fallback, FAILURE_CACHE_TTL);
             }
         }, RegionContent.EMPTY);

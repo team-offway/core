@@ -1,6 +1,8 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.repository.BatchRunRepository;
+import com.offway.core.common.logging.DegradeTally;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.HubAttraction;
@@ -119,7 +121,9 @@ public class HubAttractionRefreshService {
 
         int filled = 0;
         int empty = 0;
-        int failed = 0;
+        // 사유별로 센다 — 89곳이 같은 이유로 실패하면 WARN 은 사유마다 한 줄이면 되고, 대응은 건수가
+        // 아니라 사유가 정한다(429 면 호출량, timeout 이면 외부 지연 — #224).
+        DegradeTally failures = new DegradeTally();
         Map<YearMonth, Integer> byMonth = new TreeMap<>();
         for (Region region : regions) {
             try {
@@ -138,16 +142,23 @@ public class HubAttractionRefreshService {
                 byMonth.merge(published.month(), 1, Integer::sum);
                 filled++;
             } catch (TourApiException e) {
-                failed++;
-                log.warn("중심 관광지 갱신 실패 — 이전 값을 유지합니다 regionId={} cause={}",
-                        region.getId(), e.getClass().getSimpleName());
+                // 껍데기(TourApiException)만 찍으면 429 인지 timeout 인지 구분이 안 된다 — RootCause 가
+                // 체인 끝의 실제 사유를, HTTP 면 응답 본문까지 마스킹해 남긴다.
+                if (failures.add(RootCause.label(e))) {
+                    log.warn("중심 관광지 갱신 실패 — 이전 값을 유지합니다 regionId={} cause={}",
+                            region.getId(), RootCause.of(e));
+                } else {
+                    log.debug("중심 관광지 갱신 실패 — 이전 값을 유지합니다 regionId={} cause={}",
+                            region.getId(), RootCause.of(e));
+                }
             }
         }
         // 기준월 분포를 남긴다 — 지역마다 발행월이 다르므로 단일 baseYm 으로는 사실을 못 적는다.
         // 어떤 지역군이 이전 달로 물러섰는지가 여기서 드러난다.
-        if (empty + failed > 0) {
-            log.warn("중심 관광지 갱신 완료 지역={}/{} 기준월별={} — 빈 응답 {}건·실패 {}건은 이전 값 유지",
-                    filled, regions.size(), byMonth, empty, failed);
+        if (empty + failures.total() > 0) {
+            log.warn("중심 관광지 갱신 완료 지역={}/{} 기준월별={} — 빈 응답 {}건·실패 {}건{}은 이전 값 유지",
+                    filled, regions.size(), byMonth, empty, failures.total(),
+                    failures.summary().isEmpty() ? "" : "(" + failures.summary() + ")");
             return;
         }
         log.info("중심 관광지 갱신 완료 지역={}/{} 기준월별={}", filled, regions.size(), byMonth);
