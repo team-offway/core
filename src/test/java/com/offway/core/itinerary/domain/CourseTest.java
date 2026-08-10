@@ -234,4 +234,84 @@ class CourseTest {
 
         assertEquals(LocalDate.of(2026, 8, 10), course.travelDateOr(LocalDate.of(2026, 8, 10)));
     }
+
+    /** 첫날에서 도착 전 시간대를 걷어낸다(#214) — 날짜를 옮겨 도착이 늦어졌을 때. */
+    @Test
+    void 도착_전_시간대_슬롯을_걷어낸다() {
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR,
+                List.of(DaySchedule.of(1, List.of(
+                        slotAt(1, TimeOfDay.MORNING, SlotKind.SIGHT),
+                        slotAt(2, TimeOfDay.LUNCH, SlotKind.FOOD),
+                        slotAt(3, TimeOfDay.DINNER, SlotKind.FOOD))),
+                        day(2, 2)),
+                LocalDate.of(2026, 9, 11), 2);
+
+        int removed = course.trimFirstDayTo(new DayStart(java.util.Set.of(TimeOfDay.DINNER)));
+
+        assertEquals(2, removed);
+        List<Slot> first = course.getDays().getFirst().getSlots();
+        assertEquals(1, first.size());
+        assertEquals(TimeOfDay.DINNER, first.getFirst().getTimeOfDay());
+        assertEquals(1, first.getFirst().getOrderInDay(), "순서를 1부터 다시 붙인다");
+        assertEquals(0, first.getFirst().getTravelMinutesFromPrev(), "직전이 없어졌으므로 이동시간은 0");
+    }
+
+    @Test
+    void 숙박은_시간대_판정을_타지_않아_남는다() {
+        // 밤늦게 닿아도 잘 곳은 필요하다 — 생성 때의 arrangeDay 와 같은 규칙이다.
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR,
+                List.of(DaySchedule.of(1, List.of(
+                        slotAt(1, TimeOfDay.MORNING, SlotKind.SIGHT),
+                        slotAt(2, TimeOfDay.DINNER, SlotKind.STAY))),
+                        day(2, 2)),
+                LocalDate.of(2026, 9, 11), 2);
+
+        int removed = course.trimFirstDayTo(DayStart.none());
+
+        assertEquals(1, removed);
+        assertEquals(SlotKind.STAY, course.getDays().getFirst().getSlots().getFirst().getKind());
+    }
+
+    @Test
+    void 첫날이_통째로_비면_그_날을_없애고_표시번호를_다시_붙인다() {
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR,
+                List.of(DaySchedule.of(1, List.of(slotAt(1, TimeOfDay.MORNING, SlotKind.SIGHT))),
+                        day(2, 2), day(3, 2)),
+                LocalDate.of(2026, 9, 11), 3);
+
+        course.trimFirstDayTo(DayStart.none());
+
+        List<DaySchedule> days = course.getDays();
+        assertEquals(2, days.size());
+        assertEquals(1, days.get(0).getDayNumber(), "표시 번호는 1부터 연속이어야 한다");
+        assertEquals(2, days.get(1).getDayNumber());
+        assertEquals(1, days.get(0).getDayOffset(), "달력 오프셋은 그대로 — 날짜가 밀리면 안 된다");
+    }
+
+    @Test
+    void 걷어낼_것이_없으면_그대로_둔다() {
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3), day(2, 2)),
+                LocalDate.of(2026, 9, 11), 2);
+
+        assertEquals(0, course.trimFirstDayTo(DayStart.fullDay()));
+        assertEquals(3, course.getDays().getFirst().slotCount());
+    }
+
+    @Test
+    void 첫날이_비어_있는_코스를_알아본다() {
+        // 생성 때 자정을 넘겨 닿아 1일차가 통째로 빠진 코스 — 오프셋이 0 이 아니다.
+        Course emptied = Course.of(42L, Density.PACKED, TransportMode.CAR,
+                List.of(DaySchedule.of(1, 1, List.of(slotAt(1, TimeOfDay.MORNING, SlotKind.SIGHT))),
+                        DaySchedule.of(2, 2, List.of(slotAt(1, TimeOfDay.MORNING, SlotKind.SIGHT)))),
+                LocalDate.of(2026, 9, 11), 3);
+        Course normal = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3), day(2, 2)),
+                LocalDate.of(2026, 9, 11), 2);
+
+        assertTrue(emptied.firstDayEmptyOnCalendar());
+        assertFalse(normal.firstDayEmptyOnCalendar());
+    }
+
+    private static Slot slotAt(int order, TimeOfDay timeOfDay, SlotKind kind) {
+        return Slot.of(order, timeOfDay, kind, "c" + order, "장소" + order, 37.5, 127.0, order == 1 ? 0 : 10);
+    }
 }
