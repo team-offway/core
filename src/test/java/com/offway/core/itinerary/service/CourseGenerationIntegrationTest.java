@@ -72,8 +72,13 @@ class CourseGenerationIntegrationTest {
         return new TourPoiResult(items, items.size());
     }
 
-    /** 시드된 반값여행 정책 기간(2026-04-01~08-31) 안의 고정 날짜 — 혜택 매칭이 실행일에 흔들리지 않게. */
-    private static final LocalDate TRAVEL_DATE = LocalDate.of(2026, 5, 1);
+    /**
+     * 혜택이 실제로 매칭되는 고정 날짜 — 매칭 결과가 실행일에 흔들리지 않게.
+     *
+     * <p>이 코스의 지역은 부산 동구(시드 id 1)다. <b>반값여행 대상 16곳이 아니므로</b> 그 정책 기간을 고른다고
+     * 혜택이 붙지 않는다(#217). 동구는 비수도권이라 숙박세일페스타(6/11~8/31) 대상이고, 그 기간 안의 날짜를 쓴다.
+     */
+    private static final LocalDate TRAVEL_DATE = LocalDate.of(2026, 7, 15);
 
     private static GenerateCourse command(int travelDays, Density density) {
         return GenerateCourse.first(SEEDED_REGION_ID, travelDays, density, TransportMode.CAR, 35.10, 129.03,

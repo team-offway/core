@@ -142,9 +142,11 @@ class CourseGenerateIntegrationTest {
     void 코스를_생성해_날짜별_타임라인과_혜택을_200으로_내린다() throws Exception {
         tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
 
+        // 부산 동구(시드 id 1)는 비수도권이라 숙박세일페스타 대상이지만 반값여행 16곳은 아니다.
+        // 날짜도 그 정책 기간(6/11~8/31) 안이어야 혜택이 붙는다 — 5/1 은 발급 시작 전이라 빈다(#217).
         String body = """
                 { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
-                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-05-01" }""";
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-07-15" }""";
 
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
@@ -157,8 +159,8 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.days[0].items[0].travelMinutes").value(0))
                 .andExpect(jsonPath("$.data.days[0].items[0].kind").exists())
                 .andExpect(jsonPath("$.data.days[0].items[0].lat").exists())
-                // 인구감소지역(부산 동구) + 시드 정책 기간 내 → 반값여행 혜택
-                .andExpect(jsonPath("$.data.benefits[0].text").value("여행경비 50% 환급"));
+                // 비수도권 인구감소지역 + 발급 기간 내 → 숙박세일페스타 혜택
+                .andExpect(jsonPath("$.data.benefits[0].text").value("숙박 할인"));
     }
 
     @Test
