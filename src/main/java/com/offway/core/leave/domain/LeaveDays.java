@@ -12,6 +12,14 @@ public final class LeaveDays {
     public static final double UNIT = 0.5;
 
     /**
+     * 깎을 연차가 없음 — 구간이 주말·공휴일뿐일 때 계산 결과가 이 값이다.
+     *
+     * <p>사용 내역으로는 쓸 수 없다({@link #isValidUsage} 가 막는다). 재계산이 이 값을 내놓으면 내역을
+     * 갱신하는 게 아니라 <b>지운다</b>(#170).
+     */
+    public static final double NONE = 0;
+
+    /**
      * 총 연차 상한 — <b>화면이 사용자에게 약속한 값과 같다</b>(#142).
      *
      * <p>온보딩 화면이 "최대 99일까지 입력할 수 있어요" 라고 안내한다. 서버가 그보다 넉넉하면 화면을 거치지

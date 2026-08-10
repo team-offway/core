@@ -83,7 +83,7 @@ class CourseShareIntegrationTest {
     void 없는_토큰이면_404_다() throws Exception {
         mockMvc.perform(get(PUBLIC_URL, "AAAAAAAAAAAAAAAAAAAAAA"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("ITINERARY-007"));
+                .andExpect(jsonPath("$.code").value("ITINERARY-008"));
     }
 
     /**
@@ -104,7 +104,7 @@ class CourseShareIntegrationTest {
         mockMvc.perform(get(PUBLIC_URL, token))
                 .andExpect(status().isGone())
                 .andExpect(jsonPath("$.status").value(410))
-                .andExpect(jsonPath("$.code").value("ITINERARY-008"));
+                .andExpect(jsonPath("$.code").value("ITINERARY-009"));
     }
 
     /**

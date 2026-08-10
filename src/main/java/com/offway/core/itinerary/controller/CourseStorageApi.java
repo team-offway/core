@@ -9,6 +9,7 @@ import com.offway.core.itinerary.domain.CourseScope;
 import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.itinerary.controller.dto.CourseSaveRequest;
 import com.offway.core.itinerary.controller.dto.CourseSummaryResponse;
+import com.offway.core.itinerary.controller.dto.CourseUpdateRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -67,6 +68,37 @@ public interface CourseStorageApi {
     ApiResponseBody<CourseResponse> course(
             @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
             @Parameter(description = "코스 ID", example = "1") long courseId);
+
+    @Operation(
+            summary = "여행 날짜 수정",
+            description = """
+                    저장 코스의 여행 시작일을 옮긴다. 편집 시트의 "여행날짜 수정" 이다.
+
+                    **연차 차감량을 서버가 다시 계산한다.** 날짜가 바뀌면 구간의 평일 수·공휴일이 달라져 깎을
+                    연차가 달라진다. 이미 차감한 코스면 기존 내역을 새 값으로 갱신하고, 차감한 적 없는 코스는
+                    연차를 건드리지 않는다. 첫날 반차 여부는 확정할 때 고른 값을 그대로 쓴다.
+
+                    옮긴 구간이 주말·공휴일뿐이라 깎을 평일이 없으면 **차감 내역을 지운다** — 남겨두면 가지도
+                    않을 평일만큼 연차가 깎인 채로 굳는다.
+
+                    **지난 날짜로는 옮길 수 없다.** 그 코스는 곧바로 "끝난 여행"이 돼 홈이 "다녀오셨나요?" 를
+                    묻는데, 사용자는 방금 계획을 고쳤을 뿐이다. 반대로 **날짜를 놓친 코스를 앞으로 당기는 것은
+                    된다** — 판단 대상은 옮겨갈 날짜다.
+
+                    기간(travelDays)·이동수단은 바꾸지 않는다. 그것들이 바뀌면 코스 구성 자체를 다시 짜야 하므로
+                    생성(`POST /courses/generate`)으로 간다.
+
+                    응답은 상세 조회와 같은 모양이라, 새 날짜 기준의 요일·날씨가 함께 담겨 화면을 바로 다시 그릴 수 있다.""")
+    @ApiResponse(responseCode = "200", description = "수정 성공")
+    @ApiResponse(
+            responseCode = "400",
+            description = "게스트 ID 누락 · travelDate 누락이거나 날짜 형식이 아님 · 지난 날짜로 옮기려 함")
+    @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
+    @ApiResponse(responseCode = "502", description = "공휴일(특일정보) 조회에 실패해 차감량을 다시 계산할 수 없음")
+    ApiResponseBody<CourseResponse> updateCourse(
+            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
+            @Parameter(description = "코스 ID", example = "12") long courseId,
+            CourseUpdateRequest request);
 
     @Operation(
             summary = "내 코스 삭제",

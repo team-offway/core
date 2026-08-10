@@ -6,6 +6,7 @@ import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.repository.CourseShareRepository;
 import com.offway.core.leave.service.MyLeaveService;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -89,6 +90,31 @@ public class CoursePersistenceService {
         Course course = courseRepository
                 .findById(share.getCourseId())
                 .orElseThrow(ItineraryException::shareCourseDeleted);
+        course.totalSlots(); // tx 안에서 days·slots 초기화(직렬화·조립은 tx 밖)
+        return course;
+    }
+
+    /**
+     * 여행 날짜를 옮기고, <b>이 코스로 깎았던 연차도 같은 트랜잭션에서 다시 잡는다</b>(#170).
+     *
+     * <p>둘을 나누면 "날짜는 옮겨졌는데 차감은 옛 날짜 기준" 이 남는다. 사용자는 화면에서 새 날짜를 보면서
+     * 옛 날짜의 평일 수만큼 연차가 깎인 상태가 되는데, 어긋난 줄 알 방법이 없다 —
+     * {@code deleteOwned} 가 삭제와 차감 취소를 한 덩어리로 묶은 것과 같은 이유다.
+     *
+     * <p>코스를 여기서 다시 읽는다. 호출자가 트랜잭션 밖에서 읽은 인스턴스는 준영속이라 변경 감지가 안 되고,
+     * 그 사이 코스가 지워졌을 수도 있다.
+     *
+     * @param deductionDays 다시 계산한 차감 일수. 차감한 적 없는 코스면 null — 연차는 건드리지 않는다
+     */
+    @Transactional
+    public Course applyTravelDate(String guestId, long courseId, LocalDate travelDate, Double deductionDays) {
+        Course course = courseRepository
+                .findByIdAndGuestId(courseId, guestId)
+                .orElseThrow(ItineraryException::courseNotFound);
+        course.changeTravelDate(travelDate, LocalDate.now(CourseStorageService.SERVICE_ZONE));
+        if (deductionDays != null) {
+            myLeaveService.rescheduleCourseDeduction(guestId, courseId, travelDate, deductionDays);
+        }
         course.totalSlots(); // tx 안에서 days·slots 초기화(직렬화·조립은 tx 밖)
         return course;
     }

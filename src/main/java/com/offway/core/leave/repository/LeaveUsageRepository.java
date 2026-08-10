@@ -2,6 +2,7 @@ package com.offway.core.leave.repository;
 
 import com.offway.core.leave.domain.LeaveUsage;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /** 도메인이 의존하는 port. 구현은 {@link LeaveUsageRepositoryImpl}. */
@@ -15,6 +16,16 @@ public interface LeaveUsageRepository {
 
     /** 이 코스로 이미 쌓인 내역이 있는가 — 중복 차감 방지(#91). */
     boolean existsByGuestIdAndCourseId(String guestId, Long courseId);
+
+    /**
+     * 이 코스의 차감 내역 — 여행 날짜를 고칠 때 차감량을 다시 계산하려고 읽는다(#170).
+     *
+     * <p>{@link #existsByGuestIdAndCourseId} 와 달리 <b>행 자체</b>가 필요하다. 재계산의 입력인 반차 여부가
+     * 그 행에 있고, 갱신도 그 행에 한다.
+     *
+     * <p>{@code uk_leave_usage_guest_course} 가 코스당 한 행을 강제하므로 결과는 하나 이하다.
+     */
+    Optional<LeaveUsage> findByGuestIdAndCourseId(String guestId, Long courseId);
 
     /**
      * 이 소유자가 코스로 차감한 코스 ID 들 — 목록 화면의 "차감함" 표시용.
