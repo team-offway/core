@@ -110,6 +110,76 @@ EXCLUDED_UPTAE = {
     "편의점", "고속도로", "백화점", "극장", "철도역구내", "유원지", "관광호텔", "키즈카페",
 }
 
+# 대형 상업시설 **안에 든** 매장을 걸러낸다 — 백화점·아울렛·쇼핑몰·쇼핑센터를 일괄로 뺀다.
+#
+# 위 EXCLUDED_UPTAE 의 "백화점" 은 업태가 정확히 '백화점' 인 것만 잡는다. 그 안의 식당·카페는 업태가
+# 한식·경양식·커피라 그대로 통과했고, 실제로 부산 동구 코스에 커넥트현대(현대백화점 부산점) 지하
+# 푸드코트가 들어왔다. 여행 코스의 끼니 자리로 백화점 푸드코트를 내밀 수는 없다.
+#
+# **상호·주소 어느 쪽에 있어도 잡는다** — "남천면가 커넥트현대점"(상호)과
+# "범일로 125, 현대백화점 부산점 9층"(주소) 둘 다 실제 사례다.
+#
+# 처음에는 백화점만 뺐다. "아울렛은 지역에 따라 그 자체가 목적지" 라는 우려 때문이었는데, 데이터를 세어
+# 보니 그 걱정이 성립하지 않았다. 걸리는 것은 11건뿐이고 전부 시설 **안** 매장이다.
+#
+#   씨유 김제모다아울렛           전북 김제시 ... 모다아울렛
+#   파스쿠찌 전주김제모다아울렛점   전북 김제시 ... 모다아울렛 2층
+#   이디야 마렌지오DI점           충북 제천시 ... 마렌지오쇼핑센터 2층
+#
+# 아울렛 건물 자체가 목적지인 경우는 이 풀(음식점·카페·숙박 인허가)에 애초에 들어오지 않는다. 여기 있는
+# 것은 그 안의 프랜차이즈 카페·분식이다. 빼도 지역별 최소 보유가 305곳 그대로라 풀이 마르지 않는다.
+#
+# **부분 문자열 오탐에 주의한다.** 다른 낱말에 끼어들지 않는 키워드만 골랐다. "이마트" 는 제이마트·
+# 아이마트·타이마트·씨케이마트에 걸려 쓸 수 없었고(대형마트는 별도 과제), "스타필드" 는 제천의 식당
+# 상호라 시설명이 아니었다.
+EXCLUDED_VENUE_KEYWORDS = (
+    "백화점", "커넥트현대", "신세계센텀", "롯데몰", "현대시티",
+    "아울렛", "아웃렛", "쇼핑몰", "쇼핑센터",
+    "이마트", "홈플러스", "롯데마트", "하나로마트", "코스트코",
+)
+
+# 위 키워드가 **다른 상호의 일부로** 걸리는 경우. 배포 파일 122,074건을 전수로 훑어 뽑았다 —
+# 짐작이 아니라 실제로 있는 것만 담는다. 여기 담긴 이름은 시설명으로 보지 않는다.
+#
+#   더델리베이커리 제이마트점 · 파리바게뜨 제이마트점 · 제이마트주식회사   → "이마트" 가 낀다
+#   메가엠지씨커피 장락씨케이마트점 · 상주타이마트 · 봄봄 남지점(아이마트남지점)
+VENUE_KEYWORD_EXCEPTIONS = ("제이마트", "아이마트", "타이마트", "씨케이마트")
+
+# 편의점 브랜드 — EXCLUDED_UPTAE 의 "편의점" 이 못 잡는 것들.
+#
+# 업태가 '편의점' 인 것은 이미 위에서 빠지는데, 실제로는 휴게음식점·즉석판매로 등록돼 업태가
+# '커피'·'분식' 인 편의점이 502건 남아 있었다. "편의점·부속매점은 목적지가 아니다" 는 규칙이
+# 이미 있으므로 그 규칙이 새는 것을 막는다.
+#
+# **상호에서만 본다.** 편의점은 작아서 그 '안에' 다른 가게가 들어갈 수 없다. 주소에 브랜드가 있으면
+# "그 옆" 이라는 뜻이라 잡으면 안 된다.
+EXCLUDED_CONVENIENCE_BRANDS = ("씨유", "GS25", "지에스25", "세븐일레븐", "미니스톱")
+
+# 위와 같은 이유의 예외 — 전수에서 확인한 것만.
+#   씨유푸드(부산 서구) · 씨유네 붕어빵(김제) 은 편의점이 아니다.
+#   씨유민박·씨유비치는 숙박이라 아래 kind 조건이 따로 막는다.
+CONVENIENCE_BRAND_EXCEPTIONS = ("씨유푸드", "씨유네")
+
+# 영문 'CU' 는 낱말 경계를 봐야 한다 — BANH CUON·WACU·CUBE·CUCO COFFEE 가 실제로 걸렸다.
+CONVENIENCE_CU = re.compile(r"(?<![A-Za-z])CU(?![A-Za-z])")
+
+
+def in_excluded_venue(name: str, address: str) -> bool:
+    """대형 상업시설 안 매장인가 — 상호·주소 어느 쪽에서든 걸린다."""
+    haystack = f"{name} {address}"
+    for exception in VENUE_KEYWORD_EXCEPTIONS:
+        haystack = haystack.replace(exception, "")
+    return any(keyword in haystack for keyword in EXCLUDED_VENUE_KEYWORDS)
+
+
+def is_convenience_store(name: str, kind: str) -> bool:
+    """편의점인가 — 상호로만 본다. 숙박은 애초에 편의점일 수 없다(씨유민박·씨유비치)."""
+    if kind == "STAY":
+        return False
+    for exception in CONVENIENCE_BRAND_EXCEPTIONS:
+        name = name.replace(exception, "")
+    return any(brand in name for brand in EXCLUDED_CONVENIENCE_BRANDS) or bool(CONVENIENCE_CU.search(name))
+
 CATEGORIES = {
     # 숙박
     "문화_숙박업.csv": ("STAY", "LODGING"),
@@ -185,11 +255,49 @@ def load_regions(repo_root: pathlib.Path) -> dict[str, list[tuple[str, int]]]:
     return by_sigungu
 
 
-def resolve_region(address: str, by_sigungu) -> int | None:
-    """주소에서 region_id 를 찾는다.
+# 같은 곳을 가리키는 다른 시도 표기. 정규화한 뒤에는 **정확히 일치**해야 한다.
+#
+# 실측(147,415건 전수): 시드와 주소의 시도가 어긋나는 조합은 23종뿐이었고, 표기 차이는 전남 하나였다.
+# 강원특별자치도·전북특별자치도는 이 데이터셋에서 시드와 표기가 같아 별칭이 필요 없다.
+#
+# '전남광주통합특별시' 는 광주와 전남을 함께 덮는 이름이라 '전라남도' 하나로 접는 것은 원래 손실이 있다.
+# 지금 안전한 이유는 하나뿐이다 — **광주가 우리 89곳에 없다**. 전남 16곳은 전부 군 단위라
+# 광주의 구 이름(동구·남구·서구·북구·광산구)과 겹치지 않아서, 광주 주소는 '전라남도 동구' 가 되어
+# 시드에 없으므로 자연히 버려진다. 고시가 바뀌어 광주가 89곳에 들어오면 이 가정이 깨진다 —
+# `require_alias_assumption` 이 그때 빌드를 세운다.
+SIDO_ALIASES = {
+    "전남광주통합특별시": "전라남도",
+}
 
-    동명 시군구(강원/경남 고성군 등)가 있으므로 시도명 앞 두 글자로 가른다 — 데이터마다
-    '강원특별자치도'/'강원도' 처럼 표기가 달라 전체 문자열 비교는 어긋난다.
+
+def normalize_sido(sido: str) -> str:
+    return SIDO_ALIASES.get(sido, sido)
+
+
+def require_alias_assumption(by_sigungu) -> None:
+    """별칭이 성립하는 전제를 지킨다 — 광주가 89곳에 들어오면 즉시 실패한다.
+
+    '전남광주통합특별시' → '전라남도' 는 광주가 대상이 아닐 때만 옳다. 광주 어느 구가 인구감소지역이
+    되면 같은 주소 표기가 광주와 전남 둘을 가리키게 되어, 시군구만으로는 가를 수 없다.
+    조용히 틀리는 대신 여기서 멈춘다.
+    """
+    gwangju = [sg for sg, cands in by_sigungu.items() for sido, _ in cands if "광주" in sido]
+    if gwangju:
+        sys.exit(
+            "시드에 광주가 들어왔습니다: " + ", ".join(sorted(gwangju)) + "\n"
+            "'전남광주통합특별시' 별칭이 광주와 전남을 못 가릅니다 — 매칭 규칙을 다시 설계하세요."
+        )
+
+
+def resolve_region(address: str, by_sigungu) -> int | None:
+    """주소에서 region_id 를 찾는다 — **시도와 시군구가 둘 다 맞아야 한다.**
+
+    예전에는 시군구 이름이 우리 89곳에 하나뿐이면 시도가 달라도 붙였다. 그 폴백 때문에 전국의
+    동구·남구가 부산 동구·대구 남구로 빨려 들어왔다 — 부산 동구는 15,701건 중 부산이 1,816건(11.6%)
+    뿐이었고, 나머지는 대구·대전·광주·울산이었다. 코스에 수백 km 밖 식당이 나왔다.
+
+    시군구 이름이 89곳에 둘 이상이면(서구: 부산·대구) 후보가 여럿이라 폴백이 안 걸려 멀쩡했다.
+    **이름이 하나뿐인 경우만 뚫렸다** — 그래서 눈에 잘 안 띄었다.
     """
     parts = address.split()
     if len(parts) < 2:
@@ -197,10 +305,11 @@ def resolve_region(address: str, by_sigungu) -> int | None:
     candidates = by_sigungu.get(parts[1])
     if not candidates:
         return None
+    address_sido = normalize_sido(parts[0])
     for sido, region_id in candidates:
-        if sido[:2] == parts[0][:2]:
+        if normalize_sido(sido) == address_sido:
             return region_id
-    return candidates[0][1] if len(candidates) == 1 else None
+    return None
 
 
 def resolve_category(file_name: str, default_mapping: tuple, record: dict) -> tuple:
@@ -231,6 +340,7 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
         sys.exit("pyproj 가 필요합니다: python3 -m pip install pyproj")
 
     by_sigungu = load_regions(repo_root)
+    require_alias_assumption(by_sigungu)
     # LOCALDATA 좌표는 EPSG:5174(Korean 1985 / Modified Central Belt).
     # 의성군청 좌표와 대조해 확정했다 — 5186 으로 읽으면 1도 가까이 어긋난다.
     transformer = Transformer.from_crs("EPSG:5174", "EPSG:4326", always_xy=True)
@@ -280,6 +390,12 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
                 if not name_value:
                     stats["상호없음"] += 1
                     continue
+                if in_excluded_venue(name_value, address):
+                    stats["대형시설내"] += 1
+                    continue
+                if is_convenience_store(name_value, kind):
+                    stats["편의점"] += 1
+                    continue
                 rows.append(
                     (region_id, kind, category, name_value, address,
                      (record.get("전화번호") or "").strip(), f"{lat:.7f}", f"{lng:.7f}")
@@ -327,7 +443,7 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
     size_mb = out_path.stat().st_size / 1024 / 1024
     print(f"장소 {len(rows):,}건 → {out_path} ({size_mb:.1f} MB)")
     print("  종류별: " + " · ".join(f"{k} {stats[k]:,}" for k in ("STAY", "FOOD", "CAFE", "SIGHT")))
-    print("  제외:   " + " · ".join(f"{k} {stats[k]:,}" for k in ("폐업·휴업", "업태제외", "좌표없음", "좌표이상", "상호없음") if stats[k]))
+    print("  제외:   " + " · ".join(f"{k} {stats[k]:,}" for k in ("폐업·휴업", "업태제외", "좌표없음", "좌표이상", "상호없음", "대형시설내", "편의점") if stats[k]))
     print(f"  중복 접기: {folded:,}건")
     print(f"  지역 커버: {len(per_region)}/89" + (f" — 빈 지역 {missing}" if missing else ""))
 
