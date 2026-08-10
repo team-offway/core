@@ -26,6 +26,9 @@ public final class DegradeTally {
 
     private static final String NAME_VALUE_DELIMITER = "=";
 
+    /** 로그 줄 끝에 덧붙는 조각의 모양 — {@code RequestLoggingFilter} 의 ext=[…] 와 같은 방식. */
+    private static final String SUMMARY_FRAGMENT_FORMAT = "(%s)";
+
     /** 사유(집계 키) → 건수. 키는 {@link RootCause#label} 이 만든 짧은 라벨이라 가짓수가 제한된다. */
     private final Map<String, AtomicInteger> byReason = new ConcurrentHashMap<>();
 
@@ -47,6 +50,16 @@ public final class DegradeTally {
     /** 사유를 가리지 않은 전체 건수. */
     public int total() {
         return total.get();
+    }
+
+    /**
+     * 요약 줄 뒤에 그대로 이어붙일 조각 — {@code (429=39, TimeoutException=1)}.
+     *
+     * <p>실패가 없으면 빈 문자열이라 그 자리가 통째로 사라진다. 빈 괄호가 붙으면 실패가 있었는데 사유를
+     * 못 적은 것처럼 읽힌다. 괄호 조립을 여기 두는 이유는 호출부마다 하면 표기가 갈리기 때문이다.
+     */
+    public String summaryFragment() {
+        return byReason.isEmpty() ? "" : SUMMARY_FRAGMENT_FORMAT.formatted(summary());
     }
 
     /** {@code 429=39, TimeoutException=1} — 많은 사유부터. 아무것도 없으면 빈 문자열. */

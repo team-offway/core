@@ -215,7 +215,7 @@ public class RegionContentProvider {
             Thread.currentThread().interrupt();
             log.warn("지역 콘텐츠 팬아웃이 중단됐습니다 — {}/{}건만 채웁니다", contents.size(), targets.size());
         }
-        return new RegionContents(contents, degraded.total(), degraded.summary());
+        return new RegionContents(contents, degraded.total(), degraded.summaryFragment());
     }
 
     /**
@@ -278,7 +278,7 @@ public class RegionContentProvider {
      *
      * @param byRegionId 지역별 콘텐츠
      * @param degraded 이 실행에서 외부 실패로 degrade 된 지역 수
-     * @param degradeSummary 그 실패의 사유별 내역({@code 429=39, TimeoutException=1}). degrade 가 없으면 빈 문자열
+     * @param degradeSummary 사유별 내역을 로그에 그대로 붙일 조각({@code (429=39)}). degrade 가 없으면 빈 문자열
      */
     public record RegionContents(Map<Long, RegionContent> byRegionId, int degraded, String degradeSummary) {
 

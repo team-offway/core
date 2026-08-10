@@ -53,6 +53,21 @@ class DegradeTallyTest {
     }
 
     @Test
+    void 로그_조각은_괄호로_감싼다() {
+        // 요약 줄 뒤에 그대로 이어붙이는 조각이다. 호출부마다 괄호를 조립하면 표기가 갈린다.
+        DegradeTally tally = new DegradeTally();
+        tally.add("429");
+
+        assertEquals("(429=1)", tally.summaryFragment());
+    }
+
+    @Test
+    void 실패가_없으면_로그_조각도_없다() {
+        // 빈 괄호 "()" 가 붙으면 실패가 있었는데 사유를 못 적은 것처럼 읽힌다.
+        assertEquals("", new DegradeTally().summaryFragment());
+    }
+
+    @Test
     void 아무것도_없으면_요약도_비어_있다() {
         assertEquals("", new DegradeTally().summary());
         assertEquals(0, new DegradeTally().total());
