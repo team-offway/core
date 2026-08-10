@@ -1,6 +1,7 @@
 package com.offway.core.leave.service;
 
 import com.offway.core.leave.domain.LeaveBalance;
+import com.offway.core.leave.domain.LeaveDays;
 import com.offway.core.leave.domain.LeaveException;
 import com.offway.core.leave.domain.LeaveSummary;
 import com.offway.core.leave.domain.LeaveUsage;
@@ -188,7 +189,7 @@ public class MyLeaveService {
         if (found.isEmpty()) {
             return false;
         }
-        if (days == 0) {
+        if (days == LeaveDays.NONE) {
             usageRepository.deleteByGuestIdAndCourseId(owner, courseId);
             log.info("코스 연차 차감 해제 — 옮긴 날짜에 깎을 평일이 없습니다 courseId={} usedOn={}", courseId, usedOn);
             return true;
