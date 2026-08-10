@@ -10,6 +10,8 @@ import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.policy.repository.PolicyRepository;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,10 +40,14 @@ class PolicySeedTest {
     @Test
     void 여행자가_직접_신청하는_혜택만_검증된_정책으로_시딩된다() {
         // 회사가 참여기업으로 신청해야 하는 근로자 휴가지원, 할인이 아닌 선정 목록(로컬100)은 넣지 않는다(#217).
-        List<PolicyType> verified =
-                policyRepository.findAllVerified().stream().map(Policy::getType).toList();
+        //
+        // **순서에 기대지 않는다.** findAllVerified() 는 ORDER BY 없이 findByVerifiedTrue() 로 내려가고
+        // Policy 에도 정렬 필드가 없어, 반환 순서는 계약이 아니다. 여기서 검증하려는 것은 "무엇이 검증됐고
+        // 무엇이 빠졌나" 이지 순서가 아니다 — 순서로 단언하면 DB 가 다른 순서를 줬을 때 엉뚱한 실패가 난다.
+        Set<PolicyType> verified =
+                policyRepository.findAllVerified().stream().map(Policy::getType).collect(Collectors.toSet());
 
-        assertEquals(List.of(PolicyType.REGIONAL_VOUCHER, PolicyType.STAY_FESTA), verified);
+        assertEquals(Set.of(PolicyType.REGIONAL_VOUCHER, PolicyType.STAY_FESTA), verified);
     }
 
     @Test

@@ -13,6 +13,8 @@ import com.offway.core.region.repository.RegionTagRepository;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -90,13 +92,20 @@ class PolicyMatchIntegrationTest {
         assertTrue(matchedTypes(NON_VOUCHER_SIDO, NON_VOUCHER_SIGUNGU).contains(PolicyType.STAY_FESTA));
     }
 
-    @Test
-    void 수도권_인구감소지역에는_숙박세일페스타가_붙지_않는다() {
-        // 숙박세일페스타는 비수도권 85곳이다. 가평·연천·강화·옹진 넷은 89곳에 들지만 대상이 아니다.
-        // 서울에서 가까워 코스에 자주 뽑히는 지역이라, 안 걸러내면 눈에 잘 띄는 자리에서 거짓 뱃지가 난다.
-        List<PolicyType> matched = matchedTypes(METRO_SIDO, METRO_SIGUNGU);
+    /**
+     * 숙박세일페스타는 비수도권 85곳이다. 가평·연천·강화·옹진 넷은 89곳에 들지만 대상이 아니다. 서울에서 가까워
+     * 코스에 자주 뽑히는 지역이라, 안 걸러내면 눈에 잘 띄는 자리에서 거짓 뱃지가 난다.
+     *
+     * <p><b>넷을 다 본다.</b> 한 곳만 확인하면 나머지 셋이 잘못 포함돼도 초록이 뜬다 — 제외 규칙은
+     * {@code sido NOT IN (...)} 한 줄이라 시도 이름이 어긋나면 그 시도 전체가 한꺼번에 새는데, 표본 하나로는
+     * 어느 시도가 샜는지도 못 가린다(인천 강화·옹진과 경기 가평·연천은 서로 다른 시도다).
+     */
+    @ParameterizedTest(name = "{0} {1}")
+    @CsvSource({"경기도,가평군", "경기도,연천군", "인천광역시,강화군", "인천광역시,옹진군"})
+    void 수도권_인구감소지역에는_숙박세일페스타가_붙지_않는다(String sido, String sigungu) {
+        List<PolicyType> matched = matchedTypes(sido, sigungu);
 
-        assertFalse(matched.contains(PolicyType.STAY_FESTA), "실제=" + matched);
+        assertFalse(matched.contains(PolicyType.STAY_FESTA), sido + " " + sigungu + " 실제=" + matched);
     }
 
     @Test

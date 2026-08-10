@@ -135,6 +135,10 @@ class HomeIntegrationTest {
                 // 진행 중인 캠페인은 기간이 끝나면 사라져 실행 시점에 따라 값이 달라진다. 실제로 이 자리는
                 // 반값여행 문구를 박아 두고 있었고, 대상 지역이 좁혀지자 곧바로 깨졌다(#217).
                 // 어느 지역에 어떤 정책이 붙는가는 날짜를 고정한 PolicyMatchIntegrationTest 가 소유한다.
+                //
+                // 다만 **필드가 응답에 실리는지는 여기서 지킨다.** 내용을 안 본다고 필드까지 놓으면,
+                // 혜택이 통째로 직렬화에서 빠져도 이 경로의 테스트가 아무 말을 안 한다.
+                .andExpect(jsonPath("$.data.recommendedRegions[0].benefits").isArray())
                 // 대기질은 홈 계약에서 빠졌다 — 실시간 값이라 "다음 주 어디 갈까" 를 고르는 자리에 쓸모가 없고,
                 // 그것 하나 때문에 홈이 외부 호출을 물고 있었다.
                 .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality").doesNotExist());
