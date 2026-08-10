@@ -53,15 +53,14 @@ public class PoiDetailService {
                 detail.lng(),
                 detail.imageUrl(),
                 detail.overview(),
-                intro == null ? null : intro.useTime(),
-                intro == null ? null : intro.restDate(),
+                intro,
                 catchphraseProvider.forContentId(contentId).orElse(null));
     }
 
     /** 인허가 장소의 상세 — 우리가 가진 것만 채우고 나머지는 비운다. 없는 것을 지어내지 않는다. */
     private PoiDetail licensedDetail(long id) {
         LicensedPlace place = licensedPlaceRepository.findById(id).orElseThrow(TourApiException::poiNotFound);
-        return new PoiDetail(
+        return PoiDetail.withoutIntro(
                 place.publicId(),
                 LICENSED_CONTENT_TYPE,
                 place.getName(),
@@ -69,10 +68,7 @@ public class PoiDetailService {
                 place.getTel(),
                 place.getLat(),
                 place.getLng(),
-                null, // 사진
-                null, // 소개글
-                null, // 운영시간
-                null, // 휴무일
-                null); // 캐치프레이즈
+                null,  // 사진
+                null); // 소개글
     }
 }

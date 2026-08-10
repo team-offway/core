@@ -1,20 +1,12 @@
 package com.offway.core.trip.service.dto;
 
+import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
+
 /**
- * 장소 상세 — 공통정보(detailCommon2)와 소개정보(detailIntro2)를 합친 결과.
+ * 장소 상세 — 공통 정보 + 카테고리별 보조정보(#157).
  *
- * @param contentId 콘텐츠 ID
- * @param contentTypeId 콘텐츠 타입
- * @param title 장소명
- * @param address 주소(없으면 null)
- * @param tel 전화(없으면 null)
- * @param lat 위도(없으면 null)
- * @param lng 경도(없으면 null)
- * @param imageUrl 대표 이미지(없으면 null)
- * @param overview 소개 문구(없으면 null)
- * @param useTime 이용/영업 시간(없으면 null)
- * @param restDate 휴무일(없으면 null)
- * @param catchphrase 구석구석 캐치프레이즈(감성 한 줄, 없으면 null)
+ * <p>보조정보는 {@link TourIntro} 를 그대로 들고 다닌다. 여기서 카테고리별로 쪼개면 그 지식이 서비스와 응답
+ * DTO 두 곳에 생긴다 — 쪼개는 일은 응답 DTO 가 한 번만 한다.
  */
 public record PoiDetail(
         String contentId,
@@ -26,7 +18,14 @@ public record PoiDetail(
         Double lng,
         String imageUrl,
         String overview,
-        String useTime,
-        String restDate,
+        /** 카테고리별 보조정보. 우리 DB 출처(인허가·국가유산)는 없어 null 이다. */
+        TourIntro intro,
         String catchphrase) {
+
+    /** 관광 API 콘텐츠가 아닌 장소 — 보조정보가 없다. */
+    public static PoiDetail withoutIntro(
+            String contentId, Integer contentTypeId, String title, String address, String tel,
+            Double lat, Double lng, String imageUrl, String overview) {
+        return new PoiDetail(contentId, contentTypeId, title, address, tel, lat, lng, imageUrl, overview, null, null);
+    }
 }
