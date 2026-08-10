@@ -1,13 +1,42 @@
 -- 정책 seed (수동 적재 · repeatable). 실데이터가 확보된 정책만 넣는다.
 --   verified=TRUE : 뱃지·상세·기간·대상까지 실데이터 확보
 --   verified=FALSE: 존재는 확인됐으나 상세·기간 미확정(데모 노출은 서비스에서 결정)
--- 프로그램별 참여 지역이 확정되면 region_tag 에 해당 태그를 시딩하고 PolicyType.targetTag 를 좁힌다.
+--
+-- 대상 지역은 여기 없다. PolicyType.targetTag ↔ region_tag.tag 로 이어지고,
+-- 프로그램별 참여 지자체는 R__seed_program_region_tags.sql 이 소유한다.
+--
+-- 담는 기준(#217): 여행자 본인이 직접 신청해 받을 수 있는 혜택만. 회사·기관이 먼저 참여해야 하는 것
+-- (근로자 휴가지원)은 넣지 않는다 — 칩을 보고 신청하러 갔다가 "회사가 신청해야 한다" 를 알게 되면
+-- 없는 것만 못하다. 할인이 아닌 선정 목록(로컬100)도 혜택이 아니라 넣지 않는다.
+--
+-- 출처와 확인일자를 각 행에 주석으로 남긴다. 수동 seed 의 유일한 실패 모드는 낡는 것인데,
+-- 언제 확인한 값인지 모르면 낡았는지도 알 수 없다.
+--
 -- repeatable 이므로 idempotent 하게 전량 삭제 후 재적재한다(정책은 런타임 write 없는 레퍼런스 데이터).
 DELETE FROM policy;
 
-INSERT INTO policy (id, type, name, benefit_detail, target_audience, period_start, period_end, apply_url, verified) VALUES
+INSERT INTO policy (id, type, name, benefit_detail, target_audience,
+                    period_start, period_end, period_note, apply_url, verified) VALUES
+
+-- 출처: korean.visitkorea.or.kr/dgtourcard/tour50.do · 확인 2026-08-10
+-- 대상 16곳(2026 상반기 시범사업)은 R__seed_program_region_tags.sql 참고.
+-- 기간은 지자체별로 다르다(예: 영광 신청 7.22~ · 여행 8.1~8.31). 날짜에는 사업 전체의 바깥 경계를 넣고
+-- 그 사정은 period_note 로 말한다 — NULL 로 두면 isActiveOn 이 "상시" 로 읽어 끝난 뒤에도 뱃지가 남는다.
 (1, 'REGIONAL_VOUCHER', '지역사랑 휴가지원(반값여행)',
- '여행경비의 50%를 지역화폐로 환급 · 1인 최대 10만원(청년 70%)',
- '전 국민(거주지와 다른 지역 여행 시)', '2026-04-01', '2026-08-31', NULL, TRUE),
-(2, 'DIGITAL_TOURIST_CARD', '디지털관광주민증',
- '인구감소지역 가맹점·시설 할인', '전 국민', NULL, NULL, NULL, FALSE);
+ '여행경비의 50%를 지역화폐로 환급 · 1인 최대 10만원, 2인 이상 20만원, 가족 5인까지 50만원 · 청년(19~34세)은 70%로 최대 14만원',
+ '18세 이상 국민(사전 신청 필수)', '2026-04-01', '2026-09-30',
+ '지자체별로 신청·여행 기간이 다릅니다. 신청 전 대상 지역 공고를 확인하세요.', NULL, TRUE),
+
+-- 출처: ktostay.visitkorea.or.kr · 확인 2026-08-10
+-- 대상은 비수도권 인구감소지역 85곳. 참여 업소 화이트리스트는 없고, 그 지역의 등록 숙박업소면 된다.
+-- 제외: 대실 · 캠핑시설 · 외국인도시민박업. 참여 OTA 회사명은 공식 페이지에 없어 적지 않는다.
+(2, 'STAY_FESTA', '2026 대한민국 숙박세일 페스타',
+ '숙박 할인권 · 1박 7만원 미만 2만원, 7만원 이상 3만원 · 연박 14만원 미만 5만원, 14만원 이상 7만원 · 1인 1매 · 대실·캠핑시설·외국인도시민박업 제외',
+ '전 국민(참여 온라인여행사에서 발급)', '2026-06-11', '2026-08-31',
+ '매일 오전 10시 선착순 발급', NULL, TRUE),
+
+-- 출처: 문체부 발표(2026-06-08 · 44곳 → 52곳) · 확인 2026-08-10
+-- 실제 대상은 52곳인데 명단을 확보하지 못해 아직 좁히지 못했다(PolicyType 은 89곳을 본다).
+-- verified=FALSE 라 노출되지 않으므로 거짓 뱃지는 나지 않는다. 명단 확보 후 전용 태그로 좁히고 승격한다.
+(3, 'DIGITAL_TOURIST_CARD', '디지털관광주민증',
+ '인구감소지역 가맹 시설 할인(약 1,400곳)', '전 국민', NULL, NULL, NULL, NULL, FALSE);
