@@ -47,6 +47,15 @@ class GalleryPhotoRefreshIntegrationTest {
     @Autowired
     private RegionRepository regionRepository;
 
+    @Autowired
+    private com.offway.core.common.batch.repository.BatchRunRepository batchRunRepository;
+
+    /** 이 배치가 "이번 주에는 아직 안 돌았다" 인 상태로 만든다 — 실행 기록은 커밋되므로 각 테스트가 직접. */
+    private void notRunThisWeek() {
+        batchRunRepository.markStarted(
+                GalleryPhotoRefreshService.BATCH_NAME, java.time.LocalDateTime.now().minusDays(30));
+    }
+
     @TestConfiguration
     static class StubConfig {
 
@@ -198,5 +207,20 @@ class GalleryPhotoRefreshIntegrationTest {
         refreshService.refresh();
 
         assertTrue(galleryPhotoRepository.count() > 0, "빈 결과로 덮으면 전 지역 대표 사진이 사라진다");
+    }
+
+    @Test
+    void 이번_주에_이미_돌았으면_외부를_부르지_않는다() {
+        // fixedDelay 는 프로세스가 사는 동안의 간격이라, 재배포하면 주기가 처음부터 다시 센다.
+        // 주 1회로 잡아 뒀는데도 부팅마다 7회 조회 + 이미지 1,790건 검증이 돌고 있었다.
+        notRunThisWeek();
+        galleryImageVerifier.allAlive();
+        respondOnce(List.of(item("c1", "어느명소", "http://img/1.jpg", anyRegion().getSido())));
+        refreshService.refreshIfStale();
+
+        galleryPhotoClient.respond((pageNo, rows) -> {
+            throw new AssertionError("이번 주에 이미 돌았는데 갤러리를 불렀다");
+        });
+        refreshService.refreshIfStale();
     }
 }
