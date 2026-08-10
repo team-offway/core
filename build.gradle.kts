@@ -66,6 +66,28 @@ dependencies {
 tasks.withType<Test> {
     useJUnitPlatform()
 
+    // 테스트 워커 최대 힙 — 기본값(512m)에 기대지 않고 명시한다.
+    //
+    // **기본값으로는 CI 가 OutOfMemoryError 로 간헐 실패했다**(#216). 테스트 단언이 아니라 Spring 컨텍스트
+    // 로딩이 죽는 형태라, 재실행하면 통과해 원인을 찾기 어렵다.
+    //
+    // 이 스위트는 통합 테스트 35개 중 20개가 stub 구성이 달라 컨텍스트가 갈리고, Spring 은 그것들을
+    // 캐시해 실행 내내 살려둔다(기본 상한 32개). 각 컨텍스트가 bean factory·Hibernate SessionFactory·
+    // Hikari 풀을 따로 든다.
+    //
+    // 실측(2026-08-10, `-Xlog:gc+heap`)이 숫자를 정해 줬다.
+    //
+    //   512m  Old 피크 492MB (힙의 96%)  GC 417회  1m21s   ← CI 가 여기서 터졌다
+    //   1g    Old 피크 559MB (55%)       GC  85회  1m02s
+    //   2g    Old 피크 557MB (27%)       GC  74회  1m05s
+    //
+    // 살아남는 양은 약 557MB 로 고정이다. 512m 에서 492 로 보인 것은 GC 가 417번 돌며 억지로 눌러
+    // 담은 결과이고, CI 에서는 그마저 실패했다. 2g 는 1g 대비 GC 열 번 남짓만 줄일 뿐 얻는 게 없다.
+    //
+    // 1g 는 live set 의 약 1.8배다. 상한을 과하게 잡으면 누수가 더 오래 자라다 죽어 피드백이 늦어지므로,
+    // 여유는 두되 필요 이상으로 벌리지 않는다. 통합 테스트가 늘어 이 숫자가 부족해지면 다시 재고 올린다.
+    maxHeapSize = "1g"
+
     // 테스트는 실제 외부 API 를 때리지 않는다.
     //
     // application.properties 가 `spring.config.import=optional:file:./application-secret.properties` 로
