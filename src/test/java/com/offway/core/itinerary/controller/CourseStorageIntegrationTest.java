@@ -549,4 +549,30 @@ class CourseStorageIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ITINERARY-002"));
     }
+
+    /**
+     * 저장 코스의 혜택이 <b>여행일</b> 기준으로 매칭되는가(#213).
+     *
+     * <p>예전에는 이 자리만 오늘을 넘겨, 생성 응답과 상세 조회의 혜택이 어긋났다. 정책에는 유효기간이 있어
+     * 기준일이 곧 결과를 가른다 — 여행 전에 끝나는 혜택이 보이거나, 여행 기간에 시작하는 혜택이 안 보였다.
+     *
+     * <p><b>시드 정책이 전부 2026년에 끝난다는 사실에 기댄다.</b> 2030년 여행이면 어느 정책도 유효하지 않으므로
+     * 혜택이 비어야 한다. 오늘로 매칭하면(옛 동작) 지금 유효한 정책이 실려 비지 않는다.
+     */
+    @Test
+    void 저장_코스의_혜택은_오늘이_아니라_여행일로_매칭된다() throws Exception {
+        String guest = uniqueGuest();
+        String body = VALID_BODY.replace("{ \"regionId\": 16,", "{ \"travelDate\": \"2030-01-01\", \"regionId\": 16,");
+
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+
+        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.travelDate").value("2030-01-01"))
+                .andExpect(jsonPath("$.data.benefits.length()").value(0));
+    }
 }

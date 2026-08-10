@@ -215,4 +215,23 @@ class CourseTest {
         return Course.of(42L, Density.PACKED, TransportMode.CAR,
                 List.of(day(1, 3), day(2, 2), day(3, 2)), travelDate, 3);
     }
+
+    /**
+     * 혜택 매칭의 기준일 — 정책에 유효기간이 있어 이 값이 결과를 가른다(#213).
+     */
+    @Test
+    void 여행일이_있으면_그것이_기준일이다() {
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3), day(2, 2)),
+                LocalDate.of(2026, 9, 11), 2);
+
+        assertEquals(LocalDate.of(2026, 9, 11), course.travelDateOr(LocalDate.of(2026, 8, 10)));
+    }
+
+    @Test
+    void 날짜_없이_저장된_코스는_넘겨받은_기준으로_물러선다() {
+        // 이 컬럼이 생기기 전에 저장된 코스가 있다. 아무것도 안 보여주는 쪽이 더 틀린다고 보고 오늘로 본다.
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3)), null, 1);
+
+        assertEquals(LocalDate.of(2026, 8, 10), course.travelDateOr(LocalDate.of(2026, 8, 10)));
+    }
 }
