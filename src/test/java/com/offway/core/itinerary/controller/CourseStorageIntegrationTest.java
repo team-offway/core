@@ -1,6 +1,9 @@
 package com.offway.core.itinerary.controller;
 
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -8,6 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.offway.core.policy.domain.Policy;
 import com.jayway.jsonpath.JsonPath;
 import com.offway.core.transport.infrastructure.tago.StubTrainInfoClient;
 import com.offway.core.transport.infrastructure.tago.TrainInfoClient;
@@ -20,6 +24,7 @@ import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
 import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -43,6 +48,9 @@ class CourseStorageIntegrationTest {
     private static final String URL = "/api/v1/courses";
 
     // 정선(16) 당일치기 · 유효한 코스(첫 슬롯 이동 0, 순서 연속)
+    /** {@code VALID_BODY} 가 쓰는 지역 — 혜택 대조에서 같은 지역을 봐야 한다. */
+    private static final long REGION_ID = 16L;
+
     private static final String VALID_BODY = """
             { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [
               { "day": 1, "items": [
@@ -53,6 +61,12 @@ class CourseStorageIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private com.offway.core.policy.repository.PolicyRepository policyRepository;
+
+    @Autowired
+    private com.offway.core.policy.service.PolicyService policyService;
 
     @Autowired
     private StubKmaWeatherClient weatherClient;
@@ -548,5 +562,66 @@ class CourseStorageIntegrationTest {
                         .content(firstDayEmptyBody("2026-09-12", "2026-09-14")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    /**
+     * 저장 코스의 혜택이 <b>여행일</b> 기준으로 매칭되는가(#213).
+     *
+     * <p>예전에는 이 자리만 오늘을 넘겨, 생성 응답과 상세 조회의 혜택이 어긋났다. 정책에는 유효기간이 있어
+     * 기준일이 곧 결과를 가른다 — 여행 전에 끝나는 혜택이 보이거나, 여행 기간에 시작하는 혜택이 안 보였다.
+     *
+     * <p><b>날짜를 시드에서 읽어 정한다.</b> 처음에는 2030-01-01 을 박아 뒀는데, "시드 정책이 2026년에
+     * 끝난다" 는 사실에 기대는 값이라 시간이 지나면 옛 구현도 통과해 조용히 무의미해진다. 실제로 유효기간이
+     * 있는 정책 하나를 골라, 그 기간 <b>안</b>과 <b>한참 뒤</b> 두 날짜로 코스를 만든다.
+     */
+    @Test
+    void 저장_코스의_혜택은_오늘이_아니라_여행일로_매칭된다() throws Exception {
+        // 시드에서 **이 지역에 실제로 혜택이 붙는** 날짜를 찾는다. 아무 정책의 기간이나 쓰면 그 정책이
+        // 이 지역 대상이 아닐 수 있다(정책은 지역 태그로도 걸러진다).
+        List<LocalDate> periodEnds = policyRepository.findAllVerified().stream()
+                .map(Policy::getPeriodEnd)
+                .filter(java.util.Objects::nonNull)
+                .sorted()
+                .toList();
+        LocalDate inPeriod = periodEnds.stream()
+                .filter(date -> !policyService.matchForRegion(REGION_ID, date).isEmpty())
+                .findFirst()
+                .orElse(null);
+        assumeTrue(inPeriod != null, "이 지역에 기간이 있는 혜택이 시드에 없으면 대조가 성립하지 않는다");
+        LocalDate afterPeriod = periodEnds.getLast().plusYears(5);
+
+        int inPeriodBenefits = benefitCountOf(inPeriod);
+        int afterPeriodBenefits = benefitCountOf(afterPeriod);
+
+        assertTrue(inPeriodBenefits > 0, "기간 안 여행이면 혜택이 실려야 한다: " + inPeriod);
+        assertEquals(0, afterPeriodBenefits, "기간 밖 여행이면 혜택이 없어야 한다: " + afterPeriod);
+    }
+
+    /**
+     * 그 여행일로 코스를 저장하고, <b>저장 응답과 상세 조회의 혜택 수가 같은지</b> 확인한 뒤 그 수를 준다.
+     *
+     * <p>둘을 함께 보는 이유: 상세만 검증하면 생성·저장 경로의 매칭이 틀려도 통과한다. 이 이슈가 고친 것이
+     * "같은 코스인데 경로마다 답이 다르다" 라, 일치 자체가 검증 대상이다.
+     */
+    private int benefitCountOf(LocalDate travelDate) throws Exception {
+        String guest = uniqueGuest();
+        String body = VALID_BODY.replace(
+                "{ \"regionId\": 16,", "{ \"travelDate\": \"" + travelDate + "\", \"regionId\": 16,");
+
+        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        int courseId = JsonPath.read(saved, "$.data.courseId");
+        int onSave = ((List<?>) JsonPath.read(saved, "$.data.benefits")).size();
+
+        String detail = mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.travelDate").value(travelDate.toString()))
+                .andReturn().getResponse().getContentAsString();
+        int onDetail = ((List<?>) JsonPath.read(detail, "$.data.benefits")).size();
+
+        assertEquals(onSave, onDetail, "저장 응답과 상세 조회의 혜택이 같아야 한다 travelDate=" + travelDate);
+        return onDetail;
     }
 }
