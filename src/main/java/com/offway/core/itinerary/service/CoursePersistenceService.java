@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.service;
 
 import com.offway.core.itinerary.domain.Course;
+import com.offway.core.itinerary.domain.DayStart;
 import com.offway.core.itinerary.domain.CourseShare;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
@@ -117,6 +118,25 @@ public class CoursePersistenceService {
         }
         course.totalSlots(); // tx 안에서 days·slots 초기화(직렬화·조립은 tx 밖)
         return course;
+    }
+
+    /**
+     * 새 날짜의 도착 시각으로 <b>첫날을 다시 맞춘다</b>(#214) — 갈 수 없게 된 슬롯을 걷어낸다.
+     *
+     * <p>날짜 수정은 열차 도착 시각을 새 날짜로 다시 조회하는데, 그 시각으로 내린 일정 판단은 저장된 옛것이
+     * 남는다. 그래서 도착 전 시간에 일정이 잡힌 코스가 만들어진다 — 화면상 멀쩡한데 갈 수 없다.
+     *
+     * <p>판단은 도메인({@code Course#trimFirstDayTo})이 하고 여기서는 트랜잭션만 연다. 애그리거트를 고치므로
+     * 변경 감지가 필요하고, 그러려면 로딩과 수정이 같은 트랜잭션이어야 한다.
+     *
+     * @return 걷어낸 슬롯 수. 0 이면 바뀐 것이 없다
+     */
+    @Transactional
+    public int realignFirstDay(String guestId, long courseId, DayStart firstDayStart) {
+        Course course = courseRepository
+                .findByIdAndGuestId(courseId, guestId)
+                .orElseThrow(ItineraryException::courseNotFound);
+        return course.trimFirstDayTo(firstDayStart);
     }
 
     /**

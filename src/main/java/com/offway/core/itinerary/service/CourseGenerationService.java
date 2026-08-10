@@ -132,7 +132,7 @@ public class CourseGenerationService {
         // 공유 토큰은 저장한 코스에만 있다 — 아직 저장 전이라 null 이다(#143).
         return new GeneratedCourse(
                 course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
-                courseAirQualityProvider.of(course, region), null);
+                courseAirQualityProvider.of(course, region), null, null);
     }
 
     /**
@@ -210,16 +210,8 @@ public class CourseGenerationService {
             return DayStart.fullDay();
         }
         return trainAccess.arrivalAt()
-                .map(arriveAt -> firstDayStart(command.travelDate(), arriveAt))
+                .map(arriveAt -> DayStart.afterArriving(command.travelDate(), arriveAt))
                 .orElseGet(DayStart::fullDay);
-    }
-
-    private static DayStart firstDayStart(LocalDate travelDate, LocalDateTime arriveAt) {
-        if (travelDate != null && arriveAt.toLocalDate().isAfter(travelDate)) {
-            // 자정을 넘겨 닿는다 — 첫날은 통째로 이동이다. 시각만 보면 새벽 도착이 "오전부터 여유" 로 둔갑한다.
-            return DayStart.none();
-        }
-        return DayStart.arrivingAt(arriveAt.toLocalTime());
     }
 
     /** 기준점에서 가장 가까운 곳부터 이어붙이는 그리디 정렬(하루 묶기용). 하루 내부 순서는 TMAP 경유지 최적화로 다시 다듬는다. */
