@@ -19,6 +19,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalDouble;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -43,6 +44,7 @@ public class CourseStorageService {
     private final CourseWeatherProvider courseWeatherProvider;
     private final CourseAirQualityProvider courseAirQualityProvider;
     private final CoursePersistenceService coursePersistenceService;
+    private final CourseLeaveDeductionService courseLeaveDeductionService;
     private final MyLeaveService myLeaveService;
     private final TrainAccessService trainAccessService;
 
@@ -99,6 +101,29 @@ public class CourseStorageService {
         // 로딩만 트랜잭션 안에서 한다(별도 빈이라 프록시를 탄다). 날씨는 외부 호출이라 밖에서 붙인다(#169).
         Course course = coursePersistenceService.loadOwned(guestId, courseId);
         return withBenefits(course, true);
+    }
+
+    /**
+     * 저장 코스의 여행 날짜를 고친다(#170) — 편집 시트의 "여행날짜 수정".
+     *
+     * <p><b>연차 차감량을 함께 다시 계산한다.</b> 날짜가 바뀌면 구간의 평일 수·공휴일이 달라져 깎을 연차가
+     * 달라진다. 그대로 두면 화면의 새 날짜와 깎인 연차가 서로 다른 여행을 가리키게 된다.
+     *
+     * <p><b>단계를 나눈 이유는 트랜잭션 경계다.</b> 재계산은 공휴일 조회(특일정보)를 타는 외부 호출이라
+     * 트랜잭션 안에 넣으면 read-timeout 동안 DB 커넥션을 잡는다(영속성 규약). 계산을 밖에서 끝내고,
+     * 날짜 갱신과 차감 갱신만 {@link CoursePersistenceService} 의 한 트랜잭션으로 묶는다.
+     *
+     * <p>지난 날짜 거절을 <b>계산 전에</b> 한 번 더 한다. 어차피 400 으로 돌려보낼 요청 때문에 외부 API 를
+     * 부를 이유가 없다. 규칙 자체는 {@link Course#requireChangeableTo} 하나뿐이라 두 자리가 갈리지 않는다.
+     */
+    public GeneratedCourse changeTravelDate(String guestId, long courseId, LocalDate travelDate) {
+        Course.requireChangeableTo(travelDate, LocalDate.now(SERVICE_ZONE));
+        Course course = coursePersistenceService.loadOwned(guestId, courseId);
+        OptionalDouble recalculated = courseLeaveDeductionService.recalculateFor(course, travelDate);
+        Double deductionDays = recalculated.isPresent() ? recalculated.getAsDouble() : null;
+        Course updated = coursePersistenceService.applyTravelDate(guestId, courseId, travelDate, deductionDays);
+        // 상세 조회와 같은 모양으로 돌려준다 — 화면이 날짜·날씨·요일을 새 날짜 기준으로 다시 그려야 한다.
+        return withBenefits(updated, true);
     }
 
     /**
