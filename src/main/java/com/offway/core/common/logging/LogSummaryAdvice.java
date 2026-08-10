@@ -2,6 +2,7 @@ package com.offway.core.common.logging;
 
 import com.offway.core.common.response.ApiResponseBody;
 import java.lang.reflect.Type;
+import java.util.Collection;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpInputMessage;
@@ -32,6 +33,9 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 @Slf4j
 @RestControllerAdvice
 public class LogSummaryAdvice implements RequestBodyAdvice, ResponseBodyAdvice<Object> {
+
+    /** 목록 응답의 기본 요약 — 무엇이 몇 건 나갔는지만. */
+    private static final String LIST_FORMAT = "%d건";
 
     @Override
     public boolean supports(MethodParameter parameter, Type targetType, Class<? extends HttpMessageConverter<?>> converterType) {
@@ -83,10 +87,27 @@ public class LogSummaryAdvice implements RequestBodyAdvice, ResponseBodyAdvice<O
             Class<? extends HttpMessageConverter<?>> converterType,
             ServerHttpRequest request,
             ServerHttpResponse response) {
-        if (body instanceof ApiResponseBody<?> wrapper && wrapper.data() instanceof LogSummary summary) {
-            storeSummary(LogAttributes.RESPONSE_SUMMARY, summary);
+        if (body instanceof ApiResponseBody<?> wrapper) {
+            summarize(wrapper.data());
         }
         return body;
+    }
+
+    /**
+     * 응답 payload 를 한 조각으로 줄인다.
+     *
+     * <p>목록을 주는 엔드포인트는 {@code data} 가 {@code List} 라 DTO 에 {@link LogSummary} 를 붙여도
+     * 잡히지 않는다. 목록마다 감싸는 타입을 만들 값어치는 없어서 <b>여기서 건수로 떨어뜨린다</b> —
+     * "내 코스 목록이 몇 건 나갔나" 는 그것만으로 충분하다.
+     */
+    private static void summarize(Object data) {
+        if (data instanceof LogSummary summary) {
+            storeSummary(LogAttributes.RESPONSE_SUMMARY, summary);
+            return;
+        }
+        if (data instanceof Collection<?> items) {
+            storeSummary(LogAttributes.RESPONSE_SUMMARY, () -> LIST_FORMAT.formatted(items.size()));
+        }
     }
 
     /**

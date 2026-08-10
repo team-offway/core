@@ -71,8 +71,16 @@ public record CourseResponse(
                         nullable = true)
                 String shareToken) implements LogSummary {
 
-    /** regionId 는 요청 쿼리에 이미 있으므로 되풀이하지 않는다. */
-    private static final String LOG_FORMAT = "코스 %d일 %d슬롯";
+    /**
+     * 예: {@code 정선군 코스 3일 26슬롯}.
+     *
+     * <p><b>지역명을 넣는다.</b> {@code regionId=16} 만으로는 로그를 훑을 때 어디 코스인지 알 수 없어 매번
+     * 지역 표를 찾아봐야 했다. 사람이 읽는 줄이므로 사람이 아는 이름으로 쓴다.
+     */
+    private static final String LOG_FORMAT = "%s 코스 %d일 %d슬롯";
+
+    /** 지역명이 없는 코스(슬롯이 비었거나 지역 조회 실패)에 쓸 대체 표기. */
+    private static final String UNKNOWN_REGION = "지역미상";
 
     public static CourseResponse from(GeneratedCourse generated) {
         Course course = generated.course();
@@ -128,7 +136,21 @@ public record CourseResponse(
                 : days.stream()
                         .mapToInt(day -> day.items() == null ? 0 : day.items().size())
                         .sum();
-        return LOG_FORMAT.formatted(travelDays, slots);
+        return LOG_FORMAT.formatted(regionName(), travelDays, slots);
+    }
+
+    /** 지역명은 슬롯마다 붙어 있다(#141) — 첫 슬롯에서 꺼낸다. 코스 하나는 한 지역이라 어느 슬롯이든 같다. */
+    private String regionName() {
+        if (days == null) {
+            return UNKNOWN_REGION;
+        }
+        return days.stream()
+                .filter(day -> day.items() != null)
+                .flatMap(day -> day.items().stream())
+                .map(Item::regionName)
+                .filter(name -> name != null && !name.isBlank())
+                .findFirst()
+                .orElse(UNKNOWN_REGION);
     }
 
     /**
