@@ -24,6 +24,8 @@ import java.util.List;
  * @param regionId 코스 지역
  * @param travelDays 여행 일수
  * @param density 일정 밀도(PACKED·RELAXED)
+ * @param transport 이동수단(CAR·TRANSIT). 상세 화면이 자차/대중교통을 표시하는 데 쓰고, 코스를 지우고 다시 저장할 때
+ *     {@code POST /courses} 의 필수값을 복원하는 근거이기도 하다(#170)
  * @param days 날짜별 일정
  * @param benefits 적용 혜택 뱃지
  * @param airQuality 코스 지역의 <b>실시간</b> 대기질. <b>오늘 여행 중인 코스에만</b> 실린다(오늘 출발이거나
@@ -51,6 +53,10 @@ public record CourseResponse(
         @Schema(description = "여행 시작일 (저장 시 넣지 않았으면 null)", example = "2026-08-14", nullable = true)
                 LocalDate travelDate,
         String density,
+        @Schema(
+                        description = "이동수단(CAR·TRANSIT). 상세 화면의 자차/대중교통 표시와 재저장에 쓴다",
+                        example = "CAR")
+                String transport,
         List<Day> days,
         List<Benefit> benefits,
         @Schema(description = "대중교통 코스의 출발지→지역 열차 접근 (자차·저장 코스는 null)", nullable = true)
@@ -71,6 +77,7 @@ public record CourseResponse(
                 course.getTravelDays(),
                 course.getTravelDate(),
                 course.getDensity().name(),
+                course.getTransport().name(),
                 course.getDays().stream()
                         .map(day -> Day.from(
                                 day,

@@ -52,22 +52,67 @@ public class LeaveUsage {
     @Column(name = "course_id")
     private Long courseId;
 
-    private LeaveUsage(String guestId, LocalDate usedOn, double days, String reason, Long courseId) {
+    /**
+     * 코스 차감 시 첫날을 반차로 썼는가 (수동 내역이면 null).
+     *
+     * <p><b>차감량을 다시 계산할 때 필요하다</b>(#170). 여행 날짜가 바뀌면 평일 수·공휴일이 달라져 다시 계산해야
+     * 하는데, 그 계산의 입력 중 이것만 어디에도 남지 않았다.
+     *
+     * <p>{@link #days} 에서 되짚을 수 없다 — 출발일이 주말·공휴일이면 반차를 골라도 차감이 정수로 나오므로
+     * 소수점 유무가 반차 여부와 대응하지 않는다. 그 코스를 평일로 옮기면 반차가 조용히 종일로 바뀐다.
+     *
+     * <p>이 컬럼이 생기기 전 행은 null 이고 {@link #isHalfDayStart()} 가 "반차 아님" 으로 답한다 — 그때의 동작과 같다.
+     */
+    @Column(name = "half_day_start")
+    private Boolean halfDayStart;
+
+    private LeaveUsage(
+            String guestId, LocalDate usedOn, double days, String reason, Long courseId, Boolean halfDayStart) {
         this.guestId = Objects.requireNonNull(guestId, "guestId 는 null 일 수 없습니다.");
         this.usedOn = Objects.requireNonNull(usedOn, "usedOn 은 null 일 수 없습니다.");
         this.days = requireDays(days);
         this.reason = trimReason(reason);
         this.courseId = courseId;
+        this.halfDayStart = halfDayStart;
     }
 
     /** 사용자가 직접 남기는 내역. */
     public static LeaveUsage manual(String guestId, LocalDate usedOn, double days, String reason) {
-        return new LeaveUsage(guestId, usedOn, days, reason, null);
+        return new LeaveUsage(guestId, usedOn, days, reason, null, null);
     }
 
-    /** 코스 확정으로 생기는 내역 — {@code courseId} 가 중복 차감을 막는다(#91). */
-    public static LeaveUsage forCourse(String guestId, LocalDate usedOn, double days, String reason, long courseId) {
-        return new LeaveUsage(guestId, usedOn, days, reason, courseId);
+    /**
+     * 코스 확정으로 생기는 내역 — {@code courseId} 가 중복 차감을 막는다(#91).
+     *
+     * @param halfDayStart 첫날 반차 여부. 날짜를 고칠 때 차감량을 다시 계산하는 입력이라 함께 남긴다(#170)
+     */
+    public static LeaveUsage forCourse(
+            String guestId, LocalDate usedOn, double days, String reason, long courseId, boolean halfDayStart) {
+        return new LeaveUsage(guestId, usedOn, days, reason, courseId, halfDayStart);
+    }
+
+    /** 첫날 반차 여부. 이 컬럼이 생기기 전 행과 수동 내역은 null 이라 "반차 아님" 으로 답한다. */
+    public boolean isHalfDayStart() {
+        return Boolean.TRUE.equals(halfDayStart);
+    }
+
+    /**
+     * 코스의 여행 날짜가 바뀌어 차감을 다시 잡는다(#170) — 쓴 날과 일수를 함께 옮긴다.
+     *
+     * <p>지우고 다시 넣지 않는다. {@code uk_leave_usage_guest_course} 가 코스당 한 행을 강제하는데(#91),
+     * 같은 트랜잭션 안에서 delete·insert 를 하면 Hibernate 가 flush 순서를 보장하지 않아 제약에 걸릴 수 있다.
+     *
+     * <p>반차 여부는 그대로 둔다 — 사용자가 고친 것은 날짜뿐이다.
+     */
+    public void moveTo(LocalDate usedOn, double days) {
+        if (courseId == null) {
+            throw new IllegalStateException("수동 내역은 코스 날짜 변경으로 옮길 수 없습니다: id=" + id);
+        }
+        // 검증을 먼저 끝내고 대입한다 — 중간에 거절되면 날짜만 바뀐 반쪽 상태가 남는다.
+        LocalDate movedTo = Objects.requireNonNull(usedOn, "usedOn 은 null 일 수 없습니다.");
+        double moved = requireDays(days);
+        this.usedOn = movedTo;
+        this.days = moved;
     }
 
     /**

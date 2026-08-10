@@ -29,6 +29,6 @@ public record AddLeaveUsageRequest(
         if (!LeaveDays.isValidUsage(days)) {
             throw LeaveException.invalidLeaveUsageDays();
         }
-        return new AddLeaveUsage(usedOn, days, reason, courseId);
+        return AddLeaveUsage.manual(usedOn, days, reason, courseId);
     }
 }

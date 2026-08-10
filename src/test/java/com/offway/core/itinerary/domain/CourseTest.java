@@ -148,4 +148,71 @@ class CourseTest {
 
         assertFalse(course.covers(LocalDate.of(2026, 9, 11)));
     }
+
+    @Test
+    void 여행_날짜를_옮기면_종료일도_함께_옮겨진다() {
+        // 기간은 그대로다 — 사용자가 고친 것은 "언제 떠나는가" 지 "며칠짜리인가" 가 아니다.
+        Course course = threeDayCourse(LocalDate.of(2026, 9, 11));
+
+        course.changeTravelDate(LocalDate.of(2026, 10, 5), LocalDate.of(2026, 9, 1));
+
+        assertEquals(LocalDate.of(2026, 10, 5), course.getTravelDate());
+        assertEquals(LocalDate.of(2026, 10, 7), course.travelEndDate());
+        assertEquals(3, course.getTravelDays());
+    }
+
+    @Test
+    void 옮긴_날짜로_일차별_날짜가_다시_계산된다() {
+        Course course = threeDayCourse(LocalDate.of(2026, 9, 11));
+
+        course.changeTravelDate(LocalDate.of(2026, 10, 5), LocalDate.of(2026, 9, 1));
+
+        assertEquals(LocalDate.of(2026, 10, 5), course.dateOf(course.getDays().get(0)));
+        assertEquals(LocalDate.of(2026, 10, 6), course.dateOf(course.getDays().get(1)));
+    }
+
+    @Test
+    void 지난_날짜로는_옮길_수_없다() {
+        // 옮기는 순간 "끝난 여행" 이 돼 홈이 "다녀오셨나요?" 를 묻는데, 사용자는 계획을 고쳤을 뿐이다(#170).
+        Course course = threeDayCourse(LocalDate.of(2026, 9, 11));
+
+        assertThrows(ItineraryException.class,
+                () -> course.changeTravelDate(LocalDate.of(2026, 8, 31), LocalDate.of(2026, 9, 1)));
+        assertEquals(LocalDate.of(2026, 9, 11), course.getTravelDate(), "거절했으면 원래 날짜가 남아야 한다");
+    }
+
+    @Test
+    void 오늘로는_옮길_수_있다() {
+        // 경계 — 오늘은 아직 지나지 않았다.
+        Course course = threeDayCourse(LocalDate.of(2026, 9, 11));
+
+        course.changeTravelDate(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 1));
+
+        assertEquals(LocalDate.of(2026, 9, 1), course.getTravelDate());
+    }
+
+    @Test
+    void 지금_날짜가_이미_지났어도_앞으로는_옮길_수_있다() {
+        // 판단 대상은 옮겨갈 날짜다. 날짜를 놓친 코스를 당겨오는 것이 이 기능이 가장 필요한 경우다.
+        Course course = threeDayCourse(LocalDate.of(2026, 8, 1));
+
+        course.changeTravelDate(LocalDate.of(2026, 9, 20), LocalDate.of(2026, 9, 1));
+
+        assertEquals(LocalDate.of(2026, 9, 20), course.getTravelDate());
+    }
+
+    @Test
+    void 날짜_없이_저장된_코스도_날짜를_넣어_고칠_수_있다() {
+        // 이 컬럼이 생기기 전에 저장된 코스다. 날짜를 넣어야 연차를 차감할 수 있다.
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3)), null, 1);
+
+        course.changeTravelDate(LocalDate.of(2026, 9, 20), LocalDate.of(2026, 9, 1));
+
+        assertEquals(LocalDate.of(2026, 9, 20), course.getTravelDate());
+    }
+
+    private static Course threeDayCourse(LocalDate travelDate) {
+        return Course.of(42L, Density.PACKED, TransportMode.CAR,
+                List.of(day(1, 3), day(2, 2), day(3, 2)), travelDate, 3);
+    }
 }

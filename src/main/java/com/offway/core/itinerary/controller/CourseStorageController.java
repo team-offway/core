@@ -13,6 +13,7 @@ import com.offway.core.itinerary.service.dto.MyCourses;
 import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.itinerary.controller.dto.CourseSaveRequest;
 import com.offway.core.itinerary.controller.dto.CourseSummaryResponse;
+import com.offway.core.itinerary.controller.dto.CourseUpdateRequest;
 import com.offway.core.itinerary.service.CourseStorageService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -20,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -64,6 +66,16 @@ public class CourseStorageController implements CourseStorageApi {
     public ApiResponseBody<CourseResponse> course(
             @RequestHeader(GUEST_HEADER) String guestId, @PathVariable long courseId) {
         return ApiResponseBody.ok(CourseResponse.from(courseStorageService.get(guestId, courseId)));
+    }
+
+    @Override
+    @PatchMapping("/{courseId}")
+    public ApiResponseBody<CourseResponse> updateCourse(
+            @RequestHeader(GUEST_HEADER) String guestId,
+            @PathVariable long courseId,
+            @Valid @RequestBody CourseUpdateRequest request) {
+        return ApiResponseBody.ok(CourseResponse.from(
+                courseStorageService.changeTravelDate(guestId, courseId, request.travelDate())));
     }
 
     @Override

@@ -26,7 +26,10 @@ public enum ItineraryErrorCode implements ErrorCode {
     TRIP_ALREADY_ANSWERED("ITINERARY-005", ErrorCategory.CONFLICT, "이미 답한 여행입니다."),
 
     /** 아직 끝나지 않은 여행에 다녀왔는지를 답하려 했다(#116). */
-    TRIP_NOT_ENDED("ITINERARY-006", ErrorCategory.CONFLICT, "아직 끝나지 않은 여행입니다.");
+    TRIP_NOT_ENDED("ITINERARY-006", ErrorCategory.CONFLICT, "아직 끝나지 않은 여행입니다."),
+
+    /** 저장 코스의 여행 날짜를 지난 날짜로 고치려 했다(#170). 날짜 선택은 클라이언트 입력이라 400. */
+    TRAVEL_DATE_IN_PAST("ITINERARY-007", ErrorCategory.BAD_REQUEST, "지난 날짜로는 여행 날짜를 바꿀 수 없습니다.");
 
     private final String code;
     private final ErrorCategory category;

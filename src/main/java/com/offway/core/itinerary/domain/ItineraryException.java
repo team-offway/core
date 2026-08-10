@@ -35,6 +35,11 @@ public final class ItineraryException extends BaseException {
         return new ItineraryException(ItineraryErrorCode.TRIP_ALREADY_ANSWERED);
     }
 
+    /** 저장 코스의 여행 날짜를 지난 날짜로 고치려 했다. */
+    public static ItineraryException travelDateInPast() {
+        return new ItineraryException(ItineraryErrorCode.TRAVEL_DATE_IN_PAST);
+    }
+
     /** 아직 끝나지 않은 여행에 다녀왔는지를 답하려 했다. */
     public static ItineraryException tripNotEnded() {
         return new ItineraryException(ItineraryErrorCode.TRIP_NOT_ENDED);
