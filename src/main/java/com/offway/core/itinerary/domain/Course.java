@@ -245,6 +245,42 @@ public class Course {
         }
     }
 
+    /**
+     * 여행 날짜를 옮긴다(#170) — 편집 시트의 "여행날짜 수정".
+     *
+     * <p>기간({@link #travelDays})은 그대로다. 사용자가 고친 것은 언제 떠나는가지 며칠짜리 여행인가가 아니고,
+     * 일정({@code days})의 오프셋도 시작일 기준이라 함께 따라간다.
+     *
+     * <p><b>차감량은 여기서 건드리지 않는다.</b> 평일 수·공휴일이 달라져 다시 계산해야 하는데 그건 외부 호출
+     * (특일정보)이라 도메인이 할 일이 아니다. 호출자가 계산해 같은 트랜잭션에서 함께 반영한다.
+     *
+     * @param today 오늘(KST). 도메인이 시계를 직접 읽지 않게 받는다 — 그래야 테스트가 날짜를 고정할 수 있다
+     */
+    public void changeTravelDate(LocalDate newTravelDate, LocalDate today) {
+        requireChangeableTo(newTravelDate, today);
+        this.travelDate = newTravelDate;
+    }
+
+    /**
+     * 이 날짜로 옮길 수 있는가 — <b>지난 날짜는 막는다.</b>
+     *
+     * <p>여행 날짜를 고치는 것은 앞으로의 계획을 손보는 일이다. 지난 날짜로 옮기면 그 코스는 즉시 "끝난 여행"
+     * 이 돼(#116) 홈에서 "다녀오셨나요?" 를 묻는데, 사용자는 방금 계획을 고쳤을 뿐이다.
+     *
+     * <p><b>현재 날짜가 이미 지났어도 막지 않는다</b> — 판단 대상은 옮겨갈 날짜다. 날짜를 놓친 코스를 앞으로
+     * 당겨오는 것이야말로 이 기능이 가장 필요한 경우다.
+     *
+     * <p>변경 경로 밖에서도 먼저 부를 수 있게 열어 둔다. 차감 재계산은 외부 호출을 타므로, 어차피 거절할
+     * 요청으로 특일정보를 부르지 않게 서비스가 앞에서 한 번 거른다. 규칙은 여기 하나뿐이다.
+     */
+    public static void requireChangeableTo(LocalDate newTravelDate, LocalDate today) {
+        Objects.requireNonNull(newTravelDate, "여행 시작일은 필수입니다");
+        Objects.requireNonNull(today, "오늘 날짜는 필수입니다");
+        if (newTravelDate.isBefore(today)) {
+            throw ItineraryException.travelDateInPast();
+        }
+    }
+
     /** 코스 전체 슬롯(장소) 수. */
     public int totalSlots() {
         return days.stream().mapToInt(DaySchedule::slotCount).sum();

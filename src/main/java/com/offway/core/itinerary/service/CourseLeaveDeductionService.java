@@ -8,6 +8,8 @@ import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.leave.service.dto.AddLeaveUsage;
 import com.offway.core.leave.service.dto.AvailableTimeCommand;
 import com.offway.core.leave.service.dto.MyLeave;
+import java.time.LocalDate;
+import java.util.OptionalDouble;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -59,7 +61,8 @@ public class CourseLeaveDeductionService {
         double days = consumedLeaveDays(course, halfDayStart);
         try {
             MyLeave after = myLeaveService.addUsage(
-                    guestId, new AddLeaveUsage(course.getTravelDate(), days, DEDUCTION_REASON, courseId));
+                    guestId,
+                    new AddLeaveUsage(course.getTravelDate(), days, DEDUCTION_REASON, courseId, halfDayStart));
             log.info("코스 연차 차감 courseId={} days={} 남은={}", courseId, days, after.summary().remainingDays());
             return after;
         } catch (DataIntegrityViolationException e) {
@@ -95,9 +98,35 @@ public class CourseLeaveDeductionService {
      * <p>{@link LeaveService} 가 공휴일(특일정보)을 조회하므로 <b>외부 호출이다</b>. 실패해도 그쪽이 폴백을 갖는다.
      */
     private double consumedLeaveDays(Course course, boolean halfDayStart) {
+        return consumedLeaveDays(course.getTravelDate(), course.travelEndDate(), course, halfDayStart);
+    }
+
+    /**
+     * 여행 날짜가 바뀐 코스의 차감 일수를 다시 계산한다(#170) — <b>이미 차감한 코스만</b>.
+     *
+     * <p>차감한 적 없는 코스에는 계산도 하지 않는다. 공휴일 조회는 외부 호출이라, 아무 데도 반영되지 않을
+     * 값을 구하려고 특일정보를 부르는 셈이 된다.
+     *
+     * <p><b>반차 여부는 기존 내역에서 가져온다.</b> 사용자가 확정할 때 고른 값이고 날짜를 고쳤다고 바뀌지
+     * 않는다. 지금 깎인 일수에서는 되짚을 수 없어(출발일이 주말이면 반차여도 정수) 내역이 직접 들고 있다.
+     *
+     * <p>{@code 0} 이 나올 수 있다 — 주말·공휴일로만 이뤄진 구간이다. 그 처리는
+     * {@link MyLeaveService#rescheduleCourseDeduction} 이 소유한다.
+     *
+     * @param travelDate 옮겨갈 여행 시작일
+     * @return 새 차감 일수. 이 코스로 차감한 적이 없으면 empty
+     */
+    public OptionalDouble recalculateFor(Course course, LocalDate travelDate) {
+        return myLeaveService
+                .courseDeduction(course.getGuestId(), course.getId())
+                .map(deduction -> OptionalDouble.of(consumedLeaveDays(
+                        travelDate, travelDate.plusDays(course.getTravelDays() - 1L), course, deduction.halfDayStart())))
+                .orElseGet(OptionalDouble::empty);
+    }
+
+    private double consumedLeaveDays(LocalDate start, LocalDate end, Course course, boolean halfDayStart) {
         return leaveService
-                .calculate(new AvailableTimeCommand.FixedDates(
-                        course.getTravelDate(), course.travelEndDate(), course.getTransport(), halfDayStart))
+                .calculate(new AvailableTimeCommand.FixedDates(start, end, course.getTransport(), halfDayStart))
                 .availableTime()
                 .consumedLeaveDays();
     }
