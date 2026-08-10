@@ -136,9 +136,9 @@ class HomeIntegrationTest {
                 // 반값여행 문구를 박아 두고 있었고, 대상 지역이 좁혀지자 곧바로 깨졌다(#217).
                 // 어느 지역에 어떤 정책이 붙는가는 날짜를 고정한 PolicyMatchIntegrationTest 가 소유한다.
                 //
-                // 다만 **필드가 응답에 실리는지는 여기서 지킨다.** 내용을 안 본다고 필드까지 놓으면,
-                // 혜택이 통째로 직렬화에서 빠져도 이 경로의 테스트가 아무 말을 안 한다.
-                .andExpect(jsonPath("$.data.recommendedRegions[0].benefits").isArray())
+                // 구조 단언도 두지 않는다. 홈의 혜택은 배열이 아니라 <b>단수 nullable</b>({@code benefit})이라,
+                // 매칭이 없으면 필드 자체가 사라진다 — "있는지" 를 물어도 결국 날짜에 기대는 단언이 된다.
+                // (배열인 지역 추천 쪽은 항상 실려서 RegionRecommendIntegrationTest 가 구조를 지킨다.)
                 // 대기질은 홈 계약에서 빠졌다 — 실시간 값이라 "다음 주 어디 갈까" 를 고르는 자리에 쓸모가 없고,
                 // 그것 하나 때문에 홈이 외부 호출을 물고 있었다.
                 .andExpect(jsonPath("$.data.recommendedRegions[0].airQuality").doesNotExist());
