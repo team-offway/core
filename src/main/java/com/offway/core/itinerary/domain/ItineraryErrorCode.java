@@ -29,7 +29,18 @@ public enum ItineraryErrorCode implements ErrorCode {
     TRIP_NOT_ENDED("ITINERARY-006", ErrorCategory.CONFLICT, "아직 끝나지 않은 여행입니다."),
 
     /** 저장 코스의 여행 날짜를 지난 날짜로 고치려 했다(#170). 날짜 선택은 클라이언트 입력이라 400. */
-    TRAVEL_DATE_IN_PAST("ITINERARY-007", ErrorCategory.BAD_REQUEST, "지난 날짜로는 여행 날짜를 바꿀 수 없습니다.");
+    TRAVEL_DATE_IN_PAST("ITINERARY-007", ErrorCategory.BAD_REQUEST, "지난 날짜로는 여행 날짜를 바꿀 수 없습니다."),
+
+    /** 공유 링크의 토큰이 없다 — 잘못된 링크이거나 애초에 발급된 적이 없다(#143). */
+    SHARE_NOT_FOUND("ITINERARY-008", ErrorCategory.NOT_FOUND, "없는 공유 링크입니다."),
+
+    /**
+     * 공유 링크는 살아 있는데 코스가 지워졌다(#143).
+     *
+     * <p>{@link #SHARE_NOT_FOUND} 와 나누는 이유: 받은 사람이 "링크를 잘못 눌렀나" 와 "게시자가 지웠구나" 를
+     * 구분할 수 있어야 한다. 앞의 것은 자기 탓을 하게 만들고, 뒤의 것은 사실을 알려준다.
+     */
+    SHARE_COURSE_DELETED("ITINERARY-009", ErrorCategory.GONE, "게시자가 삭제한 코스입니다.");
 
     private final String code;
     private final ErrorCategory category;
