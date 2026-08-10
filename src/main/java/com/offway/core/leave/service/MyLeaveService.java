@@ -7,7 +7,10 @@ import com.offway.core.leave.domain.LeaveUsage;
 import com.offway.core.leave.repository.LeaveBalanceRepository;
 import com.offway.core.leave.repository.LeaveUsageRepository;
 import com.offway.core.leave.service.dto.AddLeaveUsage;
+import com.offway.core.leave.service.dto.CourseDeduction;
 import com.offway.core.leave.service.dto.MyLeave;
+import java.time.LocalDate;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -84,7 +87,12 @@ public class MyLeaveService {
         LeaveUsage usage = command.courseId() == null
                 ? LeaveUsage.manual(owner, command.usedOn(), command.days(), command.reason())
                 : LeaveUsage.forCourse(
-                        owner, command.usedOn(), command.days(), command.reason(), command.courseId());
+                        owner,
+                        command.usedOn(),
+                        command.days(),
+                        command.reason(),
+                        command.courseId(),
+                        command.halfDayStart());
         usageRepository.save(usage);
         MyLeave after = myLeave(owner);
         log.info("연차 사용내역 추가 days={} 남은={}", command.days(), after.summary().remainingDays());
@@ -140,6 +148,54 @@ public class MyLeaveService {
     @Transactional(readOnly = true)
     public boolean alreadyDeducted(String guestId, long courseId) {
         return usageRepository.existsByGuestIdAndCourseId(guestId, courseId);
+    }
+
+    /**
+     * 이 코스로 깎여 있는 연차 — 여행 날짜를 고칠 때 차감량을 다시 계산할 근거(#170).
+     *
+     * <p>반차 여부를 함께 준다. 그 값은 사용자가 확정할 때 고른 것이라 날짜가 바뀌어도 유지돼야 하는데,
+     * 지금 깎인 일수에서는 되짚을 수 없다(출발일이 주말이면 반차를 골라도 정수로 나온다).
+     *
+     * @return 차감 내역. 차감한 적이 없으면 empty
+     */
+    @Transactional(readOnly = true)
+    public Optional<CourseDeduction> courseDeduction(String guestId, long courseId) {
+        return usageRepository
+                .findByGuestIdAndCourseId(requireOwner(guestId), courseId)
+                .map(usage -> new CourseDeduction(usage.getDays(), usage.isHalfDayStart()));
+    }
+
+    /**
+     * 코스의 여행 날짜가 바뀌어 차감을 다시 잡는다(#170).
+     *
+     * <p><b>새 내역을 쌓지 않고 기존 행을 옮긴다.</b> {@code uk_leave_usage_guest_course} 가 코스당 한 행을
+     * 강제하고(#91), 취소도 음수 누적이 아니라 삭제로 하고 있어 같은 규칙을 따른다.
+     *
+     * <p><b>다시 계산한 값이 0 이면 내역을 지운다.</b> 주말·공휴일로만 이뤄진 구간으로 옮기면 깎을 연차가
+     * 없는데, 0 짜리 내역은 {@link com.offway.core.leave.domain.LeaveDays} 가 막는다 — 아무것도 바꾸지 않는
+     * 기록은 소음이라서다. 그렇다고 옛 값을 남겨두면 가지도 않을 평일만큼 연차가 깎인 채로 굳는다.
+     *
+     * <p>기본 전파라 <b>호출자의 트랜잭션에 합류한다</b> — 코스 날짜 변경과 한 덩어리여야 "날짜는 옮겨졌는데
+     * 차감은 옛 날짜 기준" 이 남지 않는다.
+     *
+     * @param days 다시 계산한 차감 일수
+     * @return 옮길 내역이 있었으면 {@code true} (차감한 적 없는 코스면 아무것도 하지 않고 {@code false})
+     */
+    @Transactional
+    public boolean rescheduleCourseDeduction(String guestId, long courseId, LocalDate usedOn, double days) {
+        String owner = requireOwner(guestId);
+        Optional<LeaveUsage> found = usageRepository.findByGuestIdAndCourseId(owner, courseId);
+        if (found.isEmpty()) {
+            return false;
+        }
+        if (days == 0) {
+            usageRepository.deleteByGuestIdAndCourseId(owner, courseId);
+            log.info("코스 연차 차감 해제 — 옮긴 날짜에 깎을 평일이 없습니다 courseId={} usedOn={}", courseId, usedOn);
+            return true;
+        }
+        found.get().moveTo(usedOn, days);
+        log.info("코스 연차 차감 재계산 courseId={} usedOn={} days={}", courseId, usedOn, days);
+        return true;
     }
 
     private LeaveSummary summaryOf(String guestId) {
