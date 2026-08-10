@@ -66,6 +66,15 @@ class HeritagePoolLoadIntegrationTest {
     }
 
     @Test
+    void 발굴_조사구역과_개인_묘는_싣지_않는다() {
+        // 대분류(유적건조물)는 통과하지만 갈 만한 곳이 아니다 — 중분류가 한 번 더 거른다.
+        List<HeritagePlace> found = heritagePlaceRepository.findVisitableCandidates(UISEONG, CANDIDATE_LIMIT);
+
+        assertTrue(found.stream().noneMatch(place -> place.getName().equals("의성 어느 선생 묘")));
+        assertTrue(found.stream().noneMatch(place -> place.getName().equals("의성 어느 유물산포지")));
+    }
+
+    @Test
     void 좌표가_없으면_싣지_않는다() {
         // 지오코딩으로도 못 채운 것. 좌표 없이는 동선에 못 올린다.
         List<HeritagePlace> found = heritagePlaceRepository.findVisitableCandidates(UISEONG, CANDIDATE_LIMIT);

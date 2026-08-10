@@ -33,7 +33,7 @@ class HeritagePoolFileTest {
     /** 국가유산이 무형유산뿐이라 방문 대상이 없는 지역 — 대구광역시 서구. */
     private static final long WITHOUT_VISITABLE_HERITAGE = 5L;
 
-    /** 실측 3,735건. 스크립트가 반쪽만 받아도 파일은 만들어지므로 하한을 둔다. */
+    /** 실측 3,443건. 스크립트가 반쪽만 받아도 파일은 만들어지므로 하한을 둔다. */
     private static final int MINIMUM_PLACES = 3_000;
 
     private static List<HeritagePlace> places;

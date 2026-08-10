@@ -44,6 +44,27 @@ class HeritageGroupTest {
         assertTrue(HeritageGroup.from(unknown).isEmpty());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"무덤", "유물산포지유적산포지"})
+    void 중분류에서_한_번_더_거른다(String subgroup) {
+        // 대분류는 유적건조물이라 통과하는데, 실제로는 발굴 조사 구역이거나 개인 묘다.
+        // `신안 해저유물 매장해역` 은 바다 한가운데고, `이규보 묘` 는 코스 목적지가 아니다.
+        assertFalse(HeritageGroup.isVisitableSubgroup(subgroup));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"종교신앙", "주거생활", "천연기념물", "명승", "기타"})
+    void 나머지_중분류는_그대로_쓴다(String subgroup) {
+        assertTrue(HeritageGroup.isVisitableSubgroup(subgroup));
+    }
+
+    @Test
+    void 중분류가_없어도_막지_않는다() {
+        // 실제 수집분에 중분류가 빈 행이 80건 있다. 대분류가 통과했으면 그것으로 충분하다.
+        assertTrue(HeritageGroup.isVisitableSubgroup(null));
+        assertTrue(HeritageGroup.isVisitableSubgroup(""));
+    }
+
     @Test
     void null_도_비어_있음이다() {
         assertTrue(HeritageGroup.from(null).isEmpty());
