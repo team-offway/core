@@ -5,9 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 /**
  * 로그에 남길 실패 사유 한 줄. 이 값이 곧 운영에서 원인을 찾는 유일한 실마리다.
@@ -83,6 +87,85 @@ class RootCauseTest {
 
         assertTrue(rendered.endsWith("…"), "잘렸다는 표식이 있어야 한다");
         assertTrue(rendered.length() < 260, "실제 길이=" + rendered.length());
+    }
+
+    @Test
+    void HTTP_실패는_응답_본문을_사유로_남긴다() {
+        // data.go.kr 은 일일 한도 초과를 응답 본문의 returnReasonCode 로 알려준다. 예외 메시지에는 URL 만
+        // 있고 그 코드가 없어, 본문을 봐야 일일 한도인지 순간 속도 제한인지 갈린다(#224).
+        Throwable error = tooManyRequests(
+                "<returnAuthMsg>LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR</returnAuthMsg>"
+                        + "<returnReasonCode>22</returnReasonCode>");
+
+        String rendered = RootCause.of(error);
+
+        assertTrue(rendered.contains("429"), "상태코드가 있어야 한다. 실제=" + rendered);
+        assertTrue(rendered.contains("returnReasonCode"), "본문이 있어야 한다. 실제=" + rendered);
+    }
+
+    @Test
+    void 재시도로_감싸여도_응답_본문에_닿는다() {
+        // 429 는 재시도를 거치므로 RetryExhaustedException 으로 감싸여 온다. 껍데기만 보면 사유를 놓친다.
+        Throwable wrapped = new IllegalStateException(
+                "Retries exhausted: 3/3", tooManyRequests("<returnReasonCode>22</returnReasonCode>"));
+
+        String rendered = RootCause.of(wrapped);
+
+        assertTrue(rendered.contains("returnReasonCode"), "실제=" + rendered);
+    }
+
+    @Test
+    void 응답_본문의_비밀값도_가린다() {
+        // 본문에도 키가 실려 올 수 있다. 예외 메시지와 같은 마스킹 경로를 통과해야 규칙이 두 벌이 되지 않는다.
+        Throwable error = tooManyRequests("rejected serviceKey=abc123 for today");
+
+        String rendered = RootCause.of(error);
+
+        assertFalse(rendered.contains("abc123"), "키가 로그로 새면 안 된다. 실제=" + rendered);
+        assertTrue(rendered.contains("serviceKey=***"), "실제=" + rendered);
+    }
+
+    @Test
+    void 응답_본문이_비면_예외_메시지로_돌아간다() {
+        // 본문 없이 상태만 오는 경우도 있다. 그때 빈 사유를 남기면 아무것도 안 남긴 것과 같다.
+        Throwable error = tooManyRequests("");
+
+        String rendered = RootCause.of(error);
+
+        assertTrue(rendered.contains("429"), "실제=" + rendered);
+    }
+
+    @Test
+    void 라벨은_HTTP_상태코드로_모은다() {
+        // 집계용 키다. of() 는 본문까지 담아 건마다 달라지므로 집계 키로 쓰면 39건이 39종류가 된다.
+        assertEquals("429", RootCause.label(tooManyRequests("<returnReasonCode>22</returnReasonCode>")));
+    }
+
+    @Test
+    void 라벨은_HTTP_가_아니면_클래스명() {
+        assertEquals("TimeoutException", RootCause.label(new TimeoutException("Did not observe any item")));
+    }
+
+    @Test
+    void 라벨도_체인을_타고_내려간다() {
+        Throwable wrapped = new IllegalStateException("Retries exhausted: 3/3", tooManyRequests("body"));
+
+        assertEquals("429", RootCause.label(wrapped));
+    }
+
+    @Test
+    void 라벨은_null_이면_unknown() {
+        assertEquals("unknown", RootCause.label(null));
+    }
+
+    /** 본문을 가진 429 응답 예외 — 실제 외부가 주는 모양 그대로. */
+    private static WebClientResponseException tooManyRequests(String body) {
+        return WebClientResponseException.create(
+                HttpStatus.TOO_MANY_REQUESTS.value(),
+                "Too Many Requests",
+                HttpHeaders.EMPTY,
+                body.getBytes(StandardCharsets.UTF_8),
+                StandardCharsets.UTF_8);
     }
 
     /** cause 가 자기 자신인 예외 — 방어가 없으면 while 이 안 끝난다. */

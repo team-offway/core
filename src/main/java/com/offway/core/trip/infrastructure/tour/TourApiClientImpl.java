@@ -3,6 +3,7 @@ package com.offway.core.trip.infrastructure.tour;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.dto.TourAccessibility;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
@@ -143,7 +144,7 @@ class TourApiClientImpl implements TourApiClient {
             String body = call(builder);
             return parseIntro(body, contentId);
         } catch (Exception e) {
-            log.warn("TourAPI 소개정보 조회 실패 cause={}", e.getClass().getSimpleName());
+            log.warn("TourAPI 소개정보 조회 실패 cause={}", RootCause.of(e));
             throw TourApiException.lookupFailed(e);
         }
     }
@@ -158,7 +159,7 @@ class TourApiClientImpl implements TourApiClient {
         try {
             return parseDetail(call(builder));
         } catch (Exception e) {
-            log.warn("TourAPI 공통상세 조회 실패 cause={}", e.getClass().getSimpleName());
+            log.warn("TourAPI 공통상세 조회 실패 cause={}", RootCause.of(e));
             throw TourApiException.lookupFailed(e);
         }
     }
@@ -173,7 +174,7 @@ class TourApiClientImpl implements TourApiClient {
         try {
             return parseAccessibility(call(builder), contentId);
         } catch (Exception e) {
-            log.warn("TourAPI 무장애정보 조회 실패 cause={}", e.getClass().getSimpleName());
+            log.warn("TourAPI 무장애정보 조회 실패 cause={}", RootCause.of(e));
             throw TourApiException.lookupFailed(e);
         }
     }
@@ -200,8 +201,8 @@ class TourApiClientImpl implements TourApiClient {
         try {
             return parseList(call(builder));
         } catch (Exception e) {
-            // 쿼리스트링(키 포함)은 로그에 남기지 않는다.
-            log.warn("TourAPI 조회 실패 op={} cause={}", op, e.getClass().getSimpleName());
+            // 쿼리스트링(키 포함)은 로그에 남기지 않는다 — RootCause 가 마스킹·제어문자 제거·길이 제한을 건다.
+            log.warn("TourAPI 조회 실패 op={} cause={}", op, RootCause.of(e));
             throw TourApiException.lookupFailed(e);
         }
     }
