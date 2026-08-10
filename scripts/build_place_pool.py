@@ -110,6 +110,27 @@ EXCLUDED_UPTAE = {
     "편의점", "고속도로", "백화점", "극장", "철도역구내", "유원지", "관광호텔", "키즈카페",
 }
 
+# 대형 상업시설 **안에 든** 매장을 걸러낸다.
+#
+# 위 EXCLUDED_UPTAE 의 "백화점" 은 업태가 정확히 '백화점' 인 것만 잡는다. 그 안의 식당·카페는
+# 업태가 한식·경양식·커피라 그대로 통과했고, 실제로 부산 동구 코스에 커넥트현대(현대백화점 부산점)
+# 지하 푸드코트가 들어왔다. 여행 코스의 끼니 자리로 백화점 푸드코트를 내밀 수는 없다.
+#
+# 상호·주소 어느 쪽에 있어도 잡는다 — "남천면가 커넥트현대점"(상호)과
+# "범일로 125, 현대백화점 부산점 9층"(주소) 둘 다 실제 사례다.
+#
+# 아울렛·복합쇼핑몰까지 넓히지 않는다. 지역에 따라 그 자체가 목적지인 곳이 있어(가평 아울렛 등)
+# 일괄로 빼면 볼거리가 얇은 지역에서 잃는 게 더 크다. 백화점만 확실히 뺀다.
+EXCLUDED_VENUE_KEYWORDS = (
+    "백화점", "커넥트현대", "신세계센텀", "롯데몰", "현대시티",
+)
+
+
+def in_excluded_venue(name: str, address: str) -> bool:
+    """대형 상업시설 안 매장인가 — 상호·주소 어느 쪽에서든 걸린다."""
+    haystack = f"{name} {address}"
+    return any(keyword in haystack for keyword in EXCLUDED_VENUE_KEYWORDS)
+
 CATEGORIES = {
     # 숙박
     "문화_숙박업.csv": ("STAY", "LODGING"),
@@ -185,11 +206,49 @@ def load_regions(repo_root: pathlib.Path) -> dict[str, list[tuple[str, int]]]:
     return by_sigungu
 
 
-def resolve_region(address: str, by_sigungu) -> int | None:
-    """주소에서 region_id 를 찾는다.
+# 같은 곳을 가리키는 다른 시도 표기. 정규화한 뒤에는 **정확히 일치**해야 한다.
+#
+# 실측(147,415건 전수): 시드와 주소의 시도가 어긋나는 조합은 23종뿐이었고, 표기 차이는 전남 하나였다.
+# 강원특별자치도·전북특별자치도는 이 데이터셋에서 시드와 표기가 같아 별칭이 필요 없다.
+#
+# '전남광주통합특별시' 는 광주와 전남을 함께 덮는 이름이라 '전라남도' 하나로 접는 것은 원래 손실이 있다.
+# 지금 안전한 이유는 하나뿐이다 — **광주가 우리 89곳에 없다**. 전남 16곳은 전부 군 단위라
+# 광주의 구 이름(동구·남구·서구·북구·광산구)과 겹치지 않아서, 광주 주소는 '전라남도 동구' 가 되어
+# 시드에 없으므로 자연히 버려진다. 고시가 바뀌어 광주가 89곳에 들어오면 이 가정이 깨진다 —
+# `require_alias_assumption` 이 그때 빌드를 세운다.
+SIDO_ALIASES = {
+    "전남광주통합특별시": "전라남도",
+}
 
-    동명 시군구(강원/경남 고성군 등)가 있으므로 시도명 앞 두 글자로 가른다 — 데이터마다
-    '강원특별자치도'/'강원도' 처럼 표기가 달라 전체 문자열 비교는 어긋난다.
+
+def normalize_sido(sido: str) -> str:
+    return SIDO_ALIASES.get(sido, sido)
+
+
+def require_alias_assumption(by_sigungu) -> None:
+    """별칭이 성립하는 전제를 지킨다 — 광주가 89곳에 들어오면 즉시 실패한다.
+
+    '전남광주통합특별시' → '전라남도' 는 광주가 대상이 아닐 때만 옳다. 광주 어느 구가 인구감소지역이
+    되면 같은 주소 표기가 광주와 전남 둘을 가리키게 되어, 시군구만으로는 가를 수 없다.
+    조용히 틀리는 대신 여기서 멈춘다.
+    """
+    gwangju = [sg for sg, cands in by_sigungu.items() for sido, _ in cands if "광주" in sido]
+    if gwangju:
+        sys.exit(
+            "시드에 광주가 들어왔습니다: " + ", ".join(sorted(gwangju)) + "\n"
+            "'전남광주통합특별시' 별칭이 광주와 전남을 못 가릅니다 — 매칭 규칙을 다시 설계하세요."
+        )
+
+
+def resolve_region(address: str, by_sigungu) -> int | None:
+    """주소에서 region_id 를 찾는다 — **시도와 시군구가 둘 다 맞아야 한다.**
+
+    예전에는 시군구 이름이 우리 89곳에 하나뿐이면 시도가 달라도 붙였다. 그 폴백 때문에 전국의
+    동구·남구가 부산 동구·대구 남구로 빨려 들어왔다 — 부산 동구는 15,701건 중 부산이 1,816건(11.6%)
+    뿐이었고, 나머지는 대구·대전·광주·울산이었다. 코스에 수백 km 밖 식당이 나왔다.
+
+    시군구 이름이 89곳에 둘 이상이면(서구: 부산·대구) 후보가 여럿이라 폴백이 안 걸려 멀쩡했다.
+    **이름이 하나뿐인 경우만 뚫렸다** — 그래서 눈에 잘 안 띄었다.
     """
     parts = address.split()
     if len(parts) < 2:
@@ -197,10 +256,11 @@ def resolve_region(address: str, by_sigungu) -> int | None:
     candidates = by_sigungu.get(parts[1])
     if not candidates:
         return None
+    address_sido = normalize_sido(parts[0])
     for sido, region_id in candidates:
-        if sido[:2] == parts[0][:2]:
+        if normalize_sido(sido) == address_sido:
             return region_id
-    return candidates[0][1] if len(candidates) == 1 else None
+    return None
 
 
 def resolve_category(file_name: str, default_mapping: tuple, record: dict) -> tuple:
@@ -231,6 +291,7 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
         sys.exit("pyproj 가 필요합니다: python3 -m pip install pyproj")
 
     by_sigungu = load_regions(repo_root)
+    require_alias_assumption(by_sigungu)
     # LOCALDATA 좌표는 EPSG:5174(Korean 1985 / Modified Central Belt).
     # 의성군청 좌표와 대조해 확정했다 — 5186 으로 읽으면 1도 가까이 어긋난다.
     transformer = Transformer.from_crs("EPSG:5174", "EPSG:4326", always_xy=True)
@@ -279,6 +340,9 @@ def build(zips_dir: pathlib.Path, out_path: pathlib.Path, repo_root: pathlib.Pat
                 name_value = (record.get("사업장명") or "").strip()
                 if not name_value:
                     stats["상호없음"] += 1
+                    continue
+                if in_excluded_venue(name_value, address):
+                    stats["대형시설내"] += 1
                     continue
                 rows.append(
                     (region_id, kind, category, name_value, address,
