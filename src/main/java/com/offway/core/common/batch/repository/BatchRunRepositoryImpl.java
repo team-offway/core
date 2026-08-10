@@ -21,6 +21,14 @@ public class BatchRunRepositoryImpl implements BatchRunRepository {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public boolean hasRunSince(String name, LocalDateTime since) {
+        return jpaRepository.findByName(name)
+                .map(run -> !run.getLastRunAt().isBefore(since))
+                .orElse(false);
+    }
+
+    @Override
     @Transactional
     public void markStarted(String name, LocalDateTime at) {
         jpaRepository

@@ -47,6 +47,20 @@ class RegionContentRefreshIntegrationTest {
     @Autowired
     private RegionRepository regionRepository;
 
+    @Autowired
+    private com.offway.core.common.batch.repository.BatchRunRepository batchRunRepository;
+
+    /**
+     * 이 배치가 "이번 주에는 아직 안 돌았다" 인 상태로 만든다.
+     *
+     * <p>클래스에 {@code @Transactional} 이 없어 실행 기록이 커밋된다. 앞 테스트가 남긴 기록이 뒤 테스트를
+     * 통째로 건너뛰게 하므로, 각 테스트가 자기 전제를 직접 만든다.
+     */
+    private void notRunThisWeek() {
+        batchRunRepository.markStarted(
+                RegionContentRefreshService.BATCH_NAME, java.time.LocalDateTime.now().minusDays(30));
+    }
+
     @TestConfiguration
     static class StubConfig {
 
@@ -127,5 +141,38 @@ class RegionContentRefreshIntegrationTest {
 
         assertTrue(regionContentProvider.storedForAll(allRegionIds()).isEmpty(),
                 "적재 전이면 키가 없다 — 그 자리에서 89곳을 긁어 사용자를 기다리게 하지 않는다");
+    }
+
+    /**
+     * 이번 주에 이미 돌았으면 <b>외부를 아예 안 부른다</b>.
+     *
+     * <p>예전에는 건너뛰기가 없어 부팅마다 89곳 × (자기 + 인접) ≈ 130회를 다시 쐈다. 배포가 잦은 날은
+     * 그만큼 곱해져 TourAPI 일일 한도를 태웠고, 같은 키를 쓰는 코스 생성·장소 상세까지 함께 막혔다.
+     */
+    @Test
+    void 이번_주에_이미_돌았으면_외부를_부르지_않는다() {
+        notRunThisWeek();
+        tourApiClient.respond(() -> poiResult(20));
+        refreshService.refreshIfStale();
+
+        tourApiClient.respond(() -> {
+            throw new AssertionError("이번 주에 이미 돌았는데 TourAPI 를 불렀다");
+        });
+        refreshService.refreshIfStale();
+    }
+
+    @Test
+    void 전부_실패한_회차에도_같은_주에_다시_부르지_않는다() {
+        // 폭주를 끊는 핵심이다. 결과로 판정하면 전부 실패한 회차에는 아무것도 안 써져 재부팅마다 또 130회다.
+        notRunThisWeek();
+        tourApiClient.respond(() -> {
+            throw TourApiException.lookupFailed(new RuntimeException("429 Too Many Requests"));
+        });
+        refreshService.refreshIfStale();
+
+        tourApiClient.respond(() -> {
+            throw new AssertionError("전부 실패했다고 같은 주에 다시 부르면 한도만 더 태운다");
+        });
+        refreshService.refreshIfStale();
     }
 }
