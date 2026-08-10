@@ -26,7 +26,18 @@ public enum ItineraryErrorCode implements ErrorCode {
     TRIP_ALREADY_ANSWERED("ITINERARY-005", ErrorCategory.CONFLICT, "이미 답한 여행입니다."),
 
     /** 아직 끝나지 않은 여행에 다녀왔는지를 답하려 했다(#116). */
-    TRIP_NOT_ENDED("ITINERARY-006", ErrorCategory.CONFLICT, "아직 끝나지 않은 여행입니다.");
+    TRIP_NOT_ENDED("ITINERARY-006", ErrorCategory.CONFLICT, "아직 끝나지 않은 여행입니다."),
+
+    /** 공유 링크의 토큰이 없다 — 잘못된 링크이거나 애초에 발급된 적이 없다(#143). */
+    SHARE_NOT_FOUND("ITINERARY-007", ErrorCategory.NOT_FOUND, "없는 공유 링크입니다."),
+
+    /**
+     * 공유 링크는 살아 있는데 코스가 지워졌다(#143).
+     *
+     * <p>{@link #SHARE_NOT_FOUND} 와 나누는 이유: 받은 사람이 "링크를 잘못 눌렀나" 와 "게시자가 지웠구나" 를
+     * 구분할 수 있어야 한다. 앞의 것은 자기 탓을 하게 만들고, 뒤의 것은 사실을 알려준다.
+     */
+    SHARE_COURSE_DELETED("ITINERARY-008", ErrorCategory.GONE, "게시자가 삭제한 코스입니다.");
 
     private final String code;
     private final ErrorCategory category;

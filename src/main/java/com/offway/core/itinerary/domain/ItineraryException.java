@@ -39,4 +39,14 @@ public final class ItineraryException extends BaseException {
     public static ItineraryException tripNotEnded() {
         return new ItineraryException(ItineraryErrorCode.TRIP_NOT_ENDED);
     }
+
+    /** 공유 링크의 토큰이 없다 — 잘못된 링크다. */
+    public static ItineraryException shareNotFound() {
+        return new ItineraryException(ItineraryErrorCode.SHARE_NOT_FOUND);
+    }
+
+    /** 공유 링크는 살아 있는데 게시자가 코스를 지웠다. */
+    public static ItineraryException shareCourseDeleted() {
+        return new ItineraryException(ItineraryErrorCode.SHARE_COURSE_DELETED);
+    }
 }

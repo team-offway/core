@@ -1,9 +1,12 @@
 package com.offway.core.itinerary.service;
 
 import com.offway.core.itinerary.domain.Course;
+import com.offway.core.itinerary.domain.CourseShare;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
+import com.offway.core.itinerary.repository.CourseShareRepository;
 import com.offway.core.leave.service.MyLeaveService;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class CoursePersistenceService {
 
     private final CourseRepository courseRepository;
+    private final CourseShareRepository courseShareRepository;
     private final MyLeaveService myLeaveService;
 
     /**
@@ -67,6 +71,38 @@ public class CoursePersistenceService {
         Course saved = courseRepository.save(course);
         saved.totalSlots(); // tx 안에서 days·slots 초기화(직렬화·조립은 tx 밖)
         return saved;
+    }
+
+    /**
+     * 공유 토큰으로 코스를 읽는다(#143) — <b>소유자 확인 없이</b>. 링크를 받은 사람에게는 우리 계정이 없다.
+     *
+     * <p>토큰과 코스를 나눠 판정한다. 토큰이 없으면 잘못된 링크(404)지만, 토큰은 있는데 코스가 없으면
+     * <b>게시자가 지운 것</b>(410)이다. 받은 사람이 "내가 링크를 잘못 눌렀나" 와 "게시자가 지웠구나" 를
+     * 구분할 수 있어야 한다.
+     */
+    @Transactional(readOnly = true)
+    public Course loadShared(String shareToken) {
+        CourseShare share = courseShareRepository
+                .findByShareToken(shareToken)
+                .orElseThrow(ItineraryException::shareNotFound);
+        Course course = courseRepository
+                .findById(share.getCourseId())
+                .orElseThrow(ItineraryException::shareCourseDeleted);
+        course.totalSlots(); // tx 안에서 days·slots 초기화(직렬화·조립은 tx 밖)
+        return course;
+    }
+
+    /**
+     * 코스의 공유 토큰 — 없으면 발급하고, 있으면 그대로 준다.
+     *
+     * <p><b>멱등해야 한다.</b> 공유 버튼을 두 번 눌렀다고 링크가 바뀌면, 먼저 뿌린 링크가 죽는다.
+     * 코스당 하나라는 것은 유니크 제약이 지킨다.
+     */
+    @Transactional
+    public CourseShare shareOf(Long courseId) {
+        return courseShareRepository
+                .findByCourseId(courseId)
+                .orElseGet(() -> courseShareRepository.save(CourseShare.issue(courseId, LocalDateTime.now())));
     }
 
     @Transactional

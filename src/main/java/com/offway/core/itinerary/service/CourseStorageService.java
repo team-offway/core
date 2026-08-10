@@ -57,7 +57,21 @@ public class CourseStorageService {
         // 열차 접근은 여전히 붙이지 않는다 — 트랜잭션과 무관하게, 클라이언트가 방금 생성 응답에서 받은
         // 값을 갖고 있어 다시 줄 이유가 없다(#187).
         Course saved = coursePersistenceService.persist(course);
-        return withBenefits(saved, false);
+        // 공유 토큰을 저장 응답에 함께 싣는다(#143) — 공유 버튼이 추가 왕복 없이 링크를 만들게.
+        // 토큰이 있다고 공개되는 것이 아니다. 링크를 넘겨야 비로소 남이 볼 수 있다.
+        String shareToken = coursePersistenceService.shareOf(saved.getId()).getShareToken();
+        return withBenefits(saved, false).withShareToken(shareToken);
+    }
+
+    /**
+     * 공유 링크로 여는 코스(#143) — <b>인증 없이, 소유자 확인 없이</b>.
+     *
+     * <p>접근을 막는 것은 소유자가 아니라 추측 불가능한 토큰이다. 그래서 이 경로는 소유자 식별자를 절대
+     * 반환하지 않는다 — 응답 조립은 {@link CourseResponse#publicView} 가 내부 식별자를 걷어낸다.
+     */
+    public GeneratedCourse findShared(String shareToken) {
+        Course course = coursePersistenceService.loadShared(shareToken);
+        return withBenefits(course, true);
     }
 
     /**
@@ -173,8 +187,9 @@ public class CourseStorageService {
                 courseWeatherProvider.byDay(course, region, course.center().orElse(null));
         TrainAccess trainAccess = withTrainAccess ? trainAccessFor(course, region) : null;
         // 생성 응답에만 붙고 상세 조회에는 없으면 저장한 코스에서 값이 사라진다(#169 와 같은 실수).
+        // 공유 토큰은 조립이 아니라 영속 경계에서 온다 — 필요한 호출자가 withShareToken 으로 얹는다(#143).
         return new GeneratedCourse(
                 course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
-                courseAirQualityProvider.of(course, region));
+                courseAirQualityProvider.of(course, region), null);
     }
 }

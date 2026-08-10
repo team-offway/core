@@ -58,7 +58,12 @@ public record CourseResponse(
         @Schema(
                         description = "코스 지역의 실시간 대기질. 오늘 여행 중인 코스에만 실린다 (조회 시점 측정치)",
                         nullable = true)
-                AirQualityResponse airQuality) implements LogSummary {
+                AirQualityResponse airQuality,
+        @Schema(
+                        description = "공유 링크 토큰 (저장 응답에만 실린다). 공유 URL 은 /c/{shareToken}",
+                        example = "a1B2c3D4e5F6g7H8i9J0kL",
+                        nullable = true)
+                String shareToken) implements LogSummary {
 
     /** regionId 는 요청 쿼리에 이미 있으므로 되풀이하지 않는다. */
     private static final String LOG_FORMAT = "코스 %d일 %d슬롯";
@@ -80,7 +85,32 @@ public record CourseResponse(
                         .toList(),
                 generated.benefits().stream().map(Benefit::from).toList(),
                 generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()),
-                generated.airQuality() == null ? null : AirQualityResponse.from(generated.airQuality()));
+                generated.airQuality() == null ? null : AirQualityResponse.from(generated.airQuality()),
+                generated.shareToken());
+    }
+
+    /**
+     * 공유 링크로 여는 사람에게 주는 응답(#143) — <b>내부 식별자를 걷어낸다</b>.
+     *
+     * <p>{@code courseId} 와 {@code shareToken} 을 뺀다. 링크를 받은 사람은 이 코스를 수정·삭제할 수 없으므로
+     * 내부 순번을 알 이유가 없고, 알려주면 다른 경로를 두드려 볼 단서만 준다. 토큰은 이미 URL 에 있어
+     * 본문에 되돌려줄 이유가 없다.
+     *
+     * <p>{@code @JsonInclude(NON_NULL)} 이라 두 필드는 응답에서 <b>키 자체가 사라진다</b>.
+     */
+    public static CourseResponse publicView(GeneratedCourse generated) {
+        CourseResponse owned = from(generated);
+        return new CourseResponse(
+                null, // courseId — 내부 순번을 공개하지 않는다
+                owned.regionId(),
+                owned.travelDays(),
+                owned.travelDate(),
+                owned.density(),
+                owned.days(),
+                owned.benefits(),
+                owned.trainAccess(),
+                owned.airQuality(),
+                null); // shareToken — 이미 URL 에 있다
     }
 
     @Override
