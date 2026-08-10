@@ -41,6 +41,9 @@ public class CourseStorageService {
     /** D-day·다가오는 여행 판정 기준 시간대. 서비스가 한국 여행을 다루므로 사용자 로캘과 무관하게 KST 다. */
     public static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
+    /** 공유 링크 발급이 예상 밖 제약에 걸렸을 때 — DB 메시지를 싣지 않는다(토큰이 들어 있다). */
+    private static final String SHARE_ISSUE_FAILED = "공유 링크를 발급하지 못했습니다 courseId=%d";
+
     private final CourseRepository courseRepository;
     private final PolicyService policyService;
     private final RegionRepository regionRepository;
@@ -91,8 +94,18 @@ public class CourseStorageService {
                         return share.getShareToken();
                     })
                     .orElseThrow(() -> {
-                        log.error("공유 링크 발급 실패 — 중복이 아닌 제약 위반 courseId={}", courseId, e);
-                        return e;
+                        // **예외 객체를 그대로 찍지 않는다.** MySQL 의 중복 키 메시지는
+                        // `Duplicate entry 'xyz' for key 'uk_course_share_token'` 형태라 토큰이 그대로 실린다.
+                        // 그 토큰이 곧 공개 링크의 자격증명이라, 로그를 보는 사람이 남의 코스를 열 수 있게 된다
+                        // (로깅 규약: 토큰을 로그에 남기지 않는다).
+                        //
+                        // 하필 여기가 그 자리다 — course_id 중복은 위에서 처리됐으므로, 여기까지 왔다는 것은
+                        // 남은 제약(토큰 유니크)이 걸렸다는 뜻이고 그 메시지에 토큰이 들어 있다.
+                        log.error("공유 링크 발급 실패 — 중복이 아닌 제약 위반 courseId={} cause={}",
+                                courseId, e.getClass().getSimpleName());
+                        // **원본을 다시 던지지 않는다.** 던지면 전역 핸들러가 스택째 찍어 같은 값이 새어 나가,
+                        // 여기서 가린 것이 무의미해진다. 사유는 위 로그와 courseId 로 추적된다.
+                        return new IllegalStateException(SHARE_ISSUE_FAILED.formatted(courseId));
                     });
         }
     }
