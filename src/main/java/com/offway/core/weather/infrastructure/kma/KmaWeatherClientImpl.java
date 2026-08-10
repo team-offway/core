@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.cache.ExternalDataCache;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.weather.domain.Grid;
 import com.offway.core.weather.domain.SkyState;
 import com.offway.core.weather.domain.DailyWeather;
@@ -153,18 +154,9 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
             return new ExternalDataCache.Loaded<>(parsed, parsed.isEmpty() ? EMPTY_TTL : CACHE_TTL);
         } catch (Exception e) {
             log.warn("기상청 단기예보 조회 실패 — 날씨 생략 nx={} ny={} cause={}",
-                    key.nx(), key.ny(), rootCauseOf(e));
+                    key.nx(), key.ny(), RootCause.of(e));
             return new ExternalDataCache.Loaded<>(Map.of(), EMPTY_TTL);
         }
-    }
-
-    /** 감싸인 껍데기 대신 실제 사유를 남긴다 — timeout 인지 파싱 오류인지 구분되어야 한다(#208). */
-    private static String rootCauseOf(Throwable error) {
-        Throwable current = error;
-        while (current.getCause() != null && current.getCause() != current) {
-            current = current.getCause();
-        }
-        return current.getClass().getSimpleName();
     }
 
     private String call(UriComponentsBuilder builder) {
