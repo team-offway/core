@@ -41,12 +41,18 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
     private static final String URL = "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst";
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
     /**
-     * 한 페이지에 담을 행 수. 페이지를 넘기지 않으므로 응답 전체가 여기 들어와야 한다.
+     * 한 페이지에 담을 행 수. <b>페이지를 넘기지 않으므로 응답 전체가 여기 들어와야 한다.</b>
      *
-     * <p>실측 907건({@code docs/external-api-inventory.md})이라 여유가 10% 남짓이다. 넘치면 뒷날 예보가
-     * 잘린 채 캐시되므로 {@code parseAll} 이 {@code totalCount} 를 보고 경고를 남긴다.
+     * <p>실측 907건·121KB({@code docs/external-api-inventory.md}). 예전 값 1000 은 여유가 10% 남짓이라,
+     * 예보 시각이 한 칸만 늘어도 뒷날이 잘렸다. 날짜 하나만 훑던 시절에는 잘려도 그 날짜를 못 찾고 지나갔지만,
+     * 지금은 <b>잘린 5일치가 세 시간 동안 캐시돼 모두에게 나간다</b> — 그래서 여유를 두 배 이상으로 벌린다.
+     *
+     * <p>응답이 커져도 {@code WebClient} 의 {@code maxInMemorySize}(2MB)에는 한참 못 미친다(121KB → 이론상 240KB).
+     *
+     * <p>그래도 넘칠 수 있으니 {@code parseAll} 이 {@code totalCount} 를 보고 경고를 남긴다 — 이 상한이
+     * 부족해졌다는 사실 자체가 보여야 한다.
      */
-    private static final int ROWS = 1000;
+    private static final int ROWS = 2000;
 
     private static final String SUCCESS_CODE = "00";
     private static final int[] BASE_HOURS = {23, 20, 17, 14, 11, 8, 5, 2};
