@@ -90,9 +90,15 @@ public class WeatherService {
         return midTermWeather(sido, sigungu, date);
     }
 
-    /** 캐시 무효화 — 운영상 강제 갱신, 통합 테스트 격리용. */
+    /**
+     * 캐시 무효화 — 운영상 강제 갱신, 통합 테스트 격리용.
+     *
+     * <p>단기예보 캐시는 어댑터가 들고 있어(응답 하나가 5일치를 담는 이 API 만의 사정) 포트를 통해 함께 비운다.
+     * 여기서 빠뜨리면 "캐시를 비웠는데 옛 예보가 계속 나온다" 가 된다.
+     */
     public void evictCache() {
         midTermCache.evictAll();
+        kmaWeatherClient.evictCache();
     }
 
     private Optional<DailyWeather> midTermWeather(String sido, String sigungu, LocalDate date) {
