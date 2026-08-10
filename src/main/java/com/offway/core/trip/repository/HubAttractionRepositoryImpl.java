@@ -40,14 +40,6 @@ public class HubAttractionRepositoryImpl implements HubAttractionRepository {
     }
 
     @Override
-    public long countRegionsWithMonthAtLeast(List<Long> regionIds, YearMonth month) {
-        if (regionIds.isEmpty()) {
-            return 0;
-        }
-        return jpaRepository.countRegionsWithBaseYmAtLeast(regionIds, HubAttraction.toBaseYm(month));
-    }
-
-    @Override
     public long count() {
         return jpaRepository.count();
     }

@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.HubAttraction;
@@ -8,6 +9,8 @@ import com.offway.core.trip.infrastructure.datalab.HubAttractionClient;
 import com.offway.core.trip.infrastructure.datalab.dto.HubAttractionItem;
 import com.offway.core.trip.repository.HubAttractionRepository;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
@@ -48,19 +51,58 @@ public class HubAttractionRefreshService {
      */
     private static final int MAX_MONTHS_BACK = 3;
 
+    /**
+     * 배치 식별자 — {@code batch_run} 의 키다. 바꾸면 "한 번도 안 돈 것" 이 되어 그날 한 번 더 돈다.
+     *
+     * <p>같은 패키지의 통합 테스트가 이 값으로 실행 기록을 세팅한다 — 문자열을 테스트에 다시 적으면
+     * 한쪽만 바뀌었을 때 테스트가 조용히 무의미해진다.
+     */
+    static final String BATCH_NAME = "hub-attraction-refresh";
+
+    /** 발행일·"오늘" 판정 모두 KST. 서버 타임존을 따라가면 자정 근처에서 하루가 어긋난다. */
+    private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
+
     private final HubAttractionClient hubAttractionClient;
+    private final BatchRunRepository batchRunRepository;
     private final HubAttractionRepository hubAttractionRepository;
     private final RegionRepository regionRepository;
 
-    /** 하루 한 번 확인 — 이미 최신이면 외부 호출 없이 끝난다. */
+    /**
+     * 하루 한 번 — <b>오늘 이미 돌았으면</b> 외부를 아예 안 부른다.
+     *
+     * <p>예전에는 "89곳이 전부 최신 달을 가졌는가" 로 판정했다. 그런데 이 API 는 지역마다 발행 시점이
+     * 달라(전남 16곳이 한 달 늦는 식) 그 조건이 사실상 참이 되지 않았다 — 하나라도 빠지면 false 다.
+     * 그래서 부팅할 때마다 89회를 다시 쐈고, 배포가 잦은 날은 그만큼 곱해졌다.
+     *
+     * <pre>
+     *   15:24  갱신 완료 지역=50/89 기준월별={2026-06=3, 2026-07=47}
+     *   16:07  0/89 — 전부 TooManyRequests
+     *   16:13  0/89
+     * </pre>
+     *
+     * <p>자기강화 고리였다: 건너뛰기 실패 → 89콜 → 한도 소진 → 더 많은 실패 → 최신 달을 못 채움 → 또 실패.
+     *
+     * <p><b>결과가 아니라 실행을 기록한다.</b> 적재 결과로 판정하면 전부 실패한 날에는 아무것도 안 써져
+     * 다음 부팅이 또 89회를 쏜다 — 위 16:07·16:13 이 그것이다. 그래서 성공·실패를 가리지 않고 시작 시각을
+     * 남긴다({@code finally}).
+     *
+     * <p>대가는 있다. 그날 실패한 지역은 그날 안에 다시 시도하지 않는다. 이전 값이 남아 화면은 유지되고
+     * 처음부터 빈 지역만 하루를 기다리는데, 한도를 태워 <b>모두</b>가 실패하는 것보다 낫다고 봤다.
+     * {@code HolidayRefreshService} 가 같은 판단으로 이미 돌고 있다(#193).
+     */
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = CHECK_INTERVAL)
     public void refreshIfStale() {
-        YearMonth newest = newestPossibleMonth();
-        if (hasMonth(newest)) {
-            log.info("중심 관광지가 이미 최신({})이라 갱신을 건너뜁니다", newest);
+        LocalDate today = LocalDate.now(SERVICE_ZONE);
+        if (batchRunRepository.hasRunOn(BATCH_NAME, today)) {
+            log.info("중심 관광지를 오늘 이미 돌려 갱신을 건너뜁니다 date={}", today);
             return;
         }
-        refresh();
+        try {
+            refresh();
+        } finally {
+            // 실패해도 남긴다 — 안 남기면 같은 날 재부팅마다 89회를 다시 쏜다.
+            batchRunRepository.markStarted(BATCH_NAME, LocalDateTime.now(SERVICE_ZONE));
+        }
     }
 
     /**
@@ -145,24 +187,6 @@ public class HubAttractionRefreshService {
         return YearMonth.from(LocalDate.now()).minusMonths(1);
     }
 
-    /**
-     * <b>모든</b> 지역이 그 달 데이터를 갖고 있는가.
-     *
-     * <p>한 곳만 보면 안 된다. 앞선 갱신에서 첫 지역만 성공하고 나머지가 빈 응답·실패로 남았을 때, 다음 스케줄이
-     * "첫 지역이 최신" 이라는 이유로 전체를 건너뛴다 — 실패한 지역은 <b>영영 재시도되지 않는다.</b>
-     *
-     * <p><b>실측상 이 스킵은 거의 걸리지 않는다.</b> 발행이 지역마다 달라(전남 16곳은 한 달 늦다) 전 지역이
-     * 같은 최신 달을 갖는 시점이 잘 오지 않기 때문이다. 즉 하루 한 번 89~105건을 다시 묻게 되는데, 한도
-     * (일 1,000건, #193)에는 여유가 있어 그대로 둔다 — 스킵을 살리려고 기준을 느슨하게 하면 새 달이 발행돼도
-     * 갱신하지 않게 되고, 그게 더 나쁘다.
-     */
-    private boolean hasMonth(YearMonth month) {
-        List<Long> regionIds = regionRepository.findAll().stream().map(Region::getId).toList();
-        if (regionIds.isEmpty()) {
-            return false;
-        }
-        return hubAttractionRepository.countRegionsWithMonthAtLeast(regionIds, month) == regionIds.size();
-    }
 
     /** 지역의 중심 관광지 — 순위 오름차순. 아직 적재 전이면 빈 목록이다. */
     public List<HubAttraction> forRegion(Long regionId) {
