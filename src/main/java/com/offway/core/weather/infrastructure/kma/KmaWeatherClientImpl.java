@@ -192,7 +192,12 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
             if (!accumulator.hasAny()) {
                 return;
             }
-            LocalDate date = LocalDate.parse(ymd, YMD);
+            // **날짜 하나가 깨져도 나머지 날은 살린다.** 예전에는 대상 날짜만 훑어 이런 값이 그냥 안 맞고
+            // 지나갔는데, 이제는 응답 전체를 접으므로 여기서 던지면 멀쩡한 나흘까지 함께 버려진다.
+            LocalDate date = parseDate(ymd);
+            if (date == null) {
+                return;
+            }
             result.put(date, accumulator.toDailyWeather(date));
         });
         return Map.copyOf(result);
@@ -246,6 +251,16 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
             // 강수가 있으면 하늘 상태를 덮는다(#135). 없으면 정오 하늘이 답이다.
             SkyState sky = precipitation.hasPrecipitation() ? precipitation : SkyState.from(skyCode, null);
             return new DailyWeather(date, minTemp, maxTemp, sky, rainProb);
+        }
+    }
+
+    /** 예보일(yyyyMMdd). 형식이 어긋나면 그 날짜만 버린다. */
+    private static LocalDate parseDate(String ymd) {
+        try {
+            return LocalDate.parse(ymd, YMD);
+        } catch (java.time.format.DateTimeParseException e) {
+            log.debug("기상청 예보일 형식이 어긋나 건너뜁니다 fcstDate={}", ymd);
+            return null;
         }
     }
 

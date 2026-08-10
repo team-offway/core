@@ -137,6 +137,23 @@ class KmaWeatherClientImplTest {
         assertEquals(2, calls.get());
     }
 
+    /** 응답 전체를 접게 되면서, 날짜 하나가 깨졌을 때 멀쩡한 날까지 버려지지 않는지 확인한다. */
+    @Test
+    void 예보일_형식이_깨진_항목이_있어도_나머지_날은_살린다() {
+        String body = """
+                {"response":{"header":{"resultCode":"00"},
+                "body":{"items":{"item":[
+                  {"category":"TMN","fcstDate":"깨진값","fcstTime":"0600","fcstValue":"9.0"},
+                  {"category":"TMN","fcstDate":"20260501","fcstTime":"0600","fcstValue":"12.0"},
+                  {"category":"TMX","fcstDate":"20260501","fcstTime":"1500","fcstValue":"23.0"}
+                ]}}}}""";
+
+        DailyWeather weather = client(body).dailyForecast(37.5665, 126.9780, DATE).orElseThrow();
+
+        assertEquals(12, weather.minTemp());
+        assertEquals(23, weather.maxTemp());
+    }
+
     @Test
     void 해당_날짜_예보가_없으면_빈결과다() {
         String body = """
