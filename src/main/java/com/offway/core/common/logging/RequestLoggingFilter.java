@@ -47,7 +47,13 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     private static final String SECONDS_FORMAT = "%.2f";
     /** GET·POST 를 같은 폭으로 맞춰 경로가 세로로 정렬되게 한다. 훑을 때 눈이 경로를 따라 내려간다. */
     private static final String METHOD_FORMAT = "%-4s";
-    private static final String QUERY_FORMAT = "?%s";
+    /**
+     * 파라미터를 경로 뒤에 대괄호로 붙인다 — {@code GET /api/v1/air [region=충청남도]}.
+     *
+     * <p>예전에는 {@code ?} 뒤에 인코딩된 원문을 그대로 붙였다. 한글이 {@code %ec%b6%a9...} 으로 나가
+     * 눈으로 못 읽었고, 경로와 붙어 있어 경로만 훑기도 어려웠다.
+     */
+    private static final String PARAMS_FORMAT = " [%s]";
     private static final String EXTERNAL_CALLS_FRAGMENT_FORMAT = " ext=[%s]";
     /** 요약 앞의 가운뎃점 — 경로·시간·사용자(고정 정보)와 이번 요청의 결과를 눈으로 가른다. */
     private static final String SUMMARY_FRAGMENT_FORMAT = " · %s";
@@ -68,7 +74,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
         String method = request.getMethod();
         String path = request.getRequestURI();
-        String query = SensitiveParams.maskQueryString(request.getQueryString());
+        String params = SensitiveParams.readableParams(request.getQueryString());
         long startedAt = System.nanoTime();
 
         MDC.put(LogAttributes.TRACE_ID, newTraceId());
@@ -84,7 +90,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
                     response.getStatus(),
                     METHOD_FORMAT.formatted(method),
                     path,
-                    query.isEmpty() ? "" : QUERY_FORMAT.formatted(query),
+                    params.isEmpty() ? "" : PARAMS_FORMAT.formatted(params),
                     SECONDS_FORMAT.formatted(seconds),
                     currentUser(),
                     summaries(request),

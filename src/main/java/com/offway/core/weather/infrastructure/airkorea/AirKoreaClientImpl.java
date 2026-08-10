@@ -3,6 +3,7 @@ package com.offway.core.weather.infrastructure.airkorea;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.weather.domain.AirGrade;
 import com.offway.core.weather.domain.AirQuality;
 import java.net.URI;
@@ -120,7 +121,7 @@ class AirKoreaClientImpl implements AirKoreaClient {
             // WebClient 가 감싼 껍데기라 키 문제인지 timeout 인지 제공기관 장애인지 구분할 수 없었고,
             // 원인을 찾으려면 따로 실호출을 떠야 했다.
             log.debug("에어코리아 대기질 조회 실패 — 생략 sido={} cause={}",
-                    airKoreaSidoName, rootCauseOf(e));
+                    airKoreaSidoName, RootCause.of(e));
             return Optional.empty();
         }
     }
@@ -196,18 +197,6 @@ class AirKoreaClientImpl implements AirKoreaClient {
                 average(pm10Sum, pm10Count), average(pm25Sum, pm25Count), worst));
     }
 
-    /**
-     * 예외 체인의 맨 끝 — {@code ReactiveException} 같은 껍데기가 아니라 실제 사유를 남긴다.
-     *
-     * <p>이 로그가 늘 `ReactiveException` 만 찍어 원인을 못 찾던 것이 이 수정의 출발점이다(#184).
-     */
-    private static String rootCauseOf(Throwable error) {
-        Throwable cause = error;
-        while (cause.getCause() != null && cause.getCause() != cause) {
-            cause = cause.getCause();
-        }
-        return cause.getClass().getSimpleName() + ": " + cause.getMessage();
-    }
 
     private static Integer average(long sum, int count) {
         return count == 0 ? null : Math.round((float) sum / count);
