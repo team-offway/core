@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 코스 저장·조회(#33) — 생성된 코스를 게스트의 "내 코스"로 영속화하고 다시 꺼낸다. 혜택은 저장하지 않고 조회 시점에 정책 매칭으로
  * 다시 붙인다(저장 코스가 정책 변경에 뒤처지지 않게). 애그리거트 저장이라 외부 호출 없이 짧은 트랜잭션.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CourseStorageService {
@@ -59,8 +62,37 @@ public class CourseStorageService {
         Course saved = coursePersistenceService.persist(course);
         // 공유 토큰을 저장 응답에 함께 싣는다(#143) — 공유 버튼이 추가 왕복 없이 링크를 만들게.
         // 토큰이 있다고 공개되는 것이 아니다. 링크를 넘겨야 비로소 남이 볼 수 있다.
-        String shareToken = coursePersistenceService.shareOf(saved.getId()).getShareToken();
-        return withBenefits(saved, false).withShareToken(shareToken);
+        return withBenefits(saved, false).withShareToken(shareTokenOf(saved.getId()));
+    }
+
+    /**
+     * 코스의 공유 토큰 — 동시에 발급하려는 경합을 흡수한다.
+     *
+     * <p>{@code findByCourseId} 후 {@code save} 사이에 다른 요청이 끼어들면 둘 다 "없다" 를 읽고 하나가
+     * 유니크 제약({@code uk_course_share_course})에 걸린다. 그대로 두면 500 이 나가는데, 사용자가 원한 상태
+     * (링크가 하나 있다)는 이미 이뤄져 있다.
+     *
+     * <p><b>중복인지 확인하고 삼킨다.</b> 확인 없이 삼키면 다른 제약 위반까지 조용히 넘어가, 토큰 없이
+     * 200 을 주고도 아무도 모른다 — 규약이 막는 '조용한 실패' 다.
+     *
+     * <p>지금 이 경합은 사실상 닿지 않는다(방금 만든 코스라 그 id 를 아는 요청이 하나뿐이다). 다만 발급을
+     * 별도 엔드포인트로 여는 순간 바로 도달 가능해지고, 이 메서드의 계약("코스당 링크 하나")은 그때도 같다.
+     */
+    private String shareTokenOf(Long courseId) {
+        try {
+            return coursePersistenceService.shareOf(courseId).getShareToken();
+        } catch (DataIntegrityViolationException e) {
+            return coursePersistenceService
+                    .findShare(courseId)
+                    .map(share -> {
+                        log.info("공유 링크 발급 경합 — 먼저 만들어진 링크를 그대로 씁니다 courseId={}", courseId);
+                        return share.getShareToken();
+                    })
+                    .orElseThrow(() -> {
+                        log.error("공유 링크 발급 실패 — 중복이 아닌 제약 위반 courseId={}", courseId, e);
+                        return e;
+                    });
+        }
     }
 
     /**

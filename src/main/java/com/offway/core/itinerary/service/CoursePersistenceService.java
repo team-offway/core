@@ -7,6 +7,7 @@ import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.repository.CourseShareRepository;
 import com.offway.core.leave.service.MyLeaveService;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -103,6 +104,18 @@ public class CoursePersistenceService {
         return courseShareRepository
                 .findByCourseId(courseId)
                 .orElseGet(() -> courseShareRepository.save(CourseShare.issue(courseId, LocalDateTime.now())));
+    }
+
+    /**
+     * 이미 발급된 공유 링크 — 없으면 빈 값.
+     *
+     * <p>{@link #shareOf} 가 유니크 제약에 걸렸을 때 <b>먼저 만든 쪽의 것</b>을 다시 읽으려고 있다.
+     * 제약 위반은 그 트랜잭션을 rollback-only 로 만들므로 같은 트랜잭션 안에서는 다시 읽을 수 없다 —
+     * 별도 빈의 새 트랜잭션이어야 한다.
+     */
+    @Transactional(readOnly = true)
+    public Optional<CourseShare> findShare(Long courseId) {
+        return courseShareRepository.findByCourseId(courseId);
     }
 
     @Transactional
