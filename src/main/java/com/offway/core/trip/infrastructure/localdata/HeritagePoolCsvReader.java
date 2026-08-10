@@ -35,6 +35,7 @@ public class HeritagePoolCsvReader {
     private static final int COL_REGION_ID = 0;
     private static final int COL_KIND = 1;
     private static final int COL_GROUP = 2;
+    private static final int COL_SUBGROUP = 3;
     private static final int COL_NAME = 4;
     private static final int COL_ADDRESS = 5;
     private static final int COL_LAT = 6;
@@ -75,8 +76,10 @@ public class HeritagePoolCsvReader {
                     continue;
                 }
                 // 대분류가 방문 대상이 아니면 코스에도 화면에도 쓸 데가 없다 — 담지 않는다.
+                // 대분류가 통과해도 중분류에서 한 번 더 거른다(유물산포지·무덤).
                 Optional<HeritageGroup> group = HeritageGroup.from(cells.get(COL_GROUP));
-                if (group.filter(HeritageGroup::isVisitable).isEmpty()) {
+                if (group.filter(HeritageGroup::isVisitable).isEmpty()
+                        || !HeritageGroup.isVisitableSubgroup(cells.get(COL_SUBGROUP))) {
                     notVisitable++;
                     continue;
                 }

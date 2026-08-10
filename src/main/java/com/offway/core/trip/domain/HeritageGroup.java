@@ -2,6 +2,7 @@ package com.offway.core.trip.domain;
 
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 국가유산의 대분류(#160) — 국가유산청이 주는 {@code gcodeName} 이다. 이 상수가 <b>갈 수 있는 곳인지</b>를 안다.
@@ -50,6 +51,28 @@ public enum HeritageGroup {
     /** 코스 스팟으로 쓸 수 있는가 — 그 자리에 가는 것이 관람이 되는 분류인가. */
     public boolean isVisitable() {
         return visitable;
+    }
+
+    /**
+     * 대분류는 방문 가능한데 <b>중분류에서 걸러야</b> 하는 것들.
+     *
+     * <p>대분류만으로는 못 잡는 두 부류가 있다.
+     *
+     * <ul>
+     *   <li><b>유물산포지</b> — {@code 신안 해저유물 매장해역}·{@code 공주 장선리 유적} 처럼 발굴 조사 구역이다.
+     *       바다 한가운데인 것도 있고, 가도 볼 것이 없다.
+     *   <li><b>무덤</b> — {@code 이규보 묘}·{@code 정발장군묘} 같은 개인 묘가 섞인다. 고인돌·고분군은 볼거리가
+     *       맞지만 이름으로는 둘을 못 가른다. 유명한 고인돌 유적지는 관광 API 쪽에서 먼저 잡히므로,
+     *       애매한 것을 남기느니 함께 뺀다 — 국가유산은 <b>모자랄 때 채우는</b> 보충 후보다.
+     * </ul>
+     *
+     * <p>제외해도 커버리지는 88개 지역 그대로다(3,735 → 3,443건, 0건이 되는 지역 없음).
+     */
+    private static final Set<String> EXCLUDED_SUBGROUPS = Set.of("무덤", "유물산포지유적산포지");
+
+    /** 이 중분류를 코스 후보로 쓸 수 있는가. 대분류가 방문 가능해도 여기서 걸리면 안 쓴다. */
+    public static boolean isVisitableSubgroup(String subgroup) {
+        return subgroup == null || !EXCLUDED_SUBGROUPS.contains(subgroup.trim());
     }
 
     /** 대분류 이름으로 찾는다. 모르는 값이면 비어 있음. */
