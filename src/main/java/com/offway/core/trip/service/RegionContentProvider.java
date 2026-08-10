@@ -215,7 +215,10 @@ public class RegionContentProvider {
             Thread.currentThread().interrupt();
             log.warn("지역 콘텐츠 팬아웃이 중단됐습니다 — {}/{}건만 채웁니다", contents.size(), targets.size());
         }
-        return new RegionContents(contents, degraded.total(), degraded.summaryFragment());
+        // 한 스냅샷에서 총계와 요약을 함께 꺼낸다. 따로 읽으면 마감을 넘겨 아직 도는 작업이 그 사이에
+        // 한 건을 더 세, "degrade 5건(429=4)" 처럼 서로 안 맞는 로그가 나간다.
+        DegradeTally.Snapshot degradeSnapshot = degraded.snapshot();
+        return new RegionContents(contents, degradeSnapshot.total(), degradeSnapshot.summaryFragment());
     }
 
     /**

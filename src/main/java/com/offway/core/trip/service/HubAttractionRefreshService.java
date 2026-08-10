@@ -155,9 +155,10 @@ public class HubAttractionRefreshService {
         }
         // 기준월 분포를 남긴다 — 지역마다 발행월이 다르므로 단일 baseYm 으로는 사실을 못 적는다.
         // 어떤 지역군이 이전 달로 물러섰는지가 여기서 드러난다.
-        if (empty + failures.total() > 0) {
+        DegradeTally.Snapshot failed = failures.snapshot();
+        if (empty + failed.total() > 0) {
             log.warn("중심 관광지 갱신 완료 지역={}/{} 기준월별={} — 빈 응답 {}건·실패 {}건{}은 이전 값 유지",
-                    filled, regions.size(), byMonth, empty, failures.total(), failures.summaryFragment());
+                    filled, regions.size(), byMonth, empty, failed.total(), failed.summaryFragment());
             return;
         }
         log.info("중심 관광지 갱신 완료 지역={}/{} 기준월별={}", filled, regions.size(), byMonth);

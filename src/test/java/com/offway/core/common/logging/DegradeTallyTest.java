@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -40,7 +41,7 @@ class DegradeTallyTest {
         tally.add("429");
         tally.add("TimeoutException");
 
-        assertEquals(3, tally.total());
+        assertEquals(3, tally.snapshot().total());
     }
 
     @Test
@@ -49,7 +50,7 @@ class DegradeTallyTest {
         tally.add("TimeoutException");
         IntStream.range(0, 5).forEach(i -> tally.add("429"));
 
-        assertEquals("429=5, TimeoutException=1", tally.summary());
+        assertEquals("429=5, TimeoutException=1", tally.snapshot().summary());
     }
 
     @Test
@@ -58,19 +59,19 @@ class DegradeTallyTest {
         DegradeTally tally = new DegradeTally();
         tally.add("429");
 
-        assertEquals("(429=1)", tally.summaryFragment());
+        assertEquals("(429=1)", tally.snapshot().summaryFragment());
     }
 
     @Test
     void 실패가_없으면_로그_조각도_없다() {
         // 빈 괄호 "()" 가 붙으면 실패가 있었는데 사유를 못 적은 것처럼 읽힌다.
-        assertEquals("", new DegradeTally().summaryFragment());
+        assertEquals("", new DegradeTally().snapshot().summaryFragment());
     }
 
     @Test
     void 아무것도_없으면_요약도_비어_있다() {
-        assertEquals("", new DegradeTally().summary());
-        assertEquals(0, new DegradeTally().total());
+        assertEquals("", new DegradeTally().snapshot().summary());
+        assertEquals(0, new DegradeTally().snapshot().total());
     }
 
     @Test
@@ -83,7 +84,35 @@ class DegradeTallyTest {
                         .toArray(CompletableFuture[]::new))
                 .get();
 
-        assertEquals(200, tally.total());
-        assertEquals("429=100, timeout=100", tally.summary());
+        DegradeTally.Snapshot snapshot = tally.snapshot();
+        assertEquals(200, snapshot.total());
+        assertEquals("429=100, timeout=100", snapshot.summary());
+    }
+
+    @Test
+    void 세는_중에_읽어도_총계와_사유별_합계가_어긋나지_않는다() throws Exception {
+        // 팬아웃 마감을 넘긴 작업은 계속 돌면서 add 를 부른다. 총계와 요약을 따로 읽으면 그 사이에
+        // 한 건이 끼어들어 "degrade 5건(429=4)" 처럼 서로 안 맞는 로그가 나간다.
+        DegradeTally tally = new DegradeTally();
+        CompletableFuture<Void> counting = CompletableFuture.allOf(IntStream.range(0, 500)
+                .mapToObj(i -> CompletableFuture.runAsync(() -> tally.add(i % 3 == 0 ? "429" : "timeout")))
+                .toArray(CompletableFuture[]::new));
+
+        while (!counting.isDone()) {
+            DegradeTally.Snapshot snapshot = tally.snapshot();
+            assertEquals(snapshot.total(), sumOfReasons(snapshot.summary()),
+                    "총계와 사유별 합계가 어긋났다. 요약=" + snapshot.summary() + " 총계=" + snapshot.total());
+        }
+        counting.get();
+    }
+
+    /** {@code 429=4, timeout=1} 의 값들을 더한다 — 요약이 스스로와 맞는지 보는 용도. */
+    private static int sumOfReasons(String summary) {
+        if (summary.isEmpty()) {
+            return 0;
+        }
+        return Stream.of(summary.split(", "))
+                .mapToInt(entry -> Integer.parseInt(entry.split("=")[1]))
+                .sum();
     }
 }
