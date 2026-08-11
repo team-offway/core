@@ -32,7 +32,7 @@ class ResponseLogSummaryTest {
     @Test
     void 코스는_지역명과_규모를_낸다() {
         CourseResponse.Item item = new CourseResponse.Item(
-                1, "MORNING", "SIGHT", "관광", "c1", "장소1", null, null, null, 37.5, 128.6, 0, null, "정선군");
+                1, "MORNING", "SIGHT", "관광", "c1", "장소1", null, null, null, null, 37.5, 128.6, 0, null, "정선군");
         CourseResponse.Day day = new CourseResponse.Day(1, null, null, null, null, null, List.of(item));
         CourseResponse response = new CourseResponse(
                 1L, 16, 3, null, "PACKED", "CAR", List.of(day), List.of(), null, null, null);

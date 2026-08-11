@@ -15,5 +15,5 @@ package com.offway.core.trip.service.dto;
  */
 public record PoiCandidate(
         String contentId, int contentTypeId, String title, double lat, double lng,
-        String imageUrl, String address, String catchphrase) {
+        String imageUrl, String address, String catchphrase, String tel) {
 }
