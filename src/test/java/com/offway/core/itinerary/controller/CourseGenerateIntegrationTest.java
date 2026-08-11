@@ -447,6 +447,24 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.airQuality").doesNotExist());
     }
 
+    @Test
+    void 날짜가_바뀌는_구간의_거리와_시간을_함께_낸다() throws Exception {
+        // 슬롯 사이 거리는 주면서 날짜가 바뀌는 구간만 비어 있었다(#188). 숙소에서 다음날 첫 장소가
+        // 40km 떨어져 있어도 화면에 아무 표시가 없었다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
+        weatherClient.respondByDate(date -> Optional.empty());
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(generateBodyOn(today())))
+                .andExpect(status().isOk())
+                // 첫날은 전날이 없다 — 키 자체가 나가지 않는다.
+                .andExpect(jsonPath("$.data.days[0].distanceFromPrevDayMeters").doesNotExist())
+                .andExpect(jsonPath("$.data.days[0].travelMinutesFromPrevDay").doesNotExist())
+                .andExpect(jsonPath("$.data.days[1].distanceFromPrevDayMeters").isNumber())
+                .andExpect(jsonPath("$.data.days[1].travelMinutesFromPrevDay").isNumber())
+                // 슬롯 규칙은 그대로다 — 하루 첫 슬롯의 앞 거리는 여전히 없다(FE 가 이걸로 하루 시작을 가른다).
+                .andExpect(jsonPath("$.data.days[1].items[0].distanceFromPrevMeters").doesNotExist());
+    }
+
     /** 지역 1(부산광역시 동구)의 시도 — 대기질은 시도 단위 발표라 워밍 키가 된다. */
     private static final String REGION_SIDO = "부산광역시";
 
