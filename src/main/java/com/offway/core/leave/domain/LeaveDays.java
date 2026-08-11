@@ -14,8 +14,15 @@ public final class LeaveDays {
     /**
      * 깎을 연차가 없음 — 구간이 주말·공휴일뿐일 때 계산 결과가 이 값이다.
      *
-     * <p>사용 내역으로는 쓸 수 없다({@link #isValidUsage} 가 막는다). 재계산이 이 값을 내놓으면 내역을
-     * 갱신하는 게 아니라 <b>지운다</b>(#170).
+     * <p><b>수동 내역과 코스 차감이 이 값을 다르게 다룬다.</b> 뜻이 다르기 때문이다.
+     *
+     * <ul>
+     *   <li><b>수동 내역</b> — 쓸 수 없다({@link #isValidUsage} 가 막는다). 순수한 증감 장부라 아무것도
+     *       바꾸지 않는 행은 기록이 아니라 소음이다.
+     *   <li><b>코스 차감</b> — 쓸 수 있다({@link #isValidCourseDeduction}). 그 행은 {@code courseId} 를 들고
+     *       유니크 제약이 걸려 있어 차감량이자 <b>확정 표식</b>이라, 0 은 "확정했고 깎을 연차가 없었다" 는 뜻이다.
+     *       재계산이 0 을 내놓아도 행을 남긴다(#212) — 지우면 날짜를 옮겼다는 이유로 확정이 조용히 풀린다.
+     * </ul>
      */
     public static final double NONE = 0;
 
@@ -52,5 +59,21 @@ public final class LeaveDays {
      */
     public static boolean isValidUsage(double days) {
         return isValidUnit(days) && days != 0 && Math.abs(days) <= MAX_TOTAL;
+    }
+
+    /**
+     * 코스 확정으로 깎는 값인가 — <b>0 을 허용한다</b>(#212).
+     *
+     * <p>수동 내역과 규칙이 다른 이유는 그 행의 뜻이 다르기 때문이다. 수동 내역은 순수한 증감 장부라
+     * 0 이 소음이지만, 코스 차감 행은 {@code courseId} 를 들고 유니크 제약이 걸려 있어 <b>차감량이자
+     * 확정 표식</b>이다. 0 은 "이 코스는 확정했고, 깎을 연차가 없었다" 라는 뜻이라 기록할 값어치가 있다.
+     *
+     * <p>0 을 막았을 때 실제로 이런 일이 있었다 — 주말만으로 이뤄진 코스를 확정하면 차감이 0 이라
+     * {@code LEAVE-010} 400 이 나갔다. 사용자는 정상적인 주말 여행을 확정한 것뿐이다.
+     *
+     * <p>음수는 받지 않는다. 코스 차감의 취소는 음수 누적이 아니라 <b>행 삭제</b>다(#113).
+     */
+    public static boolean isValidCourseDeduction(double days) {
+        return isValidUnit(days) && days >= 0 && days <= MAX_TOTAL;
     }
 }

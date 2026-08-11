@@ -88,6 +88,20 @@ class CoursePlanManagementIntegrationTest {
         return start;
     }
 
+    /**
+     * 앞으로 가장 가까운 <b>토·일 쌍</b> — 구간에 평일이 하나도 없어 차감이 0 이 되는 1박2일.
+     *
+     * <p>{@link #weekdayRun} 의 반대다. 상대 날짜로만 잡으면 실행 요일에 따라 평일이 섞여 들어가
+     * 차감이 0 이 아니게 되고, 이 시나리오가 조용히 다른 것을 검증하게 된다.
+     */
+    private static LocalDate weekendRun() {
+        LocalDate start = today().plusDays(1);
+        while (start.getDayOfWeek() != DayOfWeek.SATURDAY) {
+            start = start.plusDays(1);
+        }
+        return start;
+    }
+
     private static boolean allWeekdays(LocalDate start, int length) {
         for (int i = 0; i < length; i++) {
             DayOfWeek day = start.plusDays(i).getDayOfWeek();
@@ -536,8 +550,9 @@ class CoursePlanManagementIntegrationTest {
     }
 
     @Test
-    void 깎을_평일이_없는_구간으로_옮기면_차감이_사라진다() throws Exception {
-        // 0 짜리 내역은 만들 수 없는데(LeaveDays) 옛 값을 남겨두면 가지도 않을 평일만큼 깎인 채로 굳는다.
+    void 깎을_평일이_없는_구간으로_옮기면_차감이_0이_된다() throws Exception {
+        // 옛 값을 남겨두면 가지도 않을 평일만큼 깎인 채로 굳는다. 그렇다고 행을 지우면 날짜를 고쳤다는
+        // 이유로 확정이 풀린다(#212) — 0 으로 남겨 "확정했고 깎을 것이 없다" 를 표현한다.
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
@@ -550,7 +565,44 @@ class CoursePlanManagementIntegrationTest {
 
         myLeave(guest)
                 .andExpect(jsonPath("$.data.remainingDays").value(15.0))
-                .andExpect(jsonPath("$.data.usages.length()").value(0));
+                .andExpect(jsonPath("$.data.usages.length()").value(1))
+                .andExpect(jsonPath("$.data.usages[0].days").value(0.0));
+        // 확정은 유지된다 — 목록의 차감 표시가 꺼지면 사용자는 다시 눌러야 하는 줄 안다.
+        list(guest, "UPCOMING").andExpect(jsonPath("$.data[?(@.courseId == " + courseId + ")].leaveDeducted")
+                .value(org.hamcrest.Matchers.hasItem(true)));
+    }
+
+    @Test
+    void 주말뿐인_코스도_확정할_수_있다() throws Exception {
+        // 깎을 평일이 없으면 400 이 났다(LEAVE-010). 사용자는 정상적인 주말 여행을 확정한 것뿐인데
+        // "연차 사용 일수가 올바르지 않습니다" 를 봤다(#212).
+        noHolidays();
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 15.0);
+        long courseId = saveTwoDayCourse(guest, weekendRun());
+
+        deduct(guest, courseId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.usedDays").value(0.0))
+                .andExpect(jsonPath("$.data.remainingDays").value(15.0))
+                // 내역은 남는다 — 차감량이자 확정 표식이다.
+                .andExpect(jsonPath("$.data.usages.length()").value(1))
+                .andExpect(jsonPath("$.data.usages[0].days").value(0.0));
+    }
+
+    @Test
+    void 주말뿐인_코스를_두_번_확정해도_내역이_늘지_않는다() throws Exception {
+        // 0 짜리 행도 멱등해야 한다 — 유니크 제약(#91)이 그대로 막는지 본다.
+        noHolidays();
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 15.0);
+        long courseId = saveTwoDayCourse(guest, weekendRun());
+
+        deduct(guest, courseId).andExpect(status().isOk());
+        deduct(guest, courseId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usages.length()").value(1));
     }
 
     @Test
