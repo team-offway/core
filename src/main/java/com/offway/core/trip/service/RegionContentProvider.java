@@ -5,7 +5,7 @@ import com.offway.core.common.logging.DegradeTally;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
 import com.offway.core.region.domain.Region;
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.region.service.RegionMaster;
 import com.offway.core.trip.domain.RegionContent;
 import com.offway.core.trip.domain.StoredRegionContent;
 import com.offway.core.trip.domain.TourApiException;
@@ -14,7 +14,6 @@ import com.offway.core.trip.repository.RegionContentRepository;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -87,6 +86,7 @@ public class RegionContentProvider {
 
     private final TourApiClient tourApiClient;
     private final RegionContentRepository regionContentRepository;
+    private final RegionMaster regionMaster;
     /**
      * 빈 지역에 동시 요청이 몰렸을 때 첫 적재를 기다릴 상한. loader 가 TourAPI <b>단일 호출</b>(timeout 6초)이라
      * 여유 1초를 얹었다.
@@ -158,13 +158,11 @@ public class RegionContentProvider {
      * 그때까지 채워진 것만 돌려준다.
      *
      * @param targets 콘텐츠를 채울 지역
-     * @param neighborPool 인접 후보(보통 전체 지역)
      * @param deadline 팬아웃 전체의 시간 상한 — {@link #REQUEST_FANOUT_DEADLINE} 또는
      *     {@link #WARMING_FANOUT_DEADLINE}
      * @return 지역ID → 콘텐츠. 채우지 못한 지역은 <b>키가 없다</b>(호출자가 빈 콘텐츠로 취급한다)
      */
-    public RegionContents contentForAll(
-            List<Region> targets, List<Region> neighborPool, Duration deadline) {
+    public RegionContents contentForAll(List<Region> targets, Duration deadline) {
         if (targets.isEmpty()) {
             return RegionContents.empty();
         }
@@ -183,7 +181,7 @@ public class RegionContentProvider {
             }
             Region region = targets.get(index);
             try {
-                futures.add(CompletableFuture.runAsync(fillTask(region, neighborPool, deadlineNanos, contents, degraded),
+                futures.add(CompletableFuture.runAsync(fillTask(region, deadlineNanos, contents, degraded),
                                 fanoutExecutor)
                         .exceptionally(error -> {
                             // contentFor 는 스스로 degrade 하는 게 계약이지만, 그 계약이 깨져도 나머지를 막지 않는다.
@@ -230,7 +228,6 @@ public class RegionContentProvider {
      */
     private Runnable fillTask(
             Region region,
-            List<Region> neighborPool,
             long deadlineNanos,
             Map<Long, RegionContent> contents,
             DegradeTally degraded) {
@@ -238,7 +235,7 @@ public class RegionContentProvider {
             if (isPast(deadlineNanos)) {
                 return;
             }
-            contents.put(region.getId(), contentFor(region, neighborPool, degraded));
+            contents.put(region.getId(), contentFor(region, degraded));
         };
     }
 
@@ -249,14 +246,14 @@ public class RegionContentProvider {
 
     /**
      * 한 지역의 콘텐츠. 볼거리가 충분하면 그대로, 부족하면 인접 50km 지역(가까운 순, 최대 {@value #MAX_NEIGHBORS}곳)을 충분해질
-     * 때까지 병합한다. {@code neighborPool} 은 인접 후보(보통 전체 지역) — 자기 자신은 자동 제외한다.
+     * 때까지 병합한다. 인접 관계는 마스터가 부팅 때 만들어 둔 거리 순서에서 온다(#102).
      */
-    RegionContent contentFor(Region region, List<Region> neighborPool, DegradeTally degraded) {
+    RegionContent contentFor(Region region, DegradeTally degraded) {
         RegionContent content = fetch(region, degraded);
         if (content.isSufficient()) {
             return content;
         }
-        for (Region neighbor : nearestNeighbors(region, neighborPool)) {
+        for (Region neighbor : nearestNeighbors(region)) {
             content = content.expandedWith(fetch(neighbor, degraded));
             if (content.isSufficient()) {
                 break;
@@ -324,17 +321,16 @@ public class RegionContentProvider {
         }, RegionContent.EMPTY);
     }
 
-    /** 반경 50km 안의 다른 지역을 가까운 순으로 상한만큼. */
-    private List<Region> nearestNeighbors(Region region, List<Region> pool) {
-        Coordinate center = new Coordinate(region.getLat(), region.getLng());
-        return pool.stream()
-                .filter(candidate -> !candidate.getId().equals(region.getId()))
-                .map(candidate -> Map.entry(
-                        candidate, center.haversineKmTo(new Coordinate(candidate.getLat(), candidate.getLng()))))
-                .filter(entry -> entry.getValue() <= NEIGHBOR_RADIUS_KM)
-                .sorted(Comparator.comparingDouble(Map.Entry::getValue))
-                .limit(MAX_NEIGHBORS)
-                .map(Map.Entry::getKey)
-                .toList();
+    /**
+     * 인접 지역 — <b>거리 계산은 부팅 때 끝나 있다</b>(#102).
+     *
+     * <p>예전에는 여기서 89개 좌표로 haversine 을 돌리고 정렬했다. 볼거리가 부족한 후보마다 다시 하므로
+     * 최악 20 × 89 = 1,780회/요청이었는데, 89곳 좌표는 마이그레이션으로만 바뀌어 결과가 절대 안 변한다.
+     *
+     * <p><b>반경·개수는 여기 남는다.</b> 그건 지리적 사실이 아니라 콘텐츠 보강 정책이다 — 마스터는 거리
+     * 순서만 주고, 얼마나 가까운 것을 몇 곳까지 쓸지는 이 서비스가 정한다.
+     */
+    private List<Region> nearestNeighbors(Region region) {
+        return regionMaster.neighborsWithin(region.getId(), NEIGHBOR_RADIUS_KM, MAX_NEIGHBORS);
     }
 }

@@ -4,7 +4,7 @@ import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionMaster;
 import com.offway.core.trip.domain.RegionContent;
 import com.offway.core.trip.domain.RegionScore;
 import com.offway.core.trip.service.dto.HomeResult;
@@ -29,7 +29,7 @@ public class HomeService {
     /** 홈에 노출하는 추천 지역 수. */
     private static final int HOME_REGION_LIMIT = 6;
 
-    private final RegionRepository regionRepository;
+    private final RegionMaster regionMaster;
     private final RegionRankingService regionRankingService;
     private final RegionContentProvider regionContentProvider;
     private final RegionHeroPhotoProvider regionHeroPhotoProvider;
@@ -43,7 +43,7 @@ public class HomeService {
      */
     public HomeResult home(String guestId) {
         Double remainingLeaveDays = myLeaveService.remainingDaysOrNull(guestId);
-        List<Region> all = regionRepository.findAll();
+        List<Region> all = regionMaster.all();
         List<RegionScore> ranked = regionRankingService.rankByVisitors(all);
 
         Map<Long, Region> regionById = new HashMap<>();
