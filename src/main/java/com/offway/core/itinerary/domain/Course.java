@@ -40,6 +40,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Course {
 
+    /** 거리를 미터로 내리기 위한 환산 — 슬롯 사이 거리와 같은 단위다. */
+    private static final int METERS_PER_KM = 1000;
+
     /** 코스 상한 — 최대 2박3일(feature-spec F4 · 와이어프레임 캘린더 정책). */
     public static final int MAX_TRAVEL_DAYS = 3;
 
@@ -231,6 +234,36 @@ public class Course {
      *
      * <p>여행 날짜가 없으면 언제인지 알 수 없으므로 거짓이다.
      */
+    /**
+     * 전날 마지막 장소에서 {@code dayIndex} 번째 날 첫 장소까지의 직선거리(m) — 첫날은 null(#188).
+     *
+     * <p><b>여기가 비어 있었다.</b> 슬롯 사이 거리는 주면서 날짜가 바뀌는 구간만 없어, 숙소에서 다음날 첫
+     * 장소가 40km 떨어져 있어도 화면에 아무 표시가 없었다. 1박2일·2박3일이면 사용자가 당연히 궁금해하는 구간이다.
+     *
+     * <p>좌표가 이미 슬롯에 있어 <b>외부 호출이 없다</b>. 슬롯 사이 거리와 같은 방식이다.
+     */
+    public Integer distanceFromPrevDayMeters(int dayIndex) {
+        if (dayIndex <= 0 || dayIndex >= days.size()) {
+            return null;
+        }
+        Optional<Slot> from = days.get(dayIndex - 1).lastSlot();
+        Optional<Slot> to = days.get(dayIndex).firstSlot();
+        if (from.isEmpty() || to.isEmpty()) {
+            return null;
+        }
+        return straightLineMeters(from.get(), to.get());
+    }
+
+    /** 좌표가 없으면 지어내지 않는다 — 슬롯 좌표는 필수라 닿지 않는 게 정상이다. */
+    private static Integer straightLineMeters(Slot from, Slot to) {
+        if (from.getLat() == null || from.getLng() == null || to.getLat() == null || to.getLng() == null) {
+            return null;
+        }
+        double km = new Coordinate(from.getLat(), from.getLng())
+                .haversineKmTo(new Coordinate(to.getLat(), to.getLng()));
+        return (int) Math.round(km * METERS_PER_KM);
+    }
+
     /**
      * 하루 일정들 — <b>읽기 전용</b>으로 준다.
      *
