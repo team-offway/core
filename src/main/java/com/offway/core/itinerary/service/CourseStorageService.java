@@ -50,7 +50,6 @@ public class CourseStorageService {
     private final PolicyService policyService;
     private final RegionRepository regionRepository;
     private final CourseWeatherProvider courseWeatherProvider;
-    private final CourseAirQualityProvider courseAirQualityProvider;
     private final CoursePersistenceService coursePersistenceService;
     private final CourseLeaveDeductionService courseLeaveDeductionService;
     private final MyLeaveService myLeaveService;
@@ -288,7 +287,7 @@ public class CourseStorageService {
         return assemble(course, region, withTrainAccess ? trainAccessFor(course, region) : null);
     }
 
-    /** 코스 지역 — 슬롯 표시명·열차·대기질이 모두 이 값을 쓴다. 한 번만 읽는다. */
+    /** 코스 지역 — 슬롯 표시명·날씨·열차 접근이 모두 이 값을 쓴다. 한 번만 읽는다. */
     private Region regionOf(Course course) {
         return regionRepository.findByIds(List.of(course.getRegionId())).stream()
                 .findFirst()
@@ -312,6 +311,6 @@ public class CourseStorageService {
         // 공유 토큰은 조립이 아니라 영속 경계에서 온다 — 필요한 호출자가 withShareToken 으로 얹는다(#143).
         return new GeneratedCourse(
                 course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
-                courseAirQualityProvider.of(course, region), null, null);
+                null, null);
     }
 }

@@ -18,7 +18,7 @@ import java.util.function.BiFunction;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 느리고 불안정한 외부 API 응답을 감싸는 재사용 캐시 프리미티브. OffWay 의 외부 의존(관광빅데이터·TourAPI·에어코리아 등)은
+ * 느리고 불안정한 외부 API 응답을 감싸는 재사용 캐시 프리미티브. OffWay 의 외부 의존(관광빅데이터·TourAPI·기상청 등)은
  * 지연·쿼터·간헐 실패가 있어, 요청 경로에서 직접 부르면 느리고 쿼터가 금방 소진된다. 이 캐시는 그 사고를 한 곳에 담는다.
  *
  * <p>담긴 규율:

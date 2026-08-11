@@ -16,7 +16,7 @@ class SidoNameTest {
         "부산광역시,부산",
         "전북특별자치도,전북"
     })
-    void 정식_시도명을_에어코리아_축약명으로_바꾼다(String full, String shortName) {
+    void 정식_시도명을_기상청_축약명으로_바꾼다(String full, String shortName) {
         assertEquals(shortName, SidoName.toShort(full));
     }
 
