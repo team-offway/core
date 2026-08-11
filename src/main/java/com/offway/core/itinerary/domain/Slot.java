@@ -50,6 +50,18 @@ public class Slot {
     @Column(name = "poi_content_id", nullable = false, length = 64)
     private String poiContentId;
 
+    /**
+     * 관광 API 콘텐츠 타입(#157) — 우리 DB 출처(인허가·국가유산)는 null.
+     *
+     * <p>운영시간을 받으려면 타입이 있어야 한다. {@code detailIntro2} 가 타입마다 다른 필드명을 쓰기 때문이다
+     * ({@code usetime}·{@code usetimeculture}·{@code opentimefood}…). 타입 없이는 무엇을 읽을지 정할 수 없다.
+     *
+     * <p>생성 시점에는 후보가 이미 들고 있는 값이라 <b>추가 조회가 없다</b>. 안 들고 오면 나중에 상세를
+     * 한 번 더 불러야 한다.
+     */
+    @Column(name = "poi_content_type_id")
+    private Integer poiContentTypeId;
+
     @Column(nullable = false, length = 200)
     private String title;
 
@@ -83,7 +95,8 @@ public class Slot {
     @Column(length = 40)
     private String tel;
 
-    private Slot(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
+    private Slot(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId,
+            Integer poiContentTypeId, String title,
             double lat, double lng, int travelMinutesFromPrev, SlotDisplay display) {
         if (orderInDay < 1) {
             throw new IllegalArgumentException("슬롯 순서는 1 이상이어야 합니다: " + orderInDay);
@@ -100,6 +113,7 @@ public class Slot {
         this.timeOfDay = Objects.requireNonNull(timeOfDay, "시간대는 필수입니다");
         this.kind = Objects.requireNonNull(kind, "슬롯 종류는 필수입니다");
         this.poiContentId = requireText(poiContentId, "POI content id");
+        this.poiContentTypeId = poiContentTypeId; // 우리 DB 출처는 없다 — 검증하지 않는다
         this.title = requireText(title, "장소명");
         this.lat = lat;
         this.lng = lng;
@@ -115,7 +129,7 @@ public class Slot {
     /** 방문 슬롯을 만든다(표시 정보 없이). 좌표·순서·이동시간 불변식을 스스로 검증한다. */
     public static Slot of(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
             double lat, double lng, int travelMinutesFromPrev) {
-        return of(orderInDay, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutesFromPrev,
+        return of(orderInDay, timeOfDay, kind, poiContentId, null, title, lat, lng, travelMinutesFromPrev,
                 SlotDisplay.none());
     }
 
@@ -127,7 +141,20 @@ public class Slot {
      */
     public static Slot of(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
             double lat, double lng, int travelMinutesFromPrev, SlotDisplay display) {
-        return new Slot(orderInDay, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutesFromPrev, display);
+        return of(orderInDay, timeOfDay, kind, poiContentId, null, title, lat, lng, travelMinutesFromPrev, display);
+    }
+
+    /**
+     * 콘텐츠 타입까지 함께 만든다 — 코스 생성 경로.
+     *
+     * <p>타입은 후보가 이미 들고 있는 값이라 여기서 넣으면 추가 조회가 없다. 나중에 운영시간을 받을 때
+     * 그 타입이 필요하다.
+     */
+    public static Slot of(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId,
+            Integer poiContentTypeId, String title, double lat, double lng, int travelMinutesFromPrev,
+            SlotDisplay display) {
+        return new Slot(orderInDay, timeOfDay, kind, poiContentId, poiContentTypeId, title, lat, lng,
+                travelMinutesFromPrev, display);
     }
 
     private static void requireCoordinate(double value, double min, double max, String name) {
