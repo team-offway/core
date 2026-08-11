@@ -1,11 +1,13 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.domain.PoiIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
+import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.PoiDetail;
 import java.util.Optional;
@@ -23,12 +25,13 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class PoiDetailService {
 
-    /** TourAPI 콘텐츠가 아님을 뜻하는 타입. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
-    private static final int LICENSED_CONTENT_TYPE = 0;
+    /** TourAPI 콘텐츠가 아님을 뜻하는 타입 — 인허가·국가유산이 함께 쓴다. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
+    private static final int NON_TOUR_CONTENT_TYPE = 0;
 
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
     private final LicensedPlaceRepository licensedPlaceRepository;
+    private final HeritagePlaceRepository heritagePlaceRepository;
 
     public PoiDetail detail(String contentId) {
         // 코스 응답에는 두 출처의 식별자가 섞여 나간다. 인허가 장소를 TourAPI 에 물으면 없는 콘텐츠라
@@ -36,6 +39,10 @@ public class PoiDetailService {
         Optional<Long> licensedId = LicensedPlace.parsePublicId(contentId);
         if (licensedId.isPresent()) {
             return licensedDetail(licensedId.get());
+        }
+        Optional<Long> heritageId = HeritagePlace.parsePublicId(contentId);
+        if (heritageId.isPresent()) {
+            return heritageDetail(heritageId.get());
         }
 
         TourPoiDetail detail = tourApiClient.findDetail(contentId).orElseThrow(TourApiException::poiNotFound);
@@ -61,12 +68,37 @@ public class PoiDetailService {
                 catchphraseProvider.forContentId(contentId).orElse(null));
     }
 
+    /**
+     * 국가유산의 상세(#160) — 인허가와 달리 <b>사진과 설명이 있다</b>.
+     *
+     * <p>여기 분기가 없으면 {@code HER-} 식별자가 TourAPI 로 넘어가 404 가 난다. 코스에는 나가는데 누르면
+     * 없다고 하는 셈이라, 후보로 쓰기 시작한 순간 함께 있어야 하는 경로다.
+     *
+     * <p>운영시간·휴무일은 국가유산청이 주지 않는다. 없는 것을 지어내지 않고 비운다.
+     */
+    private PoiDetail heritageDetail(long id) {
+        HeritagePlace heritage = heritagePlaceRepository.findById(id).orElseThrow(TourApiException::poiNotFound);
+        // 보조정보 없음을 팩토리로 말한다 — 생성자에 null 을 줄줄이 넘기면 필드가 늘 때마다 여기가 깨진다.
+        // 실제로 그렇게 깨졌다: #235 가 운영시간·휴무일을 intro 하나로 접었는데 이 호출은 둘을 따로 넘기고
+        // 있어서, 텍스트 충돌 없이 머지된 뒤 컴파일에서 터졌다.
+        return PoiDetail.withoutIntro(
+                heritage.publicId(),
+                NON_TOUR_CONTENT_TYPE,
+                heritage.getName(),
+                heritage.getAddress(),
+                null, // 전화 — 국가유산청이 주지 않는다
+                heritage.getLat(),
+                heritage.getLng(),
+                heritage.getImageUrl(),
+                heritage.getDescription());
+    }
+
     /** 인허가 장소의 상세 — 우리가 가진 것만 채우고 나머지는 비운다. 없는 것을 지어내지 않는다. */
     private PoiDetail licensedDetail(long id) {
         LicensedPlace place = licensedPlaceRepository.findById(id).orElseThrow(TourApiException::poiNotFound);
         return PoiDetail.withoutIntro(
                 place.publicId(),
-                LICENSED_CONTENT_TYPE,
+                NON_TOUR_CONTENT_TYPE,
                 place.getName(),
                 place.getAddress(),
                 place.getTel(),
