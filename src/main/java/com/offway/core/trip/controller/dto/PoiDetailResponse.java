@@ -124,7 +124,7 @@ public record PoiDetailResponse(
         return new PoiDetailResponse(
                 poi.contentId(),
                 poi.contentTypeId(),
-                PoiContentType.labelOf(poi.contentTypeId()),
+                poi.typeLabel(),
                 poi.title(),
                 poi.address(),
                 poi.tel(),

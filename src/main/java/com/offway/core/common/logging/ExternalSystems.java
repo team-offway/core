@@ -8,7 +8,7 @@ import java.util.Map;
  * 외부 호출 URI 를 로그에 실을 짧은 라벨로 옮긴다.
  *
  * <p><b>호스트로는 가를 수 없다.</b> 우리가 부르는 공공 API 열두 개가 전부 {@code apis.data.go.kr} 한 곳에
- * 몰려 있어, 호스트만 쓰면 TourAPI·특일정보·TAGO·코레일·에어코리아가 한 덩어리가 된다. 경로 프리픽스로 가른다.
+ * 몰려 있어, 호스트만 쓰면 TourAPI·특일정보·TAGO·코레일이 한 덩어리가 된다. 경로 프리픽스로 가른다.
  *
  * <p>매핑에 없는 주소는 호스트로 떨어진다 — 새 API 를 붙이면서 여기 등록을 잊어도 로그가 비지는 않는다.
  * 다만 같은 호스트끼리 뭉치므로, 새 외부 API 를 추가할 땐 여기도 함께 늘린다.
@@ -23,7 +23,6 @@ public final class ExternalSystems {
     private static final String PATH_TOUR = "/B551011/KorService2";
     private static final String PATH_DATALAB = "/B551011/DataLabService";
     private static final String PATH_HOLIDAY = "/B090041/openapi/service/SpcdeInfoService";
-    private static final String PATH_AIR = "/B552584/ArpltnInforInqireSvc";
     private static final String PATH_KORAIL = "/B551457/run";
     private static final String PATH_TAGO_ARRIVAL = "/1613000/ArvlInfoInqireService";
     private static final String PATH_TAGO_STATION = "/1613000/BusSttnInfoInqireService";
@@ -38,7 +37,6 @@ public final class ExternalSystems {
     private static final String LABEL_TOUR = "tour";
     private static final String LABEL_DATALAB = "datalab";
     private static final String LABEL_HOLIDAY = "holiday";
-    private static final String LABEL_AIR = "air";
     private static final String LABEL_KORAIL = "korail";
     private static final String LABEL_TAGO_ARRIVAL = "tago-arrival";
     private static final String LABEL_TAGO_STATION = "tago-station";
@@ -62,7 +60,6 @@ public final class ExternalSystems {
         LABELS_BY_PREFIX.put(PATH_TOUR, LABEL_TOUR);
         LABELS_BY_PREFIX.put(PATH_DATALAB, LABEL_DATALAB);
         LABELS_BY_PREFIX.put(PATH_HOLIDAY, LABEL_HOLIDAY);
-        LABELS_BY_PREFIX.put(PATH_AIR, LABEL_AIR);
         LABELS_BY_PREFIX.put(PATH_KORAIL, LABEL_KORAIL);
         LABELS_BY_PREFIX.put(PATH_TAGO_ARRIVAL, LABEL_TAGO_ARRIVAL);
         LABELS_BY_PREFIX.put(PATH_TAGO_STATION, LABEL_TAGO_STATION);

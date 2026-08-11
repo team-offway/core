@@ -57,7 +57,6 @@ public class CourseGenerationService {
     private final RouteOptimizer routeOptimizer;
     private final PolicyService policyService;
     private final CourseWeatherProvider courseWeatherProvider;
-    private final CourseAirQualityProvider courseAirQualityProvider;
     private final RegionRepository regionRepository;
     private final TrainAccessService trainAccessService;
 
@@ -128,11 +127,10 @@ public class CourseGenerationService {
         log.debug("코스 생성 regionId={} days={} slots={} benefits={} weatherDays={} trainAccess={}",
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
                 weatherByDay.size(), trainAccess != null ? trainAccess.status() : "N/A");
-        // 실시간 대기질은 오늘 여행 중인 코스에만 붙는다 — 예보가 아니라 지금 이 순간의 측정치다.
         // 공유 토큰은 저장한 코스에만 있다 — 아직 저장 전이라 null 이다(#143).
         return new GeneratedCourse(
                 course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
-                courseAirQualityProvider.of(course, region), null, null);
+                null, null);
     }
 
     /**
