@@ -120,6 +120,25 @@ class PoiDetailIntegrationTest {
     }
 
     @Test
+    void 레포츠면_요금과_이용시간이_leports_블록으로_나간다() throws Exception {
+        // 다섯 블록 중 이것만 양수 검증이 없었다. 표본 24건이 전부 비어 있던 카테고리라
+        // 값이 왔을 때의 매핑을 아무도 안 보고 있었다 — 정작 편차가 커서 값이 오면 그대로 쓰는 쪽이다.
+        tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
+                "444", 28, "완도 해양레포츠센터", "전남 완도군", "061-4", 34.3, 126.7, "http://img/l.jpg", "카약")));
+        tourApiClient.respondIntro(() -> Optional.of(TourIntro.builder()
+                .contentId("444").useTime("09:00~17:20").restDate("연중무휴")
+                .fee("성인 10,000원").parking("가능").build()));
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "444"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.leports.useTime").value("09:00~17:20"))
+                .andExpect(jsonPath("$.data.leports.restDate").value("연중무휴"))
+                .andExpect(jsonPath("$.data.leports.fee").value("성인 10,000원"))
+                .andExpect(jsonPath("$.data.leports.parking").value("가능"))
+                .andExpect(jsonPath("$.data.sight").value(nullValue()));
+    }
+
+    @Test
     void 보조정보가_없으면_어떤_블록도_만들지_않는다() throws Exception {
         // 우리 DB 출처(인허가·국가유산)나 관광 API 가 소개정보를 안 주는 경우. 빈 블록을 만들면
         // 화면이 "정보 있음" 으로 읽고 빈 줄을 그린다.
