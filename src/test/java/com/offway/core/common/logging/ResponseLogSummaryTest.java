@@ -17,7 +17,7 @@ class ResponseLogSummaryTest {
     void 여행지_추천은_건수만_낸다() {
         List<RegionRecommendResponse.Item> items = IntStream.rangeClosed(1, 20)
                 .mapToObj(i -> new RegionRecommendResponse.Item(
-                        i, "지역" + i + " · 도", 100 + i, null, null, 10, List.of(), false, List.of()))
+                        i, "지역" + i + " · 도", 100 + i, null, null, 10, List.of(), false, null, List.of()))
                 .toList();
 
         assertEquals("추천 20건", new RegionRecommendResponse(items).logSummary());

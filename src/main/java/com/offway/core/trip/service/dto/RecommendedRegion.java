@@ -30,6 +30,7 @@ public record RecommendedRegion(
         String imageUrl,
         List<Category> categories,
         boolean neighborIncluded,
+        String intro,
         List<Benefit> benefits) {
 
     /**
@@ -48,6 +49,7 @@ public record RecommendedRegion(
             CrowdLevel crowdLevel,
             RegionContent content,
             String heroPhotoUrl,
+            String intro,
             List<Benefit> benefits) {
         return new RecommendedRegion(
                 regionId, sido, sigungu, reachMinutes, crowdLevel,
@@ -55,6 +57,7 @@ public record RecommendedRegion(
                 heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl(),
                 content.categories(),
                 content.neighborIncluded(),
+                intro,
                 benefits);
     }
 

@@ -3,6 +3,7 @@ package com.offway.core.trip.service;
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
+import com.offway.core.region.service.RegionIntroProvider;
 import com.offway.core.region.service.RegionMaster;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.service.TravelTimeProvider;
@@ -37,6 +38,7 @@ public class RegionRecommendationService {
     private static final int CONTENT_LOOKUP_LIMIT = 20;
 
     private final RegionMaster regionMaster;
+    private final RegionIntroProvider regionIntroProvider;
     private final TravelTimeProvider travelTimeProvider;
     private final RegionRankingService regionRankingService;
     private final RegionContentProvider regionContentProvider;
@@ -99,7 +101,10 @@ public class RegionRecommendationService {
             result.add(RecommendedRegion.of(
                     region.getId(), region.getSido(), region.getSigungu(),
                     reachByRegion.get(region.getId()), score.crowdLevel(), content,
-                    heroPhotos.get(region.getId()), benefits));
+                    heroPhotos.get(region.getId()),
+                    // 지역 소개는 부팅 때 조립해 둔 값이다 — 요청마다 89곳을 다시 만들지 않는다(#140).
+                    regionIntroProvider.of(region.getId()).text(),
+                    benefits));
         }
 
         // 4. 무드 필터 — 해당 카테고리 콘텐츠가 있는 지역을 앞세운다(재정렬). 매칭이 하나도 없으면 랭킹 순 유지(빈 결과 방지, F6)
