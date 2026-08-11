@@ -30,6 +30,7 @@ import collections
 import csv
 import gzip
 import json
+import os
 import pathlib
 import re
 import sys
@@ -72,7 +73,12 @@ RETRY_BACKOFF_SECONDS = 1.0
 # 네이버는 **신 엔드포인트만** 된다 — `naveropenapi.apigw.ntruss.com` 은 신규 구독에 401 을 준다(실측).
 KAKAO_URL = "https://dapi.kakao.com/v2/local/search/address.json"
 NAVER_URL = "https://maps.apigw.ntruss.com/map-geocode/v2/geocode"
-SECRET_FILE = "/Users/sevin/Desktop/git/offway/application-secret.properties"
+# 지오코딩 키가 든 로컬 시크릿. 저장소 기준 상대경로가 기본이고, 밖에 두면 OFFWAY_SECRET_FILE 로 덮어쓴다.
+#
+# 특정 머신의 절대경로를 박아 두면 저자 말고는 `--geocode` 를 돌릴 수 없다. 배포 파일을 다시 만들 사람이
+# 곧 막히는 자리다.
+SECRET_FILE = os.environ.get(
+    "OFFWAY_SECRET_FILE", "src/main/resources/application-secret.properties")
 GEOCODE_WORKERS = 4      # 남의 서버를 밀어붙이지 않는 선. 카카오는 초당 상한이 있다
 GEOCODE_TIMEOUT = 10
 
@@ -265,6 +271,11 @@ def run_geocode() -> int:
         return 1
     with gzip.open(path, "rt", encoding="utf-8", newline="") as f:
         rows = list(csv.DictReader(f))
+    # 수집이 실패해 헤더만 남은 파일이면 아래에서 rows[0] 과 나눗셈이 스택트레이스만 남기고 죽는다.
+    # 무엇을 먼저 해야 하는지 알려주고 끝낸다.
+    if not rows:
+        print(f"{OUTPUT} 에 행이 없습니다 — 수집(①②)을 먼저 돌리세요")
+        return 1
 
     # CSV 의 region_id 는 문자열이다. 정수 키로 두면 조회가 전부 빗나가 시군구가 빈 채로 검증에 들어가고,
     # 그러면 채운 좌표가 한 건도 안 남는다(실측: 0/1,753).

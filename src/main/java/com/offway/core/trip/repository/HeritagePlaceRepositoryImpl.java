@@ -2,6 +2,7 @@ package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.HeritageGroup;
 import com.offway.core.trip.domain.HeritagePlace;
+import java.sql.Statement;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -54,7 +55,10 @@ public class HeritagePlaceRepositoryImpl implements HeritagePlaceRepository {
         int inserted = 0;
         for (int start = 0; start < places.size(); start += BATCH_SIZE) {
             List<HeritagePlace> chunk = places.subList(start, Math.min(start + BATCH_SIZE, places.size()));
-            int[] result = jdbcTemplate.batchUpdate(INSERT_SQL, chunk, chunk.size(), (ps, place) -> {
+            // 반환은 [내부배치][행] 2차원이다. [0] 만 보면 지금은 맞는다 — 배치 인자를 chunk.size() 로 줘서
+            // 내부 배치가 하나뿐이기 때문이다. 그 우연에 기대면 나중에 배치 크기를 나누는 순간 집계가
+            // 조용히 어긋나고, 건수 검증(replaceAll)이 엉뚱한 이유로 실패한다. 전부 훑는다.
+            int[][] results = jdbcTemplate.batchUpdate(INSERT_SQL, chunk, chunk.size(), (ps, place) -> {
                 ps.setLong(1, place.getRegionId());
                 ps.setString(2, place.getKind());
                 ps.setString(3, place.getGroup().name());
@@ -64,9 +68,16 @@ public class HeritagePlaceRepositoryImpl implements HeritagePlaceRepository {
                 ps.setDouble(7, place.getLng());
                 ps.setString(8, place.getImageUrl());
                 ps.setString(9, place.getDescription());
-            })[0];
-            for (int count : result) {
-                inserted += count < 0 ? 1 : count;
+            });
+            for (int[] batch : results) {
+                for (int count : batch) {
+                    // EXECUTE_FAILED(-3)를 성공 1건으로 세면 안 된다. 부분 적재를 잡으라고 둔 검증이
+                    // 바로 그 상황을 못 잡게 된다. 음수를 뭉뚱그리던 것이 그랬다.
+                    if (count == Statement.EXECUTE_FAILED) {
+                        throw new IllegalStateException("국가유산 행 적재가 실패했습니다");
+                    }
+                    inserted += count == Statement.SUCCESS_NO_INFO ? 1 : count;
+                }
             }
         }
         return inserted;
