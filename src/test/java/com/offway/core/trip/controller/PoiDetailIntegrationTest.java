@@ -12,6 +12,8 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import com.offway.core.trip.domain.HeritagePlace;
+import com.offway.core.trip.domain.LicensedPlace;
+import com.offway.core.trip.domain.PlaceKind;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -34,6 +36,9 @@ class PoiDetailIntegrationTest {
 
     @Autowired
     private com.offway.core.trip.repository.HeritagePlaceRepository heritagePlaceRepository;
+
+    @Autowired
+    private com.offway.core.trip.repository.LicensedPlaceRepository licensedPlaceRepository;
 
     /** 테스트 국가유산 풀이 채운 지역 — 경상북도 의성군. */
     private static final long UISEONG = 76L;
@@ -193,12 +198,28 @@ class PoiDetailIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.title").value(heritage.getName()))
+                // 종목이 곧 뱃지다. 예전에는 contentTypeId 0 을 라벨로 되찾아 국보도 "기타" 로 나갔다(#239).
+                .andExpect(jsonPath("$.data.typeLabel").value(heritage.getKind()))
                 .andExpect(jsonPath("$.data.imageUrl").value(heritage.getImageUrl()))
                 .andExpect(jsonPath("$.data.overview").isNotEmpty())
                 .andExpect(jsonPath("$.data.address").value(heritage.getAddress()))
                 // 국가유산청은 운영시간·휴무일을 주지 않는다. 없는 것을 지어내지 않는다.
                 .andExpect(jsonPath("$.data.useTime").doesNotExist())
                 .andExpect(jsonPath("$.data.restDate").doesNotExist());
+    }
+
+    @Test
+    void 인허가_장소는_업종_분류가_뱃지로_나간다() throws Exception {
+        // 인허가 12만 건이 통째로 "기타" 로 나가고 있었다. 지어낼 값이 없어서가 아니라 가진 값을 안 썼다.
+        tourApiClient.respondDetail(() -> {
+            throw new AssertionError("인허가 식별자를 TourAPI 에 물었다");
+        });
+        LicensedPlace place = licensedPlaceRepository.findCandidates(UISEONG, PlaceKind.STAY, 10).getFirst();
+
+        mockMvc.perform(get("/api/v1/pois/{id}", place.publicId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.typeLabel").value(place.getCategory().label()))
+                .andExpect(jsonPath("$.data.typeLabel").value(org.hamcrest.Matchers.not("기타")));
     }
 
     @Test

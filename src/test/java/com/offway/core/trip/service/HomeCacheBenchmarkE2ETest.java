@@ -2,7 +2,6 @@ package com.offway.core.trip.service;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.offway.core.weather.service.AirQualityService;
 import java.util.Arrays;
 import java.util.function.LongSupplier;
 import org.junit.jupiter.api.Test;
@@ -15,7 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
  * (실 외부 호출이라 CI 기본 실행 제외).
  *
  * <ul>
- *   <li><b>캐시 OFF</b> — 매 호출 <b>직전</b> 캐시를 비워, 그 호출이 외부 팬아웃(랭킹 관광빅데이터 + 콘텐츠 TourAPI×N + 미세먼지)을 타게 한다.
+ *   <li><b>캐시 OFF</b> — 매 호출 <b>직전</b> 캐시를 비워, 그 호출이 외부 팬아웃(랭킹 관광빅데이터 + 콘텐츠 TourAPI×N)을 타게 한다.
  *   <li><b>캐시 ON</b> — 한 번 데운 뒤 호출 → 전부 인메모리 캐시에서 응답.
  * </ul>
  *
@@ -41,9 +40,6 @@ class HomeCacheBenchmarkE2ETest {
 
     @Autowired
     private RegionContentProvider contentProvider;
-
-    @Autowired
-    private AirQualityService airQualityService;
 
     @Test
     void 홈_API_캐시_전후_응답시간_측정() {
@@ -83,7 +79,6 @@ class HomeCacheBenchmarkE2ETest {
     private void evictAll() {
         rankingService.evictCache();
         contentProvider.evictCache();
-        airQualityService.evictCache();
     }
 
     private static long measureMillis(LongSupplier work) {

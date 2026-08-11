@@ -3,7 +3,6 @@ package com.offway.core.itinerary.service.dto;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.service.dto.TrainAccess;
-import com.offway.core.weather.domain.AirQuality;
 import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +16,6 @@ import java.util.Map;
  * @param weatherByDay Day 번호(1부터) → 그날의 날씨. 예보가 없는 Day 는 <b>키가 없다</b>(#141)
  * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근(자차·저장 코스는 null)
  * @param regionName 코스 지역의 짧은 이름(예: 정선군) — 슬롯마다 "관광명소 · 정선군" 으로 붙는다(#141)
- * @param airQuality 코스 지역의 <b>실시간</b> 대기질. 오늘 여행 중인 코스에만 채운다 — 예보가 아니라 지금
  *     이 순간의 측정치라 다음 주 코스에 붙이면 여행일 상태로 오해된다. 그 밖에는 null
  * @param shareToken 공유 링크 토큰(#143). <b>소유자에게만</b> 준다 — 저장 응답에만 채우고, 공유 링크로 여는
  *     공개 조회에는 null 이다. 링크를 받은 사람에게 토큰을 되돌려줄 이유가 없다
@@ -29,7 +27,6 @@ public record GeneratedCourse(
         Map<Integer, DailyWeather> weatherByDay,
         TrainAccess trainAccess,
         String regionName,
-        AirQuality airQuality,
         String shareToken,
         FirstDayChange firstDayChange) {
 
@@ -38,21 +35,21 @@ public record GeneratedCourse(
         weatherByDay = weatherByDay == null ? Map.of() : Map.copyOf(weatherByDay);
     }
 
-    /** 날씨·열차 접근·대기질 없이(목록 조회 등). 지역명은 슬롯 표시에 쓰이므로 저장 코스도 채운다. */
+    /** 날씨·열차 접근 없이(목록 조회 등). 지역명은 슬롯 표시에 쓰이므로 저장 코스도 채운다. */
     public static GeneratedCourse of(Course course, List<Benefit> benefits, String regionName) {
-        return new GeneratedCourse(course, benefits, Map.of(), null, regionName, null, null, null);
+        return new GeneratedCourse(course, benefits, Map.of(), null, regionName, null, null);
     }
 
     /** 조립이 끝난 뒤 첫날 변화만 얹는다 — 날짜 수정 경로에서만 붙는다(#214). */
     public GeneratedCourse withFirstDayChange(FirstDayChange firstDayChange) {
         return new GeneratedCourse(
-                course, benefits, weatherByDay, trainAccess, regionName, airQuality, shareToken, firstDayChange);
+                course, benefits, weatherByDay, trainAccess, regionName, shareToken, firstDayChange);
     }
 
     /** 조립이 끝난 뒤 공유 토큰만 얹는다 — 토큰은 영속 경계에서 오므로 조립 시점에 알 수 없다. */
     public GeneratedCourse withShareToken(String shareToken) {
         return new GeneratedCourse(
-                course, benefits, weatherByDay, trainAccess, regionName, airQuality, shareToken, firstDayChange);
+                course, benefits, weatherByDay, trainAccess, regionName, shareToken, firstDayChange);
     }
 
     /**
