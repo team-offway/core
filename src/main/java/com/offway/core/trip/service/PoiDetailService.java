@@ -1,5 +1,7 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.itinerary.domain.SlotKind;
+import com.offway.core.policy.service.PolicyService;
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.MapSearchLink;
@@ -12,6 +14,8 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.PoiDetail;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -30,10 +34,14 @@ public class PoiDetailService {
     /** TourAPI 콘텐츠가 아님을 뜻하는 타입 — 인허가·국가유산이 함께 쓴다. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
     private static final int NON_TOUR_CONTENT_TYPE = 0;
 
+    /** 혜택 기간 판정은 KST — 사용자가 서 있는 시간대다. */
+    private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
+
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
     private final LicensedPlaceRepository licensedPlaceRepository;
     private final HeritagePlaceRepository heritagePlaceRepository;
+    private final PolicyService policyService;
 
     public PoiDetail detail(String contentId) {
         // 코스 응답에는 두 출처의 식별자가 섞여 나간다. 인허가 장소를 TourAPI 에 물으면 없는 콘텐츠라
@@ -69,6 +77,8 @@ public class PoiDetailService {
                 detail.overview(),
                 intro,
                 null, // 관광 API 콘텐츠는 사진·소개·운영시간이 이미 있어 지도로 넘길 이유가 없다
+                // 혜택은 지역 단위로 매칭되는데 상세 응답에 지역 코드가 없어 어느 지역인지 모른다(#172).
+                null,
                 catchphraseProvider.forContentId(contentId).orElse(null));
     }
 
@@ -98,7 +108,8 @@ public class PoiDetailService {
                 heritage.getImageUrl(),
                 heritage.getDescription(),
                 // 국가유산도 운영시간·전화가 없다. 사진·설명은 있지만 "언제 여나" 는 지도가 답한다.
-                MapSearchLink.of(heritage.getName(), heritage.getAddress()).orElse(null));
+                MapSearchLink.of(heritage.getName(), heritage.getAddress()).orElse(null),
+                benefitFor(heritage.getRegionId(), SlotKind.SIGHT));
     }
 
     /** 인허가 장소의 상세 — 우리가 가진 것만 채우고 나머지는 비운다. 없는 것을 지어내지 않는다. */
@@ -116,6 +127,27 @@ public class PoiDetailService {
                 place.getLng(),
                 null, // 사진
                 null, // 소개글
-                MapSearchLink.of(place.getName(), place.getAddress()).orElse(null));
+                MapSearchLink.of(place.getName(), place.getAddress()).orElse(null),
+                benefitFor(place.getRegionId(), place.getKind().slotKind()));
+    }
+
+    /**
+     * 이 장소에서 쓸 수 있는 혜택 — <b>슬롯 종류가 맞는 것만</b>(#172).
+     *
+     * <p>지역 혜택은 이미 매칭 규칙이 있다. 여기서는 그중 "이 장소에서 쓸 수 있다" 고 단정할 수 있는 것만
+     * 고른다. 지금은 숙박세일페스타(숙소)뿐이다 — 지자체 바우처는 가맹점 목록이, 디지털관광주민증은
+     * 제휴처 목록이 있어야 안다.
+     *
+     * <p>기준일은 오늘이다. 장소 상세에는 여행일이 없다 — 코스에서 누르든 목록에서 누르든 같은 화면이다.
+     */
+    private String benefitFor(Long regionId, SlotKind slotKind) {
+        if (regionId == null) {
+            return null;
+        }
+        return policyService.matchForRegion(regionId, LocalDate.now(SERVICE_ZONE)).stream()
+                .filter(policy -> policy.getType().targetSlotKind().filter(slotKind::equals).isPresent())
+                .map(policy -> policy.getType().badgeText())
+                .findFirst()
+                .orElse(null);
     }
 }
