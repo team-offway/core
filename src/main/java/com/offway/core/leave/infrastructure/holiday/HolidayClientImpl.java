@@ -11,6 +11,8 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -33,12 +35,15 @@ class HolidayClientImpl implements HolidayClient {
     private static final int MAX_ROWS = 100;
 
     private final WebClient webClient;
+    private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    HolidayClientImpl(WebClient externalWebClient, ExternalApiProperties props) {
+    HolidayClientImpl(WebClient externalWebClient, ExternalApiProperties props,
+            ExternalApiCallRecorder callRecorder) {
         this.webClient = externalWebClient;
         this.props = props;
+        this.callRecorder = callRecorder;
     }
 
     @Override
@@ -48,6 +53,8 @@ class HolidayClientImpl implements HolidayClient {
             return Set.of();
         }
         try {
+            // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
+            callRecorder.record(ExternalApi.HOLIDAY);
             String body = webClient.get()
                     .uri(uri(props.dataGoKr().serviceKey(), solYear, solMonth))
                     .retrieve()

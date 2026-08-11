@@ -15,6 +15,8 @@ import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -41,12 +43,15 @@ class TrainInfoClientImpl implements TrainInfoClient {
     private static final DateTimeFormatter PLAN_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     private final WebClient webClient;
+    private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    TrainInfoClientImpl(WebClient externalWebClient, ExternalApiProperties props) {
+    TrainInfoClientImpl(WebClient externalWebClient, ExternalApiProperties props,
+            ExternalApiCallRecorder callRecorder) {
         this.webClient = externalWebClient;
         this.props = props;
+        this.callRecorder = callRecorder;
     }
 
     @Override
@@ -74,6 +79,8 @@ class TrainInfoClientImpl implements TrainInfoClient {
         // serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(build(true)) — 다른 data.go.kr 어댑터와 같은 규약.
         // 재인코딩하면 `%2B` 가 `%252B` 가 되어 서버가 다른 키로 읽는다(#165). 나머지 파라미터는 전부 ASCII 다.
         URI uri = builder.build(true).toUri();
+        // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
+        callRecorder.record(ExternalApi.TRAIN_INFO);
         return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
     }
 

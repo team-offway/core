@@ -19,6 +19,8 @@ import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -52,12 +54,15 @@ class TourDataLabClientImpl implements TourDataLabClient {
     private static final DateTimeFormatter YMD = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private final WebClient webClient;
+    private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    TourDataLabClientImpl(WebClient externalWebClient, ExternalApiProperties props) {
+    TourDataLabClientImpl(WebClient externalWebClient, ExternalApiProperties props,
+            ExternalApiCallRecorder callRecorder) {
         this.webClient = externalWebClient;
         this.props = props;
+        this.callRecorder = callRecorder;
     }
 
     @Override
@@ -81,6 +86,8 @@ class TourDataLabClientImpl implements TourDataLabClient {
         // 짧은 쪽을 따른다 — 호출자의 남은 예산을 넘겨 기다리면 호출자의 전체 상한이 무의미해진다.
         Duration wait = maxWait.compareTo(TIMEOUT) < 0 ? maxWait : TIMEOUT;
         try {
+            // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
+            callRecorder.record(ExternalApi.TOUR_DATA_LAB);
             String body = webClient.get()
                     .uri(uri)
                     .retrieve()

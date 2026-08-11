@@ -14,6 +14,8 @@ import reactor.util.retry.Retry;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -88,12 +90,15 @@ class AirKoreaClientImpl implements AirKoreaClient {
     private static final Duration TOTAL_DEADLINE = Duration.ofMillis(13_000);
 
     private final WebClient webClient;
+    private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    AirKoreaClientImpl(WebClient externalWebClient, ExternalApiProperties props) {
+    AirKoreaClientImpl(WebClient externalWebClient, ExternalApiProperties props,
+            ExternalApiCallRecorder callRecorder) {
         this.webClient = externalWebClient;
         this.props = props;
+        this.callRecorder = callRecorder;
     }
 
     @Override
@@ -130,6 +135,8 @@ class AirKoreaClientImpl implements AirKoreaClient {
         // 인코딩이 필요한 값(한글 시도명)은 이미 넣을 때 인코딩했다. 여기서 통째로 다시 인코딩하면 serviceKey 의
         // `%2B` 가 `%252B` 가 되어 서버가 다른 키로 읽는다(#165).
         URI uri = builder.build(true).toUri();
+        // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
+        callRecorder.record(ExternalApi.AIR_KOREA);
         return webClient.get()
                 .uri(uri)
                 .retrieve()
