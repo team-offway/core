@@ -49,13 +49,15 @@ public class HeritagePoolCsvReader {
     /**
      * gzip CSV 스트림을 국가유산 목록으로 읽는다. 스트림은 읽은 뒤 닫는다.
      *
-     * <p>버린 건수를 <b>사유별로</b> 남긴다. "방문 대상이 아님"·"좌표 없음"·"형식 깨짐" 은 전혀 다른 신호인데
-     * 한 숫자로 합치면 원본이 망가진 것을 못 알아챈다.
+     * <p>버린 건수를 <b>사유별로</b> 남긴다. "방문 대상이 아님"·"좌표 없음"·"소재지 없음"·"형식 깨짐" 은 전혀
+     * 다른 신호인데 한 숫자로 합치면 원본이 망가진 것을 못 알아챈다. 실제로 소재지가 빈 6건이 형식오류로
+     * 세어져, 배포 파일이 깨진 것처럼 보였다.
      */
     public List<HeritagePlace> read(InputStream source) {
         List<HeritagePlace> places = new ArrayList<>();
         int notVisitable = 0;
         int withoutCoordinate = 0;
+        int withoutAddress = 0;
         int broken = 0;
 
         try (InputStream raw = source;
@@ -88,6 +90,13 @@ public class HeritagePoolCsvReader {
                     withoutCoordinate++;
                     continue;
                 }
+                if (cells.get(COL_ADDRESS).isBlank()) {
+                    // 원본에 소재지가 없는 것(실측 6건 — `연천 심원사지`·`곡성당동리산성` 등). 좌표는 있어
+                    // 지도에는 찍히지만 카드에 주소 줄이 빈다. **형식오류로 세지 않는다** — 형식이 깨진 것과
+                    // 원본에 값이 없는 것은 전혀 다른 신호라, 합치면 원본이 망가진 것을 못 알아챈다.
+                    withoutAddress++;
+                    continue;
+                }
                 try {
                     places.add(toPlace(cells, group.get()));
                 } catch (RuntimeException e) {
@@ -98,8 +107,8 @@ public class HeritagePoolCsvReader {
             throw new UncheckedIOException("국가유산 풀 CSV 를 읽지 못했습니다", e);
         }
 
-        log.info("국가유산 풀 CSV 읽기 완료. 실을 것={} 방문대상아님={} 좌표없음={} 형식오류={}",
-                places.size(), notVisitable, withoutCoordinate, broken);
+        log.info("국가유산 풀 CSV 읽기 완료. 실을 것={} 방문대상아님={} 좌표없음={} 소재지없음={} 형식오류={}",
+                places.size(), notVisitable, withoutCoordinate, withoutAddress, broken);
         return places;
     }
 

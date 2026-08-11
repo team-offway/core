@@ -224,17 +224,6 @@ public class Course {
     }
 
     /**
-     * 이 여행이 {@code today} 를 <b>포함</b>하는가 — 오늘 떠나거나, 오늘 여행 중이다.
-     *
-     * <p>실시간 값(대기질 등)을 붙일지 가르는 데 쓴다. 그런 값은 <b>예보가 아니라 지금 이 순간의 측정치</b>라,
-     * 다음 주 코스에 붙이면 사용자가 여행일 상태로 읽는다 — 없는 것보다 나쁘다.
-     *
-     * <p>시작일만 보지 않는 이유: 3일 코스의 이튿날에 그 지역에 있는 사람에게 실시간 값이 가장 쓸모 있는데,
-     * 시작일 기준이면 바로 그때 사라진다.
-     *
-     * <p>여행 날짜가 없으면 언제인지 알 수 없으므로 거짓이다.
-     */
-    /**
      * 전날 마지막 장소에서 {@code dayIndex} 번째 날 첫 장소까지의 직선거리(m) — 첫날은 null(#188).
      *
      * <p><b>여기가 비어 있었다.</b> 슬롯 사이 거리는 주면서 날짜가 바뀌는 구간만 없어, 숙소에서 다음날 첫
@@ -338,6 +327,7 @@ public class Course {
         return renumbered;
     }
 
+
     /**
      * 첫날이 <b>달력상 비어 있는가</b> — 생성 때 자정을 넘겨 닿아 통째로 이동이었다는 뜻이다.
      *
@@ -346,10 +336,6 @@ public class Course {
      */
     public boolean firstDayEmptyOnCalendar() {
         return days.getFirst().getDayOffset() > 0;
-    }
-
-    public boolean covers(LocalDate today) {
-        return travelDate != null && !today.isBefore(travelDate) && !today.isAfter(travelEndDate());
     }
 
     /**
