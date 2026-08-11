@@ -1,5 +1,6 @@
 package com.offway.core.trip.infrastructure.tour.dto;
 
+import com.offway.core.trip.domain.PoiIntro;
 import lombok.Builder;
 
 /**
@@ -44,4 +45,24 @@ public record TourIntro(
         String roomCount,
         /** 예약 안내(숙박). */
         String reservation) {
+
+    /**
+     * 도메인 보조정보로 옮긴다 — 외부 응답이 상위 레이어로 새지 않게(매핑 규약: 외부 결과 객체의 {@code toXxx()}).
+     *
+     * <p>{@code contentId} 는 넘기지 않는다. 이미 장소 자신이 들고 있어 보조정보가 다시 가질 이유가 없다.
+     */
+    public PoiIntro toPoiIntro() {
+        return PoiIntro.builder()
+                .useTime(useTime)
+                .restDate(restDate)
+                .parking(parking)
+                .fee(fee)
+                .signatureMenu(signatureMenu)
+                .menus(menus)
+                .checkIn(checkIn)
+                .checkOut(checkOut)
+                .roomCount(roomCount)
+                .reservation(reservation)
+                .build();
+    }
 }

@@ -3,6 +3,7 @@ package com.offway.core.trip.service;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
+import com.offway.core.trip.domain.PoiIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
@@ -39,9 +40,12 @@ public class PoiDetailService {
 
         TourPoiDetail detail = tourApiClient.findDetail(contentId).orElseThrow(TourApiException::poiNotFound);
 
-        TourIntro intro = detail.contentTypeId() == null
+        // 외부 응답을 여기서 도메인으로 옮긴다 — 상위 레이어(서비스 dto·응답 dto)가 어댑터 DTO 를 들지 않게.
+        PoiIntro intro = detail.contentTypeId() == null
                 ? null
-                : tourApiClient.findIntro(contentId, detail.contentTypeId()).orElse(null);
+                : tourApiClient.findIntro(contentId, detail.contentTypeId())
+                        .map(TourIntro::toPoiIntro)
+                        .orElse(null);
 
         return new PoiDetail(
                 detail.contentId(),

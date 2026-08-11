@@ -2,7 +2,7 @@ package com.offway.core.trip.controller.dto;
 
 import com.offway.core.common.logging.LogSummary;
 import com.offway.core.trip.domain.PoiContentType;
-import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
+import com.offway.core.trip.domain.PoiIntro;
 import com.offway.core.trip.service.dto.PoiDetail;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.function.Function;
@@ -112,7 +112,7 @@ public record PoiDetailResponse(
     }
 
     public static PoiDetailResponse from(PoiDetail poi) {
-        TourIntro intro = poi.intro();
+        PoiIntro intro = poi.intro();
         PoiContentType type = PoiContentType.from(poi.contentTypeId()).orElse(null);
         return new PoiDetailResponse(
                 poi.contentId(),
@@ -140,7 +140,7 @@ public record PoiDetailResponse(
 
     /** 그 카테고리일 때만 블록을 만든다. 보조정보 자체가 없으면(우리 DB 출처) 어떤 블록도 안 만든다. */
     private static <T> T blockFor(
-            PoiContentType actual, PoiContentType wanted, TourIntro intro, Function<TourIntro, T> build) {
+            PoiContentType actual, PoiContentType wanted, PoiIntro intro, Function<PoiIntro, T> build) {
         return actual == wanted && intro != null ? build.apply(intro) : null;
     }
 }

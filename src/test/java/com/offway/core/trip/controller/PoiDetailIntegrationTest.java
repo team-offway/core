@@ -1,5 +1,6 @@
 package com.offway.core.trip.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -55,9 +56,13 @@ class PoiDetailIntegrationTest {
                 .andExpect(jsonPath("$.data.sight.useTime").value("09:00~18:00"))
                 .andExpect(jsonPath("$.data.sight.restDate").value("연중무휴"))
                 .andExpect(jsonPath("$.data.sight.parking").value("가능"))
-                // 관광지가 아닌 블록은 통째로 없다 — 클라이언트가 자기 카테고리만 보면 되게.
-                .andExpect(jsonPath("$.data.food").doesNotExist())
-                .andExpect(jsonPath("$.data.stay").doesNotExist());
+                // 관광지가 아닌 블록은 null 이다 — 클라이언트가 자기 카테고리만 보면 되게.
+                //
+                // doesNotExist() 를 쓰지 않는다. 그건 "non-null 값이 없다" 만 보므로 필드가 null 로 실린 것과
+                // 아예 빠진 것을 구분하지 못한다. 이 응답은 NON_NULL 이 아니라 null 로 나가는 것이 계약이고
+                // (PoiApi 도 그렇게 문서화한다), 나중에 필드가 사라져도 doesNotExist() 는 그대로 통과한다.
+                .andExpect(jsonPath("$.data.food").value(nullValue()))
+                .andExpect(jsonPath("$.data.stay").value(nullValue()));
     }
 
     @Test
@@ -80,7 +85,7 @@ class PoiDetailIntegrationTest {
                 .andExpect(jsonPath("$.data.food.restDate").value("매주 월요일"))
                 .andExpect(jsonPath("$.data.food.signatureMenu").value("벽오동 스페샬"))
                 .andExpect(jsonPath("$.data.food.menus").value("토시살 / 꽃살 / 갈비탕"))
-                .andExpect(jsonPath("$.data.sight").doesNotExist());
+                .andExpect(jsonPath("$.data.sight").value(nullValue()));
     }
 
     @Test
@@ -96,7 +101,7 @@ class PoiDetailIntegrationTest {
                 .andExpect(jsonPath("$.data.stay.checkIn").value("16:00"))
                 .andExpect(jsonPath("$.data.stay.checkOut").value("11:00"))
                 .andExpect(jsonPath("$.data.stay.roomCount").value("11"))
-                .andExpect(jsonPath("$.data.food").doesNotExist());
+                .andExpect(jsonPath("$.data.food").value(nullValue()));
     }
 
     @Test
@@ -111,7 +116,7 @@ class PoiDetailIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.culture.fee").value("무료"))
                 .andExpect(jsonPath("$.data.culture.useTime").value("평일 09:00~17:00"))
-                .andExpect(jsonPath("$.data.sight").doesNotExist());
+                .andExpect(jsonPath("$.data.sight").value(nullValue()));
     }
 
     @Test
@@ -124,11 +129,11 @@ class PoiDetailIntegrationTest {
 
         mockMvc.perform(get("/api/v1/pois/{id}", "444"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.sight").doesNotExist())
-                .andExpect(jsonPath("$.data.food").doesNotExist())
-                .andExpect(jsonPath("$.data.stay").doesNotExist())
-                .andExpect(jsonPath("$.data.culture").doesNotExist())
-                .andExpect(jsonPath("$.data.leports").doesNotExist());
+                .andExpect(jsonPath("$.data.sight").value(nullValue()))
+                .andExpect(jsonPath("$.data.food").value(nullValue()))
+                .andExpect(jsonPath("$.data.stay").value(nullValue()))
+                .andExpect(jsonPath("$.data.culture").value(nullValue()))
+                .andExpect(jsonPath("$.data.leports").value(nullValue()));
     }
 
     @Test
