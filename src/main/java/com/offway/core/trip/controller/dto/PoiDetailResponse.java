@@ -32,6 +32,7 @@ import java.util.function.Function;
  * @param leports 레포츠 보조정보(레포츠가 아니면 null)
  * @param food 음식점 보조정보(음식점이 아니면 null)
  * @param stay 숙박 보조정보(숙박이 아니면 null)
+ * @param mapSearchUrl 지도 검색 링크(인허가·국가유산만. 관광 API 콘텐츠는 null)
  * @param catchphrase 구석구석 캐치프레이즈(감성 한 줄, 없으면 null)
  */
 public record PoiDetailResponse(
@@ -50,6 +51,12 @@ public record PoiDetailResponse(
         @Schema(nullable = true) Leports leports,
         @Schema(nullable = true) Food food,
         @Schema(nullable = true) Stay stay,
+        @Schema(
+                description = "지도 검색 링크. 우리가 영업시간·사진을 못 주는 장소(인허가·국가유산)에만 실린다. "
+                        + "인허가 데이터는 \"영업 허가를 받았다\" 는 사실이 목적이라 영업시간이 애초에 없고 "
+                        + "다른 공식 API 로도 못 얻는다. 낡은 영업시간을 우리가 보여주는 것보다 지도로 넘기는 편이 낫다.",
+                example = "https://map.naver.com/p/search/%EC%9D%98%EC%84%B1%EA%B5%B0+%EC%98%AC%EC%9D%B8%EB%AA%A8%ED%85%94",
+                nullable = true) String mapSearchUrl,
         @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase)
         implements LogSummary {
 
@@ -135,6 +142,7 @@ public record PoiDetailResponse(
                         it -> new Food(it.useTime(), it.restDate(), it.signatureMenu(), it.menus())),
                 blockFor(type, PoiContentType.STAY, intro,
                         it -> new Stay(it.checkIn(), it.checkOut(), it.roomCount(), it.reservation())),
+                poi.mapSearchUrl(),
                 poi.catchphrase());
     }
 
