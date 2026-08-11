@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -42,12 +44,15 @@ class GalleryPhotoClientImpl implements GalleryPhotoClient {
     private static final String ARRANGE_TITLE = "A";
 
     private final WebClient webClient;
+    private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    GalleryPhotoClientImpl(WebClient externalWebClient, ExternalApiProperties props) {
+    GalleryPhotoClientImpl(WebClient externalWebClient, ExternalApiProperties props,
+            ExternalApiCallRecorder callRecorder) {
         this.webClient = externalWebClient;
         this.props = props;
+        this.callRecorder = callRecorder;
     }
 
     @Override
@@ -76,6 +81,8 @@ class GalleryPhotoClientImpl implements GalleryPhotoClient {
     private String call(UriComponentsBuilder builder) {
         // serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(#165).
         URI uri = builder.build(true).toUri();
+        // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
+        callRecorder.record(ExternalApi.TOUR_GALLERY);
         return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
     }
 

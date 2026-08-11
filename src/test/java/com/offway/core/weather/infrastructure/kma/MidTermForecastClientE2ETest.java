@@ -1,5 +1,6 @@
 package com.offway.core.weather.infrastructure.kma;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,7 +34,7 @@ class MidTermForecastClientE2ETest {
     private static MidTermForecastClient client() {
         ExternalApiProperties props = new ExternalApiProperties(
                 new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
-        return new MidTermForecastClientImpl(WebClient.builder().build(), props);
+        return new MidTermForecastClientImpl(WebClient.builder().build(), props, new NoOpCallRecorder());
     }
 
     @ParameterizedTest(name = "{0} 구역이 실제로 응답한다")

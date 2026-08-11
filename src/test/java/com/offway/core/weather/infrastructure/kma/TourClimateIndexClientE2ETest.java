@@ -1,5 +1,6 @@
 package com.offway.core.weather.infrastructure.kma;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -53,7 +54,7 @@ class TourClimateIndexClientE2ETest {
                 new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
         return new TourClimateIndexClientImpl(WebClient.builder()
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
-                .build(), props);
+                .build(), props, new NoOpCallRecorder());
     }
 
     @Test

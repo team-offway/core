@@ -1,5 +1,6 @@
 package com.offway.core.trip.infrastructure.datalab;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -49,7 +50,7 @@ class TourDataLabClientImplTest {
     }
 
     private static TourDataLabClient client(String body) {
-        return new TourDataLabClientImpl(stubbing(json(body)), WITH_KEY);
+        return new TourDataLabClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder());
     }
 
     @Test
@@ -85,7 +86,7 @@ class TourDataLabClientImplTest {
                     throw new AssertionError("키가 없는데 외부 호출이 일어났다");
                 })
                 .build();
-        TourDataLabClient client = new TourDataLabClientImpl(neverCalled, NO_KEY);
+        TourDataLabClient client = new TourDataLabClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder());
 
         assertTrue(client.findRegionVisitors(FROM, TO, 1, 10, AMPLE).items().isEmpty());
     }
@@ -157,7 +158,7 @@ class TourDataLabClientImplTest {
     void 남은_예산이_자체_timeout보다_짧으면_그만큼만_기다린다() {
         // 응답이 오지 않는 서버 — 대기 시간이 순수하게 timeout 설정에서만 나온다.
         WebClient hanging = WebClient.builder().exchangeFunction(request -> Mono.never()).build();
-        TourDataLabClient client = new TourDataLabClientImpl(hanging, WITH_KEY);
+        TourDataLabClient client = new TourDataLabClientImpl(hanging, WITH_KEY, new NoOpCallRecorder());
 
         long startedAt = System.nanoTime();
         assertThrows(TourApiException.class,
@@ -176,7 +177,7 @@ class TourDataLabClientImplTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"error\":\"down\"}")
                 .build();
-        TourDataLabClient client = new TourDataLabClientImpl(stubbing(error), WITH_KEY);
+        TourDataLabClient client = new TourDataLabClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder());
 
         TourApiException ex =
                 assertThrows(TourApiException.class, () -> client.findRegionVisitors(FROM, TO, 1, 10, AMPLE));

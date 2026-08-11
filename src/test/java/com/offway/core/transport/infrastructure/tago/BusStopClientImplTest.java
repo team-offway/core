@@ -1,5 +1,6 @@
 package com.offway.core.transport.infrastructure.tago;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -36,7 +37,7 @@ class BusStopClientImplTest {
                 .body(body)
                 .build();
         WebClient webClient = WebClient.builder().exchangeFunction(request -> Mono.just(response)).build();
-        return new BusStopClientImpl(webClient, WITH_KEY);
+        return new BusStopClientImpl(webClient, WITH_KEY, new NoOpCallRecorder());
     }
 
     @Test
@@ -151,7 +152,7 @@ class BusStopClientImplTest {
                 })
                 .build();
 
-        new BusStopClientImpl(webClient, WITH_KEY).coveredCities();
+        new BusStopClientImpl(webClient, WITH_KEY, new NoOpCallRecorder()).coveredCities();
 
         Matcher numOfRows = Pattern.compile("numOfRows=(\\d+)").matcher(requestedUri.get());
         assertTrue(numOfRows.find(), "numOfRows 파라미터가 없다: " + requestedUri.get());
@@ -168,7 +169,7 @@ class BusStopClientImplTest {
                 })
                 .build();
 
-        assertTrue(new BusStopClientImpl(neverCalled, NO_KEY).coveredCities().isEmpty());
+        assertTrue(new BusStopClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder()).coveredCities().isEmpty());
     }
 
     @Test
@@ -180,6 +181,6 @@ class BusStopClientImplTest {
                 .build();
 
         assertInstanceOf(
-                BusStopAccess.Unavailable.class, new BusStopClientImpl(neverCalled, NO_KEY).nearbyStops(LAT, LNG));
+                BusStopAccess.Unavailable.class, new BusStopClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder()).nearbyStops(LAT, LNG));
     }
 }
