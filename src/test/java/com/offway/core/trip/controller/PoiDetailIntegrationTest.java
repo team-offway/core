@@ -181,8 +181,11 @@ class PoiDetailIntegrationTest {
         tourApiClient.respondDetail(() -> {
             throw new AssertionError("국가유산 식별자를 TourAPI 에 물었다");
         });
+        // 사진과 설명을 둘 다 단언하므로 후보도 둘 다 있는 것으로 고른다. 사진만 보고 고르면
+        // "사진은 있고 설명은 없는" 건(적재분 기준 설명 98.9%)이 앞에 왔을 때 깨진다 — 풀 파일을
+        // 갱신하는 순간 원인을 알기 어려운 실패가 된다.
         HeritagePlace heritage = heritagePlaceRepository.findVisitableCandidates(UISEONG, 10).stream()
-                .filter(place -> place.getImageUrl() != null)
+                .filter(place -> place.getImageUrl() != null && place.getDescription() != null)
                 .findFirst()
                 .orElseThrow();
 

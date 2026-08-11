@@ -17,7 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
  * 국가유산 부팅 적재(#160) — <b>무엇을 싣고 무엇을 버리는가</b>.
  *
  * <p>여기서 읽는 파일은 {@code src/test/resources/data/heritage-pool.csv.gz} 의 소량 풀이다(테스트 classpath 가
- * main 보다 앞선다). 다른 통합 테스트들이 stub 으로 "후보 없음" 시나리오를 만들기 때문에, 배포용 3,735건을
+ * main 보다 앞선다). 다른 통합 테스트들이 stub 으로 "후보 없음" 시나리오를 만들기 때문에, 배포용 3,443건을
  * 전량 실으면 그 통제가 무너진다. 장소 풀(#144)과 같은 구성이다.
  */
 @SpringBootTest
@@ -116,12 +116,18 @@ class HeritagePoolLoadIntegrationTest {
 
     @Test
     void 체크섬이_다르면_다시_채운다() {
-        heritagePlaceRepository.deleteAll();
-        heritagePoolSourceRepository.record("stale-checksum", 0);
+        // 복구를 단언 뒤에 두면 안 된다. 이 테스트는 적재를 통째로 지우고 시작하는데, 단언이 실패하면
+        // 복구가 실행되지 않아 DB 가 빈 채로 남는다. @SpringBootTest 컨텍스트를 다른 클래스와 공유하므로
+        // 뒤따르는 통합 테스트가 줄줄이 깨지고, 진짜 원인은 맨 앞의 실패 하나다 — 찾기 아주 번거롭다.
+        try {
+            heritagePlaceRepository.deleteAll();
+            heritagePoolSourceRepository.record("stale-checksum", 0);
 
-        heritagePoolLoader.load();
+            heritagePoolLoader.load();
 
-        assertTrue(heritagePlaceRepository.count() > 0, "파일이 바뀌었는데 다시 채우지 않았습니다");
-        restorePool();
+            assertTrue(heritagePlaceRepository.count() > 0, "파일이 바뀌었는데 다시 채우지 않았습니다");
+        } finally {
+            restorePool();
+        }
     }
 }
