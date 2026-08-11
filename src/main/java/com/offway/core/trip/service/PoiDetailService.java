@@ -78,19 +78,19 @@ public class PoiDetailService {
      */
     private PoiDetail heritageDetail(long id) {
         HeritagePlace heritage = heritagePlaceRepository.findById(id).orElseThrow(TourApiException::poiNotFound);
-        return new PoiDetail(
+        // 보조정보 없음을 팩토리로 말한다 — 생성자에 null 을 줄줄이 넘기면 필드가 늘 때마다 여기가 깨진다.
+        // 실제로 그렇게 깨졌다: #235 가 운영시간·휴무일을 intro 하나로 접었는데 이 호출은 둘을 따로 넘기고
+        // 있어서, 텍스트 충돌 없이 머지된 뒤 컴파일에서 터졌다.
+        return PoiDetail.withoutIntro(
                 heritage.publicId(),
                 LICENSED_CONTENT_TYPE,
                 heritage.getName(),
                 heritage.getAddress(),
-                null, // 전화
+                null, // 전화 — 국가유산청이 주지 않는다
                 heritage.getLat(),
                 heritage.getLng(),
                 heritage.getImageUrl(),
-                heritage.getDescription(),
-                null, // 운영시간
-                null, // 휴무일
-                null); // 캐치프레이즈
+                heritage.getDescription());
     }
 
     /** 인허가 장소의 상세 — 우리가 가진 것만 채우고 나머지는 비운다. 없는 것을 지어내지 않는다. */
