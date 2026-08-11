@@ -22,12 +22,20 @@ public record PoiDetail(
         String overview,
         /** 카테고리별 보조정보. 우리 DB 출처(인허가·국가유산)는 없어 null 이다. */
         PoiIntro intro,
+        /**
+         * 지도 검색 링크(#161) — 우리가 영업시간·사진을 못 주는 장소를 지도로 넘긴다.
+         *
+         * <p>관광 API 콘텐츠에는 붙이지 않는다. 그쪽은 사진·소개·운영시간이 우리 응답에 이미 들어 있어,
+         * 링크를 함께 주면 사용자가 어디를 봐야 할지 갈린다.
+         */
+        String mapSearchUrl,
         String catchphrase) {
 
     /** 관광 API 콘텐츠가 아닌 장소 — 보조정보가 없다. */
     public static PoiDetail withoutIntro(
             String contentId, Integer contentTypeId, String title, String address, String tel,
-            Double lat, Double lng, String imageUrl, String overview) {
-        return new PoiDetail(contentId, contentTypeId, title, address, tel, lat, lng, imageUrl, overview, null, null);
+            Double lat, Double lng, String imageUrl, String overview, String mapSearchUrl) {
+        return new PoiDetail(
+                contentId, contentTypeId, title, address, tel, lat, lng, imageUrl, overview, null, mapSearchUrl, null);
     }
 }

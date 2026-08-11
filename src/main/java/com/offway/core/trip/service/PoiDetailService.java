@@ -2,6 +2,7 @@ package com.offway.core.trip.service;
 
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
+import com.offway.core.trip.domain.MapSearchLink;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.domain.PoiIntro;
@@ -65,6 +66,7 @@ public class PoiDetailService {
                 detail.imageUrl(),
                 detail.overview(),
                 intro,
+                null, // 관광 API 콘텐츠는 사진·소개·운영시간이 이미 있어 지도로 넘길 이유가 없다
                 catchphraseProvider.forContentId(contentId).orElse(null));
     }
 
@@ -90,7 +92,9 @@ public class PoiDetailService {
                 heritage.getLat(),
                 heritage.getLng(),
                 heritage.getImageUrl(),
-                heritage.getDescription());
+                heritage.getDescription(),
+                // 국가유산도 운영시간·전화가 없다. 사진·설명은 있지만 "언제 여나" 는 지도가 답한다.
+                MapSearchLink.of(heritage.getName(), heritage.getAddress()).orElse(null));
     }
 
     /** 인허가 장소의 상세 — 우리가 가진 것만 채우고 나머지는 비운다. 없는 것을 지어내지 않는다. */
@@ -104,7 +108,8 @@ public class PoiDetailService {
                 place.getTel(),
                 place.getLat(),
                 place.getLng(),
-                null,  // 사진
-                null); // 소개글
+                null, // 사진
+                null, // 소개글
+                MapSearchLink.of(place.getName(), place.getAddress()).orElse(null));
     }
 }
