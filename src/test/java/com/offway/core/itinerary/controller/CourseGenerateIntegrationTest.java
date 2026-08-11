@@ -14,7 +14,6 @@ import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
-import com.offway.core.weather.domain.AirGrade;
 import com.offway.core.weather.domain.DailyWeather;
 import com.offway.core.weather.domain.SkyState;
 import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
@@ -379,7 +378,7 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.travelDate").value("2026-05-01"));
     }
 
-    /** 지역 1(부산광역시 동구)의 시도 — 대기질은 시도 단위 발표라 워밍 키가 된다. */
+    /** 지역 1(부산광역시 동구)의 시도. */
     private static final String REGION_SIDO = "부산광역시";
 
     private static LocalDate today() {

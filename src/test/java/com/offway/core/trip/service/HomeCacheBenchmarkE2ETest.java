@@ -14,7 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
  * (실 외부 호출이라 CI 기본 실행 제외).
  *
  * <ul>
- *   <li><b>캐시 OFF</b> — 매 호출 <b>직전</b> 캐시를 비워, 그 호출이 외부 팬아웃(랭킹 관광빅데이터 + 콘텐츠 TourAPI×N + 미세먼지)을 타게 한다.
+ *   <li><b>캐시 OFF</b> — 매 호출 <b>직전</b> 캐시를 비워, 그 호출이 외부 팬아웃(랭킹 관광빅데이터 + 콘텐츠 TourAPI×N)을 타게 한다.
  *   <li><b>캐시 ON</b> — 한 번 데운 뒤 호출 → 전부 인메모리 캐시에서 응답.
  * </ul>
  *

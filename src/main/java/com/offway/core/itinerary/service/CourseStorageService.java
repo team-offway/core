@@ -287,7 +287,7 @@ public class CourseStorageService {
         return assemble(course, region, withTrainAccess ? trainAccessFor(course, region) : null);
     }
 
-    /** 코스 지역 — 슬롯 표시명·열차·대기질이 모두 이 값을 쓴다. 한 번만 읽는다. */
+    /** 코스 지역 — 슬롯 표시명·날씨·열차 접근이 모두 이 값을 쓴다. 한 번만 읽는다. */
     private Region regionOf(Course course) {
         return regionRepository.findByIds(List.of(course.getRegionId())).stream()
                 .findFirst()

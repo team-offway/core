@@ -14,7 +14,6 @@ import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
-import com.offway.core.weather.domain.AirGrade;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;

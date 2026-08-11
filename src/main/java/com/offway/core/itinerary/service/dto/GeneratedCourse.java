@@ -35,7 +35,7 @@ public record GeneratedCourse(
         weatherByDay = weatherByDay == null ? Map.of() : Map.copyOf(weatherByDay);
     }
 
-    /** 날씨·열차 접근·대기질 없이(목록 조회 등). 지역명은 슬롯 표시에 쓰이므로 저장 코스도 채운다. */
+    /** 날씨·열차 접근 없이(목록 조회 등). 지역명은 슬롯 표시에 쓰이므로 저장 코스도 채운다. */
     public static GeneratedCourse of(Course course, List<Benefit> benefits, String regionName) {
         return new GeneratedCourse(course, benefits, Map.of(), null, regionName, null, null);
     }
