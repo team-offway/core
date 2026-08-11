@@ -3,7 +3,7 @@ package com.offway.core.trip.service;
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionMaster;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.service.TravelTimeProvider;
 import com.offway.core.trip.domain.RegionContent;
@@ -36,7 +36,7 @@ public class RegionRecommendationService {
     /** 콘텐츠를 붙여 반환하는 후보 상한 — TourAPI 호출량을 반환 후보로 한정한다(랭킹 상위만 노출). */
     private static final int CONTENT_LOOKUP_LIMIT = 20;
 
-    private final RegionRepository regionRepository;
+    private final RegionMaster regionMaster;
     private final TravelTimeProvider travelTimeProvider;
     private final RegionRankingService regionRankingService;
     private final RegionContentProvider regionContentProvider;
@@ -45,7 +45,7 @@ public class RegionRecommendationService {
 
     public List<RecommendedRegion> recommend(RecommendRegions command) {
         Coordinate origin = new Coordinate(command.originLat(), command.originLng());
-        List<Region> allRegions = regionRepository.findAll();
+        List<Region> allRegions = regionMaster.all();
 
         // 1. 도달 필터 — 도달시간(직선거리 interim) ≤ 한계
         Map<Long, Integer> reachByRegion = new HashMap<>();
