@@ -50,7 +50,6 @@ public class CourseStorageService {
     private final PolicyService policyService;
     private final RegionRepository regionRepository;
     private final CourseWeatherProvider courseWeatherProvider;
-    private final CourseAirQualityProvider courseAirQualityProvider;
     private final CoursePersistenceService coursePersistenceService;
     private final CourseLeaveDeductionService courseLeaveDeductionService;
     private final MyLeaveService myLeaveService;
@@ -312,6 +311,6 @@ public class CourseStorageService {
         // 공유 토큰은 조립이 아니라 영속 경계에서 온다 — 필요한 호출자가 withShareToken 으로 얹는다(#143).
         return new GeneratedCourse(
                 course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
-                courseAirQualityProvider.of(course, region), null, null);
+                null, null);
     }
 }

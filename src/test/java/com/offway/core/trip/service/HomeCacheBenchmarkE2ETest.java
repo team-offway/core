@@ -2,7 +2,6 @@ package com.offway.core.trip.service;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.offway.core.weather.service.AirQualityService;
 import java.util.Arrays;
 import java.util.function.LongSupplier;
 import org.junit.jupiter.api.Test;
@@ -42,9 +41,6 @@ class HomeCacheBenchmarkE2ETest {
     @Autowired
     private RegionContentProvider contentProvider;
 
-    @Autowired
-    private AirQualityService airQualityService;
-
     @Test
     void 홈_API_캐시_전후_응답시간_측정() {
         long[] cold = new long[RUNS];
@@ -83,7 +79,6 @@ class HomeCacheBenchmarkE2ETest {
     private void evictAll() {
         rankingService.evictCache();
         contentProvider.evictCache();
-        airQualityService.evictCache();
     }
 
     private static long measureMillis(LongSupplier work) {
