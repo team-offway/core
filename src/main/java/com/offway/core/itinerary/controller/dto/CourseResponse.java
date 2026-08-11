@@ -7,7 +7,6 @@ import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.service.dto.TrainAccess;
-import com.offway.core.weather.domain.AirQuality;
 import com.offway.core.weather.domain.DailyWeather;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -28,9 +27,6 @@ import java.util.List;
  *     {@code POST /courses} 의 필수값을 복원하는 근거이기도 하다(#170)
  * @param days 날짜별 일정
  * @param benefits 적용 혜택 뱃지
- * @param airQuality 코스 지역의 <b>실시간</b> 대기질. <b>오늘 여행 중인 코스에만</b> 실린다(오늘 출발이거나
- *     여행 중). 예보가 아니라 조회 시점의 측정치라, 다음 주 코스에 붙이면 여행일 공기질로 오해된다.
- *     화면에는 "현재 기준" 임이 드러나게 표기하는 편이 좋다. 그 밖에는 필드가 없다
  * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근. <b>null 은 오류가 아니다</b> — 자차 코스이거나,
  *     출발지 없이 저장된 코스(저장 요청에 {@code originLat}·{@code originLng} 를 안 보낸 경우)다. 저장 코스도
  *     출발지가 있으면 조회 시점에 다시 계산해 채운다(#187)
@@ -61,10 +57,6 @@ public record CourseResponse(
         List<Benefit> benefits,
         @Schema(description = "대중교통 코스의 출발지→지역 열차 접근 (자차·저장 코스는 null)", nullable = true)
                 TrainAccessResponse trainAccess,
-        @Schema(
-                        description = "코스 지역의 실시간 대기질. 오늘 여행 중인 코스에만 실린다 (조회 시점 측정치)",
-                        nullable = true)
-                AirQualityResponse airQuality,
         @Schema(
                         description = "공유 링크 토큰 (저장 응답에만 실린다). 공유 URL 은 /c/{shareToken}",
                         example = "a1B2c3D4e5F6g7H8i9J0kL",
@@ -99,16 +91,17 @@ public record CourseResponse(
                 course.getTravelDate(),
                 course.getDensity().name(),
                 course.getTransport().name(),
-                course.getDays().stream()
-                        .map(day -> Day.from(
-                                day,
+                // 날짜가 바뀌는 구간의 거리는 여기서 잰다 — 좌표가 이미 있어 외부 호출이 없다(#188).
+                IntStream.range(0, course.getDays().size())
+                        .mapToObj(i -> Day.from(
+                                course.getDays().get(i),
                                 course.getTravelDate(),
                                 generated.regionName(),
-                                generated.weatherByDay().get(day.getDayNumber())))
+                                generated.weatherByDay().get(course.getDays().get(i).getDayNumber()),
+                                course.distanceFromPrevDayMeters(i)))
                         .toList(),
                 generated.benefits().stream().map(Benefit::from).toList(),
                 generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()),
-                generated.airQuality() == null ? null : AirQualityResponse.from(generated.airQuality()),
                 generated.shareToken(),
                 generated.firstDayChange() == null ? null : generated.firstDayChange().name());
     }
@@ -134,7 +127,6 @@ public record CourseResponse(
                 owned.days(),
                 owned.benefits(),
                 owned.trainAccess(),
-                owned.airQuality(),
                 null, // shareToken — 이미 URL 에 있다
                 null); // firstDayChange — 날짜 수정은 소유자만 한다
     }
@@ -186,10 +178,15 @@ public record CourseResponse(
             @Schema(example = "2026-07-26", nullable = true) LocalDate date,
             @Schema(description = "요일", example = "SATURDAY", nullable = true) String dayOfWeek,
             @Schema(description = "그날의 날씨 (예보 없으면 null)", nullable = true) Weather weather,
+            @Schema(description = "전날 마지막 장소에서 이날 첫 장소까지 직선거리(m). 첫날은 null",
+                    example = "41200", nullable = true) Integer distanceFromPrevDayMeters,
+            @Schema(description = "전날 마지막 장소에서 이날 첫 장소까지 이동시간(분). 첫날은 null",
+                    example = "52", nullable = true) Integer travelMinutesFromPrevDay,
             List<Item> items) {
 
         static Day from(
-                DaySchedule schedule, LocalDate travelDate, String regionName, DailyWeather weather) {
+                DaySchedule schedule, LocalDate travelDate, String regionName, DailyWeather weather,
+                Integer distanceFromPrevDayMeters) {
             // 표시 번호가 아니라 달력 오프셋으로 센다 — 첫날이 빠진 코스에서 하루 앞당겨지지 않게(#159).
             LocalDate date = travelDate == null ? null : travelDate.plusDays(schedule.getDayOffset());
             List<Slot> slots = schedule.getSlots();
@@ -201,6 +198,8 @@ public record CourseResponse(
                     date,
                     date == null ? null : date.getDayOfWeek().name(),
                     weather == null ? null : Weather.from(weather),
+                    distanceFromPrevDayMeters,
+                    schedule.getTravelMinutesFromPrevDay(),
                     items);
         }
     }
@@ -313,27 +312,6 @@ public record CourseResponse(
                     weather.maxTemp(),
                     weather.sky().label(),
                     weather.rainProbability());
-        }
-    }
-
-    /**
-     * 코스 지역의 실시간 대기질 — 시도 단위 발표라 코스에 하나만 붙는다.
-     *
-     * <p><b>예보가 아니다.</b> 조회 시점의 측정치라 오늘 여행 중인 코스에만 실린다. 홈 카드에 붙어 있던 것을
-     * 여기로 옮겼다 — 다음 주 여행지를 고르는 자리에서 지금 공기질은 판단 근거가 못 되고, 그것 때문에 홈이
-     * 외부 호출을 물고 느려졌다.
-     *
-     * @param pm10 미세먼지 평균 (㎍/㎥, 없으면 null)
-     * @param pm25 초미세먼지 평균 (㎍/㎥, 없으면 null)
-     * @param grade 통합대기환경 등급 문구 (좋음·보통·나쁨·매우나쁨·정보없음)
-     */
-    public record AirQualityResponse(
-            @Schema(example = "45", nullable = true) Integer pm10,
-            @Schema(example = "23", nullable = true) Integer pm25,
-            @Schema(example = "보통") String grade) {
-
-        static AirQualityResponse from(AirQuality air) {
-            return new AirQualityResponse(air.pm10(), air.pm25(), air.grade().label());
         }
     }
 

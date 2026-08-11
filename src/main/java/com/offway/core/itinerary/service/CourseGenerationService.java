@@ -31,6 +31,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.Set;
@@ -58,7 +59,6 @@ public class CourseGenerationService {
     private final RouteOptimizer routeOptimizer;
     private final PolicyService policyService;
     private final CourseWeatherProvider courseWeatherProvider;
-    private final CourseAirQualityProvider courseAirQualityProvider;
     private final RegionRepository regionRepository;
     private final TrainAccessService trainAccessService;
 
@@ -129,11 +129,10 @@ public class CourseGenerationService {
         log.debug("코스 생성 regionId={} days={} slots={} benefits={} weatherDays={} trainAccess={}",
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
                 weatherByDay.size(), trainAccess != null ? trainAccess.status() : "N/A");
-        // 실시간 대기질은 오늘 여행 중인 코스에만 붙는다 — 예보가 아니라 지금 이 순간의 측정치다.
         // 공유 토큰은 저장한 코스에만 있다 — 아직 저장 전이라 null 이다(#143).
         return new GeneratedCourse(
                 course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
-                courseAirQualityProvider.of(course, region), null, null);
+                null, null);
     }
 
     /**
@@ -269,7 +268,32 @@ public class CourseGenerationService {
         if (days.isEmpty()) {
             throw ItineraryException.courseNotBuildable();
         }
+        fillDayGaps(days, command.transport());
         return days;
+    }
+
+    /**
+     * 날짜가 바뀌는 구간의 이동시간을 채운다(#188) — 전날 마지막 장소(보통 숙소)에서 이날 첫 장소까지.
+     *
+     * <p>슬롯 사이와 <b>같은 방식</b>으로 잰다. 한 화면에서 12분(실도로)과 45분(직선 근사)이 섞여 나가면
+     * 사용자가 둘을 같은 정밀도로 읽는다.
+     *
+     * <p>호출은 코스당 <b>여행일수 − 1</b> 회다. 2박3일이면 2회로, 하루 안 구간(슬롯 수만큼)에 비하면 작다.
+     *
+     * <p>거리는 여기서 안 잰다 — 좌표만 있으면 응답 시점에 계산되므로 저장할 이유가 없다.
+     */
+    private void fillDayGaps(List<DaySchedule> days, TransportMode transport) {
+        for (int i = 1; i < days.size(); i++) {
+            Optional<Slot> from = days.get(i - 1).lastSlot();
+            Optional<Slot> to = days.get(i).firstSlot();
+            if (from.isEmpty() || to.isEmpty()) {
+                continue; // 빈 날은 애초에 목록에 안 들어오지만, 들어와도 지어내지 않는다
+            }
+            days.get(i).arriveFromPrevDayIn(legMinutes(
+                    new Coordinate(from.get().getLat(), from.get().getLng()),
+                    new Coordinate(to.get().getLat(), to.get().getLng()),
+                    transport));
+        }
     }
 
     /**

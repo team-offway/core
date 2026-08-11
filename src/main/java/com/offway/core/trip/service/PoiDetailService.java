@@ -2,6 +2,7 @@ package com.offway.core.trip.service;
 
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
+import com.offway.core.trip.domain.PoiContentType;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.domain.PoiIntro;
@@ -57,6 +58,7 @@ public class PoiDetailService {
         return new PoiDetail(
                 detail.contentId(),
                 detail.contentTypeId(),
+                PoiContentType.labelOf(detail.contentTypeId()),
                 detail.title(),
                 detail.address(),
                 detail.tel(),
@@ -84,6 +86,8 @@ public class PoiDetailService {
         return PoiDetail.withoutIntro(
                 heritage.publicId(),
                 NON_TOUR_CONTENT_TYPE,
+                // 종목이 곧 뱃지다 — `국보`·`보물`·`사적`·`천연기념물`. 대분류(유적건조물)보다 사용자에게 익다.
+                heritage.getKind(),
                 heritage.getName(),
                 heritage.getAddress(),
                 null, // 전화 — 국가유산청이 주지 않는다
@@ -99,6 +103,8 @@ public class PoiDetailService {
         return PoiDetail.withoutIntro(
                 place.publicId(),
                 NON_TOUR_CONTENT_TYPE,
+                // 인허가는 업종 분류가 곧 뱃지다 — `한옥체험`·`전통사찰`·`한식`.
+                place.getCategory().label(),
                 place.getName(),
                 place.getAddress(),
                 place.getTel(),

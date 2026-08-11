@@ -17,7 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
  * 국가유산 부팅 적재(#160) — <b>무엇을 싣고 무엇을 버리는가</b>.
  *
  * <p>여기서 읽는 파일은 {@code src/test/resources/data/heritage-pool.csv.gz} 의 소량 풀이다(테스트 classpath 가
- * main 보다 앞선다). 다른 통합 테스트들이 stub 으로 "후보 없음" 시나리오를 만들기 때문에, 배포용 3,443건을
+ * main 보다 앞선다). 다른 통합 테스트들이 stub 으로 "후보 없음" 시나리오를 만들기 때문에, 배포용 3,437건을
  * 전량 실으면 그 통제가 무너진다. 장소 풀(#144)과 같은 구성이다.
  */
 @SpringBootTest
@@ -80,6 +80,14 @@ class HeritagePoolLoadIntegrationTest {
         List<HeritagePlace> found = heritagePlaceRepository.findVisitableCandidates(UISEONG, CANDIDATE_LIMIT);
 
         assertTrue(found.stream().noneMatch(place -> place.getName().equals("의성 어느 옛터")));
+    }
+
+    @Test
+    void 소재지가_없으면_싣지_않는다() {
+        // 좌표는 있어 지도에는 찍히지만 카드에 주소 줄이 빈다. 실측 6건(`연천 심원사지` 등)이 여기 해당한다.
+        List<HeritagePlace> found = heritagePlaceRepository.findVisitableCandidates(UISEONG, CANDIDATE_LIMIT);
+
+        assertTrue(found.stream().noneMatch(place -> place.getName().equals("의성 어느 산성")));
     }
 
     @Test

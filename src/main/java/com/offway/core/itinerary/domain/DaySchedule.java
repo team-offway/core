@@ -14,6 +14,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.util.List;
+import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -57,6 +58,15 @@ public class DaySchedule {
     @OrderBy("orderInDay")
     private List<Slot> slots;
 
+    /**
+     * 전날 마지막 장소에서 이날 첫 장소까지 이동시간(분). 첫날은 null(#188).
+     *
+     * <p><b>왜 영속하나.</b> 거리는 좌표만 있으면 응답 시점에 계산되지만 이동시간은 실도로 경로라 외부 호출이
+     * 필요하다. 요청 경로에 외부 I/O 를 넣지 않는다는 규약대로, 슬롯 이동시간과 똑같이 생성 시점에 받아 둔다.
+     */
+    @Column(name = "travel_minutes_from_prev_day")
+    private Integer travelMinutesFromPrevDay;
+
     private DaySchedule(int dayNumber, int dayOffset, List<Slot> slots) {
         if (dayNumber < 1) {
             throw new IllegalArgumentException("일차는 1 이상이어야 합니다: " + dayNumber);
@@ -81,6 +91,26 @@ public class DaySchedule {
      */
     public static DaySchedule of(int dayNumber, int dayOffset, List<Slot> slots) {
         return new DaySchedule(dayNumber, dayOffset, slots);
+    }
+
+    /**
+     * 전날에서 이날까지 걸린 시간을 채운다 — 생성 시점에 한 번.
+     *
+     * <p>setter 를 열지 않고 이름 있는 메서드로 둔다. 값의 뜻이 "전날 마지막 장소에서 여기까지" 라, 아무 때나
+     * 아무 값으로 바꿀 수 있으면 그 뜻이 지켜지지 않는다.
+     */
+    public void arriveFromPrevDayIn(Integer minutes) {
+        this.travelMinutesFromPrevDay = minutes;
+    }
+
+    /** 이날 첫 장소. 슬롯이 없으면 비어 있음. */
+    public Optional<Slot> firstSlot() {
+        return slots.isEmpty() ? Optional.empty() : Optional.of(slots.getFirst());
+    }
+
+    /** 이날 마지막 장소(보통 숙소). 슬롯이 없으면 비어 있음. */
+    public Optional<Slot> lastSlot() {
+        return slots.isEmpty() ? Optional.empty() : Optional.of(slots.getLast());
     }
 
     /** 표시 번호와 달력 위치가 같은 경우(첫날부터 일정이 있는 흔한 코스). */

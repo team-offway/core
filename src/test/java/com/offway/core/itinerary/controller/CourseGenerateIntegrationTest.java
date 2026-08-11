@@ -14,12 +14,8 @@ import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
-import com.offway.core.weather.domain.AirGrade;
-import com.offway.core.weather.domain.AirQuality;
 import com.offway.core.weather.domain.DailyWeather;
 import com.offway.core.weather.domain.SkyState;
-import com.offway.core.weather.infrastructure.airkorea.AirKoreaClient;
-import com.offway.core.weather.infrastructure.airkorea.StubAirKoreaClient;
 import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
 import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
 import java.time.LocalDate;
@@ -56,12 +52,6 @@ class CourseGenerateIntegrationTest {
     private StubKmaWeatherClient weatherClient;
 
     @Autowired
-    private StubAirKoreaClient airKoreaClient;
-
-    @Autowired
-    private com.offway.core.weather.service.AirQualityService airQualityService;
-
-    @Autowired
     private StubTrainInfoClient trainInfoClient;
 
     @Autowired
@@ -86,12 +76,6 @@ class CourseGenerateIntegrationTest {
         @Primary
         TrainInfoClient stubTrainInfoClient() {
             return new StubTrainInfoClient();
-        }
-
-        @Bean
-        @Primary
-        AirKoreaClient stubAirKoreaClient() {
-            return new StubAirKoreaClient();
         }
     }
 
@@ -394,60 +378,25 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.travelDate").value("2026-05-01"));
     }
 
-    /**
-     * 실시간 대기질은 <b>워밍이 채워 둔 값</b>으로만, <b>오늘 여행 중인 코스에만</b> 실린다.
-     *
-     * <p>예전에는 홈 카드마다 시도별로 <b>요청 경로에서</b> 물었다. 에어코리아는 실측(2026-08-10, 102회)에서
-     * 호출의 36%가 실패하고 성공도 p95 가 5.4초라, 그 분포를 사용자가 그대로 떠안아 홈이 24초 걸렸다.
-     * 그래서 자리를 코스로 옮기고, 값은 캐시에 있는 것만 쓰게 했다.
-     */
     @Test
-    void 오늘_떠나는_코스에는_워밍된_대기질이_실린다() throws Exception {
+    void 날짜가_바뀌는_구간의_거리와_시간을_함께_낸다() throws Exception {
+        // 슬롯 사이 거리는 주면서 날짜가 바뀌는 구간만 비어 있었다(#188). 숙소에서 다음날 첫 장소가
+        // 40km 떨어져 있어도 화면에 아무 표시가 없었다.
         tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
         weatherClient.respondByDate(date -> Optional.empty());
-        airQualityService.evictCache();
-        airKoreaClient.respond(() -> Optional.of(new AirQuality(45, 23, AirGrade.MODERATE)));
-        airQualityService.byRegionSido(REGION_SIDO); // 워밍 — 요청 경로는 이 값을 읽기만 한다
 
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(generateBodyOn(today())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.airQuality.pm10").value(45))
-                .andExpect(jsonPath("$.data.airQuality.pm25").value(23))
-                .andExpect(jsonPath("$.data.airQuality.grade").value("보통"));
+                // 첫날은 전날이 없다 — 키 자체가 나가지 않는다.
+                .andExpect(jsonPath("$.data.days[0].distanceFromPrevDayMeters").doesNotExist())
+                .andExpect(jsonPath("$.data.days[0].travelMinutesFromPrevDay").doesNotExist())
+                .andExpect(jsonPath("$.data.days[1].distanceFromPrevDayMeters").isNumber())
+                .andExpect(jsonPath("$.data.days[1].travelMinutesFromPrevDay").isNumber())
+                // 슬롯 규칙은 그대로다 — 하루 첫 슬롯의 앞 거리는 여전히 없다(FE 가 이걸로 하루 시작을 가른다).
+                .andExpect(jsonPath("$.data.days[1].items[0].distanceFromPrevMeters").doesNotExist());
     }
 
-    @Test
-    void 다음주_코스에는_워밍된_값이_있어도_대기질을_붙이지_않는다() throws Exception {
-        // 실시간 측정치라 여행일 상태가 아니다. 값이 있어도 붙이면 사용자가 여행일 공기질로 읽는다.
-        tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
-        weatherClient.respondByDate(date -> Optional.empty());
-        airQualityService.evictCache();
-        airKoreaClient.respond(() -> Optional.of(new AirQuality(45, 23, AirGrade.MODERATE)));
-        airQualityService.byRegionSido(REGION_SIDO);
-
-        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
-                        .content(generateBodyOn(today().plusDays(7))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.airQuality").doesNotExist());
-    }
-
-    @Test
-    void 워밍이_비어_있으면_요청_경로가_에어코리아를_부르지_않는다() throws Exception {
-        // 이게 24초의 원인이었다. 캐시가 비면 사용자 요청이 대신 물어 그 지연을 떠안았다.
-        // stub 이 throw 라, 요청 경로가 부르면 여기서 깨진다.
-        tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
-        weatherClient.respondByDate(date -> Optional.empty());
-        airQualityService.evictCache();
-        airKoreaClient.respond(() -> {
-            throw new AssertionError("요청 경로가 에어코리아를 조회했습니다 — 캐시에 있는 값만 써야 합니다");
-        });
-
-        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(generateBodyOn(today())))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.airQuality").doesNotExist());
-    }
-
-    /** 지역 1(부산광역시 동구)의 시도 — 대기질은 시도 단위 발표라 워밍 키가 된다. */
+    /** 지역 1(부산광역시 동구)의 시도. */
     private static final String REGION_SIDO = "부산광역시";
 
     private static LocalDate today() {

@@ -40,6 +40,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Course {
 
+    /** 거리를 미터로 내리기 위한 환산 — 슬롯 사이 거리와 같은 단위다. */
+    private static final int METERS_PER_KM = 1000;
+
     /** 코스 상한 — 최대 2박3일(feature-spec F4 · 와이어프레임 캘린더 정책). */
     public static final int MAX_TRAVEL_DAYS = 3;
 
@@ -221,16 +224,35 @@ public class Course {
     }
 
     /**
-     * 이 여행이 {@code today} 를 <b>포함</b>하는가 — 오늘 떠나거나, 오늘 여행 중이다.
+     * 전날 마지막 장소에서 {@code dayIndex} 번째 날 첫 장소까지의 직선거리(m) — 첫날은 null(#188).
      *
-     * <p>실시간 값(대기질 등)을 붙일지 가르는 데 쓴다. 그런 값은 <b>예보가 아니라 지금 이 순간의 측정치</b>라,
-     * 다음 주 코스에 붙이면 사용자가 여행일 상태로 읽는다 — 없는 것보다 나쁘다.
+     * <p><b>여기가 비어 있었다.</b> 슬롯 사이 거리는 주면서 날짜가 바뀌는 구간만 없어, 숙소에서 다음날 첫
+     * 장소가 40km 떨어져 있어도 화면에 아무 표시가 없었다. 1박2일·2박3일이면 사용자가 당연히 궁금해하는 구간이다.
      *
-     * <p>시작일만 보지 않는 이유: 3일 코스의 이튿날에 그 지역에 있는 사람에게 실시간 값이 가장 쓸모 있는데,
-     * 시작일 기준이면 바로 그때 사라진다.
-     *
-     * <p>여행 날짜가 없으면 언제인지 알 수 없으므로 거짓이다.
+     * <p>좌표가 이미 슬롯에 있어 <b>외부 호출이 없다</b>. 슬롯 사이 거리와 같은 방식이다.
      */
+    public Integer distanceFromPrevDayMeters(int dayIndex) {
+        if (dayIndex <= 0 || dayIndex >= days.size()) {
+            return null;
+        }
+        Optional<Slot> from = days.get(dayIndex - 1).lastSlot();
+        Optional<Slot> to = days.get(dayIndex).firstSlot();
+        if (from.isEmpty() || to.isEmpty()) {
+            return null;
+        }
+        return straightLineMeters(from.get(), to.get());
+    }
+
+    /** 좌표가 없으면 지어내지 않는다 — 슬롯 좌표는 필수라 닿지 않는 게 정상이다. */
+    private static Integer straightLineMeters(Slot from, Slot to) {
+        if (from.getLat() == null || from.getLng() == null || to.getLat() == null || to.getLng() == null) {
+            return null;
+        }
+        double km = new Coordinate(from.getLat(), from.getLng())
+                .haversineKmTo(new Coordinate(to.getLat(), to.getLng()));
+        return (int) Math.round(km * METERS_PER_KM);
+    }
+
     /**
      * 하루 일정들 — <b>읽기 전용</b>으로 준다.
      *
@@ -305,6 +327,7 @@ public class Course {
         return renumbered;
     }
 
+
     /**
      * 첫날이 <b>달력상 비어 있는가</b> — 생성 때 자정을 넘겨 닿아 통째로 이동이었다는 뜻이다.
      *
@@ -313,10 +336,6 @@ public class Course {
      */
     public boolean firstDayEmptyOnCalendar() {
         return days.getFirst().getDayOffset() > 0;
-    }
-
-    public boolean covers(LocalDate today) {
-        return travelDate != null && !today.isBefore(travelDate) && !today.isAfter(travelEndDate());
     }
 
     /**

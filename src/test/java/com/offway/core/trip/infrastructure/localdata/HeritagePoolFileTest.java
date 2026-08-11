@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 /**
  * 배포에 실리는 국가유산 파일 자체를 검증한다(#160).
  *
- * <p>통합 테스트는 소량 테스트 풀을 읽으므로, 실제로 나가는 3,443건이 온전한지는 여기서만 확인된다.
+ * <p>통합 테스트는 소량 테스트 풀을 읽으므로, 실제로 나가는 3,437건이 온전한지는 여기서만 확인된다.
  * 스크립트를 다시 돌려 파일을 갱신했을 때 커버리지가 조용히 줄어드는 것을 막는 자리다.
  *
  * <p><b>대구 서구(id 5)만 0건인 것이 정상이다.</b> 그 지역의 국가유산이 무형유산 3건뿐이라 방문 대상이 없다.
@@ -33,7 +33,7 @@ class HeritagePoolFileTest {
     /** 국가유산이 무형유산뿐이라 방문 대상이 없는 지역 — 대구광역시 서구. */
     private static final long WITHOUT_VISITABLE_HERITAGE = 5L;
 
-    /** 실측 3,443건. 스크립트가 반쪽만 받아도 파일은 만들어지므로 하한을 둔다. */
+    /** 실측 3,437건. 스크립트가 반쪽만 받아도 파일은 만들어지므로 하한을 둔다. */
     private static final int MINIMUM_PLACES = 3_000;
 
     private static List<HeritagePlace> places;
