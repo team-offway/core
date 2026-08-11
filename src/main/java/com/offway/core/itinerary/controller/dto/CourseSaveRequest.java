@@ -5,6 +5,7 @@ import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.domain.Slot;
+import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.transport.domain.Coordinate;
@@ -135,6 +136,7 @@ public record CourseSaveRequest(
      * @param imageUrl 대표 이미지(생성 응답 값 그대로 — 없으면 null)
      * @param address 주소(없으면 null)
      * @param catchphrase 추천 한 줄 문구(없으면 null)
+     * @param tel 대표 전화(생성 응답 값 그대로 — 없으면 null)
      * @param lat 위도
      * @param lng 경도
      * @param travelMinutes 직전 장소에서 이동시간(첫 장소 0)
@@ -148,14 +150,15 @@ public record CourseSaveRequest(
             @Schema(nullable = true) String imageUrl,
             @Schema(nullable = true) String address,
             @Schema(nullable = true) String catchphrase,
+            @Schema(nullable = true) String tel,
             @NotNull Double lat,
             @NotNull Double lng,
             @NotNull @Min(0) Integer travelMinutes) {
 
         Slot toSlot() {
-            // 표시 정보(이미지·주소·추천 한 줄)를 함께 영속해 저장 코스도 TourAPI 재조회 없이 그린다.
+            // 표시 정보(이미지·주소·추천 한 줄·전화)를 함께 영속해 저장 코스도 TourAPI 재조회 없이 그린다.
             return Slot.of(order, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutes,
-                    imageUrl, address, catchphrase);
+                    new SlotDisplay(imageUrl, address, catchphrase, tel));
         }
     }
 }

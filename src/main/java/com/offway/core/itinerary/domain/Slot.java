@@ -73,8 +73,18 @@ public class Slot {
     @Column(length = 500)
     private String catchphrase;
 
+    /**
+     * 대표 전화(#157) — <b>추가 외부 호출 없이</b> 얻는다.
+     *
+     * <p>후보 조회(`areaBasedList2`) 응답에 이미 들어 있는데 후보 DTO 가 안 들고 와서 버리고 있었다.
+     * 인허가 장소도 49% 가 전화를 갖고 있어 그대로 실린다. "줄 수 있으면 항상 준다" 는 원칙에서
+     * 이미 받아둔 값을 버릴 이유가 없다.
+     */
+    @Column(length = 40)
+    private String tel;
+
     private Slot(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
-            double lat, double lng, int travelMinutesFromPrev, String imageUrl, String address, String catchphrase) {
+            double lat, double lng, int travelMinutesFromPrev, SlotDisplay display) {
         if (orderInDay < 1) {
             throw new IllegalArgumentException("슬롯 순서는 1 이상이어야 합니다: " + orderInDay);
         }
@@ -94,22 +104,30 @@ public class Slot {
         this.lat = lat;
         this.lng = lng;
         this.travelMinutesFromPrev = travelMinutesFromPrev;
-        this.imageUrl = imageUrl; // 표시 정보라 검증하지 않는다(없으면 null)
-        this.address = address;
-        this.catchphrase = catchphrase;
+        // 표시 정보는 검증하지 않는다 — 없으면 그 줄이 안 그려질 뿐이다.
+        SlotDisplay shown = display == null ? SlotDisplay.none() : display;
+        this.imageUrl = shown.imageUrl();
+        this.address = shown.address();
+        this.catchphrase = shown.catchphrase();
+        this.tel = shown.tel();
     }
 
     /** 방문 슬롯을 만든다(표시 정보 없이). 좌표·순서·이동시간 불변식을 스스로 검증한다. */
     public static Slot of(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
             double lat, double lng, int travelMinutesFromPrev) {
-        return of(orderInDay, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutesFromPrev, null, null, null);
+        return of(orderInDay, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutesFromPrev,
+                SlotDisplay.none());
     }
 
-    /** 방문 슬롯을 표시 정보(이미지·주소·추천 한 줄)와 함께 만든다. */
+    /**
+     * 방문 슬롯을 표시 정보와 함께 만든다.
+     *
+     * <p>표시 정보를 값객체로 받는다 — 이미지·주소·캐치프레이즈·전화가 전부 {@code String} 이라 인자로
+     * 줄세우면 순서를 바꿔 넣어도 컴파일이 통과한다.
+     */
     public static Slot of(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
-            double lat, double lng, int travelMinutesFromPrev, String imageUrl, String address, String catchphrase) {
-        return new Slot(orderInDay, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutesFromPrev,
-                imageUrl, address, catchphrase);
+            double lat, double lng, int travelMinutesFromPrev, SlotDisplay display) {
+        return new Slot(orderInDay, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutesFromPrev, display);
     }
 
     private static void requireCoordinate(double value, double min, double max, String name) {

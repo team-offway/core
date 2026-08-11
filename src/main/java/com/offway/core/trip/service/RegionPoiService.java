@@ -132,7 +132,8 @@ public class RegionPoiService {
                 heritage.getLng(),
                 heritage.getImageUrl(),
                 heritage.getAddress(),
-                null);
+                null,  // 캐치프레이즈는 TourAPI 콘텐츠에만 붙는다
+                null); // 국가유산청은 전화를 주지 않는다
     }
 
     /**
@@ -158,7 +159,8 @@ public class RegionPoiService {
                 place.getLng(),
                 null, // 인허가 데이터에는 사진이 없다
                 place.getAddress(),
-                null); // 캐치프레이즈도 TourAPI 콘텐츠에만 붙는다
+                null, // 캐치프레이즈도 TourAPI 콘텐츠에만 붙는다
+                place.getTel()); // 49% 가 채워져 있다 — 있는 것을 버리지 않는다
     }
 
     /**
@@ -200,6 +202,8 @@ public class RegionPoiService {
         // 추천 한 줄(catchphrase)·주소는 코스 슬롯을 트리플식으로 인라인 렌더하기 위한 표시 정보다.
         return new PoiCandidate(
                 poi.contentId(), poi.contentTypeId(), poi.title(), poi.lat(), poi.lng(),
-                poi.firstImage(), poi.address(), catchphraseProvider.forContentId(poi.contentId()).orElse(null));
+                poi.firstImage(), poi.address(), catchphraseProvider.forContentId(poi.contentId()).orElse(null),
+                // 후보 조회 응답에 이미 들어 있다. 여기서 안 들고 가면 상세를 다시 불러야 얻는다.
+                poi.tel());
     }
 }
