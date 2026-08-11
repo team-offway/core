@@ -3,6 +3,7 @@ package com.offway.core.region.service;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.transport.domain.Coordinate;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -43,14 +44,34 @@ public class RegionMaster {
     private final RegionRepository regionRepository;
 
     /**
-     * 전체 지역. {@code volatile} 인 이유는 워밍 스레드가 쓰고 요청 스레드가 읽기 때문이다.
+     * 시드가 비었을 때 다시 시도하기까지의 간격.
      *
-     * <p>불변 리스트를 통째로 갈아끼우므로 부분적으로 채워진 상태가 보이지 않는다.
+     * <p>없으면 요청마다 {@code findAll()} 과 warn 한 줄이 나간다. 홈·추천이 각각 부르므로 빈 환경에서는
+     * 로그가 요청 수만큼 쌓이고, 정작 봐야 할 다른 warn 이 그 안에 묻힌다.
      */
-    private volatile List<Region> all = List.of();
+    private static final Duration EMPTY_RETRY_INTERVAL = Duration.ofMinutes(1);
 
-    /** {@code regionId → 가까운 순으로 정렬된 다른 지역들}. 자기 자신은 빠져 있다. */
-    private volatile Map<Long, List<Neighbor>> neighborsById = Map.of();
+    /**
+     * 지역 목록과 인접 그래프를 <b>한 덩어리로</b> 들고 있는다.
+     *
+     * <p>둘을 각각 {@code volatile} 로 두고 차례로 대입하면 그 사이에 들어온 스레드가 <b>목록은 새 값인데
+     * 그래프는 비어 있는</b> 상태를 본다. 그러면 이웃 조회가 빈 리스트를 돌려주고 콘텐츠 보강이 조용히
+     * 건너뛰어진다 — 예외가 안 나서 로그에도 안 남는다. 하나로 묶으면 그 창이 아예 없다.
+     */
+    private record Snapshot(List<Region> all, Map<Long, List<Neighbor>> neighborsById) {
+
+        private static final Snapshot EMPTY = new Snapshot(List.of(), Map.of());
+
+        private boolean isEmpty() {
+            return all.isEmpty();
+        }
+    }
+
+    /** 워밍 스레드가 쓰고 요청 스레드가 읽는다. 통째로 갈아끼우므로 반쯤 채워진 상태가 보이지 않는다. */
+    private volatile Snapshot snapshot = Snapshot.EMPTY;
+
+    /** 마지막 적재 시도 시각(nanoTime). 빈 시드에서 재시도 간격을 재는 데만 쓴다. */
+    private volatile long lastAttemptNanos = Long.MIN_VALUE;
 
     /** 이웃 하나 — 지역과 그 지역까지의 거리(km). 거리를 함께 들어 쓰는 쪽이 자기 반경으로 자를 수 있다. */
     public record Neighbor(Region region, double distanceKm) {
@@ -69,8 +90,7 @@ public class RegionMaster {
 
     /** 전체 지역(불변). 순서는 저장소가 준 순서 그대로다. */
     public List<Region> all() {
-        ensureLoaded();
-        return all;
+        return ensureLoaded().all();
     }
 
     /**
@@ -79,8 +99,7 @@ public class RegionMaster {
      * @return 없는 지역이면 빈 리스트
      */
     public List<Neighbor> neighborsOf(long regionId) {
-        ensureLoaded();
-        return neighborsById.getOrDefault(regionId, List.of());
+        return ensureLoaded().neighborsById().getOrDefault(regionId, List.of());
     }
 
     /**
@@ -97,32 +116,44 @@ public class RegionMaster {
     }
 
     /**
-     * 비었으면 채운다.
+     * 비었으면 채우고 지금 스냅샷을 준다.
      *
      * <p>이중 채움을 막지 않는다. 두 스레드가 동시에 들어와도 각자 같은 결과를 만들어 같은 값으로 덮을 뿐이라
      * 결과가 어긋나지 않고, 락을 걸면 89행 조회 하나 때문에 요청 스레드가 서로를 기다린다.
+     *
+     * <p><b>빈 채로 돌아오면 간격을 두고 다시 시도한다.</b> 시드가 없는 환경에서 매 요청 DB 를 읽고 warn 을
+     * 남기면, 그 로그가 요청 수만큼 쌓여 정작 봐야 할 경고를 묻는다.
      */
-    private void ensureLoaded() {
-        if (all.isEmpty()) {
-            reload();
+    private Snapshot ensureLoaded() {
+        Snapshot current = snapshot;
+        if (!current.isEmpty() || !retryDue()) {
+            return current;
         }
+        return reload();
     }
 
-    private void reload() {
+    private boolean retryDue() {
+        long last = lastAttemptNanos;
+        return last == Long.MIN_VALUE || System.nanoTime() - last >= EMPTY_RETRY_INTERVAL.toNanos();
+    }
+
+    private Snapshot reload() {
+        lastAttemptNanos = System.nanoTime();
         List<Region> loaded = regionRepository.findAll().stream()
                 .filter(RegionMaster::hasCoordinate)
                 .toList();
         if (loaded.isEmpty()) {
-            // 시드가 아직 없는 상태(테스트·초기 부팅)다. 예외로 부팅을 막지 않는다 — 조회가 비면 그 화면만 빈다.
-            log.warn("좌표를 가진 지역이 없어 마스터를 채우지 못했습니다");
-            return;
+            // 시드가 아직 없는 상태(초기 부팅)다. 예외로 부팅을 막지 않는다 — 조회가 비면 그 화면만 빈다.
+            log.warn("좌표를 가진 지역이 없어 마스터를 채우지 못했습니다. {} 뒤에 다시 시도합니다",
+                    EMPTY_RETRY_INTERVAL);
+            return snapshot;
         }
-        Map<Long, List<Neighbor>> graph = loaded.stream().collect(Collectors.toUnmodifiableMap(
-                Region::getId, region -> sortedNeighbors(region, loaded)));
+        Snapshot filled = new Snapshot(loaded, loaded.stream().collect(Collectors.toUnmodifiableMap(
+                Region::getId, region -> sortedNeighbors(region, loaded))));
 
-        all = loaded;
-        neighborsById = graph;
-        log.info("지역 마스터 적재 완료 지역={} 인접그래프={}", loaded.size(), graph.size());
+        snapshot = filled;
+        log.info("지역 마스터 적재 완료 지역={} 인접그래프={}", loaded.size(), filled.neighborsById().size());
+        return filled;
     }
 
     /** 한 지역에서 나머지 전부를 가까운 순으로. 89 × 88 이라 부팅 때 한 번이면 충분하다. */

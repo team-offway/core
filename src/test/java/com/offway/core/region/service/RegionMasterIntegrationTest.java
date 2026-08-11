@@ -64,13 +64,13 @@ class RegionMasterIntegrationTest {
 
         List<Region> within = regionMaster.neighborsWithin(anyRegion, 50.0, 3);
 
-        assertTrue(within.size() <= 3);
-        assertTrue(regionMaster.neighborsOf(anyRegion).stream()
+        // assertEquals 로 둔다 — 어긋났을 때 어떤 지역 ID 가 어떻게 갈렸는지가 실패 메시지에 그대로 남는다.
+        List<Long> expected = regionMaster.neighborsOf(anyRegion).stream()
                 .filter(neighbor -> neighbor.distanceKm() <= 50.0)
                 .limit(3)
                 .map(neighbor -> neighbor.region().getId())
-                .toList()
-                .equals(within.stream().map(Region::getId).toList()));
+                .toList();
+        assertEquals(expected, within.stream().map(Region::getId).toList());
     }
 
     @Test

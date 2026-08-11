@@ -321,7 +321,6 @@ public class RegionContentProvider {
         }, RegionContent.EMPTY);
     }
 
-    /** 반경 50km 안의 다른 지역을 가까운 순으로 상한만큼. */
     /**
      * 인접 지역 — <b>거리 계산은 부팅 때 끝나 있다</b>(#102).
      *
