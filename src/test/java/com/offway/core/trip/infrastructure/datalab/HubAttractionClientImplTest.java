@@ -1,5 +1,6 @@
 package com.offway.core.trip.infrastructure.datalab;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -44,7 +45,7 @@ class HubAttractionClientImplTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body(body)
                 .build();
-        return new HubAttractionClientImpl(stubbing(response), WITH_KEY);
+        return new HubAttractionClientImpl(stubbing(response), WITH_KEY, new NoOpCallRecorder());
     }
 
     @Test
@@ -133,7 +134,7 @@ class HubAttractionClientImplTest {
     void 키가_없으면_외부를_부르지_않고_빈_목록이다() {
         // 로컬 실행성 — 키 없이도 부팅·동작이 막히지 않는다.
         HubAttractionClient client = new HubAttractionClientImpl(
-                stubbing(ClientResponse.create(HttpStatus.INTERNAL_SERVER_ERROR).build()), NO_KEY);
+                stubbing(ClientResponse.create(HttpStatus.INTERNAL_SERVER_ERROR).build()), NO_KEY, new NoOpCallRecorder());
 
         assertTrue(client.findByRegion(GONGJU, MONTH, 30).isEmpty());
     }

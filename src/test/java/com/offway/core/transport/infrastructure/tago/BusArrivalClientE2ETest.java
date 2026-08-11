@@ -1,5 +1,6 @@
 package com.offway.core.transport.infrastructure.tago;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -35,14 +36,14 @@ class BusArrivalClientE2ETest {
     @Test
     void 근접조회로_얻은_정류소에_도착정보를_실제로_조회한다() {
         WebClient webClient = WebClient.builder().build();
-        BusStopAccess stops = new BusStopClientImpl(webClient, props())
+        BusStopAccess stops = new BusStopClientImpl(webClient, props(), new NoOpCallRecorder())
                 .nearbyStops(CHUNCHEON_STATION_LAT, CHUNCHEON_STATION_LNG);
         if (!(stops instanceof BusStopAccess.Available available)) {
             throw new AssertionError("정류소 조회가 선행돼야 한다. 실제 결과: " + stops);
         }
         BusStop stop = available.nearest();
 
-        BusArrivalStatus result = new BusArrivalClientImpl(webClient, props()).arrivalsAt(stop);
+        BusArrivalStatus result = new BusArrivalClientImpl(webClient, props(), new NoOpCallRecorder()).arrivalsAt(stop);
 
         // 심야·비운행 시간대엔 오는 버스가 없을 수 있다(NoBusSoon, 정상). Unavailable 만이 접점 실패다.
         assertFalse(

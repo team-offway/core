@@ -1,5 +1,6 @@
 package com.offway.core.weather.infrastructure.kma;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -36,7 +37,7 @@ class KmaWeatherClientE2ETest {
     private static KmaWeatherClient client() {
         ExternalApiProperties props = new ExternalApiProperties(
                 new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
-        return new KmaWeatherClientImpl(WebClient.builder().build(), props);
+        return new KmaWeatherClientImpl(WebClient.builder().build(), props, new NoOpCallRecorder());
     }
 
     @Test

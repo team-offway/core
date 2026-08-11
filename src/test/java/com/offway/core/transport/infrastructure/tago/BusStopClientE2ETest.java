@@ -1,5 +1,6 @@
 package com.offway.core.transport.infrastructure.tago;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -34,7 +35,7 @@ class BusStopClientE2ETest {
     private static BusStopClient client() {
         ExternalApiProperties props = new ExternalApiProperties(
                 new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
-        return new BusStopClientImpl(WebClient.builder().build(), props);
+        return new BusStopClientImpl(WebClient.builder().build(), props, new NoOpCallRecorder());
     }
 
     @Test

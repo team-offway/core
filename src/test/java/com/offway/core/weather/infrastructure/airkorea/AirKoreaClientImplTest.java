@@ -1,5 +1,6 @@
 package com.offway.core.weather.infrastructure.airkorea;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -33,7 +34,7 @@ class AirKoreaClientImplTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body(body)
                 .build();
-        return new AirKoreaClientImpl(stubbing(response), WITH_KEY);
+        return new AirKoreaClientImpl(stubbing(response), WITH_KEY, new NoOpCallRecorder());
     }
 
     @Test
@@ -60,7 +61,7 @@ class AirKoreaClientImplTest {
                 })
                 .build();
 
-        assertTrue(new AirKoreaClientImpl(neverCalled, NO_KEY).realtimeBySido("강원").isEmpty());
+        assertTrue(new AirKoreaClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder()).realtimeBySido("강원").isEmpty());
     }
 
     /**
@@ -90,7 +91,7 @@ class AirKoreaClientImplTest {
                                     .build());
                         })
                         .build(),
-                WITH_KEY);
+                WITH_KEY, new NoOpCallRecorder());
     }
 
     private static final String OK_BODY = """

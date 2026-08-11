@@ -1,5 +1,6 @@
 package com.offway.core.transport.infrastructure.tago;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
@@ -28,7 +29,7 @@ class BusArrivalClientImplTest {
                 .body(body)
                 .build();
         WebClient webClient = WebClient.builder().exchangeFunction(request -> Mono.just(response)).build();
-        return new BusArrivalClientImpl(webClient, WITH_KEY);
+        return new BusArrivalClientImpl(webClient, WITH_KEY, new NoOpCallRecorder());
     }
 
     @Test
@@ -84,6 +85,6 @@ class BusArrivalClientImplTest {
                 .build();
 
         assertInstanceOf(
-                BusArrivalStatus.Unavailable.class, new BusArrivalClientImpl(neverCalled, NO_KEY).arrivalsAt(STOP));
+                BusArrivalStatus.Unavailable.class, new BusArrivalClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder()).arrivalsAt(STOP));
     }
 }

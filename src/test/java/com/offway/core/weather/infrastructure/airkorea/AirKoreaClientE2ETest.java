@@ -1,5 +1,6 @@
 package com.offway.core.weather.infrastructure.airkorea;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -28,7 +29,7 @@ class AirKoreaClientE2ETest {
     private static AirKoreaClient client() {
         ExternalApiProperties props = new ExternalApiProperties(
                 new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
-        return new AirKoreaClientImpl(WebClient.builder().build(), props);
+        return new AirKoreaClientImpl(WebClient.builder().build(), props, new NoOpCallRecorder());
     }
 
     @ParameterizedTest(name = "{0} 대기질을 실제로 받아온다")
