@@ -50,6 +50,7 @@ public class HeritagePlace {
     private static final int MAX_NAME_LENGTH = 200;
     private static final int MAX_ADDRESS_LENGTH = 300;
     private static final int MAX_KIND_LENGTH = 40;
+    private static final int MAX_GROUP_CODE_LENGTH = 40;
     private static final int MAX_IMAGE_URL_LENGTH = 500;
 
     /** 공개 식별자 접두어 — TourAPI contentId(숫자 문자열)·인허가(LIC-)와 갈라 준다. */
@@ -73,7 +74,7 @@ public class HeritagePlace {
     private String kind;
 
     /** 대분류. 코스에 쓸 수 있는지를 이 값이 정한다. */
-    @Column(name = "group_code", nullable = false, length = 40)
+    @Column(name = "group_code", nullable = false, length = MAX_GROUP_CODE_LENGTH)
     @Enumerated(EnumType.STRING)
     private HeritageGroup group;
 

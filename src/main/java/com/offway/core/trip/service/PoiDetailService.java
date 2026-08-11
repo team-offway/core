@@ -25,8 +25,8 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class PoiDetailService {
 
-    /** TourAPI 콘텐츠가 아님을 뜻하는 타입. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
-    private static final int LICENSED_CONTENT_TYPE = 0;
+    /** TourAPI 콘텐츠가 아님을 뜻하는 타입 — 인허가·국가유산이 함께 쓴다. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
+    private static final int NON_TOUR_CONTENT_TYPE = 0;
 
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
@@ -83,7 +83,7 @@ public class PoiDetailService {
         // 있어서, 텍스트 충돌 없이 머지된 뒤 컴파일에서 터졌다.
         return PoiDetail.withoutIntro(
                 heritage.publicId(),
-                LICENSED_CONTENT_TYPE,
+                NON_TOUR_CONTENT_TYPE,
                 heritage.getName(),
                 heritage.getAddress(),
                 null, // 전화 — 국가유산청이 주지 않는다
@@ -98,7 +98,7 @@ public class PoiDetailService {
         LicensedPlace place = licensedPlaceRepository.findById(id).orElseThrow(TourApiException::poiNotFound);
         return PoiDetail.withoutIntro(
                 place.publicId(),
-                LICENSED_CONTENT_TYPE,
+                NON_TOUR_CONTENT_TYPE,
                 place.getName(),
                 place.getAddress(),
                 place.getTel(),

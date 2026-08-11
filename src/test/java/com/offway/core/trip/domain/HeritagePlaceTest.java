@@ -101,6 +101,18 @@ class HeritagePlaceTest {
     }
 
     @Test
+    void 너무_긴_사진_주소는_버리고_유산은_살린다() {
+        // 컬럼 폭을 넘으면 예외 대신 조용히 null 이 된다 — 사진이 사라지는 유일한 분기인데 아무도
+        // 지키고 있지 않았다. 나중에 이 분기를 예외로 바꾸거나 상한을 손대도 테스트가 안 깨졌다.
+        String tooLong = "https://example.test/" + "a".repeat(500) + ".jpg";
+
+        HeritagePlace place = valid().imageUrl(tooLong).build();
+
+        assertNull(place.getImageUrl(), "상한을 넘는 주소는 버려야 한다");
+        assertEquals("법화사 묘법연화경", place.getName(), "사진만 버리고 유산 자체는 남아야 한다");
+    }
+
+    @Test
     void 방문_가능_여부는_대분류가_정한다() {
         assertTrue(valid().group(HeritageGroup.HISTORIC_STRUCTURE).build().isVisitable());
         assertFalse(valid().group(HeritageGroup.ARTIFACT).build().isVisitable());

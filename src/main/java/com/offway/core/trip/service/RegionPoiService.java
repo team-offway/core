@@ -40,8 +40,8 @@ public class RegionPoiService {
     private static final int FOOD_TYPE = 39;
     private static final int STAY_TYPE = 32;
 
-    /** TourAPI 콘텐츠가 아님을 뜻하는 타입. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
-    private static final int LICENSED_CONTENT_TYPE = 0;
+    /** TourAPI 콘텐츠가 아님을 뜻하는 타입 — 인허가·국가유산이 함께 쓴다. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
+    private static final int NON_TOUR_CONTENT_TYPE = 0;
 
     private final RegionRepository regionRepository;
     private final TourApiClient tourApiClient;
@@ -103,10 +103,17 @@ public class RegionPoiService {
      * <p>순서가 곧 우선순위다. 모자란 만큼만 잘라 쓰이므로 앞에 둔 쪽이 먼저 코스에 들어간다.
      */
     private List<PoiCandidate> sightCandidates(long regionId) {
-        return Stream.concat(
-                        heritagePlaceRepository.findVisitableCandidates(regionId, CANDIDATE_ROWS).stream()
-                                .map(RegionPoiService::toCandidate),
-                        licensedCandidates(regionId, PlaceKind.SIGHT).stream())
+        List<PoiCandidate> heritages = heritagePlaceRepository.findVisitableCandidates(regionId, CANDIDATE_ROWS)
+                .stream()
+                .map(RegionPoiService::toCandidate)
+                .toList();
+        // 국가유산으로 이미 다 찼으면 인허가를 읽지 않는다. Stream.concat 은 지연되는 것처럼 보이지만
+        // 인자 자리의 licensedCandidates 는 즉시 호출되므로, 그대로 두면 쓰지도 않을 100건을 매 요청
+        // 한 번 더 읽는다 — 뒤에서 MIN_SIGHTS 까지만 잘리므로 거의 전부 버려진다.
+        if (heritages.size() >= CANDIDATE_ROWS) {
+            return heritages;
+        }
+        return Stream.concat(heritages.stream(), licensedCandidates(regionId, PlaceKind.SIGHT).stream())
                 .toList();
     }
 
@@ -119,7 +126,7 @@ public class RegionPoiService {
     private static PoiCandidate toCandidate(HeritagePlace heritage) {
         return new PoiCandidate(
                 heritage.publicId(),
-                LICENSED_CONTENT_TYPE,
+                NON_TOUR_CONTENT_TYPE,
                 heritage.getName(),
                 heritage.getLat(),
                 heritage.getLng(),
@@ -145,7 +152,7 @@ public class RegionPoiService {
     private static PoiCandidate toCandidate(LicensedPlace place) {
         return new PoiCandidate(
                 place.publicId(),
-                LICENSED_CONTENT_TYPE,
+                NON_TOUR_CONTENT_TYPE,
                 place.getName(),
                 place.getLat(),
                 place.getLng(),
