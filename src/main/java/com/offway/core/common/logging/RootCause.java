@@ -1,8 +1,12 @@
 package com.offway.core.common.logging;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 /**
  * 예외 체인의 맨 끝을 로그용 한 줄로 — 껍데기가 아니라 <b>실제 사유</b>를 남긴다.
@@ -30,6 +34,9 @@ public final class RootCause {
 
     private static final String SEPARATOR = ": ";
 
+    /** 상태코드와 응답 본문 사이 — {@code TooManyRequests: 429 <returnReasonCode>22</returnReasonCode>}. */
+    private static final String STATUS_BODY_DELIMITER = " ";
+
     private static final String UNKNOWN = "unknown";
 
     private RootCause() {
@@ -51,29 +58,87 @@ public final class RootCause {
         if (error == null) {
             return UNKNOWN;
         }
-        Throwable cause = deepestCause(error);
+        List<Throwable> chain = chain(error);
+        return httpReason(chain).orElseGet(() -> plainReason(chain.getLast()));
+    }
+
+    /**
+     * 같은 사유끼리 묶는 <b>집계용 짧은 키</b> — HTTP 면 상태코드, 아니면 클래스명.
+     *
+     * <p>{@link #of} 를 집계 키로 쓸 수 없어서 따로 둔다. of 는 응답 본문·메시지까지 담아 건마다 값이
+     * 달라지므로, 39건이 39종류로 흩어져 "몇 건이 같은 이유인가" 라는 정작 궁금한 것에 답하지 못한다.
+     *
+     * @param error 감싸인 예외. null 이면 {@code "unknown"}
+     */
+    public static String label(Throwable error) {
+        if (error == null) {
+            return UNKNOWN;
+        }
+        List<Throwable> chain = chain(error);
+        return chain.stream()
+                .filter(WebClientResponseException.class::isInstance)
+                .map(WebClientResponseException.class::cast)
+                .findFirst()
+                .map(response -> String.valueOf(response.getStatusCode().value()))
+                .orElseGet(() -> chain.getLast().getClass().getSimpleName());
+    }
+
+    /**
+     * HTTP 응답 실패면 <b>응답 본문</b>을 사유로 삼는다 — 예외 메시지에는 없는 답이 거기 있다.
+     *
+     * <p>data.go.kr 은 일일 한도 초과를 본문의 {@code returnReasonCode} 로 알려준다. 예외 메시지 쪽에는
+     * 요청 URL 과 상태줄만 담겨, 429 를 맞고도 <b>일일 한도인지 순간 속도 제한인지 구분할 수 없었다</b>(#224).
+     * 처방이 정반대라(전자는 호출 횟수를, 후자는 호출 간격을 고친다) 이 구분이 없으면 무엇을 고쳐도 추측이다.
+     *
+     * <p>체인 <b>전체</b>를 뒤진다 — 429 는 재시도를 거치므로 {@code RetryExhaustedException} 으로 감싸여
+     * 오고, 맨 끝만 보면 껍데기를 만난다.
+     *
+     * <p>본문도 예외 메시지와 <b>같은 마스킹 경로</b>를 통과한다. 규칙이 두 벌이 되면 한쪽이 반드시 뒤처진다.
+     */
+    private static Optional<String> httpReason(List<Throwable> chain) {
+        return chain.stream()
+                .filter(WebClientResponseException.class::isInstance)
+                .map(WebClientResponseException.class::cast)
+                .filter(response -> !isBlank(response.getResponseBodyAsString()))
+                .findFirst()
+                .map(response -> response.getClass().getSimpleName()
+                        + SEPARATOR
+                        + response.getStatusCode().value()
+                        + STATUS_BODY_DELIMITER
+                        + safeMessage(response.getResponseBodyAsString()));
+    }
+
+    /** 본문이 없을 때 — 예외 자신의 메시지로. */
+    private static String plainReason(Throwable cause) {
         String message = cause.getMessage();
-        if (message == null || message.isBlank()) {
+        if (isBlank(message)) {
             return cause.getClass().getSimpleName();
         }
         return cause.getClass().getSimpleName() + SEPARATOR + safeMessage(message);
     }
 
+    private static boolean isBlank(String text) {
+        return text == null || text.isBlank();
+    }
+
     /**
-     * 체인의 맨 끝. <b>이미 본 예외를 만나면 멈춘다.</b>
+     * 원인 체인을 앞에서 뒤로. <b>이미 본 예외를 만나면 멈춘다.</b>
      *
      * <p>자기 자신만 확인하면 부족하다 — {@code A → B → A} 처럼 서로를 cause 로 갖는 체인은 자기 참조가
      * 아니어서 그 검사를 통과하고, 로그를 찍다가 무한 루프에 빠진다. 실패를 기록하려던 코드가 프로세스를
      * 잡아먹는 셈이라, 동일성 기준 방문 집합으로 끊는다.
      */
-    private static Throwable deepestCause(Throwable error) {
+    private static List<Throwable> chain(Throwable error) {
         Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        List<Throwable> chain = new ArrayList<>();
         Throwable cause = error;
         seen.add(cause);
+        chain.add(cause);
         while (cause.getCause() != null && seen.add(cause.getCause())) {
             cause = cause.getCause();
+            chain.add(cause);
         }
-        return cause;
+        return chain;
     }
 
     /** 비밀값 마스킹 → 제어문자 제거 → 길이 제한. 이 순서를 지켜야 마스킹이 개행에 쪼개지지 않는다. */

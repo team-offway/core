@@ -3,6 +3,7 @@ package com.offway.core.trip.infrastructure.tour;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.dto.TourAccessibility;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
@@ -82,6 +83,17 @@ class TourApiClientImpl implements TourApiClient {
     private static final String[] USE_TIME_FIELDS = {"usetime", "usetimeculture", "usetimeleports", "opentimefood"};
     private static final String[] REST_DATE_FIELDS = {"restdate", "restdateculture", "restdateleports", "restdatefood"};
 
+    // 카테고리마다 이름이 다르지만 뜻이 같은 것들. 한 카테고리의 응답에는 그중 하나만 들어 있어,
+    // 먼저 잡히는 값을 쓰면 된다(#157).
+    private static final String[] PARKING_FIELDS = {"parking", "parkingculture", "parkingleports", "parkingfood"};
+    private static final String[] FEE_FIELDS = {"usefee", "usefeeleports"};
+    private static final String[] SIGNATURE_MENU_FIELDS = {"firstmenu"};
+    private static final String[] MENU_FIELDS = {"treatmenu"};
+    private static final String[] CHECK_IN_FIELDS = {"checkintime"};
+    private static final String[] CHECK_OUT_FIELDS = {"checkouttime"};
+    private static final String[] ROOM_COUNT_FIELDS = {"roomcount"};
+    private static final String[] RESERVATION_FIELDS = {"reservationlodging", "reservationfood"};
+
     private final WebClient webClient;
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -143,7 +155,7 @@ class TourApiClientImpl implements TourApiClient {
             String body = call(builder);
             return parseIntro(body, contentId);
         } catch (Exception e) {
-            log.warn("TourAPI 소개정보 조회 실패 cause={}", e.getClass().getSimpleName());
+            log.warn("TourAPI 소개정보 조회 실패 cause={}", RootCause.of(e));
             throw TourApiException.lookupFailed(e);
         }
     }
@@ -158,7 +170,7 @@ class TourApiClientImpl implements TourApiClient {
         try {
             return parseDetail(call(builder));
         } catch (Exception e) {
-            log.warn("TourAPI 공통상세 조회 실패 cause={}", e.getClass().getSimpleName());
+            log.warn("TourAPI 공통상세 조회 실패 cause={}", RootCause.of(e));
             throw TourApiException.lookupFailed(e);
         }
     }
@@ -173,7 +185,7 @@ class TourApiClientImpl implements TourApiClient {
         try {
             return parseAccessibility(call(builder), contentId);
         } catch (Exception e) {
-            log.warn("TourAPI 무장애정보 조회 실패 cause={}", e.getClass().getSimpleName());
+            log.warn("TourAPI 무장애정보 조회 실패 cause={}", RootCause.of(e));
             throw TourApiException.lookupFailed(e);
         }
     }
@@ -200,8 +212,8 @@ class TourApiClientImpl implements TourApiClient {
         try {
             return parseList(call(builder));
         } catch (Exception e) {
-            // 쿼리스트링(키 포함)은 로그에 남기지 않는다.
-            log.warn("TourAPI 조회 실패 op={} cause={}", op, e.getClass().getSimpleName());
+            // 쿼리스트링(키 포함)은 로그에 남기지 않는다 — RootCause 가 마스킹·제어문자 제거·길이 제한을 건다.
+            log.warn("TourAPI 조회 실패 op={} cause={}", op, RootCause.of(e));
             throw TourApiException.lookupFailed(e);
         }
     }
@@ -259,10 +271,19 @@ class TourApiClientImpl implements TourApiClient {
             return Optional.empty();
         }
         // 운영시간·휴무일에 <br> 이 줄 구분으로 들어온다(실측) — 매핑 시점에 정제해 화면이 그대로 쓰게 한다(#174).
-        return Optional.of(new TourIntro(
-                contentId,
-                TourText.clean(firstText(node, USE_TIME_FIELDS)),
-                TourText.clean(firstText(node, REST_DATE_FIELDS))));
+        return Optional.of(TourIntro.builder()
+                .contentId(contentId)
+                .useTime(TourText.clean(firstText(node, USE_TIME_FIELDS)))
+                .restDate(TourText.clean(firstText(node, REST_DATE_FIELDS)))
+                .parking(TourText.clean(firstText(node, PARKING_FIELDS)))
+                .fee(TourText.clean(firstText(node, FEE_FIELDS)))
+                .signatureMenu(TourText.clean(firstText(node, SIGNATURE_MENU_FIELDS)))
+                .menus(TourText.clean(firstText(node, MENU_FIELDS)))
+                .checkIn(TourText.clean(firstText(node, CHECK_IN_FIELDS)))
+                .checkOut(TourText.clean(firstText(node, CHECK_OUT_FIELDS)))
+                .roomCount(TourText.clean(firstText(node, ROOM_COUNT_FIELDS)))
+                .reservation(TourText.clean(firstText(node, RESERVATION_FIELDS)))
+                .build());
     }
 
     private Optional<TourPoiDetail> parseDetail(String body) throws Exception {
