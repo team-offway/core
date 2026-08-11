@@ -5,6 +5,7 @@ import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
+import com.offway.core.trip.domain.MapSearchLink;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.itinerary.service.dto.SlotHours;
 import com.offway.core.policy.domain.PolicyType;
@@ -265,6 +266,14 @@ public record CourseResponse(
                     알 수 있는데 그 데이터가 없어 붙이지 않는다 — 근거 없이 붙이면 사용자가 못 받는 할인을
                     기대하고 간다. 지역 단위 혜택은 코스 `benefits` 로 그대로 나간다.""",
                     example = "숙박 할인", nullable = true) String benefit,
+            @Schema(description = """
+                    지도 검색 링크(#236). **사진이 없는 슬롯에만** 실린다.
+
+                    숙소는 89곳 중 45곳에서 사진 있는 후보가 2곳도 안 된다 — 인허가 데이터에 사진이 없고,
+                    공식 API 로 숙소 사진을 주는 곳은 유료뿐이다. 사진 없는 카드를 그대로 두는 대신
+                    지도로 넘겨 위치·사진·리뷰를 거기서 보게 한다.""",
+                    example = "https://map.naver.com/p/search/%EC%9D%98%EC%84%B1%EA%B5%B0+%EC%98%AC%EC%9D%B8%EB%AA%A8%ED%85%94",
+                    nullable = true) String mapSearchUrl,
             double lat,
             double lng,
             int travelMinutes,
@@ -289,6 +298,7 @@ public record CourseResponse(
                     hours == null ? null : hours.restDate(),
                     hours == null ? null : hours.displayStatus(),
                     benefit,
+                    mapSearchUrlFor(slot),
                     slot.getLat(),
                     slot.getLng(),
                     slot.getTravelMinutesFromPrev(),
@@ -386,5 +396,19 @@ public record CourseResponse(
 
     private static String benefitFor(Slot slot, Map<SlotKind, String> slotBenefits) {
         return slotBenefits.get(slot.getKind());
+    }
+
+    /**
+     * 사진이 없는 슬롯에만 지도 링크를 준다(#236).
+     *
+     * <p>사진이 있으면 카드가 이미 설 수 있어 링크가 군더더기다. 없을 때만 "여기서 보세요" 가 값어치를 갖는다.
+     *
+     * <p>숙소가 이 경우의 대부분이다 — 89곳 중 45곳에서 사진 있는 숙소가 2곳도 안 된다.
+     */
+    private static String mapSearchUrlFor(Slot slot) {
+        if (slot.getImageUrl() != null && !slot.getImageUrl().isBlank()) {
+            return null;
+        }
+        return MapSearchLink.of(slot.getTitle(), slot.getAddress()).orElse(null);
     }
 }
