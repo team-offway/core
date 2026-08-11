@@ -7,6 +7,7 @@ import com.offway.core.itinerary.domain.DayStart;
 import com.offway.core.itinerary.domain.GeoCluster;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.domain.Slot;
+import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
@@ -304,7 +305,7 @@ public class CourseGenerationService {
             int travel = prev == null ? 0 : legMinutes(prev, coord(e.poi()), transport);
             slots.add(Slot.of(i + 1, e.timeOfDay(), e.kind(), e.poi().contentId(), e.poi().title(),
                     e.poi().lat(), e.poi().lng(), travel,
-                    e.poi().imageUrl(), e.poi().address(), e.poi().catchphrase()));
+                    new SlotDisplay(e.poi().imageUrl(), e.poi().address(), e.poi().catchphrase(), e.poi().tel())));
             prev = coord(e.poi());
         }
         return slots;

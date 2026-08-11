@@ -300,7 +300,7 @@ public class Course {
             renumbered.add(Slot.of(i + 1, slot.getTimeOfDay(), slot.getKind(), slot.getPoiContentId(),
                     slot.getTitle(), slot.getLat(), slot.getLng(),
                     i == 0 ? 0 : slot.getTravelMinutesFromPrev(),
-                    slot.getImageUrl(), slot.getAddress(), slot.getCatchphrase()));
+                    new SlotDisplay(slot.getImageUrl(), slot.getAddress(), slot.getCatchphrase(), slot.getTel())));
         }
         return renumbered;
     }
