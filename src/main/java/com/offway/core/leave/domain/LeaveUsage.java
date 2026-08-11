@@ -70,7 +70,7 @@ public class LeaveUsage {
             String guestId, LocalDate usedOn, double days, String reason, Long courseId, Boolean halfDayStart) {
         this.guestId = Objects.requireNonNull(guestId, "guestId 는 null 일 수 없습니다.");
         this.usedOn = Objects.requireNonNull(usedOn, "usedOn 은 null 일 수 없습니다.");
-        this.days = requireDays(days);
+        this.days = requireDays(days, courseId);
         this.reason = trimReason(reason);
         this.courseId = courseId;
         this.halfDayStart = halfDayStart;
@@ -110,7 +110,7 @@ public class LeaveUsage {
         }
         // 검증을 먼저 끝내고 대입한다 — 중간에 거절되면 날짜만 바뀐 반쪽 상태가 남는다.
         LocalDate movedTo = Objects.requireNonNull(usedOn, "usedOn 은 null 일 수 없습니다.");
-        double moved = requireDays(days);
+        double moved = requireDays(days, courseId);
         this.usedOn = movedTo;
         this.days = moved;
     }
@@ -121,8 +121,13 @@ public class LeaveUsage {
      * <p>지금은 요청 DTO 가 먼저 걸러 여기 닿지 않지만, 코스 확정 차감(#91)이 {@link #forCourse} 를 서비스에서
      * 직접 부르면 DTO 를 거치지 않고 들어온다. 그때 불변식 예외를 던지면 클라이언트 계약 위반이 500 으로 나간다.
      */
-    private static double requireDays(double days) {
-        if (!LeaveDays.isValidUsage(days)) {
+    private static double requireDays(double days, Long courseId) {
+        // 코스 차감은 0 을 허용한다(#212). 주말·공휴일뿐인 구간이면 깎을 연차가 없는데, 그것도 확정이다 —
+        // 그 행이 차감량이자 확정 표식이기 때문이다. 수동 내역은 순수 증감 장부라 0 이 그대로 소음이다.
+        boolean valid = courseId == null
+                ? LeaveDays.isValidUsage(days)
+                : LeaveDays.isValidCourseDeduction(days);
+        if (!valid) {
             throw LeaveException.invalidLeaveUsageDays();
         }
         return days;
