@@ -24,7 +24,9 @@ public interface PoiApi {
                     - `food`(음식점) 영업시간·휴무일·대표메뉴·취급메뉴
                     - `stay`(숙박) 입실·퇴실·객실수·예약안내
 
-                    우리 DB 에서 온 장소(`LIC-`·`HER-` 접두어)는 보조정보가 없어 모든 블록이 null 이다.""")
+                    우리 DB 에서 온 장소(`LIC-`·`HER-` 접두어)는 보조정보가 없어 모든 블록이 null 이다. 
+
+                    대신 `mapSearchUrl` 이 실린다 — 영업시간·사진을 우리가 못 주므로 지도 검색으로 넘긴다.""")
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "404", description = "요청한 장소를 관광정보에서 찾을 수 없음")
     @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")

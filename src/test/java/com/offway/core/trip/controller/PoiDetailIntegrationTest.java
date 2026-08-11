@@ -223,6 +223,34 @@ class PoiDetailIntegrationTest {
     }
 
     @Test
+    void 인허가_장소는_지도_검색_링크로_넘긴다() throws Exception {
+        // 인허가 데이터에는 영업시간·사진이 애초에 없고 다른 공식 API 로도 못 얻는다. 낡은 영업시간을
+        // 우리가 보여주는 것보다 지도로 넘기는 편이 낫다.
+        tourApiClient.respondDetail(() -> {
+            throw new AssertionError("인허가 식별자를 TourAPI 에 물었다");
+        });
+        LicensedPlace place = licensedPlaceRepository.findCandidates(UISEONG, PlaceKind.STAY, 10).getFirst();
+
+        mockMvc.perform(get("/api/v1/pois/{id}", place.publicId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mapSearchUrl").value(
+                        org.hamcrest.Matchers.startsWith("https://map.naver.com/p/search/")))
+                .andExpect(jsonPath("$.data.food").doesNotExist());
+    }
+
+    @Test
+    void 관광_API_콘텐츠에는_지도_링크를_붙이지_않는다() throws Exception {
+        // 그쪽은 사진·소개·운영시간이 우리 응답에 이미 있다. 링크를 함께 주면 어디를 봐야 할지 갈린다.
+        tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
+                "126508", 12, "완도타워", "전남 완도군", "061-1", 34.3, 126.7, "http://img/1.jpg", "전망대 소개")));
+        tourApiClient.respondIntro(Optional::empty);
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "126508"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mapSearchUrl").doesNotExist());
+    }
+
+    @Test
     void 없는_국가유산이면_404_TOUR_003() throws Exception {
         mockMvc.perform(get("/api/v1/pois/{id}", "HER-99999999"))
                 .andExpect(status().isNotFound())
