@@ -97,7 +97,7 @@ public class RegionContentRefreshService {
         // 팬아웃(동시성 상한·지역별 예외 격리·전체 시간 상한)은 provider 가 소유한다. 배치라 사용자를
         // 기다리게 하지 않으므로 워밍용 시간 예산을 쓴다.
         RegionContentProvider.RegionContents fetched = regionContentProvider.contentForAll(
-                regions, regions, RegionContentProvider.WARMING_FANOUT_DEADLINE);
+                regions, RegionContentProvider.WARMING_FANOUT_DEADLINE);
         Map<Long, RegionContent> byRegionId = fetched.byRegionId();
         if (byRegionId.isEmpty()) {
             // 빈 결과로 덮으면 전 지역 콘텐츠가 통째로 사라진다. 이전 적재가 낫다.

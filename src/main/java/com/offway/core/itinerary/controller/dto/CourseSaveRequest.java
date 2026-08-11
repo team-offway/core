@@ -58,7 +58,7 @@ public record CourseSaveRequest(
                 Double originLat,
         @Schema(description = "출발지 경도. originLat 와 짝.", example = "126.9780", nullable = true)
                 Double originLng,
-        @NotEmpty @Valid List<Day> days) {
+        @NotEmpty List<@Valid Day> days) {
 
     /**
      * 게스트 소유의 도메인 코스로 변환한다. Bean Validation 이 못 잡는 도메인 불변식(일차·슬롯 순서 연속성, 게스트 ID 규칙 등)은
@@ -98,7 +98,7 @@ public record CourseSaveRequest(
                             example = "2026-09-12",
                             nullable = true)
                     LocalDate date,
-            @NotEmpty @Valid List<Item> items) {
+            @NotEmpty List<@Valid Item> items) {
 
         /**
          * 도메인 하루로 바꾼다 — <b>달력 위치(오프셋)</b>를 여기서 정한다.

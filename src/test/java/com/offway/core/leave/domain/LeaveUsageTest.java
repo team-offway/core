@@ -75,10 +75,34 @@ class LeaveUsageTest {
     }
 
     @Test
-    void 영_일로는_옮길_수_없다() {
-        // 아무것도 바꾸지 않는 내역은 기록이 아니라 소음이다(LeaveDays). 깎을 평일이 없어지면 행을 지운다.
+    void 코스_차감은_영_일도_기록한다() {
+        // 주말·공휴일뿐인 구간이면 깎을 연차가 없다. 그래도 확정은 확정이다 — 이 행이 차감량이자
+        // 확정 표식이라, 0 을 막으면 주말 여행을 확정할 수 없게 된다(#212).
+        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 0, "코스 확정", 7L, false);
+
+        assertEquals(0, usage.getDays());
+    }
+
+    @Test
+    void 코스_차감을_영_일로_옮길_수_있다() {
+        // 날짜를 주말로 옮겼다고 확정이 풀리면 안 된다.
         LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, false);
 
-        assertThrows(LeaveException.class, () -> usage.moveTo(LocalDate.of(2026, 10, 5), 0));
+        usage.moveTo(LocalDate.of(2026, 10, 5), 0);
+
+        assertEquals(0, usage.getDays());
+        assertEquals(LocalDate.of(2026, 10, 5), usage.getUsedOn());
+    }
+
+    @Test
+    void 수동_내역은_영_일을_받지_않는다() {
+        // 코스 차감과 규칙이 다르다. 수동 내역은 순수한 증감 장부라 0 이 그대로 소음이다.
+        assertThrows(LeaveException.class, () -> LeaveUsage.manual("guest-1", WHEN, 0, "개인 사유"));
+    }
+
+    @Test
+    void 코스_차감은_음수를_받지_않는다() {
+        // 코스 차감의 취소는 음수 누적이 아니라 행 삭제다(#113).
+        assertThrows(LeaveException.class, () -> LeaveUsage.forCourse("guest-1", WHEN, -1.0, "코스 확정", 7L, false));
     }
 }
