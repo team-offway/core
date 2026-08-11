@@ -5,7 +5,7 @@ import java.util.Map;
 /**
  * 시도 명칭 매핑 — region 의 정식 시도명("강원특별자치도")을 축약 시도명("강원")으로 바꾼다.
  *
- * <p>이 축약형은 에어코리아 {@code sidoName} 파라미터 값이자 기상청 관광기후지수 응답의 {@code doName} 값이다(#130).
+ * <p>이 축약형은 기상청 관광기후지수 응답의 {@code doName} 값이다(#130).
  * 실측으로 확인한 관광기후지수의 시도명 17종이 이 표의 값과 정확히 일치한다.
  */
 public final class SidoName {
