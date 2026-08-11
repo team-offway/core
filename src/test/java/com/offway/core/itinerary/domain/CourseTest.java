@@ -110,44 +110,6 @@ class CourseTest {
         assertEquals(LocalDate.of(2026, 9, 13), course.dateOf(course.getDays().get(1)));
     }
 
-    /**
-     * 실시간 값(대기질)을 붙일지 가르는 판정 — 예보가 아니라 지금 이 순간의 측정치라, 다음 주 코스에 붙으면
-     * 사용자가 여행일 상태로 읽는다.
-     */
-    @Test
-    void 오늘_출발이면_여행이_오늘을_포함한다() {
-        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3), day(2, 2)),
-                LocalDate.of(2026, 9, 11), 2);
-
-        assertTrue(course.covers(LocalDate.of(2026, 9, 11)));
-    }
-
-    @Test
-    void 여행_중이면_시작일이_지났어도_오늘을_포함한다() {
-        // 시작일만 보면 이튿날에 값이 사라진다 — 정작 그 지역에 가 있는 날이다.
-        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3), day(2, 2), day(3, 2)),
-                LocalDate.of(2026, 9, 11), 3);
-
-        assertTrue(course.covers(LocalDate.of(2026, 9, 12)));
-        assertTrue(course.covers(LocalDate.of(2026, 9, 13)), "종료 당일도 여행 중이다");
-    }
-
-    @Test
-    void 여행_전후는_오늘을_포함하지_않는다() {
-        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3), day(2, 2), day(3, 2)),
-                LocalDate.of(2026, 9, 11), 3);
-
-        assertFalse(course.covers(LocalDate.of(2026, 9, 10)), "하루 전");
-        assertFalse(course.covers(LocalDate.of(2026, 9, 14)), "하루 뒤");
-    }
-
-    @Test
-    void 날짜_없는_코스는_오늘을_포함하지_않는다() {
-        // 언제인지 모르는 것을 "오늘 여행 중" 으로 답하면 안 된다.
-        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3)), null, 1);
-
-        assertFalse(course.covers(LocalDate.of(2026, 9, 11)));
-    }
 
     @Test
     void 여행_날짜를_옮기면_종료일도_함께_옮겨진다() {

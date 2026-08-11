@@ -38,14 +38,6 @@ class ExternalSystemsTest {
     }
 
     @Test
-    void 에어코리아는_air_다() {
-        assertEquals(
-                "air",
-                ExternalSystems.label(
-                        URI.create("https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getCtprvnRltmMesureDnsty")));
-    }
-
-    @Test
     void tmap_은_tmap_이다() {
         assertEquals("tmap", ExternalSystems.label(URI.create("https://apis.openapi.sk.com/tmap/routes?version=1")));
     }

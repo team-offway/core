@@ -53,10 +53,10 @@ class ExternalApiQuotaIntegrationTest {
         // KST 자정을 넘기면 새 행이 되어 자연히 리셋된다. 날짜가 키라 별도 초기화 작업이 없다.
         LocalDate yesterday = recorder.today().minusDays(1);
 
-        repository.recordAndCount(ExternalApi.AIR_KOREA, yesterday);
+        repository.recordAndCount(ExternalApi.TOUR_GALLERY, yesterday);
 
-        assertEquals(1L, repository.countsOn(yesterday).get(ExternalApi.AIR_KOREA));
-        assertEquals(0L, repository.countsOn(recorder.today()).getOrDefault(ExternalApi.AIR_KOREA, 0L));
+        assertEquals(1L, repository.countsOn(yesterday).get(ExternalApi.TOUR_GALLERY));
+        assertEquals(0L, repository.countsOn(recorder.today()).getOrDefault(ExternalApi.TOUR_GALLERY, 0L));
     }
 
     @Test
@@ -67,7 +67,7 @@ class ExternalApiQuotaIntegrationTest {
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.apis.length()").value(ExternalApi.values().length))
                 .andExpect(jsonPath("$.data.apis[?(@.api == 'TMAP_WAYPOINT')].limit").value(50))
-                .andExpect(jsonPath("$.data.apis[?(@.api == 'AIR_KOREA')].limit").value(500));
+                .andExpect(jsonPath("$.data.apis[?(@.api == 'TOUR_API')].limit").value(1000));
     }
 
     @Test
