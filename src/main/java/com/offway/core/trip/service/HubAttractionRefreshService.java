@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.repository.BatchRunRepository;
+import com.offway.core.common.config.BatchBudgetProperties;
 import com.offway.core.common.logging.DegradeTally;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.region.domain.Region;
@@ -66,6 +67,7 @@ public class HubAttractionRefreshService {
 
     private final HubAttractionClient hubAttractionClient;
     private final BatchRunRepository batchRunRepository;
+    private final BatchBudgetProperties batchBudget;
     private final HubAttractionRepository hubAttractionRepository;
     private final RegionRepository regionRepository;
 
@@ -114,9 +116,15 @@ public class HubAttractionRefreshService {
      * 빈 목록으로 덮으면 그 지역 카드에서 대표 사진과 볼거리가 통째로 사라진다.
      */
     public void refresh() {
-        List<Region> regions = regionRepository.findAll();
-        if (regions.isEmpty()) {
+        List<Region> all = regionRepository.findAll();
+        if (all.isEmpty()) {
             return;
+        }
+        // 로컬은 한 회차에 몇 곳만 채운다(#254). 로컬과 운영이 같은 키를 쓰는데 hasRunSince 는 자기 DB
+        // 안에서만 중복을 막아, 그대로 두면 두 곳이 각자 하루치를 태운다.
+        List<Region> regions = batchBudget.limit(all);
+        if (batchBudget.limits(all.size())) {
+            log.info("중심 관광지 — 이번 회차는 {}/{}곳만 갱신합니다(로컬 예산)", regions.size(), all.size());
         }
 
         int filled = 0;
