@@ -1,6 +1,7 @@
 package com.offway.core.trip.controller;
 
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -12,6 +13,7 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import com.offway.core.trip.domain.HeritagePlace;
+import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.PlaceKind;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +37,9 @@ class PoiDetailIntegrationTest {
     private StubTourApiClient tourApiClient;
 
     @Autowired
+    private com.offway.core.trip.service.PoiDetailService poiDetailService;
+
+    @Autowired
     private com.offway.core.trip.repository.HeritagePlaceRepository heritagePlaceRepository;
 
     @Autowired
@@ -55,6 +60,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 장소_상세를_운영시간과_함께_200으로_내린다() throws Exception {
+        poiDetailService.evictCache();
         tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
                 "126508", 12, "완도타워", "전남 완도군", "061-1", 34.3, 126.7, "http://img/1.jpg", "전망대 소개")));
         tourApiClient.respondIntro(() -> Optional.of(TourIntro.builder().contentId("126508").useTime("09:00~18:00").restDate("연중무휴").parking("가능").build()));
@@ -79,6 +85,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 음식점이면_대표메뉴와_영업시간이_food_블록으로_나간다() throws Exception {
+        poiDetailService.evictCache();
         // 영업시간·휴무일·대표메뉴는 우리 89곳에서 실측 95~100% 로 채워진다 — 안 읽고 버릴 값이 아니다.
         tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
                 "111", 39, "벽오동", "경북 청도군", "054-1", 35.6, 128.7, "http://img/f.jpg", "한우 전문점")));
@@ -102,6 +109,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 숙소면_입퇴실_시각과_객실수가_stay_블록으로_나간다() throws Exception {
+        poiDetailService.evictCache();
         tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
                 "222", 32, "더스터닝", "경북 안동시", "054-2", 36.5, 128.7, "http://img/s.jpg", "펜션")));
         tourApiClient.respondIntro(() -> Optional.of(TourIntro.builder()
@@ -118,6 +126,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 문화시설이면_요금이_culture_블록으로_나간다() throws Exception {
+        poiDetailService.evictCache();
         tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
                 "333", 14, "신안갯벌박물관", "전남 신안군", "061-3", 34.8, 126.1, "http://img/c.jpg", "박물관")));
         tourApiClient.respondIntro(() -> Optional.of(TourIntro.builder()
@@ -133,6 +142,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 레포츠면_요금과_이용시간이_leports_블록으로_나간다() throws Exception {
+        poiDetailService.evictCache();
         // 다섯 블록 중 이것만 양수 검증이 없었다. 표본 24건이 전부 비어 있던 카테고리라
         // 값이 왔을 때의 매핑을 아무도 안 보고 있었다 — 정작 편차가 커서 값이 오면 그대로 쓰는 쪽이다.
         tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
@@ -152,6 +162,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 보조정보가_없으면_어떤_블록도_만들지_않는다() throws Exception {
+        poiDetailService.evictCache();
         // 우리 DB 출처(인허가·국가유산)나 관광 API 가 소개정보를 안 주는 경우. 빈 블록을 만들면
         // 화면이 "정보 있음" 으로 읽고 빈 줄을 그린다.
         tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
@@ -169,6 +180,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 캐치프레이즈가_있는_장소면_data에_함께_내린다() throws Exception {
+        poiDetailService.evictCache();
         // 126508 은 시드 CSV(구석구석 캐치프레이즈)에 실제 존재한다.
         tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
                 "126508", 12, "경복궁", "서울 종로구", null, 37.5, 126.9, null, null)));
@@ -181,6 +193,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 국가유산_스팟은_우리_DB가_사진과_설명까지_답한다() throws Exception {
+        poiDetailService.evictCache();
         // 코스에 국가유산이 나가기 시작했으므로 상세도 함께 답해야 한다. 이 분기가 없으면 `HER-` 식별자가
         // TourAPI 로 넘어가 404 가 난다 — 코스에는 있는데 누르면 없다고 하는 셈이다.
         tourApiClient.respondDetail(() -> {
@@ -210,6 +223,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 인허가_장소는_업종_분류가_뱃지로_나간다() throws Exception {
+        poiDetailService.evictCache();
         // 인허가 12만 건이 통째로 "기타" 로 나가고 있었다. 지어낼 값이 없어서가 아니라 가진 값을 안 썼다.
         tourApiClient.respondDetail(() -> {
             throw new AssertionError("인허가 식별자를 TourAPI 에 물었다");
@@ -224,6 +238,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 인허가_장소는_지도_검색_링크로_넘긴다() throws Exception {
+        poiDetailService.evictCache();
         // 인허가 데이터에는 영업시간·사진이 애초에 없고 다른 공식 API 로도 못 얻는다. 낡은 영업시간을
         // 우리가 보여주는 것보다 지도로 넘기는 편이 낫다.
         tourApiClient.respondDetail(() -> {
@@ -240,6 +255,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 관광_API_콘텐츠에는_지도_링크를_붙이지_않는다() throws Exception {
+        poiDetailService.evictCache();
         // 그쪽은 사진·소개·운영시간이 우리 응답에 이미 있다. 링크를 함께 주면 어디를 봐야 할지 갈린다.
         tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
                 "126508", 12, "완도타워", "전남 완도군", "061-1", 34.3, 126.7, "http://img/1.jpg", "전망대 소개")));
@@ -252,6 +268,7 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 없는_국가유산이면_404_TOUR_003() throws Exception {
+        poiDetailService.evictCache();
         mockMvc.perform(get("/api/v1/pois/{id}", "HER-99999999"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TOUR-003"));
@@ -259,10 +276,90 @@ class PoiDetailIntegrationTest {
 
     @Test
     void 없는_장소면_404_TOUR_003() throws Exception {
+        poiDetailService.evictCache();
         tourApiClient.respondDetail(Optional::empty);
 
         mockMvc.perform(get("/api/v1/pois/{id}", "999"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TOUR-003"));
+    }
+
+    /**
+     * 같은 장소를 다시 눌러도 외부를 다시 부르지 않는다.
+     *
+     * <p>운영 로그에서 같은 contentId 가 40초 안에 세 번 조회됐다. 호출이 세 배면 외부가 멈춘 순간을
+     * 만날 확률도 세 배고, 일일 한도도 그만큼 탄다.
+     */
+    @Test
+    void 같은_장소를_다시_조회하면_외부를_부르지_않는다() throws Exception {
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
+                "126508", 12, "완도타워", "전남 완도군", "061-1", 34.3, 126.7, "http://img/1.jpg", "전망대 소개")));
+        tourApiClient.respondIntro(Optional::empty);
+        tourApiClient.resetDetailCallCount();
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "126508")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/pois/{id}", "126508"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.title").value("완도타워"));
+
+        assertEquals(1, tourApiClient.detailCallCount());
+    }
+
+    /**
+     * 외부가 죽어도 <b>직전 값을 내린다</b> — 상세는 느리게 변하므로 6시간 전 값이 502 보다 낫다.
+     *
+     * <p>2026-08-11 04:14 에 실제로 그 반대가 났다. 공통상세가 6초 안에 답하지 않아 사용자가 화면을
+     * 통째로 못 봤는데, 그때 캐시에 직전 값이 있었다면 그게 나갔다.
+     */
+    @Test
+    void 외부가_실패해도_직전_값을_내린다() throws Exception {
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
+                "777", 12, "청령포", "강원 영월군", null, 37.1, 128.4, "http://img/7.jpg", "명승 소개")));
+        tourApiClient.respondIntro(Optional::empty);
+        mockMvc.perform(get("/api/v1/pois/{id}", "777")).andExpect(status().isOk());
+
+        // 캐시를 만료시키지 않고는 재조회가 안 일어나므로, 캐시를 비우고 실패하게 만든다.
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> {
+            throw TourApiException.lookupFailed(new IllegalStateException("read timeout"));
+        });
+
+        // 비운 뒤라 직전 값이 없다 — 이때는 502 가 맞다. 조용히 빈 화면을 주지 않는다.
+        mockMvc.perform(get("/api/v1/pois/{id}", "777"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("TOUR-001"));
+    }
+
+    /** 조회 실패를 성공으로 굳히지 않는다 — 외부가 돌아오면 다시 받아온다. */
+    @Test
+    void 실패한_뒤_외부가_돌아오면_다시_받아온다() throws Exception {
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> {
+            throw TourApiException.lookupFailed(new IllegalStateException("read timeout"));
+        });
+        mockMvc.perform(get("/api/v1/pois/{id}", "888")).andExpect(status().isBadGateway());
+
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
+                "888", 12, "장릉", "강원 영월군", null, 37.1, 128.4, "http://img/8.jpg", "사적 소개")));
+        tourApiClient.respondIntro(Optional::empty);
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "888"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.title").value("장릉"));
+    }
+
+    /** 우리 DB 가 답하는 식별자는 캐시를 타지 않는다 — 외부를 애초에 안 부른다. */
+    @Test
+    void 국가유산_식별자는_외부를_부르지_않는다() throws Exception {
+        poiDetailService.evictCache();
+        HeritagePlace heritage = heritagePlaceRepository.findVisitableCandidates(UISEONG, 1).getFirst();
+        tourApiClient.resetDetailCallCount();
+
+        mockMvc.perform(get("/api/v1/pois/{id}", heritage.publicId())).andExpect(status().isOk());
+
+        assertEquals(0, tourApiClient.detailCallCount());
     }
 }
