@@ -3,6 +3,7 @@ package com.offway.core.itinerary.service.dto;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.service.dto.TrainAccess;
+import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
 import java.util.Map;
@@ -27,29 +28,33 @@ public record GeneratedCourse(
         Map<Integer, DailyWeather> weatherByDay,
         TrainAccess trainAccess,
         String regionName,
+        Map<String, SlotHours> hoursByContentId,
         String shareToken,
         FirstDayChange firstDayChange) {
 
     public GeneratedCourse {
         benefits = List.copyOf(benefits);
         weatherByDay = weatherByDay == null ? Map.of() : Map.copyOf(weatherByDay);
+        hoursByContentId = hoursByContentId == null ? Map.of() : Map.copyOf(hoursByContentId);
     }
 
     /** 날씨·열차 접근 없이(목록 조회 등). 지역명은 슬롯 표시에 쓰이므로 저장 코스도 채운다. */
     public static GeneratedCourse of(Course course, List<Benefit> benefits, String regionName) {
-        return new GeneratedCourse(course, benefits, Map.of(), null, regionName, null, null);
+        return new GeneratedCourse(course, benefits, Map.of(), null, regionName, Map.of(), null, null);
     }
 
     /** 조립이 끝난 뒤 첫날 변화만 얹는다 — 날짜 수정 경로에서만 붙는다(#214). */
     public GeneratedCourse withFirstDayChange(FirstDayChange firstDayChange) {
         return new GeneratedCourse(
-                course, benefits, weatherByDay, trainAccess, regionName, shareToken, firstDayChange);
+                course, benefits, weatherByDay, trainAccess, regionName, hoursByContentId, shareToken,
+                firstDayChange);
     }
 
     /** 조립이 끝난 뒤 공유 토큰만 얹는다 — 토큰은 영속 경계에서 오므로 조립 시점에 알 수 없다. */
     public GeneratedCourse withShareToken(String shareToken) {
         return new GeneratedCourse(
-                course, benefits, weatherByDay, trainAccess, regionName, shareToken, firstDayChange);
+                course, benefits, weatherByDay, trainAccess, regionName, hoursByContentId, shareToken,
+                firstDayChange);
     }
 
     /**
