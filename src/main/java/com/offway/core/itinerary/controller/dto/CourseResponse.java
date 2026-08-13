@@ -4,6 +4,7 @@ import com.offway.core.common.logging.LogSummary;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
+import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.itinerary.service.dto.SlotHours;
 import com.offway.core.policy.domain.PolicyType;
@@ -101,7 +102,8 @@ public record CourseResponse(
                                 generated.regionName(),
                                 generated.weatherByDay().get(course.getDays().get(i).getDayNumber()),
                                 course.distanceFromPrevDayMeters(i),
-                                generated.hoursByContentId()))
+                                generated.hoursByContentId(),
+                                slotBenefits(generated)))
                         .toList(),
                 generated.benefits().stream().map(Benefit::from).toList(),
                 generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()),
@@ -189,13 +191,15 @@ public record CourseResponse(
 
         static Day from(
                 DaySchedule schedule, LocalDate travelDate, String regionName, DailyWeather weather,
-                Integer distanceFromPrevDayMeters, Map<String, SlotHours> hoursByContentId) {
+                Integer distanceFromPrevDayMeters, Map<String, SlotHours> hoursByContentId,
+                Map<SlotKind, String> slotBenefits) {
             // 표시 번호가 아니라 달력 오프셋으로 센다 — 첫날이 빠진 코스에서 하루 앞당겨지지 않게(#159).
             LocalDate date = travelDate == null ? null : travelDate.plusDays(schedule.getDayOffset());
             List<Slot> slots = schedule.getSlots();
             List<Item> items = IntStream.range(0, slots.size())
                     .mapToObj(i -> Item.from(slots.get(i), schedule.distanceFromPrevMeters(i), regionName,
-                            hoursByContentId.get(slots.get(i).getPoiContentId())))
+                            hoursByContentId.get(slots.get(i).getPoiContentId()),
+                            benefitFor(slots.get(i), slotBenefits)))
                     .toList();
             return new Day(
                     schedule.getDayNumber(),
@@ -255,6 +259,13 @@ public record CourseResponse(
                     `OPEN` 영업 중 · `CLOSED_TODAY` 오늘은 휴무일이에요 ·
                     `BEFORE_OPEN` 아직 문을 열기 전이에요 · `CLOSED_NOW` 오늘 운영이 끝났어요""",
                     example = "CLOSED_TODAY", nullable = true) String openingStatus,
+            @Schema(description = """
+                    이 장소에서 쓸 수 있는 혜택 뱃지(#140). 단정할 수 있는 것만 붙는다.
+
+                    지금은 숙박세일페스타(숙소)뿐이다. 나머지는 프로그램 약관을 봐야 "이 장소에서 쓸 수 있나" 를
+                    알 수 있는데 그 데이터가 없어 붙이지 않는다 — 근거 없이 붙이면 사용자가 못 받는 할인을
+                    기대하고 간다. 지역 단위 혜택은 코스 `benefits` 로 그대로 나간다.""",
+                    example = "숙박 할인", nullable = true) String benefit,
             double lat,
             double lng,
             int travelMinutes,
@@ -263,7 +274,7 @@ public record CourseResponse(
             @Schema(description = "코스 지역의 짧은 이름", example = "정선군", nullable = true) String regionName) {
 
         static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName,
-                SlotHours hours) {
+                SlotHours hours, String benefit) {
             return new Item(
                     slot.getOrderInDay(),
                     slot.getTimeOfDay().name(),
@@ -278,6 +289,7 @@ public record CourseResponse(
                     hours == null ? null : hours.useTime(),
                     hours == null ? null : hours.restDate(),
                     hours == null ? null : hours.displayStatus(),
+                    benefit,
                     slot.getLat(),
                     slot.getLng(),
                     slot.getTravelMinutesFromPrev(),
@@ -358,5 +370,22 @@ public record CourseResponse(
                     hasTrain ? access.fastest().trainType() : null,
                     hasTrain ? access.fastest().durationMinutes() : null);
         }
+    }
+
+    /**
+     * 슬롯 종류별 혜택 뱃지 — 코스가 이미 들고 있는 혜택에서 고른다(#140).
+     *
+     * <p>혜택을 새로 조회하지 않는다. 지역 혜택 매칭은 이미 끝나 있고, 여기서는 <b>그중 슬롯 종류를 단정할
+     * 수 있는 것</b>만 골라 자리를 옮길 뿐이다.
+     */
+    private static Map<SlotKind, String> slotBenefits(GeneratedCourse generated) {
+        Map<SlotKind, String> byKind = new java.util.EnumMap<>(SlotKind.class);
+        generated.benefits().forEach(benefit -> benefit.type().targetScope()
+                .ifPresent(scope -> byKind.putIfAbsent(SlotKind.covering(scope), benefit.text())));
+        return byKind;
+    }
+
+    private static String benefitFor(Slot slot, Map<SlotKind, String> slotBenefits) {
+        return slotBenefits.get(slot.getKind());
     }
 }
