@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -25,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -46,6 +48,10 @@ class MyLeaveIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    /** 도메인이 막는 값을 옛 데이터로 심을 때만 쓴다 — 그 밖의 준비는 전부 API 로 한다. */
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private ResultActions addUsage(String guest, String body) throws Exception {
         return mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, guest)
@@ -197,6 +203,58 @@ class MyLeaveIntegrationTest {
         mockMvc.perform(delete(USAGES_URL + "/{id}", 1L).header(GUEST_HEADER, "  "))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("LEAVE-011"));
+    }
+
+    /**
+     * 이 PR 이 손대지 않기로 한 <b>이미 쌓인 음수 행</b>이 실제로 어떻게 보이고 어떻게 정리되는가(#265).
+     *
+     * <p>세 가지를 한 번에 잠근다. ① 원장 합이 음수여도 잔여가 총을 넘지 않는다(clamp 가 실데이터에서 돈다)
+     * ② 그래도 <b>목록에는 음수 행이 그대로 보인다</b> — 마이그레이션으로 지우지 않기로 했으므로 이건 사양이다
+     * ③ 그 행을 사용자가 직접 지울 수 있고, 지우면 장부가 실제로 맞아떨어진다.
+     *
+     * <p>API 로는 더 이상 음수를 넣을 수 없으므로 도메인을 우회해 직접 적재한다 — 그게 옛 데이터의 실제 모습이다
+     * (하이드레이션은 생성자를 거치지 않는다).
+     */
+    @Test
+    void 이미_쌓인_음수_행은_목록에_보이고_사용자가_지워_정리할_수_있다() throws Exception {
+        String guest = "leave-legacy-negative";
+        mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 15}"))
+                .andExpect(status().isOk());
+        addUsage(guest, "{\"usedOn\": \"2026-05-08\", \"days\": 2}").andExpect(status().isCreated());
+        // 삭제 API 가 없던 시절의 상쇄 등록 — 같은 취소가 두 번 들어와 원장 합이 -2 가 된 그 장부다.
+        insertLegacyReversal(guest, -2.0);
+        insertLegacyReversal(guest, -2.0);
+
+        String found = mockMvc.perform(get(URL).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usedDays").value(0.0))
+                .andExpect(jsonPath("$.data.remainingDays").value(15.0)) // 17 이 아니다
+                .andExpect(jsonPath("$.data.usages.length()").value(3))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        List<Integer> negativeIds = JsonPath.read(found, "$.data.usages[?(@.days < 0)].id");
+        assertEquals(2, negativeIds.size(), "음수 행은 감춰지지 않고 목록에 그대로 나간다");
+
+        for (Integer id : negativeIds) {
+            mockMvc.perform(delete(USAGES_URL + "/{id}", id.longValue()).header(GUEST_HEADER, guest))
+                    .andExpect(status().isOk());
+        }
+
+        // 정리하고 나면 clamp 가 가리고 있던 값과 실제 장부가 같아진다.
+        mockMvc.perform(get(URL).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usedDays").value(2.0))
+                .andExpect(jsonPath("$.data.remainingDays").value(13.0))
+                .andExpect(jsonPath("$.data.usages.length()").value(1));
+    }
+
+    /** 도메인을 우회해 음수 행을 심는다 — 이제 팩토리가 막으므로 옛 데이터는 이 길로만 재현된다. */
+    private void insertLegacyReversal(String guest, double days) {
+        jdbcTemplate.update(
+                "INSERT INTO leave_usage (guest_id, used_on, days, reason) VALUES (?, ?, ?, ?)",
+                guest, LocalDate.of(2026, 5, 9), days, "하루 취소");
     }
 
     @Test
