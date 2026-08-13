@@ -21,6 +21,7 @@ import jakarta.validation.constraints.Positive;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * 코스 저장 요청 — API 계약. 생성({@code POST /courses/generate})으로 받은 코스를 그대로 담아 "내 코스"로 저장한다.
@@ -61,28 +62,52 @@ public record CourseSaveRequest(
                 Double originLng,
         @NotEmpty List<@Valid Day> days) {
 
-    /**
-     * 게스트 소유의 도메인 코스로 변환한다. Bean Validation 이 못 잡는 도메인 불변식(일차·슬롯 순서 연속성, 게스트 ID 규칙 등)은
-     * 도메인 팩토리가 던지고, 여기서 계약 예외(400)로 번역한다 — 입력 경계가 계약 검증을 소유하므로 이 매핑에서 400 을 확정한다.
-     */
+    /** 게스트 소유의 도메인 코스로 변환한다 — 예외 번역은 {@link #build} 가 소유한다. */
     public Course toCourse(String guestId) {
+        return build(origin -> Course.ownedBy(
+                guestId, regionId, density, transport, schedules(), travelDate, span(), origin));
+    }
+
+    /**
+     * <b>주인 없는</b> 코스로 변환한다(#261) — 담지 않고 공유 링크만 만들 때.
+     *
+     * <p>구성 검증은 저장과 <b>똑같다</b>. 링크로 열리는 코스가 담은 코스보다 느슨할 이유가 없고,
+     * 두 경로의 규칙이 갈리면 같은 payload 가 한쪽에서만 통과한다.
+     */
+    public Course toSharedCourse() {
+        return build(origin ->
+                Course.sharedOnly(regionId, density, transport, schedules(), travelDate, span(), origin));
+    }
+
+    /**
+     * 출발지를 확정하고 도메인 팩토리를 부른다 — Bean Validation 이 못 잡는 도메인 불변식(일차·슬롯 순서
+     * 연속성, 게스트 ID 규칙 등)은 도메인이 던지고, 여기서 계약 예외(400)로 번역한다. 입력 경계가 계약 검증을
+     * 소유하므로 이 매핑에서 400 을 확정한다.
+     */
+    private Course build(Function<Coordinate, Course> factory) {
         try {
-            List<DaySchedule> schedules =
-                    days.stream().map(day -> day.toSchedule(travelDate)).toList();
-            // 기간을 안 보낸 클라이언트는 담아 보낸 날 수로 본다 — 이 필드가 생기기 전과 같은 동작이라
-            // 기존 연동이 깨지지 않는다. 그 경우 첫날이 빠진 코스는 종료일이 하루 이른 채로 남는다(#164).
-            int span = travelDays != null ? travelDays : schedules.size();
             // 출발지는 위도·경도가 함께여야 좌표가 된다. 한쪽만 오면 조용히 버리지 않고 거절한다 —
             // 클라이언트는 출발지를 보냈다고 여기는데 저장 코스에서 열차 접근이 비고, 그 이유를 알 수 없다.
             // Day 날짜(#180)에서 시작일 없이 날짜만 온 요청을 거절한 것과 같은 판단이다.
             if ((originLat == null) != (originLng == null)) {
                 throw new IllegalArgumentException("출발지는 위도·경도를 함께 보내야 합니다");
             }
-            Coordinate origin = originLat == null ? null : new Coordinate(originLat, originLng);
-            return Course.ownedBy(guestId, regionId, density, transport, schedules, travelDate, span, origin);
+            return factory.apply(originLat == null ? null : new Coordinate(originLat, originLng));
         } catch (IllegalArgumentException e) {
             throw ItineraryException.invalidCourse();
         }
+    }
+
+    private List<DaySchedule> schedules() {
+        return days.stream().map(day -> day.toSchedule(travelDate)).toList();
+    }
+
+    /**
+     * 여행 기간 — 기간을 안 보낸 클라이언트는 담아 보낸 날 수로 본다. 이 필드가 생기기 전과 같은 동작이라
+     * 기존 연동이 깨지지 않는다. 그 경우 첫날이 빠진 코스는 종료일이 하루 이른 채로 남는다(#164).
+     */
+    private int span() {
+        return travelDays != null ? travelDays : days.size();
     }
 
     /**

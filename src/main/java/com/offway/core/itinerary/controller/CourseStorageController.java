@@ -12,6 +12,7 @@ import com.offway.core.itinerary.domain.CourseScope;
 import com.offway.core.itinerary.service.dto.MyCourses;
 import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.itinerary.controller.dto.CourseSaveRequest;
+import com.offway.core.itinerary.controller.dto.CourseShareResponse;
 import com.offway.core.itinerary.controller.dto.CourseSummaryResponse;
 import com.offway.core.itinerary.controller.dto.CourseUpdateRequest;
 import com.offway.core.itinerary.service.CourseStorageService;
@@ -48,6 +49,14 @@ public class CourseStorageController implements CourseStorageApi {
     public ApiResponseBody<CourseResponse> save(
             @RequestHeader(GUEST_HEADER) String guestId, @Valid @RequestBody CourseSaveRequest request) {
         return ApiResponseBody.created(CourseResponse.from(courseStorageService.save(request.toCourse(guestId))));
+    }
+
+    @Override
+    @PostMapping("/share")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponseBody<CourseShareResponse> share(@Valid @RequestBody CourseSaveRequest request) {
+        return ApiResponseBody.created(
+                CourseShareResponse.from(courseStorageService.shareWithoutSaving(request.toSharedCourse())));
     }
 
     @Override

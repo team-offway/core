@@ -185,6 +185,31 @@ public class Course {
     }
 
     /**
+     * <b>소유자 없이</b> 영속하는 코스(#261) — 담지 않고 공유 링크만 만들 때.
+     *
+     * <p>공유 링크로 열려면 코스가 어딘가 있어야 하는데, 사용자는 이걸 "내 코스에 담았다" 고 여기지 않는다.
+     * 그래서 <b>주인을 두지 않는다</b> — "내 코스" 조회는 전부 {@code guest_id} 로 좁히므로(목록·상세·삭제)
+     * 주인이 없는 코스는 어느 질의에도 걸리지 않는다. 목록에서 빼려고 플래그를 더하고 질의마다 조건을
+     * 붙이는 것보다, 애초에 소유 관계를 만들지 않는 편이 규칙이 하나로 끝난다.
+     *
+     * <p>그 대가로 <b>이 코스는 아무도 지울 수 없다</b>. 삭제도 소유자 범위로 도는 길뿐이기 때문이다.
+     * 정리는 발급 시각({@code course_share.created_at})을 근거로 나중에 일괄로 한다.
+     *
+     * @param origin 출발지. 공개 조회에서 열차 접근을 다시 계산하는 근거다(#187). 모르면 null
+     */
+    public static Course sharedOnly(
+            Long regionId,
+            Density density,
+            TransportMode transport,
+            List<DaySchedule> days,
+            LocalDate travelDate,
+            int travelDays,
+            Coordinate origin) {
+        return new Course(null, regionId, density, transport, days, travelDate, travelDays,
+                origin == null ? null : origin.lat(), origin == null ? null : origin.lng());
+    }
+
+    /**
      * 저장된 출발지 — 대중교통 열차 접근을 다시 계산할 근거.
      *
      * @return 출발지. 자차 코스이거나 이 필드가 생기기 전에 저장된 코스면 empty

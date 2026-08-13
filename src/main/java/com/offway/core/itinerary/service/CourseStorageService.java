@@ -3,6 +3,7 @@ package com.offway.core.itinerary.service;
 import com.offway.core.common.response.Paging;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseScope;
+import com.offway.core.itinerary.domain.CourseShare;
 import com.offway.core.itinerary.domain.DayStart;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
@@ -70,6 +71,26 @@ public class CourseStorageService {
         // 공유 토큰을 저장 응답에 함께 싣는다(#143) — 공유 버튼이 추가 왕복 없이 링크를 만들게.
         // 토큰이 있다고 공개되는 것이 아니다. 링크를 넘겨야 비로소 남이 볼 수 있다.
         return withBenefits(saved, false).withShareToken(shareTokenOf(saved.getId()));
+    }
+
+    /**
+     * 담지 않고 <b>공유 링크만</b> 만든다(#261) — 추천 결과 화면의 공유 버튼.
+     *
+     * <p>링크로 열려면 코스가 어딘가 있어야 하므로 코스 자체는 영속한다. 다만 <b>주인 없이</b> 저장해
+     * "내 코스" 어디에도 나오지 않게 한다({@link Course#sharedOnly}). 사용자가 담은 것이 아니기 때문이다.
+     *
+     * <p>혜택·날씨를 붙이지 않는다 — 응답이 토큰 하나라 조립할 것이 없고, 그 조립은 외부 호출(기상청)을
+     * 탄다. 링크를 여는 쪽({@code GET /public/courses/{token}})이 그때 붙인다.
+     *
+     * @return 공유 토큰
+     */
+    public String shareWithoutSaving(Course course) {
+        // 코스와 링크를 한 트랜잭션으로 저장한다. 나눠 저장하면 링크 발급이 실패했을 때 아무도 닿을 수
+        // 없는 코스가 남고, 정리 배치가 나이를 재는 근거(공유 행의 발급 시각)도 없어 영영 남는다.
+        CourseShare share = coursePersistenceService.persistWithShare(course);
+        log.info("담지 않은 코스로 공유 링크를 만들었습니다 courseId={} regionId={}",
+                share.getCourseId(), course.getRegionId());
+        return share.getShareToken();
     }
 
     /**
