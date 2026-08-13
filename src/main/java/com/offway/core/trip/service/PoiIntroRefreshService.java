@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.repository.BatchRunRepository;
+import com.offway.core.common.config.BatchBudgetProperties;
 import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.repository.PoiIntroRepository;
@@ -46,6 +47,10 @@ public class PoiIntroRefreshService {
      *
      * <p>나머지는 사용자 요청(코스 생성 1건당 3회)과 장소 상세가 쓴다. 이 배치가 한도를 다 먹으면
      * 정작 코스가 안 나온다 — 채우려던 값 때문에 채울 대상이 사라지는 셈이다.
+     *
+     * <p><b>로컬은 이보다 적게 쓴다.</b> 로컬과 운영이 같은 키를 쓰는데 배치 건너뛰기는 자기 DB 안에서만
+     * 중복을 막아, 그대로 두면 두 곳이 각자 하루치를 태운다(#254). {@code offway.batch.regions-per-run} 이
+     * 설정돼 있으면 그만큼으로 줄인다.
      */
     private static final int DAILY_BUDGET = 300;
 
@@ -54,9 +59,22 @@ public class PoiIntroRefreshService {
 
     private static final Duration MIN_INTERVAL = Duration.ofDays(1);
 
+    /**
+     * 빈 응답을 다시 물어보기까지 기다리는 기간 — <b>빈 값은 캐시가 아니라 재시도 대기다</b>.
+     *
+     * <p>"값이 없다" 는 실패와 결과가 같다. 영구 저장으로 굳히면 원본이 나중에 운영시간을 채워도 우리는 영영
+     * 모른다. 그렇다고 매 회차 다시 물으면 하루 예산({@value #DAILY_BUDGET})을 빈 콘텐츠가 다 먹고, 새로
+     * 생긴 코스의 장소가 차례를 못 받는다.
+     *
+     * <p>7일로 둔 근거 — 원본을 채우는 것은 지자체 정보 갱신이라 일 단위로 바뀌지 않는다. 빈 것 하나가
+     * 쓰는 예산이 매일 재시도의 1/7 로 줄고, 원본이 채워지면 늦어도 일주일 안에 화면에 반영된다.
+     */
+    static final Duration EMPTY_RETRY_INTERVAL = Duration.ofDays(7);
+
     private final TourApiClient tourApiClient;
     private final PoiIntroRepository poiIntroRepository;
     private final BatchRunRepository batchRunRepository;
+    private final BatchBudgetProperties batchBudget;
 
     /**
      * 하루 한 번 — 그날 이미 돌았으면 외부를 아예 안 부른다.
@@ -83,7 +101,11 @@ public class PoiIntroRefreshService {
      * 그건 사용자 요청까지 함께 막는다. 배치라 사용자를 기다리게 하지 않으므로 느려도 된다.
      */
     public void refresh() {
-        List<PoiIntroRepository.ContentRef> missing = poiIntroRepository.findMissing(DAILY_BUDGET);
+        LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+        // 로컬은 한 회차에 몇 건만 채운다(#254) — 자세한 이유는 BatchBudgetProperties.
+        int budget = batchBudget.limits(DAILY_BUDGET) ? batchBudget.regionsPerRun() : DAILY_BUDGET;
+        List<PoiIntroRepository.ContentRef> missing =
+                poiIntroRepository.findMissing(budget, now.minus(EMPTY_RETRY_INTERVAL));
         if (missing.isEmpty()) {
             log.info("장소 운영시간 — 받을 것이 없습니다(저장={}건)", poiIntroRepository.count());
             return;
@@ -103,7 +125,8 @@ public class PoiIntroRefreshService {
                 continue; // 다음 회차에 다시 시도한다 — 저장하지 않으면 여전히 "안 받은 것" 이다
             }
             if (hours == null || hours.isEmpty()) {
-                // 값이 없다는 것도 사실이다. 안 넣으면 매 회차 같은 콘텐츠를 다시 물어 예산을 태운다.
+                // 빈 행으로 남긴다 — 매 회차 다시 물으면 예산을 태우기 때문이다. 다만 캐시가 아니라
+                // 재시도 대기다: fetched_at 이 EMPTY_RETRY_INTERVAL 을 넘기면 다시 일감이 된다.
                 empty++;
                 fetched.put(ref, new OpeningHours(null, null));
                 continue;
@@ -111,13 +134,15 @@ public class PoiIntroRefreshService {
             fetched.put(ref, hours);
         }
 
-        int saved = poiIntroRepository.upsertAll(fetched, LocalDateTime.now(SERVICE_ZONE));
-        if (failed > 0) {
-            log.warn("장소 운영시간 적재 {}건(대상 {}) — 실패 {}건·값없음 {}건, 저장 누계 {}건",
-                    saved, missing.size(), failed, empty, poiIntroRepository.count());
+        int saved = poiIntroRepository.upsertAll(fetched, now);
+        if (failed > 0 || empty > 0) {
+            // 빈 응답도 warn 이다. info 로 묻으면 "적재 성공" 처럼 보여, 화면의 운영시간이 왜 비는지
+            // 아무도 모른 채 굳는다.
+            log.warn("장소 운영시간 적재 {}건(대상 {}) — 실패 {}건·값없음 {}건({} 뒤 재시도), 저장 누계 {}건",
+                    saved, missing.size(), failed, empty, EMPTY_RETRY_INTERVAL, poiIntroRepository.count());
             return;
         }
-        log.info("장소 운영시간 적재 {}건(대상 {}) — 값없음 {}건, 저장 누계 {}건",
-                saved, missing.size(), empty, poiIntroRepository.count());
+        log.info("장소 운영시간 적재 {}건(대상 {}) — 저장 누계 {}건",
+                saved, missing.size(), poiIntroRepository.count());
     }
 }
