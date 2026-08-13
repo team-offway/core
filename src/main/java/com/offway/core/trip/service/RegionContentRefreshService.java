@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.repository.BatchRunRepository;
+import com.offway.core.common.config.BatchBudgetProperties;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.RegionContent;
@@ -59,6 +60,7 @@ public class RegionContentRefreshService {
     private final RegionContentRepository regionContentRepository;
     private final RegionRepository regionRepository;
     private final BatchRunRepository batchRunRepository;
+    private final BatchBudgetProperties batchBudget;
 
     /**
      * 주 1회 — <b>그 주에 이미 돌았으면</b> 외부를 아예 안 부른다.
@@ -89,9 +91,14 @@ public class RegionContentRefreshService {
      * 쏘므로, 운영에서는 스케줄러만 이 경로를 탄다.
      */
     public void refresh() {
-        List<Region> regions = regionRepository.findAll();
-        if (regions.isEmpty()) {
+        List<Region> all = regionRepository.findAll();
+        if (all.isEmpty()) {
             return;
+        }
+        // 로컬은 한 회차에 몇 곳만 채운다(#254) — 자세한 이유는 BatchBudgetProperties.
+        List<Region> regions = batchBudget.limit(all);
+        if (batchBudget.limits(all.size())) {
+            log.info("지역 콘텐츠 — 이번 회차는 {}/{}곳만 갱신합니다(로컬 예산)", regions.size(), all.size());
         }
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
         // 팬아웃(동시성 상한·지역별 예외 격리·전체 시간 상한)은 provider 가 소유한다. 배치라 사용자를
