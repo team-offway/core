@@ -269,3 +269,113 @@ provider 클라이언트 ID(audience)가 비어 있어도 부팅은 되고, 해�
 8. 문서·이슈 갱신
 
 1~6 과 7 은 PR 을 나눈다 — 7 이 `itinerary` 도메인을 건드리므로 리뷰 단위를 섞지 않는다.
+
+---
+
+## 개정 (2026-08-14) — 앱이 실제로 쏘는 계약에 맞춘다
+
+이 ADR 은 2026-07-29 시점의 판단이다. 그 뒤 플러터 앱이 구현되면서 **위 §인증 흐름의 로그인
+계약이 실제와 어긋났다.** 아래가 현재 정본이고, 위 본문 중 충돌하는 부분은 이 절이 이긴다.
+나머지(토큰 전략·refresh 회전·재사용 감지·UUID 식별자)는 그대로 유효하다.
+
+### 바뀐 것 1 — 로그인 엔드포인트
+
+| | 이전(ADR 원문) | 지금 |
+|---|---|---|
+| 주소 | `POST /api/v1/auth/login` | `POST /api/v1/auth/callback/{provider}` |
+| provider | 본문 필드 | **경로 변수** (`kakao`·`apple`·`google`, 대소문자 무관) |
+| 토큰 필드 | `idToken` | `accessToken` |
+| 이름·이메일 | `nickname` | `name` · `email` |
+| 응답 | `accessToken`·`refreshToken`·`expiresIn` | + **`isNewUser`** |
+
+**`/auth/login` 은 남기지 않고 갈아탔다.** 이 계약은 dev 에 올라간 적이 없어(PR #93 이
+머지되지 않았다) 부르는 클라이언트가 존재하지 않는다. 남겨 둘 이유가 "혹시 몰라서" 뿐인데,
+같은 일을 하는 입구가 둘이면 인증처럼 틀리면 비싼 곳에서 규칙이 갈린다.
+
+**`isNewUser` 가 계약의 핵심이다.** 앱이 신규는 온보딩(잔여 연차 입력), 기존은 홈으로 보낸다.
+사용자를 만든 그 자리에서 판정해 내린다 — "가입 시각이 방금인가" 같은 사후 비교는 경계값에서
+흔들리고, 재로그인이 느린 날 기존 사용자를 온보딩으로 보낸다.
+
+**`providerUserId` 는 받되 신원 판단에 쓰지 않는다.** 앱 계약에 있어 받기는 하지만, 그 값을
+믿고 계정을 찾으면 남의 식별자를 적어 그 계정으로 로그인할 수 있다 — 요청 한 번짜리 계정
+탈취다. 식별자는 언제나 서버가 provider 에게서 직접 확인한 값을 쓴다.
+
+### 바뀐 것 2 — 카카오는 OIDC 경로가 아니다
+
+원문은 셋 다 "OIDC ID 토큰을 주므로 하나의 검증 경로로 처리한다" 고 적었다. **틀렸다.**
+앱은 카카오에서 **액세스 토큰**을 받아 넘기고, 그 토큰에는 신원 정보가 없다.
+
+| provider | 앱이 넘기는 것 | 서버가 하는 일 | 외부 호출 |
+|---|---|---|---|
+| kakao | 액세스 토큰 | `GET https://kapi.kakao.com/v2/user/me` (Bearer) 로 회원번호 조회 | **있다** |
+| apple | identityToken(JWT) | `https://appleid.apple.com/auth/keys` 로 서명·`aud` 검증 | 사실상 없음(JWKS 캐시) |
+| google | idToken(JWT) | Google 공개키로 서명·`aud`('웹' 클라이언트 ID) 검증 | 사실상 없음(JWKS 캐시) |
+
+그래서 `OidcTokenVerifier` 단일 port 를 **provider 별 전략**으로 나눴다.
+
+```
+infrastructure/social/  SocialIdentityResolver(port, 서비스가 의존)
+                        SocialIdentityVerifier(전략)
+                        DelegatingSocialIdentityResolver(supports() 로 위임 — provider 분기 없음)
+infrastructure/oidc/    NimbusOidcVerifier   — GOOGLE·APPLE (서명 검증)
+infrastructure/kakao/   KakaoIdentityVerifier + KakaoProfileClient(port)/Impl(adapter)
+```
+
+분류는 `AuthProvider.oidc()` 의 유무가 표현한다 — 서명 검증에 필요한 값(issuer·JWKS 주소)과
+그 방식이 쓰이는 조건이 정확히 같아서, boolean 이나 별도 enum 을 또 두지 않는다.
+
+**카카오 프로필 조회는 캐시하지 않는다.** 붙일 수 없어서가 아니라 붙이면 안 된다. 키가 액세스
+토큰이라 사용자 수만큼 무한히 늘고(캐시 키 공간 규칙), 무엇보다 신원 확인이 stale 이면
+만료·해지된 토큰을 유효하다고 답하게 되어 그게 곧 인증 우회다. 대신 로그인 1회당 호출 1회로
+상한이 잡힌다.
+
+**timeout 3초.** 실측(2026-08-14, n=12, 인증 거부 경로) p90 27ms · 최대 30ms. 정상 조회 분포는
+실 토큰이 없어 아직 못 쟀으므로 꼬리에 맞춰 좁히는 대신 여유를 크게 잡았다 — 이 호출이 끊기면
+로그인 자체가 실패해 사용자가 앱에 들어오지도 못한다. 앱이 붙으면 p99 로 다시 정한다.
+
+**client secret 은 쓰지 않는다.** 그 값이 필요한 곳은 인가 코드를 액세스 토큰으로 바꾸는 토큰
+엔드포인트(`POST /oauth/token`) 하나뿐인데, 그 단계는 앱이 SDK 로 이미 끝냈다. 프로필 조회는
+액세스 토큰만 받는다.
+
+### 바뀐 것 3 — 전면 인증 전환은 이미 끝나 있었다
+
+원문의 "2단계 전환"(`anyRequest().authenticated()`)은 **이 PR 을 기다리지 않고 #122 가 먼저
+했다.** 8080 을 외부에 열면서 임시 HTTP Basic 게이트를 세웠기 때문이다.
+
+그래서 이 PR 은 전환이 아니라 **자격증명을 하나 더 받는 일**이 됐다. 한 체인에서 둘 다 받는다.
+
+| 수단 | 누가 쓰나 | 실패 시 code |
+|---|---|---|
+| `Authorization: Bearer <access>` | 앱 사용자 | `USER-004`(재발급하라) |
+| `Authorization: Basic ...` | 팀 · Swagger · apidog | `COMMON-401`(자격증명 제시하라) |
+
+**Basic 게이트를 이 PR 에서 걷어내지 않았다.** #122 는 "소셜 로그인이 붙으면 걷어낸다" 는
+전제로 들어왔지만, 걷어내는 조건은 로그인이 *존재*하는 것이 아니라 **모든 호출자가 실제
+토큰을 들고 오는 것**이다. 앱 배포 전까지 Swagger·apidog 는 provider 토큰을 만들 수 없다.
+지금 걷어내면 8080 이 다시 열려 TMAP 하루 50건이 봇 한 마리에 고갈된다 — #122 가 막으려던
+바로 그 상황이다.
+
+401 의 code 를 자격증명 종류로 가르는 이유도 여기 있다. 401 하나로 뭉치면 앱이 다음에 뭘
+해야 할지 모른다. 반대로 아무것도 안 들고 온 요청에 `USER-004` 를 주면, 있지도 않은 refresh 로
+재발급을 시도하는 무한 루프가 된다.
+
+자격증명을 **만들어 주는** 경로(`/auth/callback/*`·`/auth/reissue`·`/auth/dev-login`)만 열려
+있다. `/auth/logout` 은 잠긴 채다 — 누구의 토큰을 폐기할지 알아야 한다.
+
+### 바뀐 것 4 — 이메일을 보관한다
+
+`users.email VARCHAR(255) NULL` 을 더했다. Apple 은 최초 로그인 응답에만 주므로 그때 받지
+못하면 영영 얻을 수 없다.
+
+NULL 을 허용하고 **UNIQUE 를 걸지 않으며 계정 매칭에도 쓰지 않는다.** 카카오는 이메일 동의를
+거부할 수 있고, Apple Private Relay 는 서비스마다 다른 익명 주소를 준다 — 동일성 판단에 못 쓴다.
+매칭 키는 여전히 `user_identity(provider, provider_user_id)` 뿐이다.
+
+### 그대로인 것
+
+- 토큰 전략(access 1h + refresh 60일 회전·DB 해시 저장), 재사용 감지와 그 롤백 함정
+- UUID(BINARY(16), 시간정렬) 식별자
+- `@LoginUser` · `JwtAuthenticationFilter` · 필터 단계 401 을 공통 래퍼로 내리는 처리
+- local 전용 개발 로그인(`@Profile("local")`)
+- **`courses` 소유 전환(`guest_id` → `user_id`)은 여전히 안 됐다.** 별도 PR 로 남아 있고,
+  그 때문에 회원 탈퇴(#271)가 지울 수 있는 범위가 제한된다.
