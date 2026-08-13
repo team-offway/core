@@ -38,11 +38,16 @@ public class LeaveUsage {
     @Column(name = "guest_id", nullable = false, length = LeaveBalance.MAX_OWNER_ID_LENGTH)
     private String guestId;
 
-    /** 연차를 쓴(또는 되돌린) 날. */
+    /** 연차를 쓴 날. */
     @Column(name = "used_on", nullable = false)
     private LocalDate usedOn;
 
-    /** 증감(0.5 단위). 사용은 양수, 취소는 음수. */
+    /**
+     * 쓴 일수(0.5 단위 양수). 코스 차감만 0 을 허용한다(#212).
+     *
+     * <p><b>음수 행이 남아 있을 수 있다</b> — 삭제 API 가 없던 시절의 상쇄 등록이다(#265). 새로 들어오는 것은
+     * {@link #requireDays} 가 막지만, 이미 적재된 행은 그대로 읽힌다(하이드레이션은 생성자를 거치지 않는다).
+     */
     @Column(name = "days", nullable = false)
     private double days;
 

@@ -13,7 +13,12 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.LocalDate;
 
-/** 연차·가용시간 API 문서 계약. 매핑·검증 어노테이션은 구현체({@link LeaveController})가 소유한다. */
+/**
+ * 연차·가용시간 API 문서 계약. 매핑·검증 어노테이션은 구현체({@link LeaveController})가 소유한다.
+ *
+ * <p>여기 엔드포인트는 전부 인증 게이트 뒤에 있다({@code anyRequest().authenticated()}, #122) — 그래서 어느
+ * 메서드든 401 이 도달 가능하고, 전수 문서화 대상이다. 한 메서드에만 적으면 나머지가 공개로 읽힌다.
+ */
 @Tag(name = "연차", description = "연차 기반 가용시간(LNT)·샌드위치 연휴·내 연차")
 public interface LeaveApi {
 
@@ -22,6 +27,7 @@ public interface LeaveApi {
             description = "총 연차·쓴 연차·남은 연차와 사용 내역. 아직 설정한 적이 없으면 총 0·내역 없음으로 답한다(404 아님).")
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락 · 헤더가 비었거나 64자 초과")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<MyLeaveResponse> myLeave(
             @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId);
 
@@ -32,6 +38,7 @@ public interface LeaveApi {
     @ApiResponse(
             responseCode = "400",
             description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · totalDays 누락 · 0.5 단위가 아니거나 0~365 범위 밖")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<MyLeaveResponse> updateMyLeave(
             @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
             UpdateMyLeaveRequest request);
@@ -51,6 +58,7 @@ public interface LeaveApi {
             responseCode = "400",
             description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usedOn·days 누락 또는 형식 오류 · "
                     + "days 가 0 이거나 0.5 단위가 아니거나 99 초과(LEAVE-010) · days 가 음수(LEAVE-013)")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<MyLeaveResponse> addLeaveUsage(
             @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
             AddLeaveUsageRequest request);
@@ -90,12 +98,14 @@ public interface LeaveApi {
             description = "날짜 형식 오류 · 날짜와 기간스타일을 함께 보냄 또는 둘 다 없음 · 종료일이 시작일보다 앞섬 · "
                     + "여행 구간이 2박 3일 초과 · 기간스타일에 기준일 누락 · WEEKEND 인데 브릿지 요일 누락 · "
                     + "CONNECTED 인데 연차 일수 누락 또는 2~3 범위 밖")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "502", description = "공휴일 정보(특일정보) 조회 실패")
     ApiResponseBody<AvailableTimeResponse> availableTime(AvailableTimeRequest request);
 
     @Operation(summary = "샌드위치 연휴 추천", description = "조회 기간 안에서 최소 연차로 최대 휴식이 되는 황금 연차를 효율 순으로 추천한다.")
     @ApiResponse(responseCode = "200", description = "추천 성공 (없으면 빈 목록)")
     @ApiResponse(responseCode = "400", description = "fromDate 누락·형식 오류 · 조회 개월 수가 1~12 범위 밖")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "502", description = "공휴일 정보(특일정보) 조회 실패")
     ApiResponseBody<SandwichResponse> sandwich(
             @Parameter(description = "조회 시작일", example = "2026-05-01") LocalDate fromDate,

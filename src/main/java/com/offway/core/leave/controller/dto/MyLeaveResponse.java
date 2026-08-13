@@ -10,13 +10,15 @@ import java.util.List;
  * "내 연차" 응답 — API 계약. 남은 연차는 서버가 계산해 내려준다(클라이언트가 빼지 않게).
  *
  * @param totalDays 총 연차
- * @param usedDays 쓴 연차 (내역 합). <b>0 아래로 내려가지 않는다</b>
+ * @param usedDays 쓴 연차. <b>0 아래로 내려가지 않는다</b> — 옛 상쇄 등록(음수 행)이 남아 있으면 {@code usages}
+ *     의 합보다 클 수 있다(#265). 클라이언트는 목록을 더해 검산하지 말고 이 값을 쓴다
  * @param remainingDays 남은 연차. <b>총 연차를 넘지 않고</b>(#265), 초과 사용 시 <b>음수일 수 있다</b>(결정 #38)
  * @param usages 사용 내역 (최근 순)
  */
 public record MyLeaveResponse(
         @Schema(description = "총 연차", example = "15.0") double totalDays,
-        @Schema(description = "쓴 연차 (내역 합, 0 이상)", example = "2.0") double usedDays,
+        @Schema(description = "쓴 연차 (0 이상 — 옛 음수 행이 있으면 목록 합과 다를 수 있다)", example = "2.0")
+                double usedDays,
         @Schema(description = "남은 연차 (총 연차 이하 · 초과 사용 시 음수)", example = "13.0") double remainingDays,
         List<Usage> usages) {
 
