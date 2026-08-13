@@ -2,12 +2,15 @@ package com.offway.core.trip.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.offway.core.trip.domain.VisitorType;
 import com.offway.core.trip.infrastructure.datalab.StubTourDataLabClient;
 import com.offway.core.trip.infrastructure.datalab.TourDataLabClient;
+import com.offway.core.trip.infrastructure.datalab.dto.RegionVisitor;
 import com.offway.core.trip.infrastructure.datalab.dto.TourVisitorResult;
 import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
@@ -16,7 +19,9 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import com.offway.core.trip.service.RegionContentProvider;
 import com.offway.core.trip.service.RegionContentRefreshService;
 import com.offway.core.trip.service.RegionRankingService;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -88,6 +93,13 @@ class RegionListIntegrationTest {
     private static TourPoiResult content() {
         TourPoi poi = new TourPoi("126508", 12, "NA", "가사동백숲해변", "전남 완도군", 34.36, 126.92, "http://img/1.jpg", null);
         return new TourPoiResult(List.of(poi), 38);
+    }
+
+    /** 방문자 집계가 실제로 채워지는 응답 — 이게 있어야 랭킹이 최초 적재 경로를 타지 않는다(정상 상태). */
+    private static TourVisitorResult visitors() {
+        RegionVisitor visitor = new RegionVisitor(
+                "51770", "정선군", LocalDate.now().minusMonths(1).withDayOfMonth(1), VisitorType.DOMESTIC, 1000.0);
+        return new TourVisitorResult(List.of(visitor), 1);
     }
 
     /** 콘텐츠를 stub 으로 적재한다 — 요청 경로는 저장된 값만 읽는다(#193). */
@@ -219,12 +231,21 @@ class RegionListIntegrationTest {
     /**
      * 이 API 의 비용을 잠근다 — 89곳을 페이지로 끊어 주는데 페이지마다 외부를 부르면 더보기 몇 번으로 TourAPI 일일 한도가 마른다.
      *
-     * <p>세는 대상은 <b>지역 콘텐츠 조회</b>다(지역당 자기 + 인접 최대 3곳이라 팬아웃이 가장 큰 호출). 관광빅데이터는 방문자 집계가
-     * 통째로 비어 있을 때만 한 번 시도하는 별도 경로라 여기서 세지 않는다 — 홈·추천과 공유하는 기존 동작이다.
+     * <p><b>두 외부를 다 센다.</b> 지역 콘텐츠(TourAPI)와 방문자 집계(관광빅데이터)가 각각 다른 경로라, 하나만 세면 나머지가
+     * 조용히 새어 나간다. 실제로 관광빅데이터는 집계가 비어 있는 동안 요청마다 최초 적재를 시도하므로, 여기서는 집계를 채워
+     * <b>정상 상태</b>를 만든 뒤 0 을 단언한다. 집계가 빈 degrade 상태는 아래 테스트가 따로 잠근다.
      */
     @Test
-    void 목록_조회는_지역_콘텐츠_외부_호출을_한_번도_하지_않는다() throws Exception {
+    void 목록_조회는_외부_API_를_한_번도_부르지_않는다() throws Exception {
         loadContent();
+        dataLabClient.respond(RegionListIntegrationTest::visitors);
+        regionRankingService.refresh();
+
+        AtomicInteger dataLabCalls = new AtomicInteger();
+        dataLabClient.respond(() -> {
+            dataLabCalls.incrementAndGet();
+            return TourVisitorResult.empty();
+        });
         tourApiClient.resetAreaCallCount();
 
         mockMvc.perform(get(URL)).andExpect(status().isOk());
@@ -232,7 +253,35 @@ class RegionListIntegrationTest {
         mockMvc.perform(get(URL).param("category", "SIGHT")).andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/categories")).andExpect(status().isOk());
 
-        assertEquals(0, tourApiClient.areaCallCount());
+        assertEquals(0, tourApiClient.areaCallCount(), "지역 콘텐츠(TourAPI) 호출");
+        assertEquals(0, dataLabCalls.get(), "방문자 집계(관광빅데이터) 호출");
+    }
+
+    /**
+     * 집계가 비어 외부가 계속 빈 결과를 줘도 <b>재시도가 요청 수에 비례하면 안 된다</b>.
+     *
+     * <p>이 집계를 채우는 경로가 요청 경로뿐이라 첫 시도 자체는 의도된 것이다. 문제는 그 다음이다 — 실패를 기억하지 않으면
+     * 페이지를 넘길 때마다 다시 시도해 "더보기" 한 세션이 외부 호출 수십 건이 된다. 페이지네이션 API 라 요청 수가 곱해지는
+     * 자리라서 상한이 필요하다.
+     */
+    @Test
+    void 집계가_비어도_최초_적재를_요청마다_되풀이하지_않는다() throws Exception {
+        loadContent();
+        AtomicInteger dataLabCalls = new AtomicInteger();
+        dataLabClient.respond(() -> {
+            dataLabCalls.incrementAndGet();
+            return TourVisitorResult.empty();
+        });
+
+        mockMvc.perform(get(URL).param("page", "0")).andExpect(status().isOk());
+        int afterFirstRequest = dataLabCalls.get();
+
+        for (int page = 1; page < 5; page++) {
+            mockMvc.perform(get(URL).param("page", String.valueOf(page))).andExpect(status().isOk());
+        }
+
+        assertTrue(afterFirstRequest > 0, "첫 요청은 최초 적재를 시도한다");
+        assertEquals(afterFirstRequest, dataLabCalls.get(), "이후 페이지는 적재를 다시 시도하지 않는다");
     }
 
     @Test
