@@ -307,13 +307,15 @@ class PoiDetailIntegrationTest {
     }
 
     /**
-     * 외부가 죽어도 <b>직전 값을 내린다</b> — 상세는 느리게 변하므로 6시간 전 값이 502 보다 낫다.
+     * 외부가 죽었는데 <b>내려보낼 직전 값도 없으면</b> 502 로 알린다 — 조용히 빈 화면을 주지 않는다.
      *
-     * <p>2026-08-11 04:14 에 실제로 그 반대가 났다. 공통상세가 6초 안에 답하지 않아 사용자가 화면을
-     * 통째로 못 봤는데, 그때 캐시에 직전 값이 있었다면 그게 나갔다.
+     * <p>반대편(직전 값이 있으면 그걸 내린다)은 여기서 재현하지 않는다. TTL 이 6시간이라 만료를 기다릴
+     * 수 없고, 시계를 주입하는 seam 도 두지 않았다. stale-while-error 자체는 캐시 프리미티브의 단위
+     * 테스트가 짧은 TTL 로 덮는다({@code ExternalDataCacheTest}). 여기서 확인할 것은 그 정책을 이
+     * 서비스가 골라 쓰는지이고, 정책이 갈리는 지점인 "직전 값 없음" 이 이 테스트다.
      */
     @Test
-    void 외부가_실패해도_직전_값을_내린다() throws Exception {
+    void 외부가_실패했는데_직전_값도_없으면_502로_알린다() throws Exception {
         poiDetailService.evictCache();
         tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
                 "777", 12, "청령포", "강원 영월군", null, 37.1, 128.4, "http://img/7.jpg", "명승 소개")));
