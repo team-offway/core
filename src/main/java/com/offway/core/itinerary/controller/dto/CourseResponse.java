@@ -62,7 +62,9 @@ public record CourseResponse(
         @Schema(description = "대중교통 코스의 출발지→지역 열차 접근 (자차·저장 코스는 null)", nullable = true)
                 TrainAccessResponse trainAccess,
         @Schema(
-                        description = "공유 링크 토큰 (저장 응답에만 실린다). 공유 URL 은 /c/{shareToken}",
+                        description = "공유 링크 토큰. 공유 URL 은 /c/{shareToken}. "
+                                + "소유자 응답(저장·상세·여행 날짜 수정)에 실리고, "
+                                + "공유 링크로 여는 공개 조회에는 없다 — 이미 URL 에 있다",
                         example = "a1B2c3D4e5F6g7H8i9J0kL",
                         nullable = true)
                 String shareToken,

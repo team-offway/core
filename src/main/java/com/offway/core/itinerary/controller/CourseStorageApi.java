@@ -46,7 +46,12 @@ public interface CourseStorageApi {
                     - `PAST` — 지난 여행, 최근 것부터
                     - `ALL`(기본) — 전부, 저장한 순서(최근 저장이 위)
 
-                    각 항목은 `dDay`(오늘 기준 남은 날, 지난 여행이면 음수)와 `leaveDeducted`(연차 차감 여부)를 함께 준다.
+                    각 항목은 `dDay`(오늘 기준 남은 날, 지난 여행이면 음수)와 `leaveDeducted`(연차 차감 여부),
+                    그리고 `shareToken`(공유 링크 토큰)을 함께 준다.
+
+                    **`shareToken` 이 null 인 항목이 있을 수 있다** — 공유 링크가 아직 발급된 적 없는 코스다.
+                    상세(`GET /courses/{courseId}`)를 한 번 열면 그 자리에서 발급돼 채워진다. 목록에서 발급하지
+                    않는 이유는 페이지당 최대 100건이라, 조회 한 번이 그만큼의 쓰기가 되기 때문이다.
 
                     **여행 날짜 없이 저장된 코스는 `ALL` 에만 나온다** — 날짜가 없으면 다가오는 여행인지 지난 여행인지
                     판단할 근거가 없고, 아무 쪽에나 끼워 넣으면 화면이 조용히 거짓말을 한다.
@@ -61,7 +66,14 @@ public interface CourseStorageApi {
             @Parameter(description = "0부터 시작하는 페이지 번호. 없으면 0, 음수는 0 으로 자른다", example = "0") Integer page,
             @Parameter(description = "페이지 크기. 없으면 20, 최대 100(초과분은 잘림)", example = "20") Integer size);
 
-    @Operation(summary = "코스 상세", description = "저장 코스의 날짜별 타임라인과 혜택.")
+    @Operation(
+            summary = "코스 상세",
+            description = """
+                    저장 코스의 날짜별 타임라인과 혜택.
+
+                    응답에 `shareToken` 이 실린다. 아직 링크가 없는 코스면 **이 조회가 발급해서 내려준다** —
+                    그래야 저장 응답을 놓친 코스(앱 재설치·기기 변경)도 공유할 수 있다. 코스당 한 번뿐이고
+                    두 번째부터는 같은 토큰이 나간다.""")
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "400", description = "게스트 ID 누락")
     @ApiResponse(responseCode = "404", description = "요청한 코스가 없거나 소유자가 아님")
@@ -89,7 +101,8 @@ public interface CourseStorageApi {
                     기간(travelDays)·이동수단은 바꾸지 않는다. 그것들이 바뀌면 코스 구성 자체를 다시 짜야 하므로
                     생성(`POST /courses/generate`)으로 간다.
 
-                    응답은 상세 조회와 같은 모양이라, 새 날짜 기준의 요일·날씨가 함께 담겨 화면을 바로 다시 그릴 수 있다.""")
+                    응답은 상세 조회와 같은 모양이라, 새 날짜 기준의 요일·날씨가 함께 담겨 화면을 바로 다시 그릴 수 있다.
+                    `shareToken` 도 상세와 같이 실린다.""")
     @ApiResponse(responseCode = "200", description = "수정 성공")
     @ApiResponse(
             responseCode = "400",
