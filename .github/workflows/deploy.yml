@@ -111,6 +111,7 @@ jobs:
           OFFWAY_BASIC_PASSWORD=${{ secrets.OFFWAY_BASIC_PASSWORD }}
           DATA_GO_KR_SERVICE_KEY=${{ secrets.DATA_GO_KR_SERVICE_KEY }}
           TMAP_APP_KEY=${{ secrets.TMAP_APP_KEY }}
+          DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}
           ENVEOF
           scp -i ~/.ssh/deploy_key env.prod \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/offway/env.prod"

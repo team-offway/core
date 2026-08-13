@@ -1,5 +1,7 @@
 package com.offway.core.trip.domain;
 
+import com.offway.core.itinerary.domain.SlotKind;
+
 /**
  * 장소의 종류(#144) — 목록 화면의 상단 탭이자 코스 풀의 구분.
  *
@@ -23,5 +25,19 @@ public enum PlaceKind {
 
     public String label() {
         return label;
+    }
+
+    /**
+     * 코스에서 이 종류가 앉는 슬롯(#172).
+     *
+     * <p>혜택이 슬롯 종류로 매칭되므로(숙박세일페스타 → 숙소) 장소 상세에서도 같은 기준으로 물어야 한다.
+     * 카페는 식사 슬롯에 안 들어가지만 혜택 관점에서는 음식점과 같은 자리다.
+     */
+    public SlotKind slotKind() {
+        return switch (this) {
+            case STAY -> SlotKind.STAY;
+            case FOOD, CAFE -> SlotKind.FOOD;
+            case SIGHT -> SlotKind.SIGHT;
+        };
     }
 }

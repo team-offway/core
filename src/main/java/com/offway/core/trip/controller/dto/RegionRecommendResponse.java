@@ -46,6 +46,12 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
             @Schema(example = "38") int contentCount,
             List<CategoryResponse.Item> categories,
             @Schema(example = "false") boolean neighborIncluded,
+            @Schema(description = """
+                    지역 한 줄 소개(#140). 그 지역에 실제로 있는 대표 볼거리 이름으로 만든다.
+
+                    감성 카피가 아니라 사실이다 — 지역 소개를 주는 외부 출처가 없어, 지어내는 대신
+                    우리가 가진 것(국가유산·볼거리)의 이름을 조합한다. 재료가 없으면 필드가 없다.""",
+                    example = "탑리리 오층석탑과 고운사 가운루가 있는 곳", nullable = true) String intro,
             List<Benefit> benefits) {
 
         static Item from(RecommendedRegion region) {
@@ -58,6 +64,7 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
                     region.contentCount(),
                     region.categories().stream().map(CategoryResponse.Item::from).toList(),
                     region.neighborIncluded(),
+                    region.intro(),
                     region.benefits().stream().map(Benefit::from).toList());
         }
     }

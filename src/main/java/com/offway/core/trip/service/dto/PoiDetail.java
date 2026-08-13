@@ -39,13 +39,20 @@ public record PoiDetail(
          * 링크를 함께 주면 사용자가 어디를 봐야 할지 갈린다.
          */
         String mapSearchUrl,
+        /**
+         * 이 장소에서 쓸 수 있는 혜택 문구(#172) — 단정할 수 있을 때만.
+         *
+         * <p>지역 혜택 중 <b>슬롯 종류가 맞는 것</b>만 옮긴다. 지금은 숙박세일페스타(숙소)뿐이다.
+         * 관광 API 콘텐츠는 지역을 알 수 없어 비어 있다 — 상세 응답에 지역 코드가 없다.
+         */
+        String benefit,
         String catchphrase) {
 
     /** 관광 API 콘텐츠가 아닌 장소 — 보조정보가 없다. */
     public static PoiDetail withoutIntro(
             String contentId, Integer contentTypeId, String typeLabel, String title, String address, String tel,
-            Double lat, Double lng, String imageUrl, String overview, String mapSearchUrl) {
+            Double lat, Double lng, String imageUrl, String overview, String mapSearchUrl, String benefit) {
         return new PoiDetail(contentId, contentTypeId, typeLabel, title, address, tel, lat, lng, imageUrl,
-                overview, null, mapSearchUrl, null);
+                overview, null, mapSearchUrl, benefit, null);
     }
 }

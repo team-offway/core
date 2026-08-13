@@ -50,6 +50,16 @@ public final class SensitiveParams {
      */
     private static final Pattern SECRET_ASSIGNMENT =
             Pattern.compile("(?i)\\b(serviceKey|appKey|password|token)=[^&\\s\"')\\]]*");
+
+    /**
+     * 디스코드 웹훅 URL 의 token 조각 — {@code .../webhooks/{id}/{token}}(#257).
+     *
+     * <p><b>{@link #SECRET_ASSIGNMENT} 로는 안 걸린다.</b> 그쪽은 {@code 이름=값} 을 찾는데 웹훅 토큰은
+     * 경로 조각이라 이름이 없다. 이 URL 끝을 아는 사람은 누구나 우리 채널에 글을 쓸 수 있어, 전송 실패
+     * 메시지에 URL 이 섞여 들어오는 경로를 함께 막는다.
+     */
+    private static final Pattern DISCORD_WEBHOOK =
+            Pattern.compile("(?i)(/api/webhooks/\\d+/)[\\w-]+");
     private static final String PAIR_DELIMITER = "&";
     private static final String NAME_VALUE_DELIMITER = "=";
     private static final int NAME_VALUE_LIMIT = 2;
@@ -140,7 +150,8 @@ public final class SensitiveParams {
         if (text == null || text.isBlank()) {
             return text;
         }
-        return SECRET_ASSIGNMENT.matcher(text).replaceAll(secretReplacement());
+        String assignmentsMasked = SECRET_ASSIGNMENT.matcher(text).replaceAll(secretReplacement());
+        return DISCORD_WEBHOOK.matcher(assignmentsMasked).replaceAll("$1" + MASK);
     }
 
     private static String secretReplacement() {

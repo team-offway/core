@@ -17,7 +17,7 @@ class ResponseLogSummaryTest {
     void 여행지_추천은_건수만_낸다() {
         List<RegionRecommendResponse.Item> items = IntStream.rangeClosed(1, 20)
                 .mapToObj(i -> new RegionRecommendResponse.Item(
-                        i, "지역" + i + " · 도", 100 + i, null, null, 10, List.of(), false, List.of()))
+                        i, "지역" + i + " · 도", 100 + i, null, null, 10, List.of(), false, null, List.of()))
                 .toList();
 
         assertEquals("추천 20건", new RegionRecommendResponse(items).logSummary());
@@ -32,7 +32,7 @@ class ResponseLogSummaryTest {
     @Test
     void 코스는_지역명과_규모를_낸다() {
         CourseResponse.Item item = new CourseResponse.Item(
-                1, "MORNING", "SIGHT", "관광", "c1", "장소1", null, null, null, null, null, null, null, 37.5, 128.6, 0, null, "정선군");
+                1, "MORNING", "SIGHT", "관광", "c1", "장소1", null, null, null, null, null, null, null, null, null, 37.5, 128.6, 0, null, "정선군");
         CourseResponse.Day day = new CourseResponse.Day(1, null, null, null, null, null, List.of(item));
         CourseResponse response = new CourseResponse(
                 1L, 16, 3, null, "PACKED", "CAR", List.of(day), List.of(), null, null, null);
@@ -52,7 +52,7 @@ class ResponseLogSummaryTest {
     @Test
     void 장소_상세는_이름과_분류를_낸다() {
         PoiDetailResponse response = new PoiDetailResponse(
-                "126508", 12, "관광지", "완도타워 전망대", null, null, null, null, null, null,
+                "126508", 12, "관광지", "완도타워 전망대", null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null);
 
         assertEquals("완도타워 전망대(관광지)", response.logSummary());
