@@ -36,6 +36,22 @@ public class ExternalApiCallRepository {
         return count == null ? 0 : count;
     }
 
+    /**
+     * 알림 단계를 <b>선점</b>한다 — 성공한 쪽만 알림을 보낸다(#257).
+     *
+     * <p>조건부 UPDATE 한 문장이 판정과 기록을 함께 한다. 읽고 나서 쓰면 그 사이에 다른 인스턴스가 같은
+     * 단계를 읽어 <b>둘 다 보낸다</b>. DB 가 행 잠금으로 갈라주게 두면 인스턴스가 몇이든 한 번만 나간다.
+     *
+     * @return 이번 호출이 그 단계를 처음 넘겼으면 {@code true}. 이미 알린 단계면 {@code false}
+     */
+    public boolean claimNotifyStep(ExternalApi api, LocalDate date, int step) {
+        int updated = jdbcTemplate.update(
+                "UPDATE external_api_call SET notified_step = ?"
+                        + " WHERE call_date = ? AND api = ? AND notified_step < ?",
+                step, date, api.name(), step);
+        return updated > 0;
+    }
+
     /** 그날의 API 별 호출 수. 한 번도 안 부른 API 는 키가 없다. */
     public Map<ExternalApi, Long> countsOn(LocalDate date) {
         Map<ExternalApi, Long> counts = new EnumMap<>(ExternalApi.class);
