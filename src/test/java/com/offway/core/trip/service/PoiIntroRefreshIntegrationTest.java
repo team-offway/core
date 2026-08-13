@@ -1,18 +1,31 @@
 package com.offway.core.trip.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.offway.core.itinerary.domain.Course;
+import com.offway.core.itinerary.domain.DaySchedule;
+import com.offway.core.itinerary.domain.Density;
+import com.offway.core.itinerary.domain.Slot;
+import com.offway.core.itinerary.domain.SlotDisplay;
+import com.offway.core.itinerary.domain.SlotKind;
+import com.offway.core.itinerary.domain.TimeOfDay;
+import com.offway.core.itinerary.repository.CourseRepository;
+import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.repository.PoiIntroRepository;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,11 +42,17 @@ import org.springframework.context.annotation.Primary;
 @SpringBootTest
 class PoiIntroRefreshIntegrationTest {
 
+    /** 일감 목록을 자르지 않고 통째로 보기 위한 상한 — 통합 테스트 DB 의 슬롯 수를 넉넉히 넘는다. */
+    private static final int WHOLE_WORK_LIST = 10_000;
+
     @Autowired
     private PoiIntroRefreshService refreshService;
 
     @Autowired
     private PoiIntroRepository poiIntroRepository;
+
+    @Autowired
+    private CourseRepository courseRepository;
 
     @Autowired
     private StubTourApiClient tourApiClient;
@@ -81,25 +100,57 @@ class PoiIntroRefreshIntegrationTest {
     }
 
     @Test
-    void 값이_비어_와도_기록한다() {
+    void 값이_비어_와도_기록해_매_회차_다시_묻지_않는다() {
         // 안 넣으면 매 회차 같은 콘텐츠를 다시 물어 예산을 태운다. "값이 없다" 도 사실이다.
-        tourApiClient.respondIntro(() -> Optional.of(TourIntro.builder().contentId("x").build()));
+        String contentId = persistSlotNeedingHours(12);
+        tourApiClient.respondIntro(() -> Optional.of(TourIntro.builder().contentId(contentId).build()));
 
         refreshService.refresh();
 
-        assertTrue(poiIntroRepository.count() >= 0, "예외 없이 지나가야 한다");
+        OpeningHours stored = poiIntroRepository.findByContentIds(List.of(contentId)).get(contentId);
+        assertNotNull(stored, "빈 응답도 행으로 남아야 다음 회차가 같은 것을 다시 묻지 않는다");
+        assertNull(stored.useTime());
+        assertNull(stored.restDate());
+        assertFalse(workListContentIds().contains(contentId), "방금 받은 빈 행은 곧바로 다시 일감이 되지 않는다");
+    }
+
+    @Test
+    void 빈_행은_재시도_기간이_지나면_다시_일감이_된다() {
+        // 빈 값을 영구 캐시로 굳히면 원본이 나중에 운영시간을 채워도 우리는 영영 모른다.
+        String contentId = persistSlotNeedingHours(12);
+        PoiIntroRepository.ContentRef ref = new PoiIntroRepository.ContentRef(contentId, 12);
+        poiIntroRepository.upsertAll(Map.of(ref, new OpeningHours(null, null)),
+                LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL).minusDays(1));
+
+        assertTrue(workListContentIds().contains(contentId), "재시도 기간이 지난 빈 행은 다시 물어야 한다");
+
+        // 값이 채워지면 그때부터는 다시 묻지 않는다 — 재시도 대상은 어디까지나 "빈 행" 이다.
+        poiIntroRepository.upsertAll(Map.of(ref, new OpeningHours("09:00~18:00", "연중무휴")),
+                LocalDateTime.now().minusYears(1));
+
+        assertFalse(workListContentIds().contains(contentId), "채워진 행은 오래돼도 다시 묻지 않는다");
     }
 
     @Test
     void 외부가_실패해도_다음_회차에_다시_시도한다() {
         // 저장하지 않으면 여전히 "안 받은 것" 으로 남아 다음 회차의 일감이 된다.
+        String contentId = persistSlotNeedingHours(12);
         tourApiClient.respondIntro(() -> {
             throw new IllegalStateException("upstream down");
         });
 
         refreshService.refresh();
 
-        assertTrue(true, "실패가 배치를 죽이지 않는다");
+        assertTrue(poiIntroRepository.findByContentIds(List.of(contentId)).isEmpty(),
+                "실패는 아무것도 남기지 않는다 — 남기면 다음 회차의 일감에서 빠진다");
+
+        tourApiClient.respondIntro(() -> Optional.of(
+                TourIntro.builder().contentId(contentId).useTime("10:00~17:00").build()));
+        refreshService.refresh();
+
+        OpeningHours retried = poiIntroRepository.findByContentIds(List.of(contentId)).get(contentId);
+        assertNotNull(retried, "다음 회차가 같은 콘텐츠를 다시 집어야 한다");
+        assertEquals("10:00~17:00", retried.useTime());
     }
 
     @Test
@@ -111,5 +162,37 @@ class PoiIntroRefreshIntegrationTest {
             throw new AssertionError("오늘 이미 돌았는데 관광 API 를 불렀다");
         });
         refreshService.refreshIfStale();
+    }
+
+    /**
+     * 운영시간이 아직 없는 슬롯 하나를 코스에 담아 남기고 그 콘텐츠 id 를 돌려준다.
+     *
+     * <p>배치의 일감 목록은 별도 큐가 아니라 {@code slot} 테이블이다. 슬롯 없이 {@code refresh()} 를 부르면
+     * 빈 목록에서 곧바로 돌아와, 무엇을 단언하든 통과한다.
+     *
+     * <p>콘텐츠 id 는 매번 새로 만든다 — 통합 테스트가 DB 를 공유해 고정 id 를 쓰면 앞 테스트가 남긴 행이
+     * 시나리오를 바꾼다.
+     */
+    private String persistSlotNeedingHours(int contentTypeId) {
+        String contentId = "intro-test-" + UUID.randomUUID();
+        Slot slot = Slot.of(1, TimeOfDay.MORNING, SlotKind.SIGHT, contentId, contentTypeId,
+                "운영시간 적재 테스트 장소", 37.5, 127.0, 0, SlotDisplay.none());
+        courseRepository.save(Course.of(1L, Density.RELAXED, TransportMode.CAR,
+                List.of(DaySchedule.of(1, List.of(slot))), LocalDate.now(), 1));
+        return contentId;
+    }
+
+    /**
+     * 지금 배치가 물어볼 콘텐츠 전부.
+     *
+     * <p>하루 예산이 아니라 상한 없는 목록을 본다 — 예산으로 자르면 다른 테스트가 남긴 슬롯이 앞자리를
+     * 차지했을 때 "일감에 없다" 가 참인지 잘려나간 것인지 구분되지 않는다.
+     */
+    private List<String> workListContentIds() {
+        return poiIntroRepository
+                .findMissing(WHOLE_WORK_LIST, LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL))
+                .stream()
+                .map(PoiIntroRepository.ContentRef::contentId)
+                .toList();
     }
 }

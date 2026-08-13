@@ -1,6 +1,5 @@
 package com.offway.core.policy.domain;
 
-import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.region.domain.RegionTagType;
 import java.util.Optional;
 
@@ -28,7 +27,7 @@ public enum PolicyType {
     REGIONAL_VOUCHER("여행경비 50% 환급", RegionTagType.REGIONAL_VOUCHER, null),
 
     /** 숙박세일페스타 — 숙박 할인. 비수도권 인구감소지역 85곳. */
-    STAY_FESTA("숙박 할인", RegionTagType.STAY_FESTA, SlotKind.STAY),
+    STAY_FESTA("숙박 할인", RegionTagType.STAY_FESTA, BenefitScope.LODGING),
 
     /** 근로자 휴가지원 — 휴가비 지원. */
     WORKER_VACATION("근로자 휴가비 지원", RegionTagType.POPULATION_DECLINE, null),
@@ -44,12 +43,12 @@ public enum PolicyType {
 
     private final String badgeText;
     private final RegionTagType targetTag;
-    private final SlotKind targetSlotKind;
+    private final BenefitScope targetScope;
 
-    PolicyType(String badgeText, RegionTagType targetTag, SlotKind targetSlotKind) {
+    PolicyType(String badgeText, RegionTagType targetTag, BenefitScope targetScope) {
         this.badgeText = badgeText;
         this.targetTag = targetTag;
-        this.targetSlotKind = targetSlotKind;
+        this.targetScope = targetScope;
     }
 
     /** 지역 카드·코스에 노출하는 짧은 뱃지 문구. */
@@ -63,7 +62,7 @@ public enum PolicyType {
     }
 
     /**
-     * 이 혜택이 붙는 슬롯 종류 — <b>단정할 수 있을 때만</b> 있다(#140).
+     * 이 혜택을 쓸 수 있는 자리 — <b>단정할 수 있을 때만</b> 있다(#140).
      *
      * <p>대부분은 비어 있다. 프로그램 약관을 봐야 "이 장소에서 쓸 수 있나" 를 알 수 있는데, 우리에겐 그
      * 데이터가 없다. 예를 들어 지자체 바우처는 <b>가맹점 목록</b>이 있어야 하고, 디지털관광주민증은
@@ -72,7 +71,7 @@ public enum PolicyType {
      *
      * <p>지역 단위 혜택은 그대로 코스 {@code benefits} 로 나간다. 여기서 비어 있다고 혜택이 없는 게 아니다.
      */
-    public Optional<SlotKind> targetSlotKind() {
-        return Optional.ofNullable(targetSlotKind);
+    public Optional<BenefitScope> targetScope() {
+        return Optional.ofNullable(targetScope);
     }
 }
