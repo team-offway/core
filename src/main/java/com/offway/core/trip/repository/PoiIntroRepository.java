@@ -28,8 +28,11 @@ public interface PoiIntroRepository {
      * 그건 이미 슬롯에 남아 있다. 큐를 만들면 슬롯과 두 곳이 되어 어긋난다.
      *
      * <p>타입이 없는 슬롯(이 기능 이전 코스·우리 DB 출처)은 제외한다 — 타입 없이는 detailIntro2 를 못 부른다.
+     *
+     * @param emptyRetryBefore 이 시각보다 오래된 <b>빈 행</b>은 다시 일감이 된다. 빈 응답은 실패와 결과가
+     *     같으므로 영구 캐시로 굳히지 않는다(#157). 재시도 간격은 호출자(배치)가 정한다
      */
-    List<ContentRef> findMissing(int limit);
+    List<ContentRef> findMissing(int limit, LocalDateTime emptyRetryBefore);
 
     /** 받은 것을 넣는다. 같은 콘텐츠를 다시 받으면 덮어쓴다. */
     int upsertAll(Map<ContentRef, OpeningHours> hours, LocalDateTime fetchedAt);

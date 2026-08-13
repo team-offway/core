@@ -35,16 +35,36 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
         return found;
     }
 
+    /**
+     * 일감은 <b>한 번도 안 받은 것</b> 과 <b>빈 채로 오래된 것</b> 둘이다.
+     *
+     * <p>빈 행을 영원히 제외하면 원본이 나중에 운영시간을 채워도 우리는 영영 모른다. 그렇다고 매 회차 다시
+     * 물으면 예산을 태우므로 {@code fetched_at} 으로 간격을 둔다.
+     *
+     * <p>순서를 정한다 — 예산이 유한하면 <b>무엇을 먼저 채우는지</b>가 화면을 가른다. 한 번도 안 받은 것이
+     * 앞이고(재시도가 앞줄을 차지하면 아직 아무것도 없는 화면이 방치된다), 그 안에서는 최근 슬롯이
+     * 앞이다(방금 만든 코스가 지금 보고 있는 코스다). 순서를 안 정하면 DB 가 주는 대로라 같은 예산으로
+     * 무엇이 채워질지 예측할 수 없다.
+     *
+     * <p>{@code DISTINCT} 가 아니라 콘텐츠 id 로 묶는다 — 같은 콘텐츠가 타입이 다른 슬롯 둘에 실리면
+     * {@code DISTINCT} 는 두 줄을 주는데, {@code poi_intro} 는 콘텐츠당 한 행이라 예산만 두 번 쓴다.
+     */
     @Override
-    public List<ContentRef> findMissing(int limit) {
+    public List<ContentRef> findMissing(int limit, LocalDateTime emptyRetryBefore) {
         return jdbcTemplate.query("""
-                SELECT DISTINCT s.poi_content_id, s.poi_content_type_id
+                SELECT s.poi_content_id,
+                       MAX(s.poi_content_type_id) AS content_type_id,
+                       (MAX(p.content_id) IS NULL) AS never_fetched,
+                       MAX(s.id) AS newest_slot_id
                 FROM slot s
                 LEFT JOIN poi_intro p ON p.content_id = s.poi_content_id
-                WHERE p.content_id IS NULL
-                  AND s.poi_content_type_id IS NOT NULL
+                WHERE s.poi_content_type_id IS NOT NULL
+                  AND (p.content_id IS NULL
+                       OR (p.use_time IS NULL AND p.rest_date IS NULL AND p.fetched_at < ?))
+                GROUP BY s.poi_content_id
+                ORDER BY never_fetched DESC, newest_slot_id DESC
                 LIMIT ?
-                """, (rs, rowNum) -> new ContentRef(rs.getString(1), rs.getInt(2)), limit);
+                """, (rs, rowNum) -> new ContentRef(rs.getString(1), rs.getInt(2)), emptyRetryBefore, limit);
     }
 
     @Override
