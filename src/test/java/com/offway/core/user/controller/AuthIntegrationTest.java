@@ -227,6 +227,48 @@ class AuthIntegrationTest {
     }
 
     @Test
+    void 다른_카카오_앱에서_발급된_액세스_토큰은_거부한다() throws Exception {
+        // 카카오 프로필 조회(/v2/user/me)는 토큰이 유효하기만 하면 주인을 돌려준다 — 어느 앱이 발급했는지는
+        // 알려주지 않는다. 앱 번호를 대조하지 않으면 남의 카카오 앱 토큰을 손에 넣은 사람이 그 토큰을 그대로
+        // 우리 서버에 던져 그 사용자로 로그인할 수 있다. Apple·Google 에서 aud 가 막는 자리다.
+        kakaoProfileClient.respondWith(uniqueProviderUserId(), "남의앱사용자", null);
+        kakaoProfileClient.respondTokenInfoFromApp("9999999");
+
+        mockMvc.perform(callback("kakao", "other-app-access-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER-001"));
+    }
+
+    @Test
+    void 남의_앱_토큰으로는_가입도_일어나지_않는다() throws Exception {
+        // 거부가 401 을 내는 것으로 끝나면 안 된다 — 그 사이 가입이 일어나 있으면 막은 의미가 없다.
+        // 같은 신원으로 정상 로그인했을 때 isNewUser 가 true 면, 앞선 시도가 계정을 만들지 않았다는 뜻이다.
+        String kakaoId = uniqueProviderUserId();
+        kakaoProfileClient.respondWith(kakaoId, "사용자", null);
+        kakaoProfileClient.respondTokenInfoFromApp("9999999");
+        mockMvc.perform(callback("kakao", "other-app-access-token")).andExpect(status().isUnauthorized());
+
+        kakaoProfileClient.respondWith(kakaoId, "사용자", null);
+
+        mockMvc.perform(callback("kakao", "our-app-access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.isNewUser").value(true));
+    }
+
+    @Test
+    void 카카오_토큰_정보_조회가_실패하면_502_USER_005() throws Exception {
+        // 앱 번호를 확인하지 못한 것은 "확인했더니 남의 앱" 과 다르다 — 재시도로 풀릴 수 있어 502 로 구분한다.
+        kakaoProfileClient.respondWith(uniqueProviderUserId(), "세빈", null);
+        kakaoProfileClient.respondTokenInfo(accessToken -> {
+            throw UserException.oidcProviderUnavailable(new IllegalStateException("read timeout"));
+        });
+
+        mockMvc.perform(callback("kakao", "kakao-access-token"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("USER-005"));
+    }
+
+    @Test
     void 클라이언트가_보낸_providerUserId는_신원_판단에_쓰이지_않는다() throws Exception {
         // 이 값을 믿으면 남의 식별자를 적어 그 계정으로 로그인할 수 있다 — 요청 한 번짜리 계정 탈취다.
         String verified = uniqueProviderUserId();

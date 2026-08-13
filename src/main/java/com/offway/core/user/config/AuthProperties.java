@@ -55,8 +55,10 @@ public record AuthProperties(Jwt jwt, Map<AuthProvider, Oidc> oidc) {
     /**
      * provider 하나의 설정. 쓰이는 항목이 provider 마다 다르고, 안 쓰는 쪽은 비어 있다.
      *
-     * @param audiences 허용할 클라이언트 ID(Apple · Google). Google 은 '웹' 클라이언트 ID 다 — iOS 클라이언트 ID 를
-     *     넣으면 앱이 보낸 토큰의 {@code aud} 와 어긋나 전부 401 이 된다. 여러 개면 콤마로 나열한다
+     * @param audiences <b>이 토큰이 우리 앱 것인지 판별하는 값.</b> provider 마다 이름이 다를 뿐 역할은 하나다 —
+     *     Apple·Google 은 ID 토큰의 {@code aud} 와 대조할 클라이언트 ID, Kakao 는 토큰 정보 조회가 돌려주는
+     *     {@code app_id} 와 대조할 앱 번호다. Google 은 '웹' 클라이언트 ID 다 — iOS 클라이언트 ID 를 넣으면 앱이
+     *     보낸 토큰의 {@code aud} 와 어긋나 전부 401 이 된다. 여러 개면 콤마로 나열한다
      * @param restApiKey 카카오 REST API 키. 프로필 조회 호출에 실리지는 않고, 앱 등록 여부 판별에만 쓴다
      */
     public record Oidc(List<String> audiences, String restApiKey) {

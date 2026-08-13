@@ -28,6 +28,14 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
     private static final String PROFILE_URL = "https://kapi.kakao.com/v2/user/me";
 
     /**
+     * 토큰 정보 조회 — 이 토큰을 <b>어느 앱이 발급했는지</b>를 알려주는 유일한 경로.
+     *
+     * <p>프로필 조회로는 답할 수 없다. {@code /v2/user/me} 는 토큰이 유효하기만 하면 그 주인을 돌려주므로, 그것만
+     * 믿으면 다른 카카오 앱의 토큰이 우리 로그인을 통과한다.
+     */
+    private static final String TOKEN_INFO_URL = "https://kapi.kakao.com/v1/user/access_token_info";
+
+    /**
      * 호출 상한.
      *
      * <p>실측(2026-08-14, n=12, 인증 거부 경로): p90 27ms · 최대 30ms. 정상 프로필 조회는 카카오 쪽 저장소를 읽으므로
@@ -37,10 +45,14 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
      *
      * <p>앱이 붙어 실 토큰으로 정상 응답 분포를 재면 p99 기준으로 다시 정하고 {@code docs/external-api-inventory.md}
      * 에 남긴다.
+     *
+     * <p><b>호출 하나의 상한이다.</b> 카카오 로그인은 토큰 정보 조회 + 프로필 조회 두 번을 순차로 부르므로 로그인
+     * 하나의 최대 대기는 이 값의 두 배다. 둘 다 로그인 1회당 1번으로 상한이 잡혀 있어 팬아웃으로 곱해지지는 않는다.
      */
     private static final Duration TIMEOUT = Duration.ofSeconds(3);
 
     private static final String ID_FIELD = "id";
+    private static final String APP_ID_FIELD = "app_id";
     private static final String ACCOUNT_FIELD = "kakao_account";
     private static final String PROFILE_FIELD = "profile";
     private static final String NICKNAME_FIELD = "nickname";
@@ -56,14 +68,25 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
 
     @Override
     public KakaoProfile fetchProfile(String accessToken) {
-        return parse(request(accessToken));
+        return parse(request(PROFILE_URL, accessToken));
     }
 
-    private String request(String accessToken) {
+    /**
+     * 토큰을 발급한 앱 번호를 조회한다.
+     *
+     * <p>{@code app_id} 가 없는 200 응답은 성공으로 넘기지 않는다 — 그 값이 없으면 "우리 앱 토큰인가" 에 답할 수
+     * 없는데, 없는 것을 통과시키면 검증이 있으나 마나가 된다.
+     */
+    @Override
+    public KakaoTokenInfo fetchTokenInfo(String accessToken) {
+        return parseTokenInfo(request(TOKEN_INFO_URL, accessToken));
+    }
+
+    private String request(String url, String accessToken) {
         try {
             return webClient
                     .get()
-                    .uri(PROFILE_URL)
+                    .uri(url)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                     .retrieve()
                     .bodyToMono(String.class)
@@ -77,7 +100,8 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
         } catch (Exception exception) {
             // 그 밖의 실패(타임아웃·5xx·네트워크)는 재시도로 풀릴 수 있어 502 로 구분한다.
             // "네 토큰이 틀렸다"와 "카카오가 안 뜬다"는 앱이 취할 행동이 정반대다.
-            log.warn("카카오 프로필 조회 실패 cause={}", exception.getClass().getSimpleName());
+            // 어느 호출이 깨졌는지 알아야 하므로 주소를 남긴다 — 상수라 사용자 입력이 섞이지 않는다.
+            log.warn("카카오 호출 실패 url={} cause={}", url, exception.getClass().getSimpleName());
             throw UserException.oidcProviderUnavailable(exception);
         }
     }
@@ -104,6 +128,20 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
                 id,
                 account.path(PROFILE_FIELD).path(NICKNAME_FIELD).asString(null),
                 account.path(EMAIL_FIELD).asString(null));
+    }
+
+    private KakaoTokenInfo parseTokenInfo(String body) {
+        if (body == null || body.isBlank()) {
+            log.warn("카카오 토큰 정보 응답이 비었다 — 200 이지만 발급 앱을 확인할 수 없다");
+            throw UserException.oidcProviderUnavailable(null);
+        }
+        JsonNode root = readTree(body);
+        String appId = root.path(APP_ID_FIELD).asString(null);
+        if (appId == null || appId.isBlank()) {
+            log.warn("카카오 토큰 정보 응답에 app_id 가 없다 — 우리 앱 토큰인지 확인할 수 없다");
+            throw UserException.oidcProviderUnavailable(null);
+        }
+        return new KakaoTokenInfo(root.path(ID_FIELD).asString(null), appId);
     }
 
     private JsonNode readTree(String body) {
