@@ -16,6 +16,7 @@ import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.PoiDetail;
 import java.time.Duration;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -79,6 +80,9 @@ public class PoiDetailService {
      */
     private static final Duration FIRST_LOAD_WAIT = Duration.ofSeconds(8);
 
+    /** 캐시가 잡아 둔 실패를 502 로 올릴 때의 사유 — 실제 원인은 적재 시점 로그에 남아 있다. */
+    private static final String CACHED_FAILURE_REASON = "관광 API 상세 조회 실패(캐시된 결과)";
+
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
     private final LicensedPlaceRepository licensedPlaceRepository;
@@ -95,23 +99,49 @@ public class PoiDetailService {
             new ExternalDataCache<>(MAX_CACHED_DETAILS, FIRST_LOAD_WAIT);
 
     /**
+     * 캐시에 담긴 조회 결과의 상태 — 상태는 boolean 조합이 아니라 이름으로 든다.
+     *
+     * <p>세 상태의 클라이언트 계약이 각각 다르다(200·404·502). 상태마다 무엇을 내릴지는 상수 자신이 안다.
+     */
+    private enum DetailStatus {
+        FOUND,
+        NOT_FOUND,
+        LOOKUP_FAILED
+    }
+
+    /**
      * 캐시에 담는 조회 결과.
      *
      * <p>{@code detail} 만 담으면 "없는 콘텐츠(404)" 와 "조회 실패(502)" 가 둘 다 null 이 돼 구분되지
      * 않는다. 클라이언트 계약이 갈리는 자리라 상태를 함께 담는다.
      */
-    private record CachedDetail(PoiDetail detail, boolean lookupFailed) {
+    private record CachedDetail(PoiDetail detail, DetailStatus status) {
 
         static CachedDetail found(PoiDetail detail) {
-            return new CachedDetail(detail, false);
+            return new CachedDetail(Objects.requireNonNull(detail, "detail"), DetailStatus.FOUND);
         }
 
         static CachedDetail notFound() {
-            return new CachedDetail(null, false);
+            return new CachedDetail(null, DetailStatus.NOT_FOUND);
         }
 
         static CachedDetail failed() {
-            return new CachedDetail(null, true);
+            return new CachedDetail(null, DetailStatus.LOOKUP_FAILED);
+        }
+
+        boolean isFound() {
+            return status == DetailStatus.FOUND;
+        }
+
+        /** 캐시된 상태를 그대로 계약으로 옮긴다 — 서비스에 상태 해석 분기를 남기지 않는다. */
+        PoiDetail orThrow() {
+            return switch (status) {
+                case FOUND -> detail;
+                case NOT_FOUND -> throw TourApiException.poiNotFound();
+                // 캐시가 잡아 둔 실패다. 원인은 loader 안에서 이미 로그로 남았다.
+                case LOOKUP_FAILED -> throw TourApiException.lookupFailed(
+                        new IllegalStateException(CACHED_FAILURE_REASON));
+            };
         }
     }
 
@@ -137,16 +167,9 @@ public class PoiDetailService {
      * 40초 안에 세 번</b> 조회되는 것을 봤는데, 호출이 세 배면 외부가 멈춘 순간을 만날 확률도 세 배다.
      */
     private PoiDetail tourDetail(String contentId) {
-        CachedDetail cached =
-                detailCache.get(contentId, this::loadDetail, CachedDetail.failed(), StalePolicy.ALLOW_STALE);
-        if (cached.lookupFailed()) {
-            // 캐시가 잡아 둔 실패다. 원인은 loader 안에서 이미 로그로 남았다.
-            throw TourApiException.lookupFailed(new IllegalStateException("관광 API 상세 조회 실패(캐시된 결과)"));
-        }
-        if (cached.detail() == null) {
-            throw TourApiException.poiNotFound();
-        }
-        return cached.detail();
+        return detailCache
+                .get(contentId, this::loadDetail, CachedDetail.failed(), StalePolicy.ALLOW_STALE)
+                .orThrow();
     }
 
     /**
@@ -163,7 +186,7 @@ public class PoiDetailService {
             }
             return new Loaded<>(CachedDetail.found(toPoiDetail(contentId, found.get())), CACHE_TTL);
         } catch (RuntimeException e) {
-            if (stale != null && stale.detail() != null) {
+            if (stale != null && stale.isFound()) {
                 log.warn("관광 API 상세 조회 실패 — 직전 값으로 내려보냅니다 contentId={} cause={}",
                         contentId, e.getClass().getSimpleName());
                 return new Loaded<>(stale, FAILURE_CACHE_TTL);
