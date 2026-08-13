@@ -3,12 +3,14 @@ package com.offway.core.weather.domain;
 import java.util.Map;
 
 /**
- * 시도 명칭 매핑 — region 의 정식 시도명("강원특별자치도")을 에어코리아 sidoName 파라미터 값("강원")으로 바꾼다. 에어코리아는
- * 축약 시도명을 쓴다.
+ * 시도 명칭 매핑 — region 의 정식 시도명("강원특별자치도")을 축약 시도명("강원")으로 바꾼다.
+ *
+ * <p>이 축약형은 기상청 관광기후지수 응답의 {@code doName} 값이다(#130).
+ * 실측으로 확인한 관광기후지수의 시도명 17종이 이 표의 값과 정확히 일치한다.
  */
 public final class SidoName {
 
-    private static final Map<String, String> AIR_KOREA = Map.ofEntries(
+    private static final Map<String, String> SHORT_NAMES = Map.ofEntries(
             Map.entry("서울특별시", "서울"),
             Map.entry("부산광역시", "부산"),
             Map.entry("대구광역시", "대구"),
@@ -32,11 +34,11 @@ public final class SidoName {
     private SidoName() {
     }
 
-    /** 정식 시도명 → 에어코리아 축약 시도명. 이미 축약형이거나 미지의 값은 그대로 돌려준다. */
-    public static String toAirKorea(String sido) {
+    /** 정식 시도명 → 축약 시도명. 이미 축약형이거나 미지의 값은 그대로 돌려준다. */
+    public static String toShort(String sido) {
         if (sido == null) {
             return null;
         }
-        return AIR_KOREA.getOrDefault(sido, sido);
+        return SHORT_NAMES.getOrDefault(sido, sido);
     }
 }

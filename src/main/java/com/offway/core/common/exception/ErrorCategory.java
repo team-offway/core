@@ -21,6 +21,15 @@ public enum ErrorCategory {
     /** 대상 리소스가 없음. */
     NOT_FOUND(HttpStatus.NOT_FOUND),
 
+    /**
+     * 있었는데 영구히 사라짐 — {@link #NOT_FOUND} 와 구분한다.
+     *
+     * <p>"처음부터 없는 것" 과 "있다가 지워진 것" 은 사용자에게 다른 사실이다. 공유 링크가 대표적이다 —
+     * 잘못된 링크는 "없는 링크" 지만, 게시자가 코스를 지운 링크는 "삭제된 코스" 라고 말해줘야 받은 사람이
+     * 자기가 링크를 잘못 눌렀다고 오해하지 않는다.
+     */
+    GONE(HttpStatus.GONE),
+
     /** 지원하지 않는 HTTP 메서드. */
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED),
 

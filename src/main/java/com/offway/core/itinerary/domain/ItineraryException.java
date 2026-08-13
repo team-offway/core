@@ -24,4 +24,34 @@ public final class ItineraryException extends BaseException {
     public static ItineraryException courseNotFound() {
         return new ItineraryException(ItineraryErrorCode.COURSE_NOT_FOUND);
     }
+
+    /** 여행 날짜 없이 저장된 코스로 연차 차감을 요청했다. */
+    public static ItineraryException travelDateMissing() {
+        return new ItineraryException(ItineraryErrorCode.TRAVEL_DATE_MISSING);
+    }
+
+    /** 홈 모달 "다녀오셨나요?" 에 이미 답한 여행이다. */
+    public static ItineraryException tripAlreadyAnswered() {
+        return new ItineraryException(ItineraryErrorCode.TRIP_ALREADY_ANSWERED);
+    }
+
+    /** 저장 코스의 여행 날짜를 지난 날짜로 고치려 했다. */
+    public static ItineraryException travelDateInPast() {
+        return new ItineraryException(ItineraryErrorCode.TRAVEL_DATE_IN_PAST);
+    }
+
+    /** 아직 끝나지 않은 여행에 다녀왔는지를 답하려 했다. */
+    public static ItineraryException tripNotEnded() {
+        return new ItineraryException(ItineraryErrorCode.TRIP_NOT_ENDED);
+    }
+
+    /** 공유 링크의 토큰이 없다 — 잘못된 링크다. */
+    public static ItineraryException shareNotFound() {
+        return new ItineraryException(ItineraryErrorCode.SHARE_NOT_FOUND);
+    }
+
+    /** 공유 링크는 살아 있는데 게시자가 코스를 지웠다. */
+    public static ItineraryException shareCourseDeleted() {
+        return new ItineraryException(ItineraryErrorCode.SHARE_COURSE_DELETED);
+    }
 }

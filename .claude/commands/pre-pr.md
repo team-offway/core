@@ -5,7 +5,7 @@ PR 올리기 전 최종 점검 — `origin/dev` 와 up-to-date 를 맞추고, �
 ## 핵심 전제
 
 - **base 는 `origin/dev`.** 이 프로젝트 기본 브랜치는 `dev` 이고, 로컬 `dev` 는 stale 일 수 있어 항상 `origin/dev` 를 기준으로 diff·머지한다 (로컬 `dev` 로 비교하면 머지로 끌려온 남의 커밋까지 섞여 diff 가 부풀려진다).
-- **테스트는 `.claude/rules/testing-convention.md` 를 그대로 따른다.** 단위(Spring 없음) + 통합(H2) 두 종류. 외부 호출은 port 인터페이스의 프로그래머블 stub 으로 격리한다.
+- **테스트는 `.claude/rules/testing-convention.md` 를 그대로 따른다.** 단위(Spring 없음) + 통합(Testcontainers MySQL) 두 종류. 외부 호출은 port 인터페이스의 프로그래머블 stub 으로 격리한다.
 - **구현이 끝난 뒤 호출한다.** 이미 구현된 변경에 대해 테스트 커버리지를 메우고 최종 점검하는 단계다.
 
 ## 절차
@@ -80,7 +80,7 @@ git diff origin/dev...HEAD
 
 **단위 테스트**: 대상 도메인과 같은 패키지, Spring·DB 의존 0, `@ParameterizedTest` 로 분기 망라.
 
-**통합 테스트**: `@SpringBootTest`(+ `@AutoConfigureMockMvc`), H2. 외부 호출만 port 인터페이스의 프로그래머블 stub 으로 격리(`@TestConfiguration` + `@Primary`, default 람다는 throw). 엔드포인트당 시나리오 3~5건, 응답 contract(`status`·`code`·`detail`·`data`)를 단언에 포함. 검증 실패(400)·비즈니스 예외(409 등)도 포함.
+**통합 테스트**: `@SpringBootTest`(+ `@AutoConfigureMockMvc`), Testcontainers MySQL. 외부 호출만 port 인터페이스의 프로그래머블 stub 으로 격리(`@TestConfiguration` + `@Primary`, default 람다는 throw). 엔드포인트당 시나리오 3~5건, 응답 contract(`status`·`code`·`detail`·`data`)를 단언에 포함. 검증 실패(400)·비즈니스 예외(409 등)도 포함.
 
 **E2E**: `@EnabledIfEnvironmentVariable` 또는 `@Disabled` 중 하나를 **반드시** 둔다. 네이밍 `*E2ETest`.
 
@@ -112,8 +112,16 @@ git diff origin/dev...HEAD
 - **에러 코드 번호는 append-only** — 재사용·재배치 금지, 결번 유지.
 - **DTO ↔ 도메인 매핑은 DTO 자신에** (`from`·`toXxx`), 별도 Mapper 클래스·빈 금지.
 - **응답은 `ApiResponseBody` 래퍼**, `ResponseEntity`·raw DTO 직접 노출 금지 (3xx 리다이렉트만 예외), **204 금지**(200 + data=null).
-- **Flyway**: 적용된 마이그레이션 수정·삭제 금지(새 timestamp 로 추가), forward-only, MySQL·H2 양쪽 호환, **FK 제약 추가 금지**(조회 인덱스는 유지).
+- **Flyway**: 적용된 마이그레이션 수정·삭제 금지(새 timestamp 로 추가), forward-only, MySQL 문법, **FK 제약 추가 금지**(조회 인덱스는 유지).
 - **JPA**: 연관관계는 애그리거트 내부만, 경계를 넘으면 raw ID. default LAZY, `@ManyToOne(fetch = EAGER)` 금지. N+1 은 fetch join·`@EntityGraph`·`@BatchSize` 로 차단.
+
+### 작업을 마치기 전 자문 셋 (`CLAUDE.md`)
+
+컨벤션과 별개로, **이 변경이 우리 제약 안에서 사는지**를 셋으로 묻는다. 답을 PR 본문에 남긴다 — "해당 없음" 도 답이다.
+
+1. **운영에서 버티는가** — 부팅 적재·테이블 크기·인덱스가 늘었나. 늘었으면 **빈 DB 최초 부팅과 재부팅을 둘 다 재고** 숫자를 남긴다. 운영 DB 는 EC2 도커 안의 MySQL 하나뿐이라 스케일아웃이 없다.
+2. **외부 API 한도를 우리가 갉아먹지 않나** — 배포·부팅·스케줄러가 소비하는 건수를 센다. `fixedDelay` 는 재배포하면 주기가 처음부터 다시 센다. **조사·실측도 같은 한도를 쓴다**(실제로 그렇게 하루 한도를 태워 운영 코스 생성을 degrade 시킨 적이 있다).
+3. **코스의 완성도가 올라가는가** — 늘어난 후보 중 **실제로 쓸 수 있는 수**(좌표 없으면 동선에 못 올린다), 카드가 채워지는지(사진·소개·운영시간), 얇은 지역이 채워지는지(89곳 커버리지와 지역당 최소·중앙값). 무관한 내부 개선이면 그렇게 적는다.
 
 발견 시 고치고 3단계 테스트도 갱신한다.
 
@@ -186,7 +194,7 @@ echo "JAVA_HOME=$JAVA_HOME (JDK $FOUND)"
 
 건수 집계가 필요하면 `build/test-results/test/*.xml` 의 `testsuite` 속성을 합산한다.
 
-> Testcontainers·Docker 가 필요 없다 — 통합 테스트도 H2 인메모리로 돈다. 실제 MySQL 특성 검증이 필요해지면 Testcontainers 를 별도 작업으로 승격하고 `testing-convention.md` 에 반영한다.
+> **도커가 필요하다** — 통합 테스트가 Testcontainers 로 MySQL 을 띄운다(#175). 운영과 같은 DB 로 검증하려는 것이고, H2 시절에는 못 잡던 마이그레이션 문법 오류가 로컬에서 바로 걸린다.
 
 ### 8단계: 테스트 커밋
 

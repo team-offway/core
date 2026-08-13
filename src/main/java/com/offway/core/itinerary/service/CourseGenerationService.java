@@ -3,14 +3,17 @@ package com.offway.core.itinerary.service;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseNeeds;
 import com.offway.core.itinerary.domain.DaySchedule;
+import com.offway.core.itinerary.domain.DayStart;
 import com.offway.core.itinerary.domain.GeoCluster;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.domain.Slot;
+import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.service.PolicyService;
+import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
@@ -23,10 +26,15 @@ import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.service.dto.RegionPois;
 import com.offway.core.weather.domain.DailyWeather;
-import com.offway.core.weather.service.WeatherService;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -50,35 +58,63 @@ public class CourseGenerationService {
     private final RouteTimeProvider routeTimeProvider;
     private final RouteOptimizer routeOptimizer;
     private final PolicyService policyService;
-    private final WeatherService weatherService;
+    private final CourseWeatherProvider courseWeatherProvider;
+    private final OpeningHoursProvider openingHoursProvider;
     private final RegionRepository regionRepository;
     private final TrainAccessService trainAccessService;
 
     public GeneratedCourse generate(GenerateCourse command) {
         // ① POI 수집 (trip)
-        RegionPois pois = regionPoiService.collect(command.regionId());
+        return generate(command, regionPoiService.collect(command.regionId()));
+    }
+
+    /**
+     * 이미 모은 후보로 코스를 짠다 — 재생성이 씨앗을 바꿔가며 시도할 때 <b>후보를 다시 모으지 않게</b> 한다(#114).
+     *
+     * <p>{@code collect} 는 캐시가 없어 호출마다 TourAPI 를 세 번 부른다. 시도마다 다시 모으면 그 배수만큼
+     * 외부 호출이 는다.
+     */
+    public GeneratedCourse generate(GenerateCourse command, RegionPois pois) {
+
+        // ①' "이 장소 말고" — 재생성이 지정한 장소를 후보에서 뺀다(#114). 빈 집합이면 그대로다.
+        List<PoiCandidate> sightPool = exclude(pois.sights(), command.excludePoiContentIds());
+        List<PoiCandidate> foodPool = exclude(pois.foods(), command.excludePoiContentIds());
+        List<PoiCandidate> stayPool = exclude(pois.stays(), command.excludePoiContentIds());
 
         // ④ 필요 개수 (밀도×일수)
         CourseNeeds needs = CourseNeeds.of(command.density(), command.travelDays());
-        if (pois.sights().isEmpty()) {
+        if (sightPool.isEmpty()) {
             throw ItineraryException.courseNotBuildable(); // 볼거리가 없으면 코스가 아니다(식사만 있는 코스 방지)
         }
 
         // ⑤ 지리 클러스터링: 흩어진 후보 대신 밀집한 볼거리를 고르고(아웃라이어 배제), 맛집·숙소는 그 코스 중심 근처로 →
         // 순서 최적화만으로는 못 줄이는 이동시간을 선택 단계에서 줄인다.
+        // 씨앗이 다르면 다른 군집이 잡혀 코스가 달라지지만, 뭉치는 성질은 그대로라 동선이 망가지지 않는다(#114).
         List<PoiCandidate> sights =
-                reorder(pois.sights(), GeoCluster.selectCompact(coords(pois.sights()), needs.sights()));
+                reorder(sightPool, GeoCluster.selectCompact(coords(sightPool), needs.sights(), seedIndexOf(command)));
         Coordinate hub = GeoCluster.centroid(coords(sights));
-        List<PoiCandidate> foods = reorder(pois.foods(), GeoCluster.nearest(coords(pois.foods()), hub, needs.foods()));
-        List<PoiCandidate> stays = reorder(pois.stays(), GeoCluster.nearest(coords(pois.stays()), hub, needs.stays()));
+        List<PoiCandidate> foods = reorder(foodPool, GeoCluster.nearest(coords(foodPool), hub, needs.foods()));
+        List<PoiCandidate> stays = reorder(stayPool, GeoCluster.nearest(coords(stayPool), hub, needs.stays()));
 
-        // ⑤⑦ interim: 출발지 기준 최근접 정렬(동선) → 하루씩 순서대로 슬라이스하면 가까운 곳끼리 묶인다
+        // 지역은 날씨·열차 접근 양쪽이 쓴다 — 한 번만 읽는다(#129).
+        Region region = regionRepository.findByIds(List.of(command.regionId())).stream().findFirst().orElse(null);
+
+        // 대중교통이면 출발지→지역 열차 접근을 여기서 조회한다(자차는 TMAP 실측이라 불필요). 부가 정보라 실패해도 코스는 그대로.
+        // 슬롯 배치보다 앞서야 한다 — 동선의 기준점과 1일차 시작 시간대가 이 결과에서 나온다(#127).
+        TrainAccess trainAccess =
+                command.transport() == TransportMode.TRANSIT ? trainAccessFor(command, region) : null;
+
+        // ⑤⑦ interim: 기준점 최근접 정렬(동선) → 하루씩 순서대로 슬라이스하면 가까운 곳끼리 묶인다
         List<PoiCandidate> orderedSights =
-                nearestNeighborOrder(sights, command.transport(), command.originLat(), command.originLng());
+                nearestNeighborOrder(sights, command.transport(), regionAnchor(command, trainAccess));
 
-        // ⑥ 슬롯 배치 → ⑨ 조립
-        List<DaySchedule> days = buildDays(command, orderedSights, foods, stays);
-        Course course = Course.of(command.regionId(), command.density(), command.transport(), days);
+        // ⑥ 슬롯 배치 → ⑨ 조립. 첫날은 도착 시각 이후 남는 시간대만 쓴다.
+        List<DaySchedule> days = buildDays(command, firstDayStart(command, trainAccess), orderedSights, foods, stays);
+        // 기간은 days.size() 가 아니라 **요청한 일수**다. 일정이 없는 날은 코스에서 빠지므로(#159) 둘이 갈린다 —
+        // 첫날이 이동뿐이어도 그날은 여행 중이고, 연차도 그만큼 나간다(#164).
+        Course course = Course.of(
+                command.regionId(), command.density(), command.transport(), days, command.travelDate(),
+                command.travelDays());
 
         // ⑧ 혜택 (policy)
         List<GeneratedCourse.Benefit> benefits = policyService.matchForRegion(command.regionId(), command.travelDate())
@@ -86,35 +122,106 @@ public class CourseGenerationService {
                 .map(policy -> new GeneratedCourse.Benefit(policy.getId(), policy.getType(), policy.badgeText()))
                 .toList();
 
-        // 여행 날짜의 코스 지역 날씨 — 코스 중심(hub) 좌표로 조회. 부가 정보라 미조회·실패·예보범위 밖이면 null.
-        DailyWeather weather =
-                weatherService.dailyWeather(hub.lat(), hub.lng(), command.travelDate()).orElse(null);
+        // 코스 지역 날씨를 Day 마다 따로 — 2박3일이면 날마다 다르다. 첫날 것으로 코스 전체를 대표하면 이튿날이 틀린다(#141).
+        // 코스 중심(hub) 좌표로 조회하고, 시도·시군구를 함께 넘긴다: 나흘 뒤부터는 좌표 격자가 아니라
+        // 광역 구역 단위 중기예보가 답한다(#129). 부가 정보라 미조회·실패·예보범위 밖인 Day 는 그냥 빈다.
+        Map<Integer, DailyWeather> weatherByDay = courseWeatherProvider.byDay(course, region, hub);
 
-        // 대중교통 코스면 출발지→지역 열차 접근 조회(자차는 TMAP 실측이라 불필요). 부가 정보라 실패해도 코스는 그대로.
-        TrainAccess trainAccess = command.transport() == TransportMode.TRANSIT ? trainAccessFor(command) : null;
-
-        log.info("코스 생성 regionId={} days={} slots={} benefits={} weather={} trainAccess={}",
+        log.debug("코스 생성 regionId={} days={} slots={} benefits={} weatherDays={} trainAccess={}",
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
-                weather != null, trainAccess != null ? trainAccess.status() : "N/A");
-        return new GeneratedCourse(course, benefits, weather, trainAccess);
+                weatherByDay.size(), trainAccess != null ? trainAccess.status() : "N/A");
+        // 공유 토큰은 저장한 코스에만 있다 — 아직 저장 전이라 null 이다(#143).
+        return new GeneratedCourse(
+                course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
+                // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
+                openingHoursProvider.forCourse(course), null, null);
+    }
+
+    /**
+     * 이 씨앗이면 어떤 볼거리가 뽑히는지 — <b>외부 호출 없이</b> 좌표 계산만으로 답한다(#114).
+     *
+     * <p>재생성이 "충분히 다른가" 를 판정할 때 쓴다. 판정하자고 코스를 통째로 짜면 TMAP 경유지 최적화·이동시간·
+     * 날씨·열차 조회가 시도 횟수만큼 곱해진다 — TMAP 경유지 최적화는 <b>일일 허용량이 50건</b>이라 요청 한 번이
+     * 그날 몫을 태울 수 있다.
+     *
+     * <p>순서는 담지 않는다. 사용자가 "다른 코스" 로 느끼는 것은 <b>어디를 가느냐</b>이지 순서가 아니다.
+     */
+    public Set<String> selectedSightIds(GenerateCourse command, RegionPois pois) {
+        List<PoiCandidate> pool = exclude(pois.sights(), command.excludePoiContentIds());
+        if (pool.isEmpty()) {
+            return Set.of();
+        }
+        CourseNeeds needs = CourseNeeds.of(command.density(), command.travelDays());
+        return reorder(pool, GeoCluster.selectCompact(coords(pool), needs.sights(), seedIndexOf(command))).stream()
+                .map(PoiCandidate::contentId)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+    }
+
+    /**
+     * 씨앗값을 후보 인덱스로 접는다. {@code GeoCluster} 가 후보 수로 다시 나머지를 취하므로 여기서는 부호만 없앤다.
+     *
+     * <p>씨앗을 인덱스로 <b>그대로</b> 쓰는 이유 — 해시를 한 번 더 섞으면 "seed 를 1 올리면 옆 후보" 라는 성질이
+     * 사라져, 문의 대응할 때 무슨 일이 있었는지 재구성하기 어려워진다.
+     */
+    private static int seedIndexOf(GenerateCourse command) {
+        return (int) Math.floorMod(command.seed(), Integer.MAX_VALUE);
+    }
+
+    /** "이 장소 말고" — 제외 목록에 든 후보를 뺀다. 빈 목록이면 원본 그대로다. */
+    private static List<PoiCandidate> exclude(List<PoiCandidate> pool, Set<String> excluded) {
+        if (excluded.isEmpty()) {
+            return pool;
+        }
+        return pool.stream().filter(poi -> !excluded.contains(poi.contentId())).toList();
     }
 
     /** 대중교통 코스의 출발지→지역 열차 접근. 출발·지역 좌표의 최근접 역으로 해석한다. */
-    private TrainAccess trainAccessFor(GenerateCourse command) {
-        return regionRepository.findByIds(List.of(command.regionId())).stream()
-                .findFirst()
-                .map(region -> trainAccessService.accessTo(
-                        command.originLat(), command.originLng(),
-                        region.getLat(), region.getLng(), command.travelDate()))
-                .orElse(null);
+    private TrainAccess trainAccessFor(GenerateCourse command, Region region) {
+        if (region == null) {
+            return null;
+        }
+        return trainAccessService.accessTo(
+                command.originLat(), command.originLng(),
+                region.getLat(), region.getLng(), command.travelDate());
     }
 
-    /** 출발지에서 가장 가까운 곳부터 이어붙이는 그리디 정렬(하루 묶기용). 하루 내부 순서는 TMAP 경유지 최적화로 다시 다듬는다. */
+    /**
+     * 지역 안 동선의 기준점 — <b>대중교통은 내린 역, 자차는 출발지</b>(#127).
+     *
+     * <p>서울→경주 KTX 인데 집 좌표를 기준으로 잡으면 "경주 장소들 중 서울에서 직선거리로 가까운 곳" 부터 이어붙는다.
+     * 실제로는 경주역에 내려 거기서 움직이므로 동선이 반대로 짜인다.
+     *
+     * <p>역이 없거나(오지) 접근 조회가 실패해 도착 지점을 모르면 출발지로 되돌아간다 — 이전과 같은 동작이라 회귀가 없다.
+     */
+    private static Coordinate regionAnchor(GenerateCourse command, TrainAccess trainAccess) {
+        Coordinate origin = new Coordinate(command.originLat(), command.originLng());
+        if (trainAccess == null) {
+            return origin;
+        }
+        return trainAccess.arrivalPoint().orElse(origin);
+    }
+
+    /**
+     * 여행 첫날 가용 시간대 — 도착 시각을 <b>알 때만</b> 줄인다(#127).
+     *
+     * <p>자차·역 없음·그날 운행 없음·조회 실패는 전부 하루 전부다. 모르는 것을 늦은 도착으로 단정하면 조회 실패가 조용히
+     * 코스를 깎는다 — degrade 가 정상처럼 보이는 최악의 형태다.
+     */
+    private static DayStart firstDayStart(GenerateCourse command, TrainAccess trainAccess) {
+        if (trainAccess == null) {
+            return DayStart.fullDay();
+        }
+        return trainAccess.arrivalAt()
+                .map(arriveAt -> DayStart.afterArriving(command.travelDate(), arriveAt))
+                .orElseGet(DayStart::fullDay);
+    }
+
+    /** 기준점에서 가장 가까운 곳부터 이어붙이는 그리디 정렬(하루 묶기용). 하루 내부 순서는 TMAP 경유지 최적화로 다시 다듬는다. */
     private List<PoiCandidate> nearestNeighborOrder(
-            List<PoiCandidate> pois, TransportMode transport, double originLat, double originLng) {
+            List<PoiCandidate> pois, TransportMode transport, Coordinate anchor) {
         List<PoiCandidate> remaining = new ArrayList<>(pois);
         List<PoiCandidate> ordered = new ArrayList<>();
-        Coordinate current = new Coordinate(originLat, originLng);
+        Coordinate current = anchor;
         while (!remaining.isEmpty()) {
             Coordinate from = current;
             PoiCandidate next = remaining.stream()
@@ -127,51 +234,91 @@ public class CourseGenerationService {
         return ordered;
     }
 
-    /** 볼거리를 하루씩 나눠 슬롯으로 배치한다. 장소가 부족하면 채워지는 날까지만(일차는 1부터 연속으로 다시 매긴다). */
-    private List<DaySchedule> buildDays(
-            GenerateCourse command, List<PoiCandidate> sights, List<PoiCandidate> foods, List<PoiCandidate> stays) {
+    /**
+     * 볼거리를 하루씩 나눠 슬롯으로 배치한다. 장소가 부족하면 채워지는 날까지만(일차는 1부터 연속으로 다시 매긴다).
+     *
+     * <p>첫날만 {@code firstDayStart} 로 시간대가 좁아질 수 있다(#127). 좁아진 만큼 <b>덜 잘라 쓰므로</b> 남은
+     * 후보는 사라지지 않고 그대로 이튿날 몫이 된다.
+     */
+    private List<DaySchedule> buildDays(GenerateCourse command, DayStart firstDayStart,
+            List<PoiCandidate> sights, List<PoiCandidate> foods, List<PoiCandidate> stays) {
         int perDaySights = command.density().sightsPerDay();
         List<DaySchedule> days = new ArrayList<>();
         int si = 0;
         int fi = 0;
         int sti = 0;
         for (int day = 1; day <= command.travelDays(); day++) {
-            List<PoiCandidate> daySights = slice(sights, si, perDaySights);
+            DayStart start = day == 1 ? firstDayStart : DayStart.fullDay();
+            List<PoiCandidate> daySights = slice(sights, si, start.sightCapacity(perDaySights));
             si += daySights.size();
             if (command.transport() == TransportMode.CAR) {
                 // 하루 볼거리 순서를 실도로 기준 최적화(자차). 대중교통은 #26·#27 전까지 근사 순서 유지.
                 daySights = reorder(daySights, routeOptimizer.optimalOrder(coords(daySights)));
             }
-            List<PoiCandidate> dayFoods = slice(foods, fi, 2);
+            List<PoiCandidate> dayFoods = slice(foods, fi, start.mealCapacity());
             fi += dayFoods.size();
             boolean lastDay = day == command.travelDays();
             PoiCandidate stay = (!lastDay && sti < stays.size()) ? stays.get(sti++) : null;
 
-            List<Slot> slots = arrangeDay(daySights, dayFoods, stay, command.transport());
+            List<Slot> slots = arrangeDay(daySights, dayFoods, stay, command.transport(), start);
             if (!slots.isEmpty()) {
-                days.add(DaySchedule.of(days.size() + 1, slots)); // 빈 날은 건너뛰고 1부터 연속 번호
+                // 표시 번호는 1부터 연속(빈 날은 건너뛴다), 날짜 계산용 오프셋은 달력을 그대로 따른다.
+                // 둘을 겸하면 첫날이 빌 때 날짜와 날씨가 하루 앞당겨진다(#159).
+                days.add(DaySchedule.of(days.size() + 1, day - 1, slots));
             }
         }
         if (days.isEmpty()) {
             throw ItineraryException.courseNotBuildable();
         }
+        fillDayGaps(days, command.transport());
         return days;
     }
 
-    /** 하루를 오전관광→점심→오후관광→저녁→(숙박) 순서로 배치하고 슬롯간 이동시간을 채운다. */
-    private List<Slot> arrangeDay(
-            List<PoiCandidate> sights, List<PoiCandidate> foods, PoiCandidate stay, TransportMode transport) {
+    /**
+     * 날짜가 바뀌는 구간의 이동시간을 채운다(#188) — 전날 마지막 장소(보통 숙소)에서 이날 첫 장소까지.
+     *
+     * <p>슬롯 사이와 <b>같은 방식</b>으로 잰다. 한 화면에서 12분(실도로)과 45분(직선 근사)이 섞여 나가면
+     * 사용자가 둘을 같은 정밀도로 읽는다.
+     *
+     * <p>호출은 코스당 <b>여행일수 − 1</b> 회다. 2박3일이면 2회로, 하루 안 구간(슬롯 수만큼)에 비하면 작다.
+     *
+     * <p>거리는 여기서 안 잰다 — 좌표만 있으면 응답 시점에 계산되므로 저장할 이유가 없다.
+     */
+    private void fillDayGaps(List<DaySchedule> days, TransportMode transport) {
+        for (int i = 1; i < days.size(); i++) {
+            Optional<Slot> from = days.get(i - 1).lastSlot();
+            Optional<Slot> to = days.get(i).firstSlot();
+            if (from.isEmpty() || to.isEmpty()) {
+                continue; // 빈 날은 애초에 목록에 안 들어오지만, 들어와도 지어내지 않는다
+            }
+            days.get(i).arriveFromPrevDayIn(legMinutes(
+                    new Coordinate(from.get().getLat(), from.get().getLng()),
+                    new Coordinate(to.get().getLat(), to.get().getLng()),
+                    transport));
+        }
+    }
+
+    /**
+     * 하루를 오전관광→점심→오후관광→저녁→(숙박) 순서로 배치하고 슬롯간 이동시간을 채운다.
+     *
+     * <p>{@code start} 가 좁으면 이미 지난 시간대는 비운다 — 오전을 못 쓰면 볼거리가 전부 오후로 간다. <b>숙박은
+     * 예외로 시간대 판정을 타지 않는다</b> — 밤늦게 닿아도 잘 곳은 필요하다.
+     */
+    private List<Slot> arrangeDay(List<PoiCandidate> sights, List<PoiCandidate> foods, PoiCandidate stay,
+            TransportMode transport, DayStart start) {
         List<Entry> entries = new ArrayList<>();
-        int half = (sights.size() + 1) / 2;
+        int morning = start.morningShare(sights.size());
         for (int i = 0; i < sights.size(); i++) {
-            entries.add(new Entry(SlotKind.SIGHT, i < half ? TimeOfDay.MORNING : TimeOfDay.AFTERNOON, sights.get(i)));
+            entries.add(
+                    new Entry(SlotKind.SIGHT, i < morning ? TimeOfDay.MORNING : TimeOfDay.AFTERNOON, sights.get(i)));
         }
         // 점심은 오전 관광 뒤, 저녁은 오후 관광 뒤에 끼운다
-        if (!foods.isEmpty()) {
-            entries.add(half, new Entry(SlotKind.FOOD, TimeOfDay.LUNCH, foods.get(0)));
+        int fi = 0;
+        if (start.allows(TimeOfDay.LUNCH) && fi < foods.size()) {
+            entries.add(morning, new Entry(SlotKind.FOOD, TimeOfDay.LUNCH, foods.get(fi++)));
         }
-        if (foods.size() >= 2) {
-            entries.add(new Entry(SlotKind.FOOD, TimeOfDay.DINNER, foods.get(1)));
+        if (start.allows(TimeOfDay.DINNER) && fi < foods.size()) {
+            entries.add(new Entry(SlotKind.FOOD, TimeOfDay.DINNER, foods.get(fi++)));
         }
         if (stay != null) {
             entries.add(new Entry(SlotKind.STAY, TimeOfDay.DINNER, stay));
@@ -182,8 +329,10 @@ public class CourseGenerationService {
         for (int i = 0; i < entries.size(); i++) {
             Entry e = entries.get(i);
             int travel = prev == null ? 0 : legMinutes(prev, coord(e.poi()), transport);
-            slots.add(Slot.of(i + 1, e.timeOfDay(), e.kind(), e.poi().contentId(), e.poi().title(),
-                    e.poi().lat(), e.poi().lng(), travel));
+            slots.add(Slot.of(i + 1, e.timeOfDay(), e.kind(), e.poi().contentId(), e.poi().contentTypeId(),
+                    e.poi().title(),
+                    e.poi().lat(), e.poi().lng(), travel,
+                    new SlotDisplay(e.poi().imageUrl(), e.poi().address(), e.poi().catchphrase(), e.poi().tel())));
             prev = coord(e.poi());
         }
         return slots;

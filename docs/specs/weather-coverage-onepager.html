@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>OffWay — 날씨로 받을 수 있는 것</title>
+<style>
+  :root {
+    --ink:#16181d; --dim:#8b919b; --line:#e8eaed; --band:#f7f8f9;
+    --accent:#0f766e; --warn:#b45309; --off:#c8ccd2;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:"Pretendard","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif; color:var(--ink); -webkit-font-smoothing:antialiased; background:#fff; }
+  .sheet { width:1440px; padding:44px 52px 36px; }
+
+  .top { display:flex; align-items:baseline; gap:16px; border-bottom:2.5px solid var(--ink); padding-bottom:12px; }
+  h1 { font-size:26px; font-weight:800; letter-spacing:-.02em; }
+  .sub { font-size:13.5px; color:var(--dim); }
+  .src { margin-left:auto; font-size:12.5px; color:var(--dim); }
+
+  h2 { font-size:15.5px; font-weight:700; margin:26px 0 10px; letter-spacing:-.01em; }
+  h2 .tag { font-size:12px; font-weight:600; color:var(--dim); margin-left:8px; }
+
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:12.5px; font-weight:600; color:var(--dim); padding:8px 10px; border-bottom:1px solid var(--ink); }
+  td { padding:9px 10px; border-bottom:1px solid var(--line); font-size:13.5px; line-height:1.45; vertical-align:top; }
+  tbody tr:nth-child(even) { background:var(--band); }
+  .dev { color:var(--dim); font-size:11.5px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+
+  .yes { color:var(--accent); font-weight:700; }
+  .no  { color:var(--warn); font-weight:700; }
+  .na  { color:var(--off); }
+
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:0 44px; }
+
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+  .chip { font-size:12.5px; padding:3px 9px; border:1px solid var(--line); border-radius:12px; background:#fff; }
+  .chip.g { border-color:var(--accent); color:var(--accent); }
+  .chip.x { border-color:var(--off); color:var(--dim); }
+
+  .note { background:var(--band); border-left:3px solid var(--accent); padding:11px 13px; font-size:12.5px; line-height:1.65; margin-top:10px; }
+  .note.warn { border-left-color:var(--warn); }
+  .note b { color:var(--accent); }
+  .note.warn b { color:var(--warn); }
+  .notes3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-top:14px; }
+
+  .foot { margin-top:22px; padding-top:12px; border-top:1px solid var(--line); font-size:12px; color:var(--dim); display:flex; }
+  .foot span { margin-left:auto; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="top">
+    <h1>날씨로 받을 수 있는 것</h1>
+    <div class="sub">기상청 예보 · 며칠 뒤냐에 따라 채워지는 항목이 다르다</div>
+    <div class="src">출처 — 기상청 단기예보 · 중기육상예보 · 관광기후지수 · 에어코리아</div>
+  </div>
+
+  <h2>① 코스·지역 카드에 붙는 날씨 <span class="tag">DailyWeather — 항목 4개</span></h2>
+  <table>
+    <thead>
+      <tr><th style="width:20%">항목</th><th style="width:26%">값</th><th>언제 채워지나</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>최저기온 <span class="dev">minTemp</span></td><td>℃ 정수</td><td><b>오늘~사흘 뒤까지만.</b> 나흘 뒤부터는 빈다</td></tr>
+      <tr><td>최고기온 <span class="dev">maxTemp</span></td><td>℃ 정수</td><td><b>오늘~사흘 뒤까지만.</b> 나흘 뒤부터는 빈다</td></tr>
+      <tr><td>하늘 상태 <span class="dev">sky</span></td><td>맑음 · 구름많음 · 흐림 · 정보 없음</td><td>오늘~열흘 뒤</td></tr>
+      <tr><td>강수확률 <span class="dev">rainProbability</span></td><td>% (그날 최대값)</td><td>오늘~열흘 뒤</td></tr>
+    </tbody>
+  </table>
+
+  <h2>② 며칠 뒤냐에 따라 답하는 API 가 바뀐다</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:16%">기간</th><th style="width:20%">어디서 오나</th>
+        <th style="width:11%">기온</th><th style="width:13%">하늘</th><th style="width:13%">강수확률</th><th>조회 단위</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>오늘 ~ D+3</b></td><td>단기예보 (동네예보)</td>
+        <td class="yes">있음</td><td class="yes">있음</td><td class="yes">있음</td>
+        <td>위경도 <b>격자</b> — 코스 중심 좌표로 조회</td>
+      </tr>
+      <tr>
+        <td><b>D+4 ~ D+7</b></td><td>중기육상예보</td>
+        <td class="no">없음</td><td class="yes">있음</td><td class="yes">있음</td>
+        <td><b>광역 구역 10개</b> — 오전·오후 중 나쁜 쪽 채택</td>
+      </tr>
+      <tr>
+        <td><b>D+8 ~ D+10</b></td><td>중기육상예보</td>
+        <td class="no">없음</td><td class="yes">있음</td><td class="yes">있음</td>
+        <td>광역 구역 10개 — 오전·오후 구분 없이 하루 한 값</td>
+      </tr>
+      <tr>
+        <td><b>D+11 이후</b></td><td class="na">—</td>
+        <td class="na">없음</td><td class="na">없음</td><td class="na">없음</td>
+        <td class="na">예보 자체가 없다</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="note warn"><b>나흘 뒤부터 기온이 빈다.</b> 중기 기온은 <span class="dev">getMidTa</span> 라는 <b>다른 API</b> 에 있고 시군 단위 지점코드를 따로 써야 해서 아직 안 붙였다. 화면에서 기온 자리를 비워둘지, "예보 준비 중" 으로 둘지 정해야 한다.</div>
+
+  <div class="cols">
+    <div>
+      <h2>③ 관광기후지수 <span class="tag">"관광하기 좋은 날인가"</span></h2>
+      <table>
+        <thead><tr><th style="width:34%">항목</th><th>값</th></tr></thead>
+        <tbody>
+          <tr><td>등급 <span class="dev">grade</span></td><td>
+            <div class="chips">
+              <span class="chip g">매우좋음</span><span class="chip g">좋음</span>
+              <span class="chip">보통</span><span class="chip x">나쁨</span>
+              <span class="chip x">매우나쁨</span><span class="chip x">정보 없음</span>
+            </div></td></tr>
+          <tr><td>지수 원값 <span class="dev">value</span></td><td>같은 등급 안에서 순위를 매기는 용도(추천 가중치)</td></tr>
+          <tr><td>기간</td><td><b>내일 ~ 아흐레 뒤</b> (오늘은 안 나온다)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <h2>④ 대기질 <span class="tag">에어코리아 · 실시간</span></h2>
+      <table>
+        <thead><tr><th style="width:34%">항목</th><th>값</th></tr></thead>
+        <tbody>
+          <tr><td>미세먼지 등급</td><td>
+            <div class="chips">
+              <span class="chip g">좋음</span><span class="chip">보통</span>
+              <span class="chip x">나쁨</span><span class="chip x">매우나쁨</span>
+              <span class="chip x">정보없음</span>
+            </div></td></tr>
+          <tr><td>조회 단위</td><td>시도 단위 (17곳)</td></tr>
+          <tr><td>기간</td><td><b>현재값만.</b> 예보가 아니라 지금 측정치다</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2>⑤ 중기예보 광역 구역 10개 <span class="tag">89개 지역이 이 중 하나로 묶인다</span></h2>
+  <div class="chips">
+    <span class="chip">서울·인천·경기</span><span class="chip">강원영서</span><span class="chip">강원영동</span>
+    <span class="chip">충북</span><span class="chip">대전·세종·충남</span><span class="chip">전북</span>
+    <span class="chip">광주·전남</span><span class="chip">대구·경북</span><span class="chip">부산·울산·경남</span>
+    <span class="chip">제주</span>
+  </div>
+
+  <div class="notes3">
+    <div class="note"><b>오전·오후는 나쁜 쪽을 쓴다</b><br>"오전 맑고 오후 흐림" 을 맑음으로 뭉개면 사용자가 우산을 안 챙긴다. 강수확률도 둘 중 큰 값을 택한다.</div>
+    <div class="note warn"><b>날씨는 부가 정보다</b><br>조회에 실패하거나 예보 범위 밖이면 <b>날씨 없이</b> 코스가 나간다. 화면이 날씨를 필수로 기대하면 안 된다.</div>
+    <div class="note"><b>지역이 바뀌면 조용히 사라질 수 있다</b><br>시도명이 바뀌면(특별자치도 전환 등) 광역 구역 매칭이 깨진다. 그때는 로그에 사유가 남는다.</div>
+  </div>
+
+  <div class="foot">
+    단기 D+0~D+3 · 중기 D+4~D+10 · 관광기후지수 D+1~D+9 · 대기질 실시간
+    <span>OffWay · BE 박세빈</span>
+  </div>
+
+</div>
+</body>
+</html>

@@ -17,6 +17,8 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import org.springframework.web.reactive.function.client.WebClient;
 
 /**
@@ -41,11 +43,14 @@ class TmapClientImpl implements TmapClient {
 
     private final WebClient webClient;
     private final ExternalApiProperties props;
+    private final ExternalApiCallRecorder callRecorder;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    TmapClientImpl(WebClient externalWebClient, ExternalApiProperties props) {
+    TmapClientImpl(WebClient externalWebClient, ExternalApiProperties props,
+            ExternalApiCallRecorder callRecorder) {
         this.webClient = externalWebClient;
         this.props = props;
+        this.callRecorder = callRecorder;
     }
 
     @Override
@@ -55,6 +60,8 @@ class TmapClientImpl implements TmapClient {
         }
         try {
             String body = requestBody(origin, destination);
+            // 경로 탐색과 경유지 최적화는 한도가 다르다(1,000 vs 50). 같은 클라이언트지만 따로 센다.
+            callRecorder.record(ExternalApi.TMAP_ROUTE);
             String response = webClient.post()
                     .uri(ROUTES_URL)
                     .header("appKey", props.tmap().appKey())
@@ -102,6 +109,8 @@ class TmapClientImpl implements TmapClient {
             return Optional.empty();
         }
         try {
+            // 우리가 가진 것 중 가장 빡빡한 한도(50/일). #110 에서 80% 소진 알림을 실제로 받았다.
+            callRecorder.record(ExternalApi.TMAP_WAYPOINT);
             String response = webClient.post()
                     .uri(OPTIMIZE_URL)
                     .header("appKey", props.tmap().appKey())

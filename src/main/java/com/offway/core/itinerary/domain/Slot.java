@@ -50,6 +50,18 @@ public class Slot {
     @Column(name = "poi_content_id", nullable = false, length = 64)
     private String poiContentId;
 
+    /**
+     * 관광 API 콘텐츠 타입(#157) — 우리 DB 출처(인허가·국가유산)는 null.
+     *
+     * <p>운영시간을 받으려면 타입이 있어야 한다. {@code detailIntro2} 가 타입마다 다른 필드명을 쓰기 때문이다
+     * ({@code usetime}·{@code usetimeculture}·{@code opentimefood}…). 타입 없이는 무엇을 읽을지 정할 수 없다.
+     *
+     * <p>생성 시점에는 후보가 이미 들고 있는 값이라 <b>추가 조회가 없다</b>. 안 들고 오면 나중에 상세를
+     * 한 번 더 불러야 한다.
+     */
+    @Column(name = "poi_content_type_id")
+    private Integer poiContentTypeId;
+
     @Column(nullable = false, length = 200)
     private String title;
 
@@ -63,8 +75,29 @@ public class Slot {
     @Column(name = "travel_minutes_from_prev", nullable = false)
     private int travelMinutesFromPrev;
 
-    private Slot(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
-            double lat, double lng, int travelMinutesFromPrev) {
+    /** 대표 이미지·주소·추천 한 줄(catchphrase) — 코스 타임라인 인라인 렌더용 표시 정보. 부가 정보라 없을 수 있다. */
+    @Column(name = "image_url", length = 500)
+    private String imageUrl;
+
+    @Column(length = 300)
+    private String address;
+
+    @Column(length = 500)
+    private String catchphrase;
+
+    /**
+     * 대표 전화(#157) — <b>추가 외부 호출 없이</b> 얻는다.
+     *
+     * <p>후보 조회(`areaBasedList2`) 응답에 이미 들어 있는데 후보 DTO 가 안 들고 와서 버리고 있었다.
+     * 인허가 장소도 49% 가 전화를 갖고 있어 그대로 실린다. "줄 수 있으면 항상 준다" 는 원칙에서
+     * 이미 받아둔 값을 버릴 이유가 없다.
+     */
+    @Column(length = 40)
+    private String tel;
+
+    private Slot(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId,
+            Integer poiContentTypeId, String title,
+            double lat, double lng, int travelMinutesFromPrev, SlotDisplay display) {
         if (orderInDay < 1) {
             throw new IllegalArgumentException("슬롯 순서는 1 이상이어야 합니다: " + orderInDay);
         }
@@ -80,16 +113,48 @@ public class Slot {
         this.timeOfDay = Objects.requireNonNull(timeOfDay, "시간대는 필수입니다");
         this.kind = Objects.requireNonNull(kind, "슬롯 종류는 필수입니다");
         this.poiContentId = requireText(poiContentId, "POI content id");
+        this.poiContentTypeId = poiContentTypeId; // 우리 DB 출처는 없다 — 검증하지 않는다
         this.title = requireText(title, "장소명");
         this.lat = lat;
         this.lng = lng;
         this.travelMinutesFromPrev = travelMinutesFromPrev;
+        // 표시 정보는 검증하지 않는다 — 없으면 그 줄이 안 그려질 뿐이다.
+        SlotDisplay shown = display == null ? SlotDisplay.none() : display;
+        this.imageUrl = shown.imageUrl();
+        this.address = shown.address();
+        this.catchphrase = shown.catchphrase();
+        this.tel = shown.tel();
     }
 
-    /** 방문 슬롯을 만든다. 좌표·순서·이동시간 불변식을 스스로 검증한다. */
+    /** 방문 슬롯을 만든다(표시 정보 없이). 좌표·순서·이동시간 불변식을 스스로 검증한다. */
     public static Slot of(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
             double lat, double lng, int travelMinutesFromPrev) {
-        return new Slot(orderInDay, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutesFromPrev);
+        return of(orderInDay, timeOfDay, kind, poiContentId, null, title, lat, lng, travelMinutesFromPrev,
+                SlotDisplay.none());
+    }
+
+    /**
+     * 방문 슬롯을 표시 정보와 함께 만든다.
+     *
+     * <p>표시 정보를 값객체로 받는다 — 이미지·주소·캐치프레이즈·전화가 전부 {@code String} 이라 인자로
+     * 줄세우면 순서를 바꿔 넣어도 컴파일이 통과한다.
+     */
+    public static Slot of(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId, String title,
+            double lat, double lng, int travelMinutesFromPrev, SlotDisplay display) {
+        return of(orderInDay, timeOfDay, kind, poiContentId, null, title, lat, lng, travelMinutesFromPrev, display);
+    }
+
+    /**
+     * 콘텐츠 타입까지 함께 만든다 — 코스 생성 경로.
+     *
+     * <p>타입은 후보가 이미 들고 있는 값이라 여기서 넣으면 추가 조회가 없다. 나중에 운영시간을 받을 때
+     * 그 타입이 필요하다.
+     */
+    public static Slot of(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String poiContentId,
+            Integer poiContentTypeId, String title, double lat, double lng, int travelMinutesFromPrev,
+            SlotDisplay display) {
+        return new Slot(orderInDay, timeOfDay, kind, poiContentId, poiContentTypeId, title, lat, lng,
+                travelMinutesFromPrev, display);
     }
 
     private static void requireCoordinate(double value, double min, double max, String name) {

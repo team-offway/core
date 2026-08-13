@@ -11,11 +11,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -28,7 +29,7 @@ import org.springframework.web.util.UriComponentsBuilder;
  *
  * <p>결과를 세 상태로 구분한다: 키 없음·호출/파싱 실패·비정상 resultCode 는 {@code Unavailable}(조용히 폴백), 정상 응답인데
  * 그 날짜 편이 없으면 {@code NoServiceOnDate}(사용자 안내 가능), 있으면 {@code Available}. data.go.kr 특유의 응답
- * (resultCode·item 단일/배열·빈 items)을 방어한다.
+ * (resultCode·item 단일/배열·빈 items) 방어는 {@link TagoItems} 가 공통으로 처리한다.
  */
 @Slf4j
 @Component
@@ -42,12 +43,15 @@ class TrainInfoClientImpl implements TrainInfoClient {
     private static final DateTimeFormatter PLAN_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     private final WebClient webClient;
+    private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    TrainInfoClientImpl(WebClient externalWebClient, ExternalApiProperties props) {
+    TrainInfoClientImpl(WebClient externalWebClient, ExternalApiProperties props,
+            ExternalApiCallRecorder callRecorder) {
         this.webClient = externalWebClient;
         this.props = props;
+        this.callRecorder = callRecorder;
     }
 
     @Override
@@ -72,30 +76,38 @@ class TrainInfoClientImpl implements TrainInfoClient {
     }
 
     private String call(UriComponentsBuilder builder) {
-        // serviceKey 는 hex 라 재인코딩해도 안전.
-        URI uri = builder.encode().build().toUri();
+        // serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(build(true)) — 다른 data.go.kr 어댑터와 같은 규약.
+        // 재인코딩하면 `%2B` 가 `%252B` 가 되어 서버가 다른 키로 읽는다(#165). 나머지 파라미터는 전부 ASCII 다.
+        URI uri = builder.build(true).toUri();
+        // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
+        callRecorder.record(ExternalApi.TRAIN_INFO);
         return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
     }
 
     private TrainAvailability parse(String body) throws Exception {
-        JsonNode response = objectMapper.readTree(body).path("response");
-        if (!"00".equals(response.path("header").path("resultCode").asText())) {
-            return new TrainAvailability.Unavailable(); // 외부가 정상 응답을 안 줬으니 실패로 본다
-        }
-        // 미운행이면 items 가 빈 문자열("")로 와서 item 은 missing. 결과가 하나면 item 이 배열이 아니라 객체 하나로 온다.
-        JsonNode item = response.path("body").path("items").path("item");
-        if (item.isMissingNode() || item.isNull()) {
-            return new TrainAvailability.NoServiceOnDate(); // 조회 정상, 그 날짜 운행 없음
-        }
-        Stream<JsonNode> trains =
-                item.isArray() ? StreamSupport.stream(item.spliterator(), false) : Stream.of(item);
-        return trains.map(TrainInfoClientImpl::toLeg)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
+        return switch (TagoItems.parse(body, objectMapper)) {
+            case TagoItems.Items(List<JsonNode> nodes) -> fastest(nodes);
+            case TagoItems.Empty ignored -> new TrainAvailability.NoServiceOnDate(); // 조회 정상, 그 날짜 운행 없음
+            case TagoItems.Failed ignored -> {
+                // 예외가 아니라 정상 HTTP 응답이라 여기서 남기지 않으면 아무 흔적이 안 남는다. 제공기관 장애가
+                // 조용히 "열차 없음" 으로 보이는 것을 막는다.
+                log.warn("TAGO 열차정보 응답이 비정상 resultCode 입니다 — 조회 불가 처리");
+                yield new TrainAvailability.Unavailable();
+            }
+        };
+    }
+
+    private static TrainAvailability fastest(List<JsonNode> trains) {
+        return trains.stream()
+                .map(TrainInfoClientImpl::toLeg)
+                .flatMap(Optional::stream)
                 .min(Comparator.comparingInt(TrainLeg::durationMinutes))
                 .<TrainAvailability>map(TrainAvailability.Available::new)
                 // items 에 편이 있는데 전부 파싱 실패면 미운행이 아니라 스키마 변경·결측 신호 → Unavailable(잘못된 "없음" 안내 방지).
-                .orElseGet(TrainAvailability.Unavailable::new);
+                .orElseGet(() -> {
+                    log.warn("TAGO 열차 {}편이 전부 파싱 실패했습니다 — 조회 불가 처리(스키마 변경 의심)", trains.size());
+                    return new TrainAvailability.Unavailable();
+                });
     }
 
     private static Optional<TrainLeg> toLeg(JsonNode train) {

@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-/** 역 마스터 시드(343역) + 좌표 최근접 해석 통합 검증 — 시드된 H2 로 외부 없이 확인. */
+/** 역 마스터 시드(343역) + 좌표 최근접 해석 통합 검증 — 시드된 DB 로 외부 없이 확인. */
 @SpringBootTest
 class TrainStationResolverIntegrationTest {
 

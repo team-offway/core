@@ -3,6 +3,7 @@ package com.offway.core.trip.infrastructure.datalab;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.domain.VisitorType;
 import com.offway.core.trip.infrastructure.datalab.dto.RegionVisitor;
@@ -18,6 +19,8 @@ import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -33,23 +36,38 @@ class TourDataLabClientImpl implements TourDataLabClient {
 
     private static final String BASE =
             "https://apis.data.go.kr/B551011/DataLabService/locgoRegnVisitrDDList";
-    private static final Duration TIMEOUT = Duration.ofSeconds(6);
+    /**
+     * 다른 외부 클라이언트(6초)보다 길게 잡는다. 이 오퍼레이션은 <b>지역 필터 파라미터가 없어</b> 기간 전체가 한 번에
+     * 내려온다 — 관측 창 7일이 268 시군구 × 3 구분 × 7일 = 5,628건, 약 <b>1MB</b> 다. 실측 응답시간이 0.3초~8.8초로
+     * 출렁여(같은 요청 3회: 0.5s · 8.8s · 0.3s) 6초로는 간헐 실패한다.
+     *
+     * <p>길게 둬도 사용자 지연으로 새지 않는다 — 결과는 6시간 캐시되고 워머가 미리 채우므로 이 대기를 감당하는 건
+     * 대부분 백그라운드다. 반대로 짧게 두면 랭킹 가중치가 통째로 날아가 순위가 무의미해진다(실패 시 폴백이 빈 가중치).
+     *
+     * <p>이 값은 한 건의 <b>기본</b> 상한이다. 호출자가 남은 예산({@code maxWait})을 더 짧게 주면 그쪽을 따른다 —
+     * 집계 전체 상한을 가진 호출자가 마지막 한 건 때문에 그 상한을 넘기지 않게.
+     */
+    private static final Duration TIMEOUT = Duration.ofSeconds(20);
     private static final String MOBILE_OS = "ETC";
     private static final String MOBILE_APP = "offway";
     private static final Set<String> SUCCESS_CODES = Set.of("0000", "00");
     private static final DateTimeFormatter YMD = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private final WebClient webClient;
+    private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    TourDataLabClientImpl(WebClient externalWebClient, ExternalApiProperties props) {
+    TourDataLabClientImpl(WebClient externalWebClient, ExternalApiProperties props,
+            ExternalApiCallRecorder callRecorder) {
         this.webClient = externalWebClient;
         this.props = props;
+        this.callRecorder = callRecorder;
     }
 
     @Override
-    public TourVisitorResult findRegionVisitors(LocalDate from, LocalDate to, int pageNo, int numOfRows) {
+    public TourVisitorResult findRegionVisitors(
+            LocalDate from, LocalDate to, int pageNo, int numOfRows, Duration maxWait) {
         if (!props.dataGoKr().hasKey()) {
             log.info("관광빅데이터 키 없음 — 방문자수 조회를 건너뜁니다");
             return TourVisitorResult.empty();
@@ -65,17 +83,21 @@ class TourDataLabClientImpl implements TourDataLabClient {
                 .queryParam("numOfRows", numOfRows)
                 .build(true)
                 .toUri();
+        // 짧은 쪽을 따른다 — 호출자의 남은 예산을 넘겨 기다리면 호출자의 전체 상한이 무의미해진다.
+        Duration wait = maxWait.compareTo(TIMEOUT) < 0 ? maxWait : TIMEOUT;
         try {
+            // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
+            callRecorder.record(ExternalApi.TOUR_DATA_LAB);
             String body = webClient.get()
                     .uri(uri)
                     .retrieve()
                     .bodyToMono(String.class)
-                    .timeout(TIMEOUT)
+                    .timeout(wait)
                     .block();
             return parse(body);
         } catch (Exception e) {
             // 쿼리스트링(키 포함)은 로그에 남기지 않는다.
-            log.warn("관광빅데이터 조회 실패 cause={}", e.getClass().getSimpleName());
+            log.warn("관광빅데이터 조회 실패 cause={}", RootCause.of(e));
             throw TourApiException.dataLabLookupFailed(e);
         }
     }

@@ -16,10 +16,12 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@WithMockUser
 class LeaveSandwichIntegrationTest {
 
     private static final String URL = "/api/v1/leaves/sandwich";
@@ -32,6 +34,15 @@ class LeaveSandwichIntegrationTest {
 
     @Autowired
     private StubHolidayClient holidayClient;
+
+    @Autowired
+    private com.offway.core.leave.service.LeaveService leaveService;
+
+    // 공휴일 캐시는 공유 싱글톤 — 각 테스트가 자기 stub 시나리오를 타도록 비운다(DB 롤백에 준하는 격리).
+    @org.junit.jupiter.api.BeforeEach
+    void evictHolidayCache() {
+        leaveService.evictCache();
+    }
 
     @TestConfiguration
     static class StubConfig {

@@ -1,5 +1,6 @@
 package com.offway.core.transport.infrastructure.tmap;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -37,7 +38,7 @@ class TmapClientImplTest {
     }
 
     private static TmapClient client(String body) {
-        return new TmapClientImpl(stubbing(json(body)), WITH_KEY);
+        return new TmapClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder());
     }
 
     @Test
@@ -62,7 +63,7 @@ class TmapClientImplTest {
                 })
                 .build();
 
-        assertTrue(new TmapClientImpl(neverCalled, NO_KEY).carRoute(SEOUL, BUSAN).isEmpty());
+        assertTrue(new TmapClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder()).carRoute(SEOUL, BUSAN).isEmpty());
     }
 
     @Test
@@ -77,6 +78,6 @@ class TmapClientImplTest {
                 .body("{}")
                 .build();
 
-        assertTrue(new TmapClientImpl(stubbing(error), WITH_KEY).carRoute(SEOUL, BUSAN).isEmpty());
+        assertTrue(new TmapClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder()).carRoute(SEOUL, BUSAN).isEmpty());
     }
 }

@@ -58,7 +58,12 @@ deny() {
 case "$REL" in
 src/main/resources/db/migration/*.sql)
     # 이미 커밋된 마이그레이션인가 (HEAD 에 존재하면 배포됐다고 본다)
-    if git cat-file -e "HEAD:$REL" 2>/dev/null; then
+    #
+    # repeatable(R__)은 제외한다. 내용이 바뀌면 Flyway 가 다시 실행하는 것이 그 파일의 설계 목적이라,
+    # 수정이 곧 사용법이다. 실제로 정책·태그 시드가 해마다 바뀌어서 R__ 로 둔 것인데, 여기서 막으면
+    # 그 시드를 영영 못 고친다. checksum 이 깨져 부팅이 실패하는 것은 versioned(V__) 뿐이다.
+    case "${REL##*/}" in R__*) IS_REPEATABLE=1 ;; *) IS_REPEATABLE=0 ;; esac
+    if [ "$IS_REPEATABLE" -eq 0 ] && git cat-file -e "HEAD:$REL" 2>/dev/null; then
         if ! git diff --quiet -- "$REL" 2>/dev/null; then
             fail "적용된 Flyway 마이그레이션 수정" \
                 "$REL 은 이미 커밋된 마이그레이션입니다." \

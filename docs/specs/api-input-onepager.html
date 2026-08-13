@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>OffWay — 화면별 입력값 한 장</title>
+<style>
+  :root {
+    --ink:#16181d; --dim:#8b919b; --line:#e8eaed; --band:#f7f8f9;
+    --accent:#0f766e; --warn:#b45309;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"Pretendard","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif;
+    color:var(--ink); -webkit-font-smoothing:antialiased; background:#fff;
+  }
+  /* 피그마 프레임에 그대로 얹히도록 고정 폭 — 캡처 시 잘리지 않는다 */
+  .sheet { width:1440px; padding:44px 52px 36px; }
+
+  .top { display:flex; align-items:baseline; gap:16px; border-bottom:2.5px solid var(--ink); padding-bottom:12px; }
+  h1 { font-size:26px; font-weight:800; letter-spacing:-.02em; }
+  .sub { font-size:13.5px; color:var(--dim); }
+  .legend { margin-left:auto; display:flex; gap:14px; font-size:12.5px; }
+  .lg { display:flex; align-items:center; gap:5px; }
+  .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .dot.must { background:var(--accent); }
+  .dot.opt  { background:#c8ccd2; }
+  .dot.pick { background:var(--warn); }
+
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:0 44px; margin-top:22px; }
+
+  .blk { margin-bottom:24px; break-inside:avoid; }
+  .hd { display:flex; align-items:center; gap:9px; margin-bottom:9px; }
+  .no {
+    width:23px; height:23px; border-radius:50%; background:var(--accent); color:#fff;
+    font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:none;
+  }
+  .ttl { font-size:16px; font-weight:700; letter-spacing:-.01em; }
+  .cap { font-size:12.5px; color:var(--dim); margin-left:auto; }
+
+  table { width:100%; border-collapse:collapse; }
+  td { padding:6.5px 0; border-bottom:1px solid var(--line); vertical-align:top; font-size:13.5px; line-height:1.45; }
+  td.k { width:64%; }
+  td.v { width:36%; text-align:right; white-space:nowrap; font-size:12.5px; }
+  .dev { display:block; color:var(--dim); font-size:11.5px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; margin-top:1px; }
+  .must { color:var(--accent); font-weight:700; }
+  .opt  { color:var(--dim); }
+  .pick { color:var(--warn); font-weight:700; }
+  .none { color:var(--dim); font-size:13.5px; padding:7px 0; }
+
+  .notes { margin-top:6px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
+  .note {
+    background:var(--band); border-left:3px solid var(--accent);
+    padding:11px 13px; font-size:12.5px; line-height:1.6;
+  }
+  .note.warn { border-left-color:var(--warn); }
+  .note b { color:var(--accent); }
+  .note.warn b { color:var(--warn); }
+  .foot { margin-top:20px; padding-top:12px; border-top:1px solid var(--line); font-size:12px; color:var(--dim); display:flex; }
+  .foot span { margin-left:auto; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="top">
+    <h1>화면별로 무엇을 입력받나</h1>
+    <div class="sub">사용자가 주는 값 · 회색은 개발용 이름</div>
+    <div class="legend">
+      <span class="lg"><i class="dot must"></i>필수</span>
+      <span class="lg"><i class="dot opt"></i>선택</span>
+      <span class="lg"><i class="dot pick"></i>둘 중 하나</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="blk">
+        <div class="hd"><div class="no">1</div><div class="ttl">홈 화면</div><div class="cap">입력 없음</div></div>
+        <div class="none">아무것도 안 받는다. 출발지를 모르니 소요시간 없이 <b>방문자 많은 순</b>으로만 인기 여행지를 보여준다.</div>
+      </div>
+
+      <div class="blk">
+        <div class="hd"><div class="no">2</div><div class="ttl">며칠 놀 수 있나 계산</div></div>
+        <table>
+          <tr><td class="k">이동수단 — 자차 / 대중교통<span class="dev">transport</span></td><td class="v must">필수</td></tr>
+          <tr><td class="k">여행 시작일 + 종료일<span class="dev">startDate · endDate</span></td><td class="v pick">A안</td></tr>
+          <tr><td class="k">기간 버튼 — 당일치기 / 주말 포함 / 연차 이어서<span class="dev">periodStyle</span></td><td class="v pick">B안</td></tr>
+          <tr><td class="k">기준 날짜 — 언제부터 찾아줄까<span class="dev">baseDate</span></td><td class="v must">B안이면</td></tr>
+          <tr><td class="k">주말에 붙일 요일 — 금 / 월<span class="dev">weekendBridge</span></td><td class="v must">주말 포함일 때</td></tr>
+          <tr><td class="k">연차 며칠 쓸지 — 2일 / 3일<span class="dev">leaveDays</span></td><td class="v must">연차 이어서일 때</td></tr>
+          <tr><td class="k">첫날 반차 여부<span class="dev">halfDayStart</span></td><td class="v opt">선택 · 기본 종일</td></tr>
+        </table>
+      </div>
+
+      <div class="blk">
+        <div class="hd"><div class="no">3</div><div class="ttl">여행지 추천받기</div><div class="cap">목적지는 안 받는다</div></div>
+        <table>
+          <tr><td class="k">출발지 — 내 위치 또는 직접 고른 곳<span class="dev">originLat · originLng</span></td><td class="v must">필수</td></tr>
+          <tr><td class="k">이동수단<span class="dev">transport</span></td><td class="v must">필수</td></tr>
+          <tr><td class="k">편도 최대 이동시간<span class="dev">maxReachMinutes</span></td><td class="v must">필수 · 2단계 결과</td></tr>
+          <tr><td class="k">무드칩 — 맛집 / 관광지 / 숙박 / 체험<span class="dev">mood</span></td><td class="v opt">선택 · 전체 추천</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div>
+      <div class="blk">
+        <div class="hd"><div class="no">4</div><div class="ttl">코스 만들기</div><div class="cap">다시 돌리기도 동일</div></div>
+        <table>
+          <tr><td class="k">고른 여행지<span class="dev">regionId</span></td><td class="v must">필수</td></tr>
+          <tr><td class="k">여행 일수 — 1~3일<span class="dev">travelDays</span></td><td class="v must">필수</td></tr>
+          <tr><td class="k">일정 밀도 — 빡빡하게 / 여유롭게<span class="dev">density</span></td><td class="v must">필수</td></tr>
+          <tr><td class="k">이동수단<span class="dev">transport</span></td><td class="v must">필수</td></tr>
+          <tr><td class="k">출발지<span class="dev">originLat · originLng</span></td><td class="v must">필수</td></tr>
+          <tr><td class="k">여행 날짜<span class="dev">travelDate</span></td><td class="v must">필수</td></tr>
+          <tr><td class="k">"이 장소 말고" 뺄 장소들<span class="dev">excludePoiContentIds</span></td><td class="v opt">다시 돌리기만</td></tr>
+        </table>
+      </div>
+
+      <div class="blk">
+        <div class="hd"><div class="no">5</div><div class="ttl">저장하고 연차 차감</div></div>
+        <table>
+          <tr><td class="k">코스 저장 — 코스 내용 전부</td><td class="v must">필수</td></tr>
+          <tr><td class="k">코스 저장 — 여행 날짜<span class="dev">travelDate</span></td><td class="v pick">선택 ⚠</td></tr>
+          <tr><td class="k">연차 차감 — 첫날 반차 여부<span class="dev">halfDayStart</span></td><td class="v opt">선택 · 기본 종일</td></tr>
+          <tr><td class="k">다녀오셨나요 — 다녀옴 / 안 감<span class="dev">outcome</span></td><td class="v must">필수</td></tr>
+          <tr><td class="k">내 연차 고치기 — 총 연차 일수<span class="dev">totalDays</span></td><td class="v must">필수</td></tr>
+          <tr><td class="k">연차 내역 추가 — 쓴 날짜 · 일수</td><td class="v must">필수</td></tr>
+          <tr><td class="k">연차 내역 추가 — 사유 · 어떤 코스인지</td><td class="v opt">선택</td></tr>
+          <tr><td class="k">코스 목록 — 전체 / 다가오는 / 지난<span class="dev">scope</span></td><td class="v opt">선택 · 기본 전체</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>2단계 A안·B안은 하나만</b><br>날짜를 직접 찍든지 버튼을 누르든지. 둘 다 보내면 거부한다 — 안 그러면 사용자가 찍은 날짜가 소리 없이 무시된다.</div>
+    <div class="note warn"><b>3단계 빈 목록 주의</b><br>그 시간 안에 갈 수 있는 곳이 없으면 오류가 아니라 <b>빈 목록</b>이 나간다. "이동시간을 늘려보세요" 안내가 필요하다.</div>
+    <div class="note warn"><b>여행 날짜는 항상 보낼 것</b><br>저장 시 선택이라 빼면 저장은 되지만 <b>나중에 연차 차감이 실패</b>한다. 코스 만들 때 받은 날짜를 그대로 실어 보낸다.</div>
+  </div>
+
+  <div class="foot">
+    모든 요청에 인증 헤더 필요 — <span style="font-family:ui-monospace,Menlo,monospace">Authorization: Basic base64(아이디:비밀번호)</span> · 없으면 401
+    <span>OffWay · BE 박세빈</span>
+  </div>
+
+</div>
+</body>
+</html>

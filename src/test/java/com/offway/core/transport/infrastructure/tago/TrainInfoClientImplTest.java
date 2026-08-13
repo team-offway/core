@@ -1,5 +1,6 @@
 package com.offway.core.transport.infrastructure.tago;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
@@ -28,7 +29,7 @@ class TrainInfoClientImplTest {
                 .body(body)
                 .build();
         WebClient webClient = WebClient.builder().exchangeFunction(request -> Mono.just(response)).build();
-        return new TrainInfoClientImpl(webClient, WITH_KEY);
+        return new TrainInfoClientImpl(webClient, WITH_KEY, new NoOpCallRecorder());
     }
 
     @Test
@@ -102,6 +103,6 @@ class TrainInfoClientImplTest {
 
         assertInstanceOf(
                 TrainAvailability.Unavailable.class,
-                new TrainInfoClientImpl(neverCalled, NO_KEY).fastestTrain("NAT010000", "NAT013271", DATE));
+                new TrainInfoClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder()).fastestTrain("NAT010000", "NAT013271", DATE));
     }
 }

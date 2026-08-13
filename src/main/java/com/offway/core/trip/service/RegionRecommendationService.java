@@ -3,7 +3,8 @@ package com.offway.core.trip.service;
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionIntroProvider;
+import com.offway.core.region.service.RegionMaster;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.service.TravelTimeProvider;
 import com.offway.core.trip.domain.RegionContent;
@@ -36,15 +37,17 @@ public class RegionRecommendationService {
     /** 콘텐츠를 붙여 반환하는 후보 상한 — TourAPI 호출량을 반환 후보로 한정한다(랭킹 상위만 노출). */
     private static final int CONTENT_LOOKUP_LIMIT = 20;
 
-    private final RegionRepository regionRepository;
+    private final RegionMaster regionMaster;
+    private final RegionIntroProvider regionIntroProvider;
     private final TravelTimeProvider travelTimeProvider;
     private final RegionRankingService regionRankingService;
     private final RegionContentProvider regionContentProvider;
+    private final RegionHeroPhotoProvider regionHeroPhotoProvider;
     private final PolicyService policyService;
 
     public List<RecommendedRegion> recommend(RecommendRegions command) {
         Coordinate origin = new Coordinate(command.originLat(), command.originLng());
-        List<Region> allRegions = regionRepository.findAll();
+        List<Region> allRegions = regionMaster.all();
 
         // 1. 도달 필터 — 도달시간(직선거리 interim) ≤ 한계
         Map<Long, Integer> reachByRegion = new HashMap<>();
@@ -65,29 +68,48 @@ public class RegionRecommendationService {
         List<RegionScore> ranked = regionRankingService.rankByVisitors(reachable);
         List<RegionScore> candidates = ranked.stream().limit(CONTENT_LOOKUP_LIMIT).toList();
         if (ranked.size() > candidates.size()) {
-            log.info("추천 후보 상한 적용 ranked={} → {}건 노출", ranked.size(), candidates.size());
+            log.debug("추천 후보 상한 적용 ranked={} → {}건 노출", ranked.size(), candidates.size());
         }
 
         // 3. 후보별 콘텐츠 부착(TourAPI, 부족 시 50km 확장) + 혜택 조립 — tx 밖 외부 호출
         Map<Long, Region> regionById = new HashMap<>();
         reachable.forEach(region -> regionById.put(region.getId(), region));
         LocalDate today = LocalDate.now();
+        List<Region> candidateRegions = candidates.stream()
+                .map(score -> regionById.get(score.regionId()))
+                .toList();
+
+        // 외부(TourAPI)는 병렬, DB(혜택)는 일괄 — 성격이 다르다. 혜택까지 병렬로 돌리면 후보 수만큼 커넥션을
+        // 잡으려 들어 커넥션 풀에서 경합한다. 쿼리 수를 줄이는 게 맞지 스레드를 늘릴 일이 아니다.
+        // 저장된 값만 읽는다(#193) — 요청 경로에서 후보 지역 팬아웃을 돌리지 않는다.
+        Map<Long, RegionContent> contents =
+                regionContentProvider.storedForAll(candidateRegions.stream().map(Region::getId).toList());
+        List<Long> candidateIds = candidateRegions.stream().map(Region::getId).toList();
+        Map<Long, List<Policy>> policiesByRegion = policyService.matchForRegions(candidateIds, today);
+        // 대표 사진은 DB 만 읽는다(#196) — 외부 호출이 늘지 않는다. 추천 요청에 여행 날짜가 없어 계절 정렬은
+        // 하지 않는다(날짜를 받게 되면 그때 넘긴다).
+        Map<Long, String> heroPhotos = regionHeroPhotoProvider.heroPhotoUrls(candidateIds, null);
 
         List<RecommendedRegion> result = new ArrayList<>();
         for (RegionScore score : candidates) {
             Region region = regionById.get(score.regionId());
-            RegionContent content = regionContentProvider.contentFor(region, allRegions);
-            List<RecommendedRegion.Benefit> benefits = policyService.matchForRegion(region.getId(), today).stream()
-                    .map(RegionRecommendationService::toBenefit)
-                    .toList();
+            RegionContent content = contents.getOrDefault(region.getId(), RegionContent.EMPTY);
+            List<RecommendedRegion.Benefit> benefits =
+                    policiesByRegion.getOrDefault(region.getId(), List.of()).stream()
+                            .map(RegionRecommendationService::toBenefit)
+                            .toList();
             result.add(RecommendedRegion.of(
                     region.getId(), region.getSido(), region.getSigungu(),
-                    reachByRegion.get(region.getId()), score.crowdLevel(), content, benefits));
+                    reachByRegion.get(region.getId()), score.crowdLevel(), content,
+                    heroPhotos.get(region.getId()),
+                    // 지역 소개는 부팅 때 조립해 둔 값이다 — 요청마다 89곳을 다시 만들지 않는다(#140).
+                    regionIntroProvider.of(region.getId()).text(),
+                    benefits));
         }
 
         // 4. 무드 필터 — 해당 카테고리 콘텐츠가 있는 지역을 앞세운다(재정렬). 매칭이 하나도 없으면 랭킹 순 유지(빈 결과 방지, F6)
         List<RecommendedRegion> ordered = RecommendedRegion.orderByMood(result, command.mood());
-        log.info("여행지 추천 reachable={} 노출={} mood={}", reachable.size(), ordered.size(), command.mood());
+        log.debug("여행지 추천 reachable={} 노출={} mood={}", reachable.size(), ordered.size(), command.mood());
         return ordered;
     }
 

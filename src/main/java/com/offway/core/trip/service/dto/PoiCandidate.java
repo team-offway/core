@@ -10,7 +10,10 @@ package com.offway.core.trip.service.dto;
  * @param lat 위도
  * @param lng 경도
  * @param imageUrl 대표 이미지(없으면 null)
+ * @param address 주소(없으면 null)
+ * @param catchphrase 구석구석 캐치프레이즈(추천 한 줄, 없으면 null)
  */
 public record PoiCandidate(
-        String contentId, int contentTypeId, String title, double lat, double lng, String imageUrl) {
+        String contentId, int contentTypeId, String title, double lat, double lng,
+        String imageUrl, String address, String catchphrase, String tel) {
 }

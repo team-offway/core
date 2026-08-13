@@ -1,5 +1,6 @@
 package com.offway.core.transport.infrastructure.tago;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -24,7 +25,7 @@ class TrainInfoClientE2ETest {
     void 서울에서_부산_가장_빠른_열차를_실제로_조회한다() {
         ExternalApiProperties props = new ExternalApiProperties(
                 new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
-        TrainInfoClient client = new TrainInfoClientImpl(WebClient.builder().build(), props);
+        TrainInfoClient client = new TrainInfoClientImpl(WebClient.builder().build(), props, new NoOpCallRecorder());
 
         TrainAvailability result = client.fastestTrain(SEOUL, BUSAN, LocalDate.now().plusDays(1));
 

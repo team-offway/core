@@ -1,0 +1,123 @@
+name: Diagnose
+
+# 배포된 EC2 의 상태를 들여다본다 — 로그·환경변수·외부 API 도달성.
+#
+# 로컬에서 서버에 붙을 수 없어서 만들었다. 22번은 SG 로 막혀 있고 AWS 자격증명도 러너에만 있어,
+# "서버에서는 왜 안 되는가" 를 물으려면 러너를 거쳐야 한다. deploy.yml 의 SG 개폐 절차를
+# 그대로 따르되 배포는 하지 않는다(읽기만).
+#
+# 시크릿 값 자체는 절대 찍지 않는다 — 길이와 앞뒤 몇 글자로 "무엇이 들어있는지" 만 확인한다.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: inspect EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-1
+
+      - name: 러너 IP 를 SSH 허용에 추가
+        id: open-ssh
+        run: |
+          RUNNER_IP=$(curl -s --max-time 10 https://checkip.amazonaws.com)
+          echo "runner_ip=$RUNNER_IP" >> "$GITHUB_OUTPUT"
+          aws ec2 authorize-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp --port 22 --cidr "$RUNNER_IP/32"
+
+      - name: SSH 키 준비
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      # 러너에서 본 값과 서버에서 본 값을 나란히 찍어, secret 이 서버까지 갔는지 가른다.
+      # 값은 마스킹한다 — 길이와 지문만으로 동일성 판정에 충분하다.
+      - name: 키 지문 대조 (러너 · 서버)
+        run: |
+          RUNNER_KEY='${{ secrets.DATA_GO_KR_SERVICE_KEY }}'
+          echo "러너가 들고 있는 secret: 길이=${#RUNNER_KEY} 앞4=${RUNNER_KEY:0:4} 뒤4=${RUNNER_KEY: -4}"
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -uo pipefail
+          echo "--- env.prod 파일 ---"
+          K=$(grep '^DATA_GO_KR_SERVICE_KEY=' ~/offway/env.prod | cut -d= -f2-)
+          echo "env.prod:  길이=${#K} 앞4=${K:0:4} 뒤4=${K: -4}"
+          echo "--- 실행 중인 컨테이너가 들고 있는 값 ---"
+          C=$(docker exec offway-core printenv DATA_GO_KR_SERVICE_KEY 2>/dev/null || echo '')
+          echo "container: 길이=${#C} 앞4=${C:0:4} 뒤4=${C: -4}"
+          echo "--- 컨테이너 기동 시각 ---"
+          docker inspect -f '{{.State.StartedAt}}  image={{.Config.Image}}' offway-core
+          REMOTE
+
+      # 서버에서 직접 외부를 부른다. 우리 앱을 거치지 않으므로 "코드 문제 vs 망/키 문제" 가 갈린다.
+      - name: 서버에서 TourAPI 직접 호출
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -uo pipefail
+          K=$(grep '^DATA_GO_KR_SERVICE_KEY=' ~/offway/env.prod | cut -d= -f2-)
+          echo "--- 서버 공인 IP ---"
+          curl -s --max-time 10 https://checkip.amazonaws.com || echo "(조회 실패)"
+          echo "--- TourAPI (정선 관광지) ---"
+          curl -s --max-time 25 \
+            "https://apis.data.go.kr/B551011/KorService2/areaBasedList2?serviceKey=${K}&MobileOS=ETC&MobileApp=offway&_type=json&numOfRows=1&pageNo=1&areaCode=32&sigunguCode=11&contentTypeId=12" \
+            | head -c 400
+          echo
+          echo "--- 컨테이너 안에서 같은 호출 ---"
+          docker exec offway-core sh -c 'curl -s --max-time 25 "https://apis.data.go.kr/B551011/KorService2/areaBasedList2?serviceKey=$DATA_GO_KR_SERVICE_KEY&MobileOS=ETC&MobileApp=offway&_type=json&numOfRows=1&pageNo=1&areaCode=32&sigunguCode=11&contentTypeId=12" | head -c 400' 2>&1 || echo "(컨테이너에 curl 이 없을 수 있음)"
+          REMOTE
+
+      - name: 앱 로그에서 외부 호출 실패 흔적
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -uo pipefail
+          echo "--- TourAPI/외부 관련 로그 (최근 3000줄에서 추출) ---"
+          docker logs --tail 3000 offway-core 2>&1 \
+            | grep -iE 'tour|외부|external|timeout|SERVICE_KEY|resultCode|WebClient|TOUR-|502' \
+            | tail -40 || echo "(해당 로그 없음)"
+          echo
+          echo "--- 최근 에러/경고 ---"
+          docker logs --tail 3000 offway-core 2>&1 | grep -E 'ERROR|WARN' | tail -25 || echo "(없음)"
+          REMOTE
+
+      # 서버 안에서 우리 API 를 직접 불러 재현시킨다. 재현되면 그 직후 로그에 원인이 찍힌다.
+      - name: 코스 생성 재현 + 직후 로그
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -uo pipefail
+          U=$(grep '^OFFWAY_BASIC_USERNAME=' ~/offway/env.prod | cut -d= -f2-)
+          P=$(grep '^OFFWAY_BASIC_PASSWORD=' ~/offway/env.prod | cut -d= -f2- | sed 's/^{[a-z]*}//')
+          echo "--- 코스 생성 호출 ---"
+          curl -s --max-time 90 -u "$U:$P" -X POST http://localhost:8080/api/v1/courses/generate \
+            -H 'Content-Type: application/json' \
+            -d '{"regionId":16,"travelDays":2,"density":"PACKED","transport":"TRANSIT","originLat":37.5665,"originLng":126.9780,"travelDate":"2026-08-14"}' \
+            | head -c 500
+          echo
+          echo "--- 그 직후 로그 60줄 ---"
+          docker logs --tail 60 offway-core 2>&1
+          REMOTE
+
+      - name: 러너 IP 회수
+        if: always() && steps.open-ssh.outputs.runner_ip != ''
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp --port 22 --cidr "${{ steps.open-ssh.outputs.runner_ip }}/32"
+
+      - name: SSH 키 삭제
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

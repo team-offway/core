@@ -1,5 +1,6 @@
 package com.offway.core.trip.infrastructure.datalab;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -10,6 +11,7 @@ import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.domain.VisitorType;
 import com.offway.core.trip.infrastructure.datalab.dto.RegionVisitor;
 import com.offway.core.trip.infrastructure.datalab.dto.TourVisitorResult;
+import java.time.Duration;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -29,6 +31,9 @@ class TourDataLabClientImplTest {
     private static final ExternalApiProperties NO_KEY =
             new ExternalApiProperties(new ExternalApiProperties.DataGoKr(null), null);
 
+    /** 이 테스트들은 집계 예산 제약을 검증하지 않는다 - 자체 timeout(20초)보다 길게 줘서 영향을 없앤다. */
+    private static final Duration AMPLE = Duration.ofMinutes(1);
+
     private static final LocalDate FROM = LocalDate.of(2026, 6, 1);
     private static final LocalDate TO = LocalDate.of(2026, 6, 7);
 
@@ -45,7 +50,7 @@ class TourDataLabClientImplTest {
     }
 
     private static TourDataLabClient client(String body) {
-        return new TourDataLabClientImpl(stubbing(json(body)), WITH_KEY);
+        return new TourDataLabClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder());
     }
 
     @Test
@@ -61,7 +66,7 @@ class TourDataLabClientImplTest {
                    "touDivCd":"3","touDivNm":"외국인(c)","touNum":"1000.0","baseYmd":"20260601"}
                 ]},"numOfRows":3,"pageNo":1,"totalCount":5628}}}""";
 
-        TourVisitorResult result = client(body).findRegionVisitors(FROM, TO, 1, 3);
+        TourVisitorResult result = client(body).findRegionVisitors(FROM, TO, 1, 3, AMPLE);
 
         assertEquals(5628, result.totalCount());
         assertEquals(3, result.items().size());
@@ -81,9 +86,9 @@ class TourDataLabClientImplTest {
                     throw new AssertionError("키가 없는데 외부 호출이 일어났다");
                 })
                 .build();
-        TourDataLabClient client = new TourDataLabClientImpl(neverCalled, NO_KEY);
+        TourDataLabClient client = new TourDataLabClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder());
 
-        assertTrue(client.findRegionVisitors(FROM, TO, 1, 10).items().isEmpty());
+        assertTrue(client.findRegionVisitors(FROM, TO, 1, 10, AMPLE).items().isEmpty());
     }
 
     @Test
@@ -95,7 +100,7 @@ class TourDataLabClientImplTest {
                   {"signguCode":"11110","signguNm":"종로구","touDivCd":"9","touNum":"5.0","baseYmd":"20260601"}
                 ]},"totalCount":2}}}""";
 
-        TourVisitorResult result = client(body).findRegionVisitors(FROM, TO, 1, 10);
+        TourVisitorResult result = client(body).findRegionVisitors(FROM, TO, 1, 10, AMPLE);
 
         assertEquals(1, result.items().size()); // touDivCd=9 는 건너뜀
         assertEquals(VisitorType.DOMESTIC, result.items().get(0).type());
@@ -112,7 +117,7 @@ class TourDataLabClientImplTest {
                   {"signguCode":"11110","signguNm":"종로구","touDivCd":"2","touNum":"숫자아님","baseYmd":"20260601"}
                 ]},"totalCount":3}}}""";
 
-        TourVisitorResult result = client(body).findRegionVisitors(FROM, TO, 1, 10);
+        TourVisitorResult result = client(body).findRegionVisitors(FROM, TO, 1, 10, AMPLE);
 
         assertEquals(1, result.items().size()); // 정상 1건만, 날짜·숫자 형식 오류는 스킵
         assertEquals(100.0, result.items().get(0).count(), 0.001);
@@ -126,7 +131,7 @@ class TourDataLabClientImplTest {
                   {"signguCode":"46890","signguNm":"완도군","touDivCd":"2","touNum":"12345.0","baseYmd":"20260601"}
                 },"totalCount":1}}}""";
 
-        TourVisitorResult result = client(body).findRegionVisitors(FROM, TO, 1, 10);
+        TourVisitorResult result = client(body).findRegionVisitors(FROM, TO, 1, 10, AMPLE);
 
         assertEquals(1, result.items().size());
         assertEquals("완도군", result.items().get(0).signguName());
@@ -137,7 +142,7 @@ class TourDataLabClientImplTest {
         String body = """
                 {"response":{"header":{"resultCode":"0000"},"body":{"items":"","totalCount":0}}}""";
 
-        assertTrue(client(body).findRegionVisitors(FROM, TO, 1, 10).items().isEmpty());
+        assertTrue(client(body).findRegionVisitors(FROM, TO, 1, 10, AMPLE).items().isEmpty());
     }
 
     @Test
@@ -146,7 +151,24 @@ class TourDataLabClientImplTest {
                 {"response":{"header":{"resultCode":"22","resultMsg":"LIMITED NUMBER OF SERVICE REQUESTS"},
                 "body":""}}""";
 
-        assertThrows(TourApiException.class, () -> client(body).findRegionVisitors(FROM, TO, 1, 10));
+        assertThrows(TourApiException.class, () -> client(body).findRegionVisitors(FROM, TO, 1, 10, AMPLE));
+    }
+
+    @Test
+    void 남은_예산이_자체_timeout보다_짧으면_그만큼만_기다린다() {
+        // 응답이 오지 않는 서버 — 대기 시간이 순수하게 timeout 설정에서만 나온다.
+        WebClient hanging = WebClient.builder().exchangeFunction(request -> Mono.never()).build();
+        TourDataLabClient client = new TourDataLabClientImpl(hanging, WITH_KEY, new NoOpCallRecorder());
+
+        long startedAt = System.nanoTime();
+        assertThrows(TourApiException.class,
+                () -> client.findRegionVisitors(FROM, TO, 1, 10, Duration.ofMillis(300)));
+        Duration waited = Duration.ofNanos(System.nanoTime() - startedAt);
+
+        // 자체 timeout(20초)이 아니라 넘겨받은 300ms 를 따랐다는 것. 집계의 전체 상한이 마지막 한 건까지
+        // 실제로 내려가는지가 이 단언의 핵심이다 — 안 내려가면 상한이 20초씩 초과된다.
+        assertTrue(waited.compareTo(Duration.ofSeconds(5)) < 0,
+                "남은 예산 300ms 를 넘겼는데 " + waited.toMillis() + "ms 기다렸다 — 자체 timeout 이 그대로 걸렸다");
     }
 
     @Test
@@ -155,10 +177,10 @@ class TourDataLabClientImplTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"error\":\"down\"}")
                 .build();
-        TourDataLabClient client = new TourDataLabClientImpl(stubbing(error), WITH_KEY);
+        TourDataLabClient client = new TourDataLabClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder());
 
         TourApiException ex =
-                assertThrows(TourApiException.class, () -> client.findRegionVisitors(FROM, TO, 1, 10));
+                assertThrows(TourApiException.class, () -> client.findRegionVisitors(FROM, TO, 1, 10, AMPLE));
         assertEquals(HttpStatus.BAD_GATEWAY, ex.httpStatus());
     }
 }

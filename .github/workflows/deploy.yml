@@ -1,0 +1,335 @@
+name: Deploy
+
+# EC2 에 배포한다.
+#
+# **dev 에 들어오면 자동 배포한다.** 첫 배포를 사람이 지켜보며 확인했고(빈 MySQL 에 Flyway 가
+# 처음 적용되는 순간이 지났다), 이후 배포는 같은 경로를 반복한다. 손으로 돌리는 동안은 "머지했는데
+# 아직 안 올라간" 창이 생겨 무엇이 떠 있는지 헷갈렸다.
+#
+# 수동 실행(workflow_dispatch)도 남겨 둔다 — 롤백이나 인프라 손질 뒤 재배포에 필요하다.
+#
+# CI(ci.yml)와 엮지 않았다(workflow_run) — 엮으면 실패 지점이 두 워크플로우에 흩어져 "왜 배포가
+# 안 됐는지" 추적이 어렵다. 여기서 테스트를 다시 돌려 배포할 상태 그대로를 검증한다.
+# 아래 build 단계가 실패하면 배포 단계로 넘어가지 않으므로, 깨진 코드가 자동으로 올라가지 않는다.
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    # 코드가 바뀌지 않는 변경으로 배포를 돌리지 않는다. 문서만 고쳤는데 컨테이너를 교체하면
+    # 그 시간만큼 서비스가 끊긴다.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.claude/**'
+      - '.githooks/**'
+
+# 배포가 겹치면 컨테이너 교체가 뒤엉킨다. 앞 배포를 취소하지 않고 순서대로 흘린다.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: build & deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v7
+
+      - name: JDK 설치
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          # build.gradle.kts 의 toolchain 과 맞춘다. 바꿀 땐 양쪽을 함께 고친다.
+          java-version: '25'
+
+      - name: Gradle 준비 (의존성 캐시 포함)
+        uses: gradle/actions/setup-gradle@v6
+
+      # 테스트까지 돌린다 — 배포 직전이 마지막 방어선이다.
+      # 외부 API 키를 넘기지 않는다: 테스트가 실키로 외부를 호출해 일일 허용량을 태운 적이 있다(#110).
+      - name: 빌드 & 테스트
+        run: ./gradlew build
+
+      # EC2 의 22번은 특정 IP 하나만 열려 있다(offway-tokyo-sg). Actions 러너는 매번 다른 IP 라
+      # 그대로면 SSH 가 timeout 으로 죽는다. 22번을 상시 개방하는 대신 이 실행의 러너 IP 만
+      # 잠깐 열고, 끝나면(실패해도) 즉시 회수한다.
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-1
+
+      - name: 러너 IP 를 SSH 허용에 추가
+        id: open-ssh
+        run: |
+          RUNNER_IP=$(curl -s --max-time 10 https://checkip.amazonaws.com)
+          echo "runner_ip=$RUNNER_IP" >> "$GITHUB_OUTPUT"
+          aws ec2 authorize-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp --port 22 --cidr "$RUNNER_IP/32"
+
+      - name: SSH 키 준비
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # 호스트 키를 미리 신뢰 목록에 넣는다 — StrictHostKeyChecking=no 로 열어두면
+          # 중간자 공격을 그대로 받는다.
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: 배포 산출물 전송
+        run: |
+          JAR=$(ls build/libs/*.jar | grep -v plain | head -1)
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'mkdir -p ~/offway/build/libs'
+          scp -i ~/.ssh/deploy_key "$JAR" \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/offway/build/libs/app.jar"
+          scp -i ~/.ssh/deploy_key Dockerfile \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/offway/Dockerfile"
+
+      # 환경변수는 --env-file 로 넘긴다. docker run -e 로 나열하면 서버에서 `ps` 만 쳐도
+      # DB 비밀번호와 API 키가 그대로 보인다.
+      - name: 환경변수 파일 생성 (600)
+        run: |
+          # quoted heredoc('ENVEOF') 이어야 한다 — 따옴표가 없으면 셸이 $ 를 변수로 해석해
+          # bcrypt 해시($2y$10$...)의 $2y·$10 이 빈 문자열로 치환되고, 계정이 맞아도 401 이 난다.
+          # secrets 참조는 Actions 가 YAML 단계에서 치환하므로 quote 를 붙여도 정상 주입된다
+          # (셸에 닿을 때는 이미 실제 값이다). 이 주석에 표현식 문법을 그대로 쓰면 안 된다 —
+          # run 블록은 주석까지 Actions 가 먼저 훑어서, 빈 표현식으로 보고 파싱이 깨진다.
+          cat > env.prod <<'ENVEOF'
+          SPRING_PROFILES_ACTIVE=prod
+          DB_URL=${{ secrets.DB_URL }}
+          DB_USERNAME=${{ secrets.DB_USERNAME }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          OFFWAY_BASIC_USERNAME=${{ secrets.OFFWAY_BASIC_USERNAME }}
+          OFFWAY_BASIC_PASSWORD=${{ secrets.OFFWAY_BASIC_PASSWORD }}
+          DATA_GO_KR_SERVICE_KEY=${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          TMAP_APP_KEY=${{ secrets.TMAP_APP_KEY }}
+          DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}
+          ENVEOF
+          scp -i ~/.ssh/deploy_key env.prod \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/offway/env.prod"
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'chmod 600 ~/offway/env.prod'
+          rm -f env.prod
+
+      - name: 이미지 빌드 & 컨테이너 교체
+        run: |
+          # 커밋 SHA 를 원격 스크립트의 $1 로 넘긴다. heredoc 이 quoted('REMOTE') 라 러너 쪽 변수는 확장되지 않는다.
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' -- "${{ github.sha }}" <<'REMOTE'
+          set -euo pipefail
+          SHA="$1"
+          cd ~/offway
+
+          # latest 만 쓰면 이전 이미지가 덮여 롤백할 대상이 사라진다. 커밋 SHA 로도 태그해 두면
+          # 배포가 잘못됐을 때 `docker run ... offway-core:<이전SHA>` 로 즉시 되돌릴 수 있다.
+          docker build -t "offway-core:$SHA" -t offway-core:latest .
+
+          # MySQL 은 앱과 같은 도커 네트워크에 있고 3306 을 호스트로 노출하지 않는다 — 컨테이너끼리만
+          # 통신하므로 외부에서 DB 에 직접 붙을 수 없다. DB_URL 의 호스트가 컨테이너명(offway-mysql)인 이유다.
+          docker network inspect offway-net >/dev/null 2>&1 || docker network create offway-net
+          if ! docker ps --format '{{.Names}}' | grep -qx offway-mysql; then
+            echo "MySQL 컨테이너가 떠 있지 않습니다 — 배포를 중단합니다."
+            exit 1
+          fi
+
+          # 되돌아갈 지점을 먼저 적어 둔다. 자동 배포에서는 사람이 지켜보지 않으므로, 새 컨테이너가
+          # 안 뜨면 워크플로우가 스스로 이 이미지로 돌아가야 한다(아래 "기동 확인" 단계).
+          # 컨테이너가 없으면(첫 배포) 빈 파일이 되고, 그때는 롤백 대상이 없다는 뜻이다.
+          docker inspect -f '{{.Config.Image}}' offway-core > ~/offway/.prev-image 2>/dev/null || : > ~/offway/.prev-image
+          echo "이전 이미지: $(cat ~/offway/.prev-image || echo '(없음)')"
+
+          # 새 컨테이너를 띄우기 전에 기존 것을 내린다. 같은 8080 을 쓰므로 공존할 수 없다.
+          docker rm -f offway-core 2>/dev/null || true
+
+          docker run -d \
+            --name offway-core \
+            --network offway-net \
+            --restart unless-stopped \
+            --env-file ~/offway/env.prod \
+            -p 8080:8080 \
+            "offway-core:$SHA"
+
+          # 배포마다 쌓이는 dangling 이미지를 정리한다 — 인스턴스 디스크가 조용히 찬다.
+          docker image prune -f
+
+          # SHA 태그는 롤백 대상이라 prune 이 지우지 않는다(태그가 붙어 있다). 대신 직접 최근 N개만 남긴다 —
+          # 무한히 쌓이면 디스크가 찬다.
+          #
+          # **되돌아갈 이미지는 반드시 제외한다.** 하루에 여러 번 배포하면 롤백 대상이 보존 개수 밖으로
+          # 밀려나는데, 그걸 지우고 나면 롤백이 "이미지 없음" 으로 실패해 서버가 죽은 채 남는다.
+          # 실제로 그렇게 한 번 내려갔다.
+          PREV_TAG=$(cut -d: -f2 ~/offway/.prev-image 2>/dev/null || echo "")
+          docker images --filter=reference='offway-core:*' --format '{{.Tag}} {{.CreatedAt}}' \
+            | grep -v '^latest ' \
+            | { [ -n "$PREV_TAG" ] && grep -v "^$PREV_TAG " || cat; } \
+            | sort -k2 -r | tail -n +5 | awk '{print $1}' \
+            | xargs -r -I{} docker rmi "offway-core:{}" 2>/dev/null || true
+          REMOTE
+
+      # 컨테이너가 떴다고 앱이 뜬 건 아니다. DB 접속 실패·마이그레이션 실패는 기동 중에 죽는다.
+      # 그리고 떴다고 기능이 되는 것도 아니다 — 스모크로 실제 응답까지 본 뒤에야 배포를 성공으로 친다.
+      # 어느 쪽이든 실패하면 이전 이미지로 되돌린다. 자동 배포에서는 사람이 손으로 되돌릴 수 없다.
+      - name: 기동 확인 · 스모크 · 실패 시 롤백
+        run: |
+          # 스모크 비밀번호만 러너에서 넘긴다. 서버의 env.prod 에는 bcrypt 해시만 있어 평문을 복원할 수
+          # 없다({bcrypt} 접두어를 떼면 해시가 남을 뿐이다).
+          #
+          # 사용자명은 반대로 **서버 파일에서 읽는다.** 시크릿을 인자로 넘기면 값 끝의 개행 하나만으로도
+          # `-u "user\n:pass"` 가 되어 401 이 난다 — 실제로 그렇게 두 번 거짓 롤백이 났다.
+          # env.prod 에서 읽으면 그 줄만 잘라오므로 개행이 섞이지 않고, 서버가 실제로 쓰는 값과도 어긋나지 않는다.
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'bash -s' -- "${{ secrets.OFFWAY_SMOKE_PASSWORD }}" <<'REMOTE'
+          set -uo pipefail
+          # 비밀번호도 같은 이유로 개행을 걷어낸다.
+          SMOKE_PASS=$(printf '%s' "$1" | tr -d '\r\n')
+          cd ~/offway
+          # tr 로 개행·캐리지리턴을 걷어낸다. 시크릿을 파일에 쓸 때 끝에 붙었을 수 있다.
+          SMOKE_USER=$(grep '^OFFWAY_BASIC_USERNAME=' env.prod | cut -d= -f2- | tr -d '\r\n')
+          # 값이 아니라 길이만 남긴다 — 빈 값인지, 개행이 붙었는지는 이것만으로 가려진다.
+          echo "[1/3] 스모크 계정 준비: 사용자명 길이=${#SMOKE_USER} 비밀번호 길이=${#SMOKE_PASS}"
+
+          rollback() {
+            echo "── 배포 실패. 최근 로그 ──"
+            docker logs --tail 120 offway-core 2>&1 || true
+            PREV=$(cat ~/offway/.prev-image 2>/dev/null || echo "")
+            if [ -z "$PREV" ]; then
+              echo "되돌릴 이전 이미지가 없습니다(첫 배포). 컨테이너를 내린 채 둡니다."
+              exit 1
+            fi
+            if ! docker image inspect "$PREV" >/dev/null 2>&1; then
+              # 되돌아갈 이미지가 사라졌다. 죽은 채 두는 것이 가장 나쁘므로, 방금 배포한 것으로라도
+              # 서비스를 세운다 — 기동은 성공했고 스모크만 실패한 경우가 대부분이다.
+              echo "!! 롤백 이미지($PREV)가 없습니다. 방금 배포한 버전으로 서비스를 유지합니다 !!"
+              docker rm -f offway-core 2>/dev/null || true
+              docker run -d --name offway-core --network offway-net --restart unless-stopped \
+                --env-file ~/offway/env.prod -p 8080:8080 offway-core:latest
+              # docker run -d 는 컨테이너 생성까지만 본다. 곧바로 죽으면 서비스가 없는 채로 남으므로
+              # 일반 롤백 경로와 똑같이 응답을 기다린다.
+              for i in $(seq 1 30); do
+                c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:8080/api/v1/categories || true)
+                if [ "$c" = "401" ] || [ "$c" = "200" ]; then
+                  echo "!! 대체 기동 확인 (HTTP $c). 배포는 실패로 처리되지만 서버는 떠 있습니다 !!"
+                  exit 1
+                fi
+                sleep 5
+              done
+              echo "!! 대체 기동까지 실패했습니다. 수동 개입이 필요합니다 !!"
+              exit 1
+            fi
+            echo "── $PREV 로 롤백합니다 ──"
+            docker rm -f offway-core 2>/dev/null || true
+            docker run -d --name offway-core --network offway-net --restart unless-stopped \
+              --env-file ~/offway/env.prod -p 8080:8080 "$PREV"
+            for i in $(seq 1 30); do
+              c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:8080/api/v1/categories || true)
+              if [ "$c" = "401" ] || [ "$c" = "200" ]; then
+                echo "롤백 완료 — 이전 버전으로 서비스 중"
+                exit 1
+              fi
+              sleep 5
+            done
+            echo "롤백까지 실패했습니다. 수동 개입이 필요합니다."
+            exit 1
+          }
+
+          # ① 기동 — 401 도 정상이다(인증 게이트가 살아 있다는 뜻, #122)
+          echo "[2/3] 기동 확인 시작"
+          up=""
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:8080/api/v1/categories || true)
+            if [ "$code" = "401" ] || [ "$code" = "200" ]; then
+              echo "기동 확인 (HTTP $code, ${i}회 시도)"
+              up=yes
+              break
+            fi
+            sleep 5
+          done
+          [ -n "$up" ] || { echo "기동 확인 실패 — 30회 시도 동안 응답 없음"; rollback; }
+          echo "[3/3] 스모크 시작"
+
+          # ② 스모크 — 실제 응답까지 본다.
+          #
+          # localhost 로 부른다. 같은 인스턴스 안의 loopback 이라 트래픽이 네트워크 인터페이스를
+          # 타지 않으므로 평문 HTTP 여도 도청 경로가 없다 — 이걸 엿보려면 이미 이 서버에 들어와
+          # 있어야 하고, 그 상황이면 env.prod(600)를 읽는 편이 빠르다.
+          # 반대로 러너에서 공인 IP 로 부르면 그때는 진짜 평문이 인터넷을 지난다. 여기서
+          # 서버 안쪽을 택한 이유다. 8080 에 TLS 를 붙이면 그때 https 로 바꾼다.
+          #
+          # 외부 API 에 기대는 엔드포인트(코스 생성 등)는 일부러 넣지 않는다. 관광 API 한도가 소진되면
+          # 우리 배포는 멀쩡한데 롤백이 발동한다. 여기서는 우리 코드와 DB 만으로 답하는 것만 본다.
+          smoke() {
+            name="$1"; expect="$2"; shift 2
+            got=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@" || true)
+            if [ "$got" != "$expect" ]; then
+              echo "스모크 실패: $name — 기대 $expect, 실제 $got"
+              return 1
+            fi
+            echo "스모크 통과: $name ($got)"
+          }
+
+          smoke "인증 게이트(무인증 401)" 401 http://localhost:8080/api/v1/categories || rollback
+          if ! smoke "카테고리 조회" 200 -u "$SMOKE_USER:$SMOKE_PASS" http://localhost:8080/api/v1/categories; then
+            # 값은 남기지 않는다. 길이만으로 "빈 값인지·개행이 붙었는지" 는 충분히 가려진다.
+            echo "  (진단) 사용자명 길이=${#SMOKE_USER} 비밀번호 길이=${#SMOKE_PASS}"
+            rollback
+          fi
+          smoke "지역 장소 목록"          200 -u "$SMOKE_USER:$SMOKE_PASS" 'http://localhost:8080/api/v1/regions/76/places?kind=STAY' || rollback
+
+          # 상태 코드만 보면 "200 인데 내용이 빈" 배포를 성공으로 넘긴다. 실제로 그렇게 나갔다 —
+          # 적재가 89곳 중 42곳에서 멈췄는데 목록 API 는 멀쩡히 200 을 줬다.
+          # 장소 풀은 부팅 시 전량 적재되므로, 어느 지역이든 비어 있으면 적재가 깨진 것이다.
+          # 적재는 기동 뒤에도 이어진다(16만 건 배치). 기동 확인 직후에 물으면 아직 0 건이라,
+          # 실제로 그렇게 거짓 실패가 났다. 채워질 때까지 기다린 뒤 판정한다.
+          for probe in "76 STAY" "1 SIGHT" "89 FOOD"; do
+            set -- $probe
+            # curl 성공 여부를 먼저 가른다. timeout·연결 오류로 끊긴 부분 응답에도 "totalElements" 가
+            # 섞여 있을 수 있어, 바로 파싱하면 실패를 통과로 읽는다.
+            body=$(curl -s --max-time 20 -w '\n%{http_code}' -u "$SMOKE_USER:$SMOKE_PASS" \
+              "http://localhost:8080/api/v1/regions/$1/places?kind=$2")
+            if [ $? -ne 0 ]; then
+              echo "스모크 실패: 장소 풀 조회 실패(curl) — region=$1 kind=$2"
+              rollback
+            fi
+            status=$(printf '%s' "$body" | tail -n1)
+            if [ "$status" != "200" ]; then
+              echo "스모크 실패: 장소 풀 조회 HTTP $status — region=$1 kind=$2"
+              rollback
+            fi
+            total=$(printf '%s' "$body" | sed -n 's/.*"totalElements":\([0-9]*\).*/\1/p')
+            # 아직 적재 중이면 잠시 뒤 다시 본다(최대 90초).
+            waited=0
+            while { [ -z "$total" ] || [ "$total" -lt 1 ] 2>/dev/null; } && [ "$waited" -lt 90 ]; do
+              sleep 5
+              waited=$((waited + 5))
+              body=$(curl -s --max-time 20 -w '\n%{http_code}' -u "$SMOKE_USER:$SMOKE_PASS" \
+                "http://localhost:8080/api/v1/regions/$1/places?kind=$2")
+              total=$(printf '%s' "$body" | sed -n 's/.*"totalElements":\([0-9]*\).*/\1/p')
+            done
+            if [ -z "$total" ] || [ "$total" -lt 1 ] 2>/dev/null; then
+              echo "스모크 실패: 장소 풀이 비었습니다 — region=$1 kind=$2 total=${total:-파싱실패} (${waited}초 대기)"
+              rollback
+            fi
+            echo "스모크 통과: 장소 풀 region=$1 kind=$2 ($total건, ${waited}초 대기)"
+          done
+
+          echo "배포 성공 — 기동·스모크 모두 통과"
+          REMOTE
+
+      # 배포가 실패해도 규칙은 반드시 회수한다 — 남으면 22번이 조금씩 영구 개방된다.
+      - name: 러너 IP 회수
+        if: always() && steps.open-ssh.outputs.runner_ip != ''
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --protocol tcp --port 22 --cidr "${{ steps.open-ssh.outputs.runner_ip }}/32"
+
+      - name: SSH 키 삭제
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

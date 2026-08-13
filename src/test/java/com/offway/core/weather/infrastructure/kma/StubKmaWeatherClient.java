@@ -3,6 +3,7 @@ package com.offway.core.weather.infrastructure.kma;
 import com.offway.core.weather.domain.DailyWeather;
 import java.time.LocalDate;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -14,12 +15,22 @@ import java.util.function.Supplier;
  */
 public class StubKmaWeatherClient implements KmaWeatherClient {
 
-    private static final Supplier<Optional<DailyWeather>> DEFAULT = Optional::empty;
+    private static final Function<LocalDate, Optional<DailyWeather>> DEFAULT = date -> Optional.empty();
 
-    private Supplier<Optional<DailyWeather>> behavior = DEFAULT;
+    private Function<LocalDate, Optional<DailyWeather>> behavior = DEFAULT;
 
     /** 모든 좌표·날짜 조회에 같은 예보를 돌려준다. */
     public void respond(Supplier<Optional<DailyWeather>> behavior) {
+        this.behavior = date -> behavior.get();
+    }
+
+    /**
+     * 날짜별로 다른 예보를 돌려준다 — 코스가 <b>Day 마다</b> 날씨를 묻는지 확인할 때 쓴다(#141).
+     *
+     * <p>날짜를 무시하는 {@link #respond(Supplier)} 로는 "모든 Day 가 같은 값" 과 "Day 마다 제대로 물었다" 를
+     * 구분할 수 없다.
+     */
+    public void respondByDate(Function<LocalDate, Optional<DailyWeather>> behavior) {
         this.behavior = behavior;
     }
 
@@ -30,6 +41,6 @@ public class StubKmaWeatherClient implements KmaWeatherClient {
 
     @Override
     public Optional<DailyWeather> dailyForecast(double lat, double lng, LocalDate date) {
-        return behavior.get();
+        return behavior.apply(date);
     }
 }

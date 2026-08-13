@@ -17,4 +17,8 @@ public interface RegionTagJpaRepository extends JpaRepository<RegionTag, Long> {
 
     @Query("SELECT rt.tag FROM RegionTag rt WHERE rt.regionId = :regionId")
     List<RegionTagType> findTagsByRegionId(@Param("regionId") Long regionId);
+
+    /** (지역ID, 태그) 쌍을 여러 지역에 대해 한 번에. 지역마다 따로 부르면 후보 수만큼 쿼리가 늘어난다(N+1). */
+    @Query("SELECT rt.regionId, rt.tag FROM RegionTag rt WHERE rt.regionId IN :regionIds")
+    List<Object[]> findRegionIdAndTagByRegionIds(@Param("regionIds") List<Long> regionIds);
 }

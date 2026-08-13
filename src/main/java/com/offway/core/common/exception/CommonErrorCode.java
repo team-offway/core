@@ -10,6 +10,9 @@ public enum CommonErrorCode implements ErrorCode {
     /** Bean Validation 등 요청 값 계약 위반. detail 은 호출부가 구체 사유로 덮어쓴다. */
     INVALID_REQUEST("COMMON-400", ErrorCategory.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
 
+    /** 자격증명이 없거나 올바르지 않음. */
+    UNAUTHORIZED("COMMON-401", ErrorCategory.UNAUTHORIZED, "인증이 필요합니다."),
+
     /** 인증됐으나 이 요청을 수행할 권한이 없음. Spring Security 의 AccessDeniedHandler 가 사용한다. */
     FORBIDDEN("COMMON-403", ErrorCategory.FORBIDDEN, "이 요청을 수행할 권한이 없습니다."),
 

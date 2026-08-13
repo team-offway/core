@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>OffWay — 기상청에서 받을 수 있는 날씨 데이터 전부</title>
+<style>
+  :root {
+    --ink:#16181d; --dim:#8b919b; --line:#e8eaed; --band:#f7f8f9;
+    --accent:#0f766e; --warn:#b45309; --off:#c4c9d0; --now:#1d4ed8;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:"Pretendard","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif; color:var(--ink); -webkit-font-smoothing:antialiased; background:#fff; }
+  .sheet { width:1600px; padding:42px 48px 34px; }
+
+  .top { display:flex; align-items:baseline; gap:16px; border-bottom:2.5px solid var(--ink); padding-bottom:11px; }
+  h1 { font-size:25px; font-weight:800; letter-spacing:-.02em; }
+  .sub { font-size:13px; color:var(--dim); }
+  .legend { margin-left:auto; display:flex; gap:13px; font-size:12px; }
+  .lg { display:flex; align-items:center; gap:5px; }
+  .box { width:10px; height:10px; border-radius:2px; display:inline-block; }
+  .box.use { background:var(--accent); }
+  .box.idle { background:var(--off); }
+
+  h2 { font-size:14.5px; font-weight:700; margin:22px 0 8px; letter-spacing:-.01em; }
+  h2 .tag { font-size:11.5px; font-weight:600; color:var(--dim); margin-left:7px; }
+
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11.5px; font-weight:600; color:var(--dim); padding:7px 9px; border-bottom:1px solid var(--ink); }
+  td { padding:7px 9px; border-bottom:1px solid var(--line); font-size:13px; line-height:1.4; vertical-align:top; }
+  tbody tr:nth-child(even) { background:var(--band); }
+  .code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:var(--dim); }
+  .val { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; }
+  .use { color:var(--accent); font-weight:700; }
+  .idle { color:var(--off); font-weight:700; }
+
+  .cols2 { display:grid; grid-template-columns:1.15fr 1fr; gap:0 40px; }
+  .cols3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0 32px; }
+
+  .note { background:var(--band); border-left:3px solid var(--accent); padding:10px 12px; font-size:12px; line-height:1.6; margin-top:9px; }
+  .note.warn { border-left-color:var(--warn); }
+  .note b { color:var(--accent); }
+  .note.warn b { color:var(--warn); }
+
+  .jsonttl { font-size:12px; font-weight:700; color:var(--dim); margin:12px 0 5px; }
+  pre.json {
+    background:#1e2128; color:#d7dae0; padding:12px 14px; border-radius:5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; line-height:1.55;
+    overflow-x:auto; white-space:pre;
+  }
+  pre.json b { color:#7dd3c8; font-weight:600; }
+
+  .foot { margin-top:20px; padding-top:11px; border-top:1px solid var(--line); font-size:11.5px; color:var(--dim); display:flex; }
+  .foot span { margin-left:auto; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="top">
+    <h1>기상청에서 받을 수 있는 날씨 데이터 전부</h1>
+    <div class="sub">실호출로 확인한 값 · 디자인 재료용</div>
+    <div class="legend">
+      <span class="lg"><i class="box use"></i>지금 쓰는 것</span>
+      <span class="lg"><i class="box idle"></i>받을 수 있지만 안 쓰는 것</span>
+    </div>
+  </div>
+
+  <div class="cols2">
+    <div>
+      <h2>① 단기예보 — 오늘 ~ D+3 <span class="tag">1시간 단위 · 좌표 격자 · 14종</span></h2>
+      <table>
+        <thead><tr><th style="width:26%">무엇</th><th style="width:14%">코드</th><th style="width:32%">실제 값</th><th>쓰나</th></tr></thead>
+        <tbody>
+          <tr><td>하늘 상태</td><td class="code">SKY</td><td class="val">1 맑음 · 3 구름많음 · 4 흐림</td><td class="use">사용</td></tr>
+          <tr><td><b>강수 형태</b></td><td class="code">PTY</td><td class="val">0 없음 · 1 비 · 2 비/눈 · 3 눈 · 4 소나기</td><td class="idle">미사용</td></tr>
+          <tr><td>강수확률</td><td class="code">POP</td><td class="val">0 ~ 100 (%)</td><td class="use">사용</td></tr>
+          <tr><td><b>1시간 강수량</b></td><td class="code">PCP</td><td class="val">"강수없음" 또는 mm</td><td class="idle">미사용</td></tr>
+          <tr><td><b>1시간 신적설</b></td><td class="code">SNO</td><td class="val">"적설없음" 또는 cm</td><td class="idle">미사용</td></tr>
+          <tr><td>일 최저기온</td><td class="code">TMN</td><td class="val">27.0 (℃)</td><td class="use">사용</td></tr>
+          <tr><td>일 최고기온</td><td class="code">TMX</td><td class="val">38.0 (℃)</td><td class="use">사용</td></tr>
+          <tr><td><b>1시간 기온</b></td><td class="code">TMP</td><td class="val">27 ~ 32 (℃) · 시간대별</td><td class="idle">미사용</td></tr>
+          <tr><td><b>습도</b></td><td class="code">REH</td><td class="val">45 ~ 70 (%)</td><td class="idle">미사용</td></tr>
+          <tr><td><b>풍속</b></td><td class="code">WSD</td><td class="val">0.8 ~ 1.5 (m/s)</td><td class="idle">미사용</td></tr>
+          <tr><td><b>풍향</b></td><td class="code">VEC</td><td class="val">45 ~ 102 (도)</td><td class="idle">미사용</td></tr>
+          <tr><td><b>파고</b></td><td class="code">WAV</td><td class="val">0 (M) · 해안 지역</td><td class="idle">미사용</td></tr>
+          <tr><td>풍속 성분</td><td class="code">UUU · VVV</td><td class="val">동서 · 남북 (m/s)</td><td class="idle">미사용</td></tr>
+        </tbody>
+      </table>
+      <div class="note"><b>지금 4종만 쓴다.</b> 강수 형태(비·눈·소나기)·강수량·적설·시간대별 기온·습도·바람은 <b>받고 있는데 버리고 있다</b>. 화면에 쓰기로 하면 파싱만 추가하면 된다 — 추가 호출이 필요 없다.</div>
+    </div>
+
+    <div>
+      <h2>② 중기육상예보 — D+4 ~ D+10 <span class="tag">광역 10구역 · 23필드</span></h2>
+      <table>
+        <thead><tr><th style="width:34%">무엇</th><th style="width:30%">필드</th><th>값</th></tr></thead>
+        <tbody>
+          <tr><td>하늘 상태 (오전·오후)</td><td class="code">wf4Am · wf4Pm … wf7Pm</td><td class="val">맑음 · 구름많음 · 흐림</td></tr>
+          <tr><td>하늘 상태 (하루 한 값)</td><td class="code">wf8 · wf9 · wf10</td><td class="val">D+8부터는 오전·오후 없음</td></tr>
+          <tr><td>강수확률 (오전·오후)</td><td class="code">rnSt4Am … rnSt7Pm</td><td class="val">10 (%)</td></tr>
+          <tr><td>강수확률 (하루 한 값)</td><td class="code">rnSt8 · rnSt9 · rnSt10</td><td class="val">10 (%)</td></tr>
+        </tbody>
+      </table>
+      <div class="note warn"><b>하늘 문구에 강수가 섞여 온다.</b> "구름많고 비" · "흐리고 눈" 처럼 복합형이라, 지금은 앞부분(하늘)만 떼고 <b>비·눈 여부는 버린다</b>. 문구에서 뽑아내면 D+10 까지 비/눈을 안내할 수 있다.</div>
+
+      <h2>③ 중기기온 — D+4 ~ D+10 <span class="tag">시군 단위 · 43필드 · 미연동</span></h2>
+      <table>
+        <thead><tr><th style="width:34%">무엇</th><th style="width:30%">필드</th><th>값</th></tr></thead>
+        <tbody>
+          <tr><td>일 최저기온</td><td class="code">taMin4 … taMin10</td><td class="val">26 ~ 27 (℃)</td></tr>
+          <tr><td>일 최고기온</td><td class="code">taMax4 … taMax10</td><td class="val">35 ~ 37 (℃)</td></tr>
+          <tr><td>기온 오차범위</td><td class="code">taMin4Low · taMax4High …</td><td class="val">± 0 ~ 2 (℃)</td></tr>
+        </tbody>
+      </table>
+      <div class="note warn"><b>이 API 를 아직 안 붙였다.</b> 그래서 나흘 뒤부터 기온이 빈다. 실호출로 정상 동작을 확인했고, 붙이면 <b>D+10 까지 기온을 채울 수 있다.</b> 다만 구역 코드 체계가 중기육상예보(광역 10구역)와 달라 시군 단위 매핑이 따로 필요하다.</div>
+    </div>
+  </div>
+
+  <div class="cols3" style="margin-top:4px">
+    <div>
+      <h2>④ 관광기후지수 <span class="tag">D+1 ~ D+9</span></h2>
+      <table>
+        <tbody>
+          <tr><td style="width:44%">지수 원값 <span class="code">kmaTci</span></td><td>0 ~ 100</td></tr>
+          <tr><td>등급</td><td>매우좋음 · 좋음 · 보통 · 나쁨 · 매우나쁨</td></tr>
+          <tr><td>단위</td><td>시군구</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h2>⑤ 대기질 <span class="tag">실시간 · 예보 아님</span></h2>
+      <table>
+        <tbody>
+          <tr><td style="width:44%">미세먼지 <span class="code">pm10Value</span></td><td>㎍/㎥</td></tr>
+          <tr><td>초미세먼지 <span class="code">pm25Value</span></td><td>㎍/㎥</td></tr>
+          <tr><td>통합대기환경 등급</td><td>좋음 · 보통 · 나쁨 · 매우나쁨</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h2>⑥ 조회 단위가 셋 다 다르다</h2>
+      <table>
+        <tbody>
+          <tr><td style="width:40%">단기예보</td><td>위경도 <b>격자</b> (5km)</td></tr>
+          <tr><td>중기육상예보</td><td><b>광역 10구역</b></td></tr>
+          <tr><td>중기기온</td><td><b>시군 지점</b></td></tr>
+          <tr><td>관광기후지수 · 대기질</td><td>시군구 · 시도</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2 style="margin-top:26px">⑦ 실제 응답 JSON <span class="tag">위가 우리 서버 · 아래가 기상청 원본</span></h2>
+  <div class="cols2">
+    <div>
+      <div class="jsonttl">우리 서버 — 코스 응답의 날씨</div>
+      <pre class="json">{
+  "status": 200, "code": "OK",
+  "data": {
+    "courseId": 42,
+    "travelDate": "2026-08-14",
+    <b>"weather": {
+      "date": "2026-08-14",
+      "minTemp": 18,        // 나흘 뒤부터 null
+      "maxTemp": 27,        // 나흘 뒤부터 null
+      "sky": "맑음",         // 맑음·구름많음·흐림·정보 없음
+      "rainProbability": 20
+    },</b>
+    "days": [ ... ]
+  }
+}</pre>
+      <div class="jsonttl">우리 서버 — 홈 응답의 대기질</div>
+      <pre class="json">{
+  "data": { "cards": [ {
+    "regionId": 16, "name": "정선군",
+    <b>"airQuality": {
+      "pm10": 45,
+      "pm25": 23,
+      "grade": "보통"
+    }</b>
+  } ] }
+}</pre>
+      <div class="note warn"><b>날씨가 통째로 null 일 수 있다.</b> 조회 실패·예보 범위 밖(D+11 이후)·저장 코스(날짜 없음)면 <span class="val">"weather": null</span> 로 나간다. 화면이 날씨를 필수로 기대하면 안 된다.</div>
+    </div>
+
+    <div>
+      <div class="jsonttl">기상청 — 단기예보 (항목별로 한 줄씩 온다)</div>
+      <pre class="json">{ "response": { "body": { "items": { "item": [
+  { "category": "SKY", "fcstDate": "20260804",
+    "fcstTime": "0600", "fcstValue": "1" },
+  { "category": "PTY", "fcstValue": "0" },
+  { "category": "POP", "fcstValue": "20" },
+  { "category": "TMN", "fcstValue": "27.0" },
+  { "category": "TMX", "fcstValue": "38.0" },
+  { "category": "REH", "fcstValue": "65" },
+  { "category": "WSD", "fcstValue": "1.3" },
+  { "category": "PCP", "fcstValue": "강수없음" },
+  { "category": "SNO", "fcstValue": "적설없음" }
+] } } } }</pre>
+
+      <div class="jsonttl">기상청 — 중기육상예보 (한 줄에 열흘치가 컬럼으로)</div>
+      <pre class="json">{ "response": { "body": { "items": { "item": [ {
+  "regId": "11B00000",
+  "wf4Am": "맑음",     "wf4Pm": "맑음",
+  "wf5Am": "구름많음",  "wf5Pm": "맑음",
+  "wf8": "맑음", "wf9": "맑음", "wf10": "맑음",
+  "rnSt4Am": 10, "rnSt4Pm": 10,
+  "rnSt8": 10,   "rnSt9": 10,  "rnSt10": 10
+} ] } } } }</pre>
+
+      <div class="jsonttl">기상청 — 중기기온 <span style="color:var(--warn)">(아직 안 붙임)</span></div>
+      <pre class="json">{ "response": { "body": { "items": { "item": [ {
+  "regId": "11B10101",
+  "taMin4": 27, "taMax4": 37,
+  "taMin10": 26, "taMax10": 35,
+  "taMin4Low": 1, "taMax4High": 1   // 오차범위 ±
+} ] } } } }</pre>
+    </div>
+  </div>
+
+  <div class="foot">
+    실호출 확인 — 단기예보 14종 · 중기육상 23필드 · 중기기온 43필드 · 오늘 표본은 맑음/구름많음 2종
+    <span>OffWay · BE 박세빈</span>
+  </div>
+
+</div>
+</body>
+</html>

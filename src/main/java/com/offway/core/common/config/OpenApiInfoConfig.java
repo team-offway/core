@@ -26,7 +26,7 @@ public class OpenApiInfoConfig {
             ## 핵심 여정
 
             **① 홈 진입**
-            - `GET /api/v1/home` → 남은 연차 · 필터칩 · **이번주 추천 지역 카드**(대표 이미지·카테고리·한산도·대표 혜택 뱃지·실시간 대기질)를 한 번에.
+            - `GET /api/v1/home` → 남은 연차 · 필터칩 · **이번주 추천 지역 카드**(대표 이미지·카테고리·한산도·대표 혜택 뱃지)를 한 번에.
             - `GET /api/v1/categories` → 필터칩 전체 목록.
             - `GET /api/v1/leaves/sandwich` → "지금 연차 쓰기 좋은 날"(샌드위치·황금연차).
 
@@ -55,7 +55,7 @@ public class OpenApiInfoConfig {
 
             ## 공통 규약
             - 모든 응답은 `ApiResponseBody<T>` 래퍼로 감쌉니다 — `status` · `data` · `detail` · `code`(성공은 `OK`, 실패는 도메인 코드).
-            - 외부 의존성(TourAPI·TMAP·TAGO·기상청·에어코리아) 실패는 `502`, 계약 위반은 `4xx`.
+            - 외부 의존성(TourAPI·TMAP·TAGO·기상청) 실패는 `502`, 계약 위반은 `4xx`.
             - *(개발 중·후순위)* 게스트 식별 · 연차 영속(내 연차 화면) · 정책 백오피스.
             """;
 

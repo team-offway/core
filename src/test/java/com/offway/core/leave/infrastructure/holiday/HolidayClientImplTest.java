@@ -1,5 +1,6 @@
 package com.offway.core.leave.infrastructure.holiday;
 
+import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -50,7 +51,7 @@ class HolidayClientImplTest {
                   {"locdate":20260101,"dateName":"1월1일","isHoliday":"Y"},
                   {"locdate":20260301,"dateName":"삼일절","isHoliday":"Y"}
                 ]},"numOfRows":10,"pageNo":1,"totalCount":2}}}""";
-        HolidayClient client = new HolidayClientImpl(stubbing(json(body)), WITH_KEY);
+        HolidayClient client = new HolidayClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder());
 
         Set<LocalDate> holidays = client.getHolidays(2026, 1);
 
@@ -65,7 +66,7 @@ class HolidayClientImplTest {
                     throw new AssertionError("키가 없는데 외부 호출이 일어났다");
                 })
                 .build();
-        HolidayClient client = new HolidayClientImpl(neverCalled, NO_KEY);
+        HolidayClient client = new HolidayClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder());
 
         assertTrue(client.getHolidays(2026, 1).isEmpty());
     }
@@ -78,7 +79,7 @@ class HolidayClientImplTest {
                 "body":{"items":{"item":
                   {"locdate":20260815,"dateName":"광복절","isHoliday":"Y"}
                 },"totalCount":1}}}""";
-        HolidayClient client = new HolidayClientImpl(stubbing(json(body)), WITH_KEY);
+        HolidayClient client = new HolidayClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder());
 
         assertEquals(Set.of(LocalDate.of(2026, 8, 15)), client.getHolidays(2026, 8));
     }
@@ -89,7 +90,7 @@ class HolidayClientImplTest {
         String body = """
                 {"response":{"header":{"resultCode":"00"},
                 "body":{"items":"","totalCount":0}}}""";
-        HolidayClient client = new HolidayClientImpl(stubbing(json(body)), WITH_KEY);
+        HolidayClient client = new HolidayClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder());
 
         assertTrue(client.getHolidays(2026, 4).isEmpty());
     }
@@ -102,7 +103,7 @@ class HolidayClientImplTest {
                   {"locdate":20260101,"dateName":"1월1일","isHoliday":"Y"},
                   {"locdate":20260210,"dateName":"평일기념일","isHoliday":"N"}
                 ]},"totalCount":2}}}""";
-        HolidayClient client = new HolidayClientImpl(stubbing(json(body)), WITH_KEY);
+        HolidayClient client = new HolidayClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder());
 
         assertEquals(Set.of(LocalDate.of(2026, 1, 1)), client.getHolidays(2026, 1));
     }
@@ -113,7 +114,7 @@ class HolidayClientImplTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"error\":\"down\"}")
                 .build();
-        HolidayClient client = new HolidayClientImpl(stubbing(error), WITH_KEY);
+        HolidayClient client = new HolidayClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder());
 
         HolidayException ex = assertThrows(HolidayException.class, () -> client.getHolidays(2026, 1));
         assertEquals(HttpStatus.BAD_GATEWAY, ex.httpStatus());
@@ -125,14 +126,14 @@ class HolidayClientImplTest {
         String body = """
                 {"response":{"header":{"resultCode":"30","resultMsg":"SERVICE KEY IS NOT REGISTERED ERROR"},
                 "body":""}}""";
-        HolidayClient client = new HolidayClientImpl(stubbing(json(body)), WITH_KEY);
+        HolidayClient client = new HolidayClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder());
 
         assertThrows(HolidayException.class, () -> client.getHolidays(2026, 1));
     }
 
     @Test
     void 응답이_깨진_JSON이면_502_예외로_올린다() {
-        HolidayClient client = new HolidayClientImpl(stubbing(json("<html>not json</html>")), WITH_KEY);
+        HolidayClient client = new HolidayClientImpl(stubbing(json("<html>not json</html>")), WITH_KEY, new NoOpCallRecorder());
 
         assertThrows(HolidayException.class, () -> client.getHolidays(2026, 1));
     }
@@ -143,7 +144,7 @@ class HolidayClientImplTest {
         ExchangeFunction slow = request -> Mono.delay(Duration.ofSeconds(30))
                 .map(t -> json("{}"));
         HolidayClient client = new HolidayClientImpl(
-                WebClient.builder().exchangeFunction(slow).build(), WITH_KEY);
+                WebClient.builder().exchangeFunction(slow).build(), WITH_KEY, new NoOpCallRecorder());
 
         assertThrows(HolidayException.class, () -> client.getHolidays(2026, 1));
     }
