@@ -52,13 +52,30 @@ public final class LeaveDays {
     }
 
     /**
-     * 사용 내역의 증감으로 쓸 수 있는 값인가.
+     * 사용 내역으로 쓸 수 있는 값인가 — <b>양수만</b>. 0 도 음수도 받지 않는다.
      *
-     * <p>음수를 허용한다 — 코스를 취소하면 쓴 연차를 되돌려야 하고, 그걸 <b>내역을 지워서</b> 하면 "언제 무엇이
-     * 취소됐는지" 가 사라진다. 다만 <b>0 은 막는다</b>: 아무것도 바꾸지 않는 내역은 기록이 아니라 소음이다.
+     * <p>0 은 아무것도 바꾸지 않아 기록이 아니라 소음이다.
+     *
+     * <p><b>음수는 예전엔 받았다</b>(#265 에서 닫았다). 삭제 API 가 없던 시절 화면이 취소를 표현할 방법이
+     * 음수 등록뿐이었기 때문이다. 그런데 그 등록은 아무 상한이 없어, 같은 취소를 두 번 보내면 사용 합이
+     * 음수로 내려가고 <b>잔여가 총 연차를 넘었다</b> — 재시도 한 번에 없던 연차가 생긴 것이다. 취소는
+     * 이제 {@code DELETE /me/usages/{id}} 로 한다. 상쇄 등록은 취소가 아니라 새 기록이라, 실수로 두 번
+     * 보내면 장부가 그만큼 틀어진다.
+     *
+     * @see #isReversal(double)
      */
     public static boolean isValidUsage(double days) {
-        return isValidUnit(days) && days != 0 && Math.abs(days) <= MAX_TOTAL;
+        return isValidUnit(days) && days > NONE && days <= MAX_TOTAL;
+    }
+
+    /**
+     * 되돌리려고 넣는 음수 등록인가 — 받지 않는 값이지만 <b>0.5 단위 위반과는 사유가 다르다</b>(#265).
+     *
+     * <p>사유를 갈라야 화면이 "삭제로 취소하세요" 를 안내할 수 있다. 같은 400 으로 뭉뚱그리면 사용자는
+     * 자기가 숫자를 잘못 넣은 줄 안다.
+     */
+    public static boolean isReversal(double days) {
+        return days < NONE;
     }
 
     /**

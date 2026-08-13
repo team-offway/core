@@ -49,7 +49,18 @@ public enum LeaveErrorCode implements ErrorCode {
             "LEAVE-010", ErrorCategory.BAD_REQUEST, "연차 증감은 0.5일 단위여야 하고 0일은 기록할 수 없습니다."),
 
     /** 소유 키 헤더가 비었거나 너무 김 — 헤더 자체가 없으면 프레임워크가 먼저 COMMON-400 으로 막는다. */
-    INVALID_OWNER_ID("LEAVE-011", ErrorCategory.BAD_REQUEST, "사용자 식별값이 올바르지 않습니다.");
+    INVALID_OWNER_ID("LEAVE-011", ErrorCategory.BAD_REQUEST, "사용자 식별값이 올바르지 않습니다."),
+
+    /** 지우려는 사용 내역이 없거나 남의 것 — 둘을 구분해 답하지 않는다(존재 여부를 흘리지 않는다). */
+    LEAVE_USAGE_NOT_FOUND("LEAVE-012", ErrorCategory.NOT_FOUND, "연차 사용 내역을 찾을 수 없습니다."),
+
+    /** 사용 내역을 음수로 등록하려 함 — 취소는 상쇄 등록이 아니라 삭제다(#265). */
+    LEAVE_USAGE_REVERSAL_NOT_ALLOWED(
+            "LEAVE-013", ErrorCategory.BAD_REQUEST, "연차 사용은 0.5일 단위의 양수여야 합니다. 되돌리려면 해당 내역을 삭제해 주세요."),
+
+    /** 코스 확정으로 기록된 내역을 연차 화면에서 지우려 함 — 코스 쪽 차감 취소로만 되돌릴 수 있다. */
+    COURSE_LEAVE_USAGE_NOT_DELETABLE(
+            "LEAVE-014", ErrorCategory.CONFLICT, "코스 확정으로 기록된 연차입니다. 코스에서 차감을 취소해 주세요.");
 
     private final String code;
     private final ErrorCategory category;

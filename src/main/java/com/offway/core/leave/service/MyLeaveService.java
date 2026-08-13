@@ -100,6 +100,31 @@ public class MyLeaveService {
         return after;
     }
 
+    /**
+     * 사용 내역 한 건을 지운다(#265) — 화면의 내역 삭제.
+     *
+     * <p><b>멱등하지 않다.</b> 없는 내역이면 404 로 답한다. 취소 액션(코스 차감 취소)과 달리 사용자가 목록에서
+     * 고른 한 행을 가리키므로, 조용히 200 을 주면 화면이 지운 줄 알고 다시 그린다.
+     *
+     * <p>없는 id 와 <b>남의 id 를 같은 404 로</b> 답한다 — 코스 조회와 같은 규칙이다. 나눠 답하면 id 를 넣어보며
+     * "이 번호는 있다" 를 알아낼 수 있다.
+     *
+     * <p>코스 확정 내역은 지우지 못한다. 그 판단은 {@link LeaveUsage#requireManuallyDeletable()} 이 소유한다.
+     */
+    @Transactional
+    public MyLeave deleteUsage(String guestId, long usageId) {
+        String owner = requireOwner(guestId);
+        LeaveUsage usage = usageRepository
+                .findByIdAndGuestId(usageId, owner)
+                .orElseThrow(LeaveException::leaveUsageNotFound);
+        usage.requireManuallyDeletable();
+        usageRepository.delete(usage);
+        MyLeave after = myLeave(owner);
+        log.info("연차 사용내역 삭제 usageId={} days={} 남은={}",
+                usageId, usage.getDays(), after.summary().remainingDays());
+        return after;
+    }
+
     /** 홈 배지가 쓰는 남은 연차. 설정한 적이 없으면 {@code null} — 0 과 구분해야 화면이 "미설정" 을 보여줄 수 있다. */
     @Transactional(readOnly = true)
     public Double remainingDaysOrNull(String guestId) {
@@ -107,7 +132,7 @@ public class MyLeaveService {
             return null;
         }
         return balanceRepository.findByGuestId(guestId)
-                .map(balance -> new LeaveSummary(balance.getTotalDays(), usageRepository.sumDaysByGuestId(guestId))
+                .map(balance -> LeaveSummary.of(balance.getTotalDays(), usageRepository.sumDaysByGuestId(guestId))
                         .remainingDays())
                 .orElse(null);
     }
@@ -200,7 +225,13 @@ public class MyLeaveService {
         double total = balanceRepository.findByGuestId(guestId)
                 .map(LeaveBalance::getTotalDays)
                 .orElse(UNSET_TOTAL_DAYS);
-        return new LeaveSummary(total, usageRepository.sumDaysByGuestId(guestId));
+        LeaveSummary summary = LeaveSummary.of(total, usageRepository.sumDaysByGuestId(guestId));
+        if (summary.isLedgerNegative()) {
+            // 잘라서 내려주고 끝내면 아무도 모른다 — 이 소유자의 내역에 상쇄 등록(음수 days)이 남아 있다는
+            // 뜻이다(#265). 소유 키는 사용자 입력이라 로그에 싣지 않는다.
+            log.warn("사용 내역 합이 음수라 0 으로 봅니다 ledger={} — 옛 상쇄 등록이 남아 있습니다", summary.ledgerDays());
+        }
+        return summary;
     }
 
 

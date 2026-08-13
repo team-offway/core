@@ -39,17 +39,40 @@ public interface LeaveApi {
     @Operation(
             summary = "연차 사용 내역 추가",
             description = """
-                    연차를 쓰거나(양수) 되돌린(음수) 내역을 남긴다.
+                    연차를 쓴 내역을 남긴다. days 는 0.5 단위 양수다.
+
+                    되돌릴 때는 음수를 등록하지 않는다 — 내역 삭제 API 를 쓴다. 음수 등록은 같은 요청이 두 번
+                    들어오면 그만큼 더 상쇄돼 남은 연차가 총 연차를 넘었다(LEAVE-013 으로 거절한다).
 
                     남은 연차가 부족해도 서버는 막지 않는다 — 프론트가 경고하고 사용자가 확인하면 진행한다(결정 #38).
                     그래서 남은 연차는 음수가 될 수 있다.""")
     @ApiResponse(responseCode = "201", description = "추가 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usedOn·days 누락 또는 형식 오류 · days 가 0 이거나 0.5 단위가 아님")
+            description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usedOn·days 누락 또는 형식 오류 · "
+                    + "days 가 0 이거나 0.5 단위가 아니거나 99 초과(LEAVE-010) · days 가 음수(LEAVE-013)")
     ApiResponseBody<MyLeaveResponse> addLeaveUsage(
             @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
             AddLeaveUsageRequest request);
+
+    @Operation(
+            summary = "연차 사용 내역 삭제",
+            description = """
+                    사용 내역 한 건을 지우고 갱신된 내 연차 전체(총·쓴·남은 + 내역 목록)를 돌려준다 —
+                    화면이 한 번의 왕복으로 다시 그린다.
+
+                    코스 확정으로 기록된 내역(courseId 가 있는 것)은 여기서 지울 수 없다(409). 그 행은 차감량이자
+                    확정 표식이라, 지우면 코스는 확정인데 연차는 안 깎인 상태가 남는다. 코스의 차감 취소로 되돌린다.
+
+                    없는 내역과 남의 내역을 같은 404 로 답한다 — 번호를 넣어보며 존재 여부를 알아낼 수 없게 한다.""")
+    @ApiResponse(responseCode = "200", description = "삭제 성공")
+    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usageId 가 숫자가 아님")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "404", description = "그 내역이 없거나 다른 소유자의 것")
+    @ApiResponse(responseCode = "409", description = "코스 확정으로 기록된 내역이라 연차 화면에서 지울 수 없음")
+    ApiResponseBody<MyLeaveResponse> deleteLeaveUsage(
+            @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
+            @Parameter(description = "지울 사용 내역 ID", example = "42") long usageId);
 
     @Operation(
             summary = "가용 시간(LNT) 산출",

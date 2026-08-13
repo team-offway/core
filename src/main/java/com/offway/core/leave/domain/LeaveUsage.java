@@ -15,8 +15,9 @@ import lombok.NoArgsConstructor;
 /**
  * 연차 사용 내역 한 건. 이 내역의 합이 "쓴 연차" 이고, 총 연차에서 빼면 남은 연차가 된다.
  *
- * <p><b>증감</b>이다 — 코스를 취소하면 음수 내역을 하나 더 쌓아 되돌린다. 기존 행을 지우면 "언제 무엇이 취소됐는지" 가
- * 사라진다.
+ * <p><b>되돌리는 길은 행 삭제다</b>(#265·#113). 예전엔 음수 내역을 하나 더 쌓아 상쇄했는데, 같은 취소가 두 번
+ * 들어오면 합이 음수로 내려가 잔여가 총 연차를 넘었다. 수동 내역은 {@code DELETE /me/usages/{id}} 로,
+ * 코스 차감은 코스의 차감 취소로 지운다.
  *
  * <p>{@code courseId} 는 raw ID 다(도메인 경계를 넘으므로 연관관계를 두지 않는다 — persistence-convention).
  * 코스 확정 차감(#91)이 이 값으로 <b>중복 차감을 막는다</b> — 같은 코스로 이미 쌓인 내역이 있으면 건너뛴다.
@@ -96,6 +97,27 @@ public class LeaveUsage {
         return Boolean.TRUE.equals(halfDayStart);
     }
 
+    /** 사용자가 직접 남긴 내역인가 — 코스 확정으로 생긴 행과 규칙이 다르다. */
+    public boolean isManual() {
+        return courseId == null;
+    }
+
+    /**
+     * 사용자가 손으로 지울 수 있는 내역인지 확인한다(#265) — <b>코스 확정 내역은 거절한다</b>(409).
+     *
+     * <p>그 행은 차감량이자 <b>확정 표식</b>이다. 연차 화면에서 지우면 코스는 확정인데 연차는 안 깎인 상태가
+     * 남고, 코스 삭제·날짜 변경이 그 행을 전제로 도는 것도 함께 어긋난다. 되돌리는 길은 이미 있다 —
+     * 코스의 차감 취소가 코스와 연차를 한 덩어리로 되돌린다(#113).
+     *
+     * <p>404 로 감추지 않는다. 자기 내역이 화면에 보이는데 "없다" 고 답하면 사용자는 버그로 읽는다.
+     * 지울 수 없는 이유를 알려줘야 코스 화면으로 갈 수 있다.
+     */
+    public void requireManuallyDeletable() {
+        if (!isManual()) {
+            throw LeaveException.courseLeaveUsageNotDeletable();
+        }
+    }
+
     /**
      * 코스의 여행 날짜가 바뀌어 차감을 다시 잡는다(#170) — 쓴 날과 일수를 함께 옮긴다.
      *
@@ -122,6 +144,11 @@ public class LeaveUsage {
      * 직접 부르면 DTO 를 거치지 않고 들어온다. 그때 불변식 예외를 던지면 클라이언트 계약 위반이 500 으로 나간다.
      */
     private static double requireDays(double days, Long courseId) {
+        // 음수 수동 등록은 사유를 갈라 답한다(#265) — "0.5 단위가 아님" 과 뭉뚱그리면 화면이 "삭제로
+        // 취소하세요" 를 안내할 수 없다. 코스 차감은 애초에 음수가 들어올 길이 없어 갈라도 소득이 없다.
+        if (courseId == null && LeaveDays.isReversal(days)) {
+            throw LeaveException.leaveUsageReversalNotAllowed();
+        }
         // 코스 차감은 0 을 허용한다(#212). 주말·공휴일뿐인 구간이면 깎을 연차가 없는데, 그것도 확정이다 —
         // 그 행이 차감량이자 확정 표식이기 때문이다. 수동 내역은 순수 증감 장부라 0 이 그대로 소음이다.
         boolean valid = courseId == null
