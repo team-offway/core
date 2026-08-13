@@ -118,6 +118,38 @@ class SensitiveParamsTest {
     }
 
     @Test
+    void 접두어가_붙은_토큰_이름도_가린다() {
+        // \btoken= 만으로는 못 잡는다 — accessToken 은 token 앞이 단어 문자라 경계가 없다(#34).
+        // 소셜 로그인부터 이 이름들이 실제로 흐르므로, 놓치면 provider 액세스 토큰이 그대로 로그에 박힌다.
+        String message = "401 from POST /auth?accessToken=aaa&idToken=bbb&refreshToken=ccc&client_secret=ddd";
+
+        String masked = SensitiveParams.maskSecretsInText(message);
+
+        assertFalse(masked.contains("aaa"), "실제=" + masked);
+        assertFalse(masked.contains("bbb"), "실제=" + masked);
+        assertFalse(masked.contains("ccc"), "실제=" + masked);
+        assertFalse(masked.contains("ddd"), "실제=" + masked);
+    }
+
+    @Test
+    void Bearer_토큰을_가린다() {
+        // 헤더 형태라 이름=값 규칙으로는 안 걸린다. 이 값은 그대로 카카오 프로필을 부를 수 있는 토큰이다(#34).
+        String message = "401 from GET https://kapi.kakao.com/v2/user/me [Authorization: Bearer aBc123.dEf-456_ghi]";
+
+        String masked = SensitiveParams.maskSecretsInText(message);
+
+        assertFalse(masked.contains("aBc123.dEf-456_ghi"), "실제=" + masked);
+        assertTrue(masked.contains("Bearer ***"), "실제=" + masked);
+        assertTrue(masked.contains("kapi.kakao.com"), "비밀이 아닌 주소는 남아야 한다. 실제=" + masked);
+    }
+
+    @Test
+    void 토큰_이름을_쿼리에서도_가린다() {
+        assertEquals("accessToken=***", SensitiveParams.readableParams("accessToken=abc123"));
+        assertEquals("refreshToken=***", SensitiveParams.readableParams("refreshToken=abc123"));
+    }
+
+    @Test
     void 디스코드_웹훅_토큰을_가린다() {
         // 이름=값 규칙으로는 안 걸린다 — 토큰이 경로 조각이라 이름이 없다. 그런데 이 URL 끝을 아는 사람은
         // 누구나 우리 채널에 글을 쓸 수 있다(#257).
