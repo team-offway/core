@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import lombok.AccessLevel;
@@ -17,9 +18,15 @@ import lombok.NoArgsConstructor;
 /**
  * 기기 하나의 FCM 푸시 토큰(#264) — 알림을 보낼 주소.
  *
- * <p><b>토큰이 곧 기기의 신원이다.</b> 소유 키가 아니라 토큰에 유니크 제약을 건다. 앱을 지웠다 깔면
- * 게스트 ID 는 새로 발급되지만 FCM 토큰은 이어질 수 있고, 그때 같은 기기에 두 행이 생기면 같은 알림이
- * 두 번 간다. 토큰을 기준으로 잡으면 나중에 온 등록이 앞의 것을 덮어써 항상 한 행으로 수렴한다.
+ * <p><b>유니크 제약은 (소유자, 토큰) 복합이다.</b> 토큰 단독으로 걸면 같은 토큰이 다른 소유자로 왔을 때
+ * 소유자를 갈아끼우게 되고, 그러면 <b>남의 토큰을 아는 쪽이 그것을 자기 것으로 등록해 상대의 푸시를
+ * 끊고 자기 알림을 상대 기기로 보낼 수 있다.</b> 지금 인증이 {@code X-Guest-Id} 헤더뿐이라 소유자를
+ * 사칭하는 비용도 없다. 복합 키로 두면 남의 행은 건드릴 수 없고 자기 소유의 행이 하나 늘 뿐이다.
+ *
+ * <p>대신 앱을 지웠다 깔아 게스트 ID 가 새로 발급되면 <b>같은 토큰이 두 행으로 남는다</b>(옛 소유자의
+ * 행은 주인이 다시 오지 않는 죽은 행이다). 그건 발송 단계에서 토큰 기준 중복 제거와 FCM 의
+ * {@code UNREGISTERED} 응답으로 정리한다(#270) — 반대로 소유자 덮어쓰기가 여는 구멍은 발송 쪽에서 막을
+ * 방법이 없다.
  *
  * <p><b>토큰은 비밀값에 준한다.</b> 이 값을 아는 쪽은 그 기기로 알림을 보낼 수 있다. 로그·예외 메시지에
  * 그대로 싣지 않는다(로깅 규약).
@@ -27,7 +34,12 @@ import lombok.NoArgsConstructor;
  * <p>한 소유자가 여러 행을 가질 수 있다 — 폰과 태블릿에서 같은 게스트로 쓰는 경우다.
  */
 @Entity
-@Table(name = "device_push_token")
+@Table(
+        name = "device_push_token",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_device_push_token_owner_token",
+                        columnNames = {"guest_id", "token"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class DevicePushToken {
@@ -39,8 +51,8 @@ public class DevicePushToken {
      * 토큰 칸 길이.
      *
      * <p>FCM 등록 토큰은 실제로 160자 안팎이지만 규격이 길이를 못 박지 않아 여유를 크게 둔다. 유니크
-     * 인덱스가 걸리는 칸이라 무한정 늘릴 수는 없다 — utf8mb4 기준 2048바이트로, InnoDB 인덱스 키 상한
-     * (3072바이트) 안이다.
+     * 인덱스가 걸리는 칸이라 무한정 늘릴 수는 없다 — utf8mb4 기준 2048바이트이고, 소유 키(64자=256바이트)와
+     * 묶인 복합 유니크라 합쳐 2304바이트로 InnoDB 인덱스 키 상한(3072바이트) 안이다.
      */
     public static final int MAX_TOKEN_LENGTH = 512;
 
@@ -54,7 +66,7 @@ public class DevicePushToken {
     @Column(name = "guest_id", nullable = false, length = MAX_OWNER_ID_LENGTH)
     private String guestId;
 
-    @Column(name = "token", nullable = false, unique = true, length = MAX_TOKEN_LENGTH)
+    @Column(name = "token", nullable = false, length = MAX_TOKEN_LENGTH)
     private String token;
 
     /** ordinal 이 아니라 이름으로 저장한다 — 상수를 재배치하면 이미 저장된 행의 뜻이 통째로 바뀐다. */
