@@ -145,7 +145,12 @@ public class PoiDetailService {
             return null;
         }
         return policyService.matchForRegion(regionId, LocalDate.now(SERVICE_ZONE)).stream()
-                .filter(policy -> policy.getType().targetSlotKind().filter(slotKind::equals).isPresent())
+                // 혜택은 policy 소유의 BenefitScope 로 대상을 말하고, 그것이 코스의 어느 자리인지는
+                // itinerary 가 안다(#140). 여기서 두 도메인 지식을 다시 잇지 않는다.
+                .filter(policy -> policy.getType().targetScope()
+                        .map(SlotKind::covering)
+                        .filter(slotKind::equals)
+                        .isPresent())
                 .map(policy -> policy.getType().badgeText())
                 .findFirst()
                 .orElse(null);
