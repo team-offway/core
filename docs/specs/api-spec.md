@@ -19,6 +19,7 @@
 | 7 | `GET` | `/categories` | 필터칩 | 카테고리 목록 |
 | 8 | `GET` | `/pois/{id}` | 장소 상세 | 장소 정보 |
 | 9 | `POST/GET` | `/courses` | 내 코스 | 저장·조회 |
+| 10 | `GET` | `/regions` | 지역 목록(더보기) | 89곳 페이지 조회·카테고리 필터 |
 
 ---
 
@@ -115,9 +116,9 @@
 {
   "user": { "name": "게스트", "remainingLeaveDays": 13 },
   "filters": [
-    { "key": "ALL", "label": "전체" }, { "key": "SIGHT", "label": "관광지" },
-    { "key": "STAY", "label": "숙박" }, { "key": "EXPERIENCE", "label": "체험" },
-    { "key": "FOOD", "label": "맛집" }
+    { "key": "ALL", "label": "전체", "regionCount": 89 }, { "key": "SIGHT", "label": "관광지", "regionCount": 61 },
+    { "key": "STAY", "label": "숙박", "regionCount": 34 }, { "key": "EXPERIENCE", "label": "체험", "regionCount": 12 },
+    { "key": "FOOD", "label": "맛집", "regionCount": 47 }
   ],
   "recommendedRegions": [
     {
@@ -237,13 +238,15 @@
 
 > 🎯 필터칩 목록 · **기능 F6** · 서버 내부에서 `SIGHT`→lclsSystm(NA+HS+VE+LS+EV) 등 매핑
 
+- `regionCount` = **그 칩으로 좁혔을 때 나오는 지역 수**(#266). `GET /regions?category={key}` 의 `pageResponse.totalElements` 와 같은 값이고, `ALL` 은 전체 지역 수다. 화면이 개수를 지어내거나("전부 1건") 빈 칩을 그리지 않게 하려는 것.
+
 **응답 `data`**
 
 ```json
 { "categories": [
-  { "key": "ALL", "label": "전체" }, { "key": "SIGHT", "label": "관광지" },
-  { "key": "STAY", "label": "숙박" }, { "key": "EXPERIENCE", "label": "체험" },
-  { "key": "FOOD", "label": "맛집" }
+  { "key": "ALL", "label": "전체", "regionCount": 89 }, { "key": "SIGHT", "label": "관광지", "regionCount": 61 },
+  { "key": "STAY", "label": "숙박", "regionCount": 34 }, { "key": "EXPERIENCE", "label": "체험", "regionCount": 12 },
+  { "key": "FOOD", "label": "맛집", "regionCount": 47 }
 ] }
 ```
 
@@ -282,12 +285,46 @@
 
 ---
 
+### 🔟 지역 목록(더보기) · `GET /api/v1/regions`
+
+> 🎯 "이번달 추천 여행지 더보기" · **기능 F3·F6** · **데이터** region89 · 관광빅데이터 · 지역 콘텐츠 · 관광사진 · **구현** #266
+
+**쿼리** `?category=SIGHT&page=0&size=20`
+
+- 홈은 랭킹 상위 **6곳**만 준다. 이 엔드포인트가 89곳 전부를 페이지로 끊어 준다.
+- 정렬은 **방문자 랭킹 내림차순 하나뿐**이라 `sort` 파라미터가 없다. 도달시간 순은 출발지 좌표가 있어야 정의되고, 그건 `POST /regions/recommendations` 가 소유한다.
+- `page`(기본 0) · `size`(기본 20, 최대 100). **잘못된 값은 거절하지 않고 자른다** — 음수 page 는 0, 상한 초과 size 는 100.
+- 페이지 메타는 `data` 가 아니라 **공통 래퍼의 `pageResponse`** 에 실린다.
+- **외부 API 호출이 없다.** 재료가 전부 적재된 값이라 관광 API 한도가 소진돼도 목록은 나간다.
+
+**응답**
+
+```json
+{
+  "status": 200, "code": "OK", "detail": "요청이 정상 처리되었습니다.",
+  "data": { "regions": [
+    {
+      "regionId": 51, "name": "정선군 · 강원특별자치도",
+      "crowdLevel": "LOW",
+      "imageUrl": "http://tong.visitkorea.or.kr/cms/resource/83/1234583_image2_1.jpg",
+      "contentCount": 128,
+      "categories": [ { "key": "SIGHT", "label": "관광지" } ],
+      "neighborIncluded": false
+    }
+  ] },
+  "pageResponse": { "page": 0, "size": 20, "totalElements": 89, "totalPages": 5 }
+}
+```
+
+---
+
 ## 🖥️ 화면 ↔ API 매핑
 
 | 화면 | 엔드포인트 | 기능 |
 | --- | --- | --- |
 | 연차 입력 | `POST /leave/available-time` | F1 |
 | 홈 | `GET /home` · `GET /categories` | F3·F6 |
+| 홈 → 추천 여행지 더보기 | `GET /regions` · `GET /categories` | F3·F6 |
 | 샌드위치 | `GET /leave/sandwich` | F2 |
 | 추천 플로우 → 후보지역 | `POST /regions/recommend` | F3 |
 | 코스 확정 | `POST /courses/generate` | F4·F5 |
