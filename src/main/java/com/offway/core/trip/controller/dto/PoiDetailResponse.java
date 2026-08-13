@@ -33,6 +33,7 @@ import java.util.function.Function;
  * @param food 음식점 보조정보(음식점이 아니면 null)
  * @param stay 숙박 보조정보(숙박이 아니면 null)
  * @param mapSearchUrl 지도 검색 링크(인허가·국가유산만. 관광 API 콘텐츠는 null)
+ * @param benefit 장소 단위 혜택 문구(단정 가능한 것만. 없으면 null)
  * @param catchphrase 구석구석 캐치프레이즈(감성 한 줄, 없으면 null)
  */
 public record PoiDetailResponse(
@@ -57,6 +58,9 @@ public record PoiDetailResponse(
                         + "다른 공식 API 로도 못 얻는다. 낡은 영업시간을 우리가 보여주는 것보다 지도로 넘기는 편이 낫다.",
                 example = "https://map.naver.com/p/search/%EC%9D%98%EC%84%B1%EA%B5%B0+%EC%98%AC%EC%9D%B8%EB%AA%A8%ED%85%94",
                 nullable = true) String mapSearchUrl,
+        @Schema(description = "이 장소에서 쓸 수 있는 혜택(#172). 단정할 수 있는 것만 — 지금은 숙박세일페스타(숙소)뿐이다. "
+                + "관광 API 콘텐츠는 지역을 알 수 없어 비어 있다.",
+                example = "숙박 할인", nullable = true) String benefit,
         @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase)
         implements LogSummary {
 
@@ -143,6 +147,7 @@ public record PoiDetailResponse(
                 blockFor(type, PoiContentType.STAY, intro,
                         it -> new Stay(it.checkIn(), it.checkOut(), it.roomCount(), it.reservation())),
                 poi.mapSearchUrl(),
+                poi.benefit(),
                 poi.catchphrase());
     }
 

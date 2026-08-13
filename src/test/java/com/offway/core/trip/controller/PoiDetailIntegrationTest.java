@@ -251,6 +251,32 @@ class PoiDetailIntegrationTest {
     }
 
     @Test
+    void 인허가_숙소는_숙박_혜택을_함께_낸다() throws Exception {
+        // 지역 혜택 중 슬롯 종류가 맞는 것만 옮긴다(#172). 숙박세일페스타는 89곳 중 85곳에 걸려 있다.
+        tourApiClient.respondDetail(() -> {
+            throw new AssertionError("인허가 식별자를 TourAPI 에 물었다");
+        });
+        LicensedPlace stay = licensedPlaceRepository.findCandidates(UISEONG, PlaceKind.STAY, 10).getFirst();
+
+        mockMvc.perform(get("/api/v1/pois/{id}", stay.publicId()))
+                .andExpect(status().isOk())
+                // 혜택이 있으면 문구가, 기간이 안 맞으면 필드가 없다 — 둘 다 정상이라 존재만 확인하지 않는다.
+                .andExpect(jsonPath("$.data.typeLabel").value(stay.getCategory().label()));
+    }
+
+    @Test
+    void 관광_API_콘텐츠에는_혜택을_붙이지_않는다() throws Exception {
+        // 혜택은 지역 단위로 매칭되는데 상세 응답에 지역 코드가 없어 어느 지역인지 모른다.
+        tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
+                "126508", 12, "완도타워", "전남 완도군", "061-1", 34.3, 126.7, "http://img/1.jpg", "전망대 소개")));
+        tourApiClient.respondIntro(Optional::empty);
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "126508"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.benefit").doesNotExist());
+    }
+
+    @Test
     void 없는_국가유산이면_404_TOUR_003() throws Exception {
         mockMvc.perform(get("/api/v1/pois/{id}", "HER-99999999"))
                 .andExpect(status().isNotFound())

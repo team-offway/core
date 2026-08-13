@@ -52,7 +52,7 @@ class ResponseLogSummaryTest {
     @Test
     void 장소_상세는_이름과_분류를_낸다() {
         PoiDetailResponse response = new PoiDetailResponse(
-                "126508", 12, "관광지", "완도타워 전망대", null, null, null, null, null, null,
+                "126508", 12, "관광지", "완도타워 전망대", null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null);
 
         assertEquals("완도타워 전망대(관광지)", response.logSummary());
