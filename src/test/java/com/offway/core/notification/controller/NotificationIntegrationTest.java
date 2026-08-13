@@ -1,15 +1,20 @@
 package com.offway.core.notification.controller;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import com.offway.core.notification.domain.Notification;
 import com.offway.core.notification.domain.NotificationType;
 import com.offway.core.notification.repository.NotificationRepository;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -102,6 +107,42 @@ class NotificationIntegrationTest {
                 .andExpect(jsonPath("$.pageResponse.size").value(1))
                 .andExpect(jsonPath("$.pageResponse.totalElements").value(3))
                 .andExpect(jsonPath("$.pageResponse.totalPages").value(3));
+    }
+
+    @Test
+    void 같은_시각_알림도_페이지_경계에서_겹치거나_빠지지_않는다() throws Exception {
+        // 여행 전날 배치는 여러 건을 같은 시각으로 넣는다. createdAt 이 같은 행들이 페이지 경계에서
+        // 겹치거나 빠지지 않는지 — 페이지를 이어 붙인 결과가 넣은 것과 정확히 같은지로 확인한다.
+        //
+        // **이 테스트가 id 2차 정렬을 잠그지는 못한다**(실측). `OrderByCreatedAtDescIdDesc` 에서 `IdDesc`
+        // 를 떼도 그대로 통과한다 — 인덱스가 (guest_id, created_at) 이고 InnoDB 는 그 뒤에 PK 를 붙이므로,
+        // 지금 플랜(인덱스 역순 스캔)에서는 id 내림차순이 우연히 따라온다. tie-break 를 지키는 것은 이
+        // 테스트가 아니라 쿼리의 ORDER BY 자체이고, 인덱스나 플랜이 바뀌면 조용히 깨질 수 있는 자리다.
+        // 그래도 이 테스트는 남긴다 — 페이지네이션 계약(최신순·중복·누락)은 여기서만 회귀를 잡는다.
+        String guest = "noti-tiebreak";
+        List<Long> saved = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            saved.add(given(guest, (long) i, 0).getId());
+        }
+
+        List<Long> pagedThrough = new ArrayList<>();
+        for (int page = 0; page < 3; page++) {
+            String body = mockMvc.perform(get(URL)
+                            .header(GUEST_HEADER, guest)
+                            .param("page", String.valueOf(page))
+                            .param("size", "2"))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+            List<Number> ids = JsonPath.read(body, "$.data.notifications[*].id");
+            ids.forEach(id -> pagedThrough.add(id.longValue()));
+        }
+
+        // 세 페이지를 이어 붙이면 넣은 5건이 최신순(= id 내림차순)으로 정확히 한 번씩 나온다.
+        List<Long> newestFirst = new ArrayList<>(saved);
+        Collections.reverse(newestFirst);
+        assertEquals(newestFirst, pagedThrough);
     }
 
     @Test
