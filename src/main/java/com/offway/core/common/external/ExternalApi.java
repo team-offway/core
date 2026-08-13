@@ -52,6 +52,14 @@ public enum ExternalApi {
     /** 기상청 단기예보(15084084). 중기예보·관광기후지수도 같은 신청 안이다. */
     KMA_WEATHER("기상청 예보", 10_000);
 
+    /**
+     * 알림 단계 수 — 10% 씩 열 단계(#257).
+     *
+     * <p>퍼센트로 나누므로 한도가 작을수록 촘촘해진다. TMAP 50 은 5건마다, TAGO 10,000 은 1,000건마다다.
+     * <b>의도한 결과다</b> — 빡빡한 쪽을 자주 보게 된다.
+     */
+    private static final int NOTIFY_STEPS = 10;
+
     private final String label;
     private final int dailyLimit;
 
@@ -73,5 +81,24 @@ public enum ExternalApi {
     /** 오늘 이만큼 썼을 때 남은 양. 한도를 넘겼으면 0(음수를 내리지 않는다). */
     public int remainingAfter(long used) {
         return (int) Math.max(0, dailyLimit - used);
+    }
+
+    /**
+     * 이만큼 썼을 때의 알림 단계 — {@code 0}(10% 미만)부터 {@code 10}(한도 도달)까지.
+     *
+     * <p><b>상한이 있다.</b> 한도를 넘겨도 10 에서 멈춘다. 초과분마다 단계가 오르면 안 고치는 동안 계속
+     * 울리고, 며칠이면 아무도 안 보게 된다 — 그러면 알림이 없는 것과 같다.
+     */
+    public int usageStep(long used) {
+        if (used <= 0) {
+            return 0;
+        }
+        long step = used * NOTIFY_STEPS / dailyLimit;
+        return (int) Math.min(NOTIFY_STEPS, step);
+    }
+
+    /** 단계를 퍼센트로. 화면·알림 문구에 그대로 나간다. */
+    public static int percentOf(int step) {
+        return step * (100 / NOTIFY_STEPS);
     }
 }
