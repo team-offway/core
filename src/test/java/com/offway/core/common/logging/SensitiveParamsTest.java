@@ -118,6 +118,18 @@ class SensitiveParamsTest {
     }
 
     @Test
+    void 디스코드_웹훅_토큰을_가린다() {
+        // 이름=값 규칙으로는 안 걸린다 — 토큰이 경로 조각이라 이름이 없다. 그런데 이 URL 끝을 아는 사람은
+        // 누구나 우리 채널에 글을 쓸 수 있다(#257).
+        String message = "500 from POST https://discord.com/api/webhooks/123456789/aB3-xY_secretTOKEN";
+
+        String masked = SensitiveParams.maskSecretsInText(message);
+
+        assertFalse(masked.contains("aB3-xY_secretTOKEN"), "실제=" + masked);
+        assertTrue(masked.contains("/api/webhooks/123456789/***"), "실제=" + masked);
+    }
+
+    @Test
     void 자유_텍스트가_비어도_깨지지_않는다() {
         assertEquals("", SensitiveParams.maskSecretsInText(""));
         assertEquals(null, SensitiveParams.maskSecretsInText(null));
