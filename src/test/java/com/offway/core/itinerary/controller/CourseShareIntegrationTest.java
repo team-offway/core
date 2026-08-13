@@ -2,6 +2,7 @@ package com.offway.core.itinerary.controller;
 
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -11,6 +12,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.offway.core.itinerary.domain.CourseShare;
+import com.offway.core.itinerary.repository.CourseRepository;
+import com.offway.core.itinerary.repository.CourseShareRepository;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +50,12 @@ class CourseShareIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private CourseRepository courseRepository;
+
+    @Autowired
+    private CourseShareRepository courseShareRepository;
 
     @Test
     void 저장하면_공유토큰이_함께_온다() throws Exception {
@@ -136,6 +146,24 @@ class CourseShareIntegrationTest {
                 .andExpect(jsonPath("$.data.regionId").value(16))
                 .andExpect(jsonPath("$.data.days[0].items[0].title").value("장소1"))
                 .andExpect(jsonPath("$.data.courseId").doesNotExist());
+    }
+
+    /**
+     * 담지 않은 코스는 <b>반드시 공유 행과 짝</b>이다(#261) — 나중에 붙일 정리가 이 전제 위에 선다.
+     *
+     * <p>코스만 저장되고 링크 발급이 실패하면 그 코스는 아무도 닿을 수 없다. 주인이 없어 목록·상세·삭제
+     * 어디에도 안 걸리고, 공유 행이 없어 링크로도 못 연다. 정리는 <b>공유 행의 발급 시각으로 나이를 재므로</b>
+     * 그 정리조차 못 찾는다 — 짝이 깨지면 영영 남는 죽은 데이터가 된다.
+     */
+    @Test
+    void 담지_않은_코스는_공유_행과_함께_저장된다() throws Exception {
+        String token = shareWithoutSaving(VALID_BODY);
+
+        CourseShare share = courseShareRepository
+                .findByShareToken(token)
+                .orElseThrow(() -> new AssertionError("발급한 토큰으로 공유 행을 못 찾는다"));
+        assertTrue(courseRepository.findById(share.getCourseId()).isPresent(),
+                "공유 행이 가리키는 코스가 없다 — 링크가 열리지 않는다");
     }
 
     /**
