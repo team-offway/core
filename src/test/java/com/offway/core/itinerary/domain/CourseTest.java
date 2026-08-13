@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import java.time.LocalDate;
 import java.util.List;
@@ -32,6 +33,32 @@ class CourseTest {
         assertEquals(2, course.getTravelDays());
         assertEquals(Density.PACKED, course.getDensity());
         assertEquals(5, course.totalSlots()); // 3 + 2
+    }
+
+    /**
+     * 담지 않고 공유하는 코스는 <b>주인이 없다</b>(#261).
+     *
+     * <p>"내 코스" 조회가 전부 게스트 범위라, 주인이 없는 것이 곧 목록에 안 나오는 장치다. 여기에 게스트가
+     * 붙는 순간 담지 않은 코스가 남의 목록에 뜬다.
+     */
+    @Test
+    void 공유전용_코스는_주인이_없고_출발지는_받는다() {
+        Course course = Course.sharedOnly(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 2)),
+                LocalDate.of(2026, 9, 12), 1, new Coordinate(37.55, 126.97));
+
+        assertNull(course.getGuestId());
+        assertEquals(42L, course.getRegionId());
+        assertTrue(course.origin().isPresent());
+    }
+
+    /** 링크로 열리는 코스가 담은 코스보다 느슨하면, 같은 구성이 한쪽에서만 통과한다. */
+    @Test
+    void 공유전용_코스도_구성_불변식을_그대로_지킨다() {
+        assertThrows(IllegalArgumentException.class,
+                () -> Course.sharedOnly(42L, Density.RELAXED, TransportMode.CAR, List.of(), null, 1, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> Course.sharedOnly(42L, Density.RELAXED, TransportMode.CAR,
+                        List.of(day(1, 1), day(2, 1), day(3, 1), day(4, 1)), null, 3, null));
     }
 
     @Test

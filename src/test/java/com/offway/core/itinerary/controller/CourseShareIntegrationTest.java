@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.controller;
 
 import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -29,6 +30,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class CourseShareIntegrationTest {
 
     private static final String COURSES_URL = "/api/v1/courses";
+    private static final String SHARE_URL = "/api/v1/courses/share";
     private static final String PUBLIC_URL = "/api/v1/public/courses/{shareToken}";
     private static final String GUEST_HEADER = "X-Guest-Id";
 
@@ -120,6 +122,80 @@ class CourseShareIntegrationTest {
                 .andExpect(header().string("Access-Control-Allow-Origin", "https://offway.vercel.app"))
                 // 자격증명은 막는다 — 이 접두어 아래로 브라우저 쿠키·인증 헤더가 딸려가지 않게.
                 .andExpect(header().doesNotExist("Access-Control-Allow-Credentials"));
+    }
+
+    /** 담기 전 추천 결과 화면의 공유 버튼(#261) — 담지 않고 링크만 받는다. */
+    @Test
+    void 담지_않고_공유하면_토큰만_받고_링크가_열린다() throws Exception {
+        String token = shareWithoutSaving(VALID_BODY);
+
+        mockMvc.perform(get(PUBLIC_URL, token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.regionId").value(16))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value("장소1"))
+                .andExpect(jsonPath("$.data.courseId").doesNotExist());
+    }
+
+    /**
+     * 담지 않은 코스가 목록에 끼면 사용자는 담지 않은 것을 담았다고 오해한다.
+     *
+     * <p>주인 없이 보관하는 것이 그 장치다 — "내 코스" 조회가 전부 게스트 범위라 어느 질의에도 안 걸린다.
+     */
+    @Test
+    void 담지_않고_공유한_코스는_내_코스에_나오지_않는다() throws Exception {
+        String guest = guest();
+        shareWithoutSaving(VALID_BODY);
+
+        mockMvc.perform(get(COURSES_URL).with(user("dev")).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    /** 링크로 열리는 코스가 담은 코스보다 느슨하면, 같은 payload 가 한쪽에서만 통과한다. */
+    @Test
+    void 담지_않는_공유도_구성이_틀리면_400_이다() throws Exception {
+        String invalid = VALID_BODY.replace("\"order\":2", "\"order\":3");
+
+        mockMvc.perform(post(SHARE_URL)
+                        .with(user("dev"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(invalid))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    /**
+     * 같은 코스를 두 번 보내면 링크도 두 개다 — 요청 본문만으로는 같은 코스인지 알 근거가 없다.
+     *
+     * <p>담은 코스의 링크가 코스당 하나인 것과 다른 점이라 문서에 적었다. 여기서 잠가 둔다.
+     */
+    @Test
+    void 담지_않는_공유는_부를_때마다_새_링크다() throws Exception {
+        String first = shareWithoutSaving(VALID_BODY);
+        String second = shareWithoutSaving(VALID_BODY);
+
+        assertNotEquals(first, second);
+        mockMvc.perform(get(PUBLIC_URL, first)).andExpect(status().isOk());
+        mockMvc.perform(get(PUBLIC_URL, second)).andExpect(status().isOk());
+    }
+
+    private String shareWithoutSaving(String body) throws Exception {
+        String response = mockMvc.perform(post(SHARE_URL)
+                        .with(user("dev"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value(201))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return JsonPath.read(response, "$.data.shareToken");
     }
 
     private String saveAndGetToken(String guest) throws Exception {
