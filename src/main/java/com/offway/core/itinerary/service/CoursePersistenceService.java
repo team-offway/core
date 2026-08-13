@@ -77,6 +77,25 @@ public class CoursePersistenceService {
     }
 
     /**
+     * 주인 없는 코스와 그 공유 링크를 <b>한 트랜잭션으로</b> 저장한다(#261).
+     *
+     * <p><b>나눠 저장하면 아무도 닿을 수 없는 행이 남는다.</b> 코스만 커밋되고 링크 발급이 실패하면, 그
+     * 코스는 주인이 없어 목록·상세·삭제 어디에도 안 걸리고 공유 행이 없어 링크로도 못 연다. 나중에 붙일
+     * 정리는 <b>공유 행의 발급 시각으로 나이를 재므로</b>(코스 테이블에 생성 시각이 없다) 그 정리조차 이
+     * 행을 못 찾는다 — 영영 남는 죽은 데이터다.
+     *
+     * <p>"담지 않은 코스는 반드시 공유 행과 짝" 이라는 정리의 전제를 여기서 지킨다.
+     *
+     * <p>여기서는 발급 경합을 다루지 않는다({@link #shareOf} 와 다른 점이다) — 방금 만든 코스라 그 id 를
+     * 아는 요청이 하나뿐이고, 유니크 제약에 걸릴 상대가 없다.
+     */
+    @Transactional
+    public CourseShare persistWithShare(Course course) {
+        Course saved = courseRepository.save(course);
+        return courseShareRepository.save(CourseShare.issue(saved.getId(), LocalDateTime.now()));
+    }
+
+    /**
      * 공유 토큰으로 코스를 읽는다(#143) — <b>소유자 확인 없이</b>. 링크를 받은 사람에게는 우리 계정이 없다.
      *
      * <p>토큰과 코스를 나눠 판정한다. 토큰이 없으면 잘못된 링크(404)지만, 토큰은 있는데 코스가 없으면

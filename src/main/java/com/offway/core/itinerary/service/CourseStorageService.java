@@ -3,6 +3,7 @@ package com.offway.core.itinerary.service;
 import com.offway.core.common.response.Paging;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseScope;
+import com.offway.core.itinerary.domain.CourseShare;
 import com.offway.core.itinerary.domain.DayStart;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
@@ -84,10 +85,12 @@ public class CourseStorageService {
      * @return 공유 토큰
      */
     public String shareWithoutSaving(Course course) {
-        Course stored = coursePersistenceService.persist(course);
+        // 코스와 링크를 한 트랜잭션으로 저장한다. 나눠 저장하면 링크 발급이 실패했을 때 아무도 닿을 수
+        // 없는 코스가 남고, 정리 배치가 나이를 재는 근거(공유 행의 발급 시각)도 없어 영영 남는다.
+        CourseShare share = coursePersistenceService.persistWithShare(course);
         log.info("담지 않은 코스로 공유 링크를 만들었습니다 courseId={} regionId={}",
-                stored.getId(), stored.getRegionId());
-        return shareTokenOf(stored.getId());
+                share.getCourseId(), course.getRegionId());
+        return share.getShareToken();
     }
 
     /**
