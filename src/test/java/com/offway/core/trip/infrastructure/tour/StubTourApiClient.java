@@ -26,6 +26,9 @@ public class StubTourApiClient implements TourApiClient {
     /** 지역기반 조회 호출 횟수 — 재생성이 후보를 몇 번 모으는지 세는 데 쓴다(#114). */
     private final java.util.concurrent.atomic.AtomicInteger areaCalls = new java.util.concurrent.atomic.AtomicInteger();
 
+    /** 공통상세 호출 횟수 — 캐시가 실제로 외부를 아끼는지 세는 데 쓴다. */
+    private final java.util.concurrent.atomic.AtomicInteger detailCalls = new java.util.concurrent.atomic.AtomicInteger();
+
     private Supplier<Optional<TourPoiDetail>> detailBehavior = Optional::empty;
     private Supplier<Optional<TourIntro>> introBehavior = Optional::empty;
     private Supplier<Optional<TourAccessibility>> accessibilityBehavior = Optional::empty;
@@ -43,6 +46,16 @@ public class StubTourApiClient implements TourApiClient {
     /** 호출 횟수를 0 으로 — 공유 컨텍스트라 테스트마다 자기 시나리오만 세게 한다. */
     public void resetAreaCallCount() {
         areaCalls.set(0);
+    }
+
+    /** 지금까지의 공통상세 조회 횟수. */
+    public int detailCallCount() {
+        return detailCalls.get();
+    }
+
+    /** 호출 횟수를 0 으로 — 공유 컨텍스트라 테스트마다 자기 시나리오만 세게 한다. */
+    public void resetDetailCallCount() {
+        detailCalls.set(0);
     }
 
     /** 공통상세(detailCommon2) 응답을 지정한다. */
@@ -88,6 +101,7 @@ public class StubTourApiClient implements TourApiClient {
 
     @Override
     public Optional<TourPoiDetail> findDetail(String contentId) {
+        detailCalls.incrementAndGet();
         return detailBehavior.get();
     }
 

@@ -134,4 +134,38 @@ class SensitiveParamsTest {
         assertEquals("", SensitiveParams.maskSecretsInText(""));
         assertEquals(null, SensitiveParams.maskSecretsInText(null));
     }
+
+    @Test
+    void 값_하나에_개행을_넣어_가짜_로그_줄을_만들_수_없다() {
+        // 경로 변수(@PathVariable)는 서블릿이 퍼센트 디코딩을 마친 값이라, %0A 가 실제 개행으로 온다.
+        String rendered = SensitiveParams.forLog("126508\n2026-01-01 INFO  fake");
+
+        assertFalse(rendered.contains("\n"), "개행이 남으면 로그 줄이 쪼개진다. 실제=" + rendered);
+        assertEquals("1265082026-01-01 INFO  fake", rendered);
+    }
+
+    @Test
+    void 값_하나가_아주_길면_잘라낸다() {
+        String rendered = SensitiveParams.forLog("가".repeat(200));
+
+        assertTrue(rendered.endsWith("…"), "잘렸다는 표식이 있어야 한다. 실제 길이=" + rendered.length());
+        assertTrue(rendered.length() < 80, "실제 길이=" + rendered.length());
+    }
+
+    @Test
+    void 값_하나는_다시_디코딩하지_않는다() {
+        // 이미 디코딩된 값을 또 풀면 %41 이 A 가 돼, 로그가 실제 요청과 다른 값을 가리킨다.
+        assertEquals("126508%41", SensitiveParams.forLog("126508%41"));
+    }
+
+    @Test
+    void 공개_식별자는_가리지_않는다() {
+        // 마스킹 대상은 비밀값이지 콘텐츠 id 가 아니다. 가리면 어느 것이 실패했는지 알 수 없다.
+        assertEquals("126508", SensitiveParams.forLog("126508"));
+    }
+
+    @Test
+    void 값이_null_이어도_깨지지_않는다() {
+        assertEquals("", SensitiveParams.forLog(null));
+    }
 }

@@ -90,7 +90,7 @@ public final class SensitiveParams {
 
     private static String readablePair(String pair) {
         String[] parts = pair.split(NAME_VALUE_DELIMITER, NAME_VALUE_LIMIT);
-        String name = forLog(parts[0]);
+        String name = decodedForLog(parts[0]);
         if (parts.length < NAME_VALUE_LIMIT) {
             return name; // 등호 없는 조각 — 이름만 남긴다
         }
@@ -100,18 +100,39 @@ public final class SensitiveParams {
         if (MASKED_NAMES.contains(name.trim().toLowerCase(Locale.ROOT))) {
             return name + NAME_VALUE_DELIMITER + MASK;
         }
-        return name + NAME_VALUE_DELIMITER + forLog(parts[1]);
+        return name + NAME_VALUE_DELIMITER + decodedForLog(parts[1]);
     }
 
     /** 디코딩 → 제어문자 제거 → 길이 제한. 이 순서를 지켜야 디코딩으로 생긴 개행이 걸러진다. */
-    private static String forLog(String raw) {
+    private static String decodedForLog(String raw) {
         String decoded;
         try {
             decoded = URLDecoder.decode(raw, StandardCharsets.UTF_8);
         } catch (IllegalArgumentException e) {
             decoded = raw; // 깨진 인코딩 — 로그를 찍다가 요청을 죽이지 않는다
         }
-        String safe = stripControlChars(decoded);
+        return forLog(decoded);
+    }
+
+    /**
+     * <b>이미 디코딩된 값 하나</b>를 로그에 실을 수 있게 — 제어문자 제거 → 길이 제한.
+     *
+     * <p><b>왜 필요한가.</b> {@code @PathVariable}·외부 응답 필드처럼 우리가 만들지 않은 문자열을 로그에
+     * 그대로 끼우면 두 가지가 깨진다. ① {@code %0A} 는 서블릿이 이미 디코딩해 <b>실제 개행</b>으로 오므로
+     * 값 하나가 로그를 여러 줄로 쪼개 가짜 로그 줄을 지어낼 수 있다. ② 길이 상한이 없어 값 하나가 줄
+     * 전체를 밀어낸다. {@link #readableParams}·{@code RootCause} 가 쿼리·예외 메시지에 대해 이미 하는
+     * 처리를 <b>값 하나</b>에도 같은 기준으로 적용한다 — 규칙이 두 벌이 되면 한쪽이 반드시 뒤처진다.
+     *
+     * <p><b>여기서 다시 디코딩하지 않는다.</b> 이미 디코딩된 값을 또 풀면 값 안의 {@code %41} 이
+     * {@code A} 로 바뀌어, 로그가 실제 요청과 다른 값을 가리킨다.
+     *
+     * <p>가리지는 않는다 — 마스킹 대상은 {@code serviceKey} 류 비밀값이지, 지역 id·콘텐츠 id 같은 공개
+     * 식별자가 아니다. 그것까지 가리면 "어느 것이 실패했나" 에 답하지 못해 로그의 존재 이유가 사라진다.
+     *
+     * @param value 로그에 실을 값. null 이면 빈 문자열
+     */
+    public static String forLog(String value) {
+        String safe = stripControlChars(value);
         return safe.length() <= MAX_VALUE_LENGTH ? safe : safe.substring(0, MAX_VALUE_LENGTH) + TRUNCATED;
     }
 
