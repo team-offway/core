@@ -30,4 +30,6 @@ public interface CourseJpaRepository extends JpaRepository<Course, Long> {
             String guestId, LocalDate today, Pageable pageable);
 
     Optional<Course> findByIdAndGuestId(Long id, String guestId);
+
+    int deleteByGuestId(String guestId);
 }

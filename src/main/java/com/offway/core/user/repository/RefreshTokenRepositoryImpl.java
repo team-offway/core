@@ -28,4 +28,9 @@ public class RefreshTokenRepositoryImpl implements RefreshTokenRepository {
     public List<RefreshToken> findActiveByUserId(UUID userId) {
         return refreshTokenJpaRepository.findByUserIdAndRevokedAtIsNull(userId);
     }
+
+    @Override
+    public int deleteByUserId(UUID userId) {
+        return refreshTokenJpaRepository.deleteByUserId(userId);
+    }
 }

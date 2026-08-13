@@ -15,4 +15,15 @@ public interface RefreshTokenRepository {
 
     /** 아직 살아 있는 토큰들 — 로그아웃·재사용 감지 시 일괄 폐기 대상. */
     List<RefreshToken> findActiveByUserId(UUID userId);
+
+    /**
+     * 탈퇴 — 이 사용자의 refresh 를 폐기가 아니라 <b>삭제</b>한다.
+     *
+     * <p>평소에는 지우지 않고 {@code revoked_at} 을 채운다. 지우면 "폐기된 토큰 재사용" 과 "없는 토큰" 이
+     * 구분되지 않아 탈취를 감지할 수 없기 때문이다. 탈퇴는 다르다 — 계정 자체가 사라져 재사용을 감지해서
+     * 보호할 대상이 없고, 남겨두면 주인 없는 개인정보만 쌓인다.
+     *
+     * @return 지운 행 수
+     */
+    int deleteByUserId(UUID userId);
 }

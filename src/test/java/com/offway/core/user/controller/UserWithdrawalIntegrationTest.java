@@ -1,0 +1,281 @@
+package com.offway.core.user.controller;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.jayway.jsonpath.JsonPath;
+import com.offway.core.itinerary.domain.Course;
+import com.offway.core.itinerary.domain.CourseShare;
+import com.offway.core.itinerary.domain.DaySchedule;
+import com.offway.core.itinerary.domain.Density;
+import com.offway.core.itinerary.domain.Slot;
+import com.offway.core.itinerary.domain.SlotDisplay;
+import com.offway.core.itinerary.domain.SlotKind;
+import com.offway.core.itinerary.domain.TimeOfDay;
+import com.offway.core.itinerary.repository.CourseJpaRepository;
+import com.offway.core.itinerary.repository.CourseShareRepository;
+import com.offway.core.leave.domain.LeaveBalance;
+import com.offway.core.leave.domain.LeaveUsage;
+import com.offway.core.leave.repository.LeaveBalanceJpaRepository;
+import com.offway.core.leave.repository.LeaveUsageJpaRepository;
+import com.offway.core.transport.domain.TransportMode;
+import com.offway.core.user.domain.AuthProvider;
+import com.offway.core.user.infrastructure.social.StubSocialIdentityVerifier;
+import com.offway.core.user.repository.UserJpaRepository;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+
+/**
+ * 회원 탈퇴 — 무엇이 지워지고 무엇이 남는지를 계약으로 고정한다.
+ *
+ * <p>개인정보처리방침이 약속한 동작이라 "대충 지워진다" 로는 부족하다. 남는 것(공유 링크)도 의도된
+ * 선택이므로 함께 잠근다.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+class UserWithdrawalIntegrationTest {
+
+    private static final String WITHDRAW_URL = "/api/v1/users/me";
+    private static final String REISSUE_URL = "/api/v1/auth/reissue";
+    private static final String CALLBACK_URL = "/api/v1/auth/callback/google";
+    private static final String SHARED_COURSE_URL = "/api/v1/public/courses/%s";
+    private static final String GUEST_HEADER = "X-Guest-Id";
+    private static final String BEARER = "Bearer ";
+
+    @TestConfiguration
+    static class SocialStubConfiguration {
+
+        @Bean
+        StubSocialIdentityVerifier stubSocialIdentityVerifier() {
+            return new StubSocialIdentityVerifier();
+        }
+    }
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private StubSocialIdentityVerifier socialIdentityVerifier;
+
+    @Autowired
+    private UserJpaRepository userJpaRepository;
+
+    @Autowired
+    private CourseJpaRepository courseJpaRepository;
+
+    @Autowired
+    private CourseShareRepository courseShareRepository;
+
+    @Autowired
+    private LeaveBalanceJpaRepository leaveBalanceJpaRepository;
+
+    @Autowired
+    private LeaveUsageJpaRepository leaveUsageJpaRepository;
+
+    // ── 계정 ──────────────────────────────────────────────────
+
+    @Test
+    void 탈퇴하면_200과_안내_문구가_내려간다() throws Exception {
+        Session session = login();
+
+        mockMvc.perform(withdraw(session.accessToken(), session.guestId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.detail").value("탈퇴 처리되었습니다."))
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        assertTrue(userJpaRepository.findById(session.userId()).isEmpty());
+    }
+
+    @Test
+    void 탈퇴하면_refresh로_재발급할_수_없다() throws Exception {
+        Session session = login();
+
+        mockMvc.perform(withdraw(session.accessToken(), session.guestId())).andExpect(status().isOk());
+
+        mockMvc.perform(post(REISSUE_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\": \"%s\"}".formatted(session.refreshToken())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER-003"));
+    }
+
+    @Test
+    void 이미_탈퇴한_계정의_토큰으로_다시_부르면_401_USER_006() throws Exception {
+        // access 토큰은 무상태라 탈퇴 후에도 만료(1시간)까지 서명 검증을 통과한다. 그 창을 막지 않으면
+        // 없는 계정에 삭제가 또 돌아 200 이 나가고, 앱은 두 번째 탈퇴도 성공했다고 오해한다.
+        Session session = login();
+        mockMvc.perform(withdraw(session.accessToken(), session.guestId())).andExpect(status().isOk());
+
+        mockMvc.perform(withdraw(session.accessToken(), session.guestId()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER-006"));
+    }
+
+    @Test
+    void 인증_없이는_탈퇴할_수_없다() throws Exception {
+        mockMvc.perform(delete(WITHDRAW_URL))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("COMMON-401"));
+    }
+
+    @Test
+    void 탈퇴_후_같은_소셜_신원으로_다시_가입하면_새_사용자다() throws Exception {
+        // provider 신원 매핑까지 지우지 않으면 UNIQUE 가 남아 없는 사용자를 가리키는 신원에 붙는다.
+        String providerUserId = "sub-" + UUID.randomUUID();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
+        Session first = login(providerUserId);
+        mockMvc.perform(withdraw(first.accessToken(), first.guestId())).andExpect(status().isOk());
+
+        Session second = login(providerUserId);
+
+        assertFalse(first.userId().equals(second.userId()), "탈퇴 후 재가입은 새 계정이어야 한다");
+        mockMvc.perform(withdraw(second.accessToken(), second.guestId())).andExpect(status().isOk());
+    }
+
+    // ── 게스트 키로 묶인 데이터 ────────────────────────────────
+
+    @Test
+    void 탈퇴하면_저장한_코스와_연차가_함께_지워진다() throws Exception {
+        Session session = login();
+        Long courseId = saveCourse(session.guestId());
+        seedLeave(session.guestId());
+
+        mockMvc.perform(withdraw(session.accessToken(), session.guestId())).andExpect(status().isOk());
+
+        assertTrue(courseJpaRepository.findById(courseId).isEmpty(), "코스가 남았다");
+        assertTrue(leaveBalanceJpaRepository.findByGuestId(session.guestId()).isEmpty(), "연차 설정이 남았다");
+        assertTrue(leaveUsageJpaRepository.findByGuestIdOrderByUsedOnDescIdDesc(session.guestId()).isEmpty(), "연차 내역이 남았다");
+    }
+
+    @Test
+    void 게스트_헤더가_없으면_계정만_지워지고_코스는_남는다() throws Exception {
+        // 문서화된 한계다. 코스·연차의 소유 키가 아직 guest_id 라 userId 만으로는 닿지 못한다.
+        // 그렇다고 헤더 없는 탈퇴를 400 으로 막지는 않는다 — 계정을 지울 권리가 헤더에 인질로 잡힌다.
+        Session session = login();
+        Long courseId = saveCourse(session.guestId());
+
+        mockMvc.perform(delete(WITHDRAW_URL).header(HttpHeaders.AUTHORIZATION, BEARER + session.accessToken()))
+                .andExpect(status().isOk());
+
+        assertTrue(userJpaRepository.findById(session.userId()).isEmpty(), "계정은 지워져야 한다");
+        assertTrue(courseJpaRepository.findById(courseId).isPresent(), "헤더가 없으면 코스에 닿지 못한다");
+    }
+
+    // ── 공유 링크 ─────────────────────────────────────────────
+
+    @Test
+    void 탈퇴로_코스가_지워지면_이미_뿌린_공유_링크는_410이다() throws Exception {
+        // 404 로 만들지 않는다 — "링크를 잘못 옮겨 적었다" 와 구분되지 않아 받은 사람이 상황을 알 수 없다.
+        // 410 은 "있었는데 게시자가 지웠다" 를 정확히 말한다.
+        Session session = login();
+        Long courseId = saveCourse(session.guestId());
+        String shareToken = courseShareRepository
+                .save(CourseShare.issue(courseId, LocalDateTime.now()))
+                .getShareToken();
+
+        mockMvc.perform(withdraw(session.accessToken(), session.guestId())).andExpect(status().isOk());
+
+        mockMvc.perform(get(SHARED_COURSE_URL.formatted(shareToken)))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value("ITINERARY-009"));
+    }
+
+    // ── 헬퍼 ──────────────────────────────────────────────────
+
+    private record Session(UUID userId, String accessToken, String refreshToken, String guestId) {}
+
+    private Session login() throws Exception {
+        String providerUserId = "sub-" + UUID.randomUUID();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
+        return login(providerUserId);
+    }
+
+    private Session login(String providerUserId) throws Exception {
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
+        String response = mockMvc.perform(post(CALLBACK_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accessToken\": \"any-id-token\"}"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String accessToken = JsonPath.read(response, "$.data.accessToken");
+        return new Session(
+                userIdOf(accessToken),
+                accessToken,
+                JsonPath.read(response, "$.data.refreshToken"),
+                "guest-" + UUID.randomUUID());
+    }
+
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder withdraw(
+            String accessToken, String guestId) {
+        return delete(WITHDRAW_URL)
+                .header(HttpHeaders.AUTHORIZATION, BEARER + accessToken)
+                .header(GUEST_HEADER, guestId);
+    }
+
+    private Long saveCourse(String guestId) {
+        Slot slot = Slot.of(
+                1,
+                TimeOfDay.MORNING,
+                SlotKind.SIGHT,
+                "c1",
+                "장소1",
+                37.50,
+                128.60,
+                0,
+                new SlotDisplay(null, null, null, null));
+        Course course = Course.ownedBy(
+                guestId,
+                16L,
+                Density.PACKED,
+                TransportMode.CAR,
+                List.of(DaySchedule.of(1, List.of(slot))),
+                LocalDate.now().plusDays(7),
+                1,
+                null);
+        return courseJpaRepository.save(course).getId();
+    }
+
+    private void seedLeave(String guestId) {
+        leaveBalanceJpaRepository.save(LeaveBalance.of(guestId, 15.0));
+        leaveUsageJpaRepository.save(LeaveUsage.manual(guestId, LocalDate.now(), 1.0, "테스트"));
+    }
+
+    /** access 토큰(JWT) payload 의 sub 이 사용자 식별자다. */
+    private static UUID userIdOf(String accessToken) {
+        String payload = new String(java.util.Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]));
+        return UUID.fromString(JsonPath.read(payload, "$.sub"));
+    }
+
+    @Test
+    void 탈퇴는_다른_사람의_데이터를_건드리지_않는다() throws Exception {
+        Session mine = login();
+        Session other = login();
+        Long otherCourse = saveCourse(other.guestId());
+
+        mockMvc.perform(withdraw(mine.accessToken(), mine.guestId())).andExpect(status().isOk());
+
+        assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
+        assertEquals(otherCourse, courseJpaRepository.findById(otherCourse).orElseThrow().getId());
+    }
+}
