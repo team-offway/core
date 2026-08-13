@@ -49,6 +49,23 @@ class RegionContentTest {
     }
 
     @Test
+    void 가진_카테고리의_칩에만_걸린다() {
+        RegionContent content = new RegionContent(10, null, List.of(Category.SIGHT, Category.FOOD), false);
+
+        assertTrue(content.has(Category.SIGHT));
+        assertTrue(content.has(Category.FOOD));
+        assertFalse(content.has(Category.STAY));
+        assertFalse(content.has(Category.EXPERIENCE));
+    }
+
+    /** {@code ALL} 은 필터가 아니라 전체 표지라, 볼거리가 하나도 없는 지역도 목록에서 빠지지 않는다. */
+    @Test
+    void ALL은_콘텐츠가_비어도_항상_걸린다() {
+        assertTrue(RegionContent.EMPTY.has(Category.ALL));
+        assertFalse(RegionContent.EMPTY.has(Category.SIGHT));
+    }
+
+    @Test
     void 인접이_비어있으면_병합하지_않고_확장표시도_세우지_않는다() {
         RegionContent sparse = new RegionContent(3, "http://a.jpg", List.of(Category.SIGHT), false);
 
