@@ -10,12 +10,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimNames;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtValidators;
@@ -36,6 +36,8 @@ import org.springframework.stereotype.Component;
 public class NimbusOidcVerifier implements SocialIdentityVerifier {
 
     private static final String AUDIENCE_MISMATCH = "audience 가 일치하지 않습니다.";
+
+    private static final String ISSUER_MISMATCH = "issuer 가 일치하지 않습니다.";
 
     private final AuthProperties authProperties;
     private final Map<AuthProvider, JwtDecoder> decoders = new ConcurrentHashMap<>();
@@ -77,11 +79,36 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
         }
     }
 
+    /**
+     * provider 전용 디코더를 만든다.
+     *
+     * <p>{@code createDefaultWithValidators} 로 감싸 Spring 이 기본으로 거는 검증(토큰 타입 · {@code exp}/{@code nbf}
+     * · 인증서 thumbprint)을 그대로 살린 채 issuer·audience 검증을 얹는다. 기본 검증을 직접 조립하면 라이브러리가
+     * 나중에 추가하는 것을 놓친다.
+     */
     private static JwtDecoder buildDecoder(AuthProvider.Oidc oidc, List<String> audiences) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(oidc.jwksUri()).build();
-        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-                JwtValidators.createDefaultWithIssuer(oidc.issuer()), audienceValidator(audiences)));
+        decoder.setJwtValidator(
+                JwtValidators.createDefaultWithValidators(issuerValidator(oidc.issuers()), audienceValidator(audiences)));
         return decoder;
+    }
+
+    /**
+     * {@code iss} 가 이 provider 의 표기 중 하나여야 한다.
+     *
+     * <p>{@code JwtIssuerValidator} 를 쓰지 않는 이유는 그것이 값 하나만 받기 때문이다. Google 이 스킴 있는 표기와
+     * 없는 표기를 모두 쓰는데, 하나만 허용하면 다른 표기를 받은 사용자가 전부 401 이 된다.
+     *
+     * <p>{@code getIssuer()}(URL) 가 아니라 클레임 문자열로 비교한다 — 스킴 없는 {@code accounts.google.com} 은
+     * URL 로 해석되지 않아 비교 자체가 성립하지 않는다.
+     */
+    private static OAuth2TokenValidator<Jwt> issuerValidator(List<String> issuers) {
+        return token -> {
+            if (issuers.contains(token.getClaimAsString(JwtClaimNames.ISS))) {
+                return OAuth2TokenValidatorResult.success();
+            }
+            return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", ISSUER_MISMATCH, null));
+        };
     }
 
     /** aud 가 우리 클라이언트 ID 중 하나여야 한다 — 남의 앱용 토큰을 그대로 받아주면 계정 탈취가 된다. */
