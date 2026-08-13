@@ -5,6 +5,7 @@ import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
+import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.service.dto.TrainAccess;
 import com.offway.core.weather.domain.DailyWeather;
@@ -13,6 +14,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 import java.util.stream.IntStream;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 코스 생성 응답 — API 계약. 날짜별 타임라인(Day 탭)과 지도 핀 좌표·이동시간, 적용 혜택·여행 날씨를 담는다.
@@ -98,7 +100,8 @@ public record CourseResponse(
                                 course.getTravelDate(),
                                 generated.regionName(),
                                 generated.weatherByDay().get(course.getDays().get(i).getDayNumber()),
-                                course.distanceFromPrevDayMeters(i)))
+                                course.distanceFromPrevDayMeters(i),
+                                generated.hoursByContentId()))
                         .toList(),
                 generated.benefits().stream().map(Benefit::from).toList(),
                 generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()),
@@ -186,12 +189,13 @@ public record CourseResponse(
 
         static Day from(
                 DaySchedule schedule, LocalDate travelDate, String regionName, DailyWeather weather,
-                Integer distanceFromPrevDayMeters) {
+                Integer distanceFromPrevDayMeters, Map<String, OpeningHours> hoursByContentId) {
             // 표시 번호가 아니라 달력 오프셋으로 센다 — 첫날이 빠진 코스에서 하루 앞당겨지지 않게(#159).
             LocalDate date = travelDate == null ? null : travelDate.plusDays(schedule.getDayOffset());
             List<Slot> slots = schedule.getSlots();
             List<Item> items = IntStream.range(0, slots.size())
-                    .mapToObj(i -> Item.from(slots.get(i), schedule.distanceFromPrevMeters(i), regionName))
+                    .mapToObj(i -> Item.from(slots.get(i), schedule.distanceFromPrevMeters(i), regionName,
+                            hoursByContentId.get(slots.get(i).getPoiContentId())))
                     .toList();
             return new Day(
                     schedule.getDayNumber(),
@@ -241,6 +245,10 @@ public record CourseResponse(
             @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase,
             @Schema(description = "대표 전화. 누르지 않고 바로 걸 수 있게 슬롯에 함께 싣는다(없으면 null)",
                     example = "061-550-6000", nullable = true) String tel,
+            @Schema(description = "운영·영업 시간. 아직 받지 못한 장소는 null — 화면은 그 줄을 지운다",
+                    example = "09:00~18:00", nullable = true) String useTime,
+            @Schema(description = "휴무일. 아직 받지 못한 장소는 null", example = "매주 월요일",
+                    nullable = true) String restDate,
             double lat,
             double lng,
             int travelMinutes,
@@ -248,7 +256,8 @@ public record CourseResponse(
                     Integer distanceFromPrevMeters,
             @Schema(description = "코스 지역의 짧은 이름", example = "정선군", nullable = true) String regionName) {
 
-        static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName) {
+        static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName,
+                OpeningHours hours) {
             return new Item(
                     slot.getOrderInDay(),
                     slot.getTimeOfDay().name(),
@@ -260,6 +269,8 @@ public record CourseResponse(
                     slot.getAddress(),
                     slot.getCatchphrase(),
                     slot.getTel(),
+                    hours == null ? null : hours.useTime(),
+                    hours == null ? null : hours.restDate(),
                     slot.getLat(),
                     slot.getLng(),
                     slot.getTravelMinutesFromPrev(),

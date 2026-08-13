@@ -59,6 +59,7 @@ public class CourseGenerationService {
     private final RouteOptimizer routeOptimizer;
     private final PolicyService policyService;
     private final CourseWeatherProvider courseWeatherProvider;
+    private final OpeningHoursProvider openingHoursProvider;
     private final RegionRepository regionRepository;
     private final TrainAccessService trainAccessService;
 
@@ -132,7 +133,8 @@ public class CourseGenerationService {
         // 공유 토큰은 저장한 코스에만 있다 — 아직 저장 전이라 null 이다(#143).
         return new GeneratedCourse(
                 course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
-                null, null);
+                // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
+                openingHoursProvider.forCourse(course), null, null);
     }
 
     /**
@@ -327,7 +329,8 @@ public class CourseGenerationService {
         for (int i = 0; i < entries.size(); i++) {
             Entry e = entries.get(i);
             int travel = prev == null ? 0 : legMinutes(prev, coord(e.poi()), transport);
-            slots.add(Slot.of(i + 1, e.timeOfDay(), e.kind(), e.poi().contentId(), e.poi().title(),
+            slots.add(Slot.of(i + 1, e.timeOfDay(), e.kind(), e.poi().contentId(), e.poi().contentTypeId(),
+                    e.poi().title(),
                     e.poi().lat(), e.poi().lng(), travel,
                     new SlotDisplay(e.poi().imageUrl(), e.poi().address(), e.poi().catchphrase(), e.poi().tel())));
             prev = coord(e.poi());

@@ -320,7 +320,7 @@ public class Course {
         for (int i = 0; i < slots.size(); i++) {
             Slot slot = slots.get(i);
             renumbered.add(Slot.of(i + 1, slot.getTimeOfDay(), slot.getKind(), slot.getPoiContentId(),
-                    slot.getTitle(), slot.getLat(), slot.getLng(),
+                    slot.getPoiContentTypeId(), slot.getTitle(), slot.getLat(), slot.getLng(),
                     i == 0 ? 0 : slot.getTravelMinutesFromPrev(),
                     new SlotDisplay(slot.getImageUrl(), slot.getAddress(), slot.getCatchphrase(), slot.getTel())));
         }
