@@ -5,7 +5,7 @@ import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
-import com.offway.core.trip.domain.OpeningHours;
+import com.offway.core.itinerary.service.dto.SlotHours;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.service.dto.TrainAccess;
 import com.offway.core.weather.domain.DailyWeather;
@@ -189,7 +189,7 @@ public record CourseResponse(
 
         static Day from(
                 DaySchedule schedule, LocalDate travelDate, String regionName, DailyWeather weather,
-                Integer distanceFromPrevDayMeters, Map<String, OpeningHours> hoursByContentId) {
+                Integer distanceFromPrevDayMeters, Map<String, SlotHours> hoursByContentId) {
             // 표시 번호가 아니라 달력 오프셋으로 센다 — 첫날이 빠진 코스에서 하루 앞당겨지지 않게(#159).
             LocalDate date = travelDate == null ? null : travelDate.plusDays(schedule.getDayOffset());
             List<Slot> slots = schedule.getSlots();
@@ -249,6 +249,12 @@ public record CourseResponse(
                     example = "09:00~18:00", nullable = true) String useTime,
             @Schema(description = "휴무일. 아직 받지 못한 장소는 null", example = "매주 월요일",
                     nullable = true) String restDate,
+            @Schema(description = """
+                    오늘 이 장소가 여는지 — **여행일이 오늘일 때만** 실린다. 판정할 수 없으면 필드 자체가 없다.
+
+                    `OPEN` 영업 중 · `CLOSED_TODAY` 오늘은 휴무일이에요 ·
+                    `BEFORE_OPEN` 아직 문을 열기 전이에요 · `CLOSED_NOW` 오늘 운영이 끝났어요""",
+                    example = "CLOSED_TODAY", nullable = true) String openingStatus,
             double lat,
             double lng,
             int travelMinutes,
@@ -257,7 +263,7 @@ public record CourseResponse(
             @Schema(description = "코스 지역의 짧은 이름", example = "정선군", nullable = true) String regionName) {
 
         static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName,
-                OpeningHours hours) {
+                SlotHours hours) {
             return new Item(
                     slot.getOrderInDay(),
                     slot.getTimeOfDay().name(),
@@ -271,6 +277,7 @@ public record CourseResponse(
                     slot.getTel(),
                     hours == null ? null : hours.useTime(),
                     hours == null ? null : hours.restDate(),
+                    hours == null ? null : hours.displayStatus(),
                     slot.getLat(),
                     slot.getLng(),
                     slot.getTravelMinutesFromPrev(),

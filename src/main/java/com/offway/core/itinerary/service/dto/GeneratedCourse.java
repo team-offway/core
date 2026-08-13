@@ -28,7 +28,7 @@ public record GeneratedCourse(
         Map<Integer, DailyWeather> weatherByDay,
         TrainAccess trainAccess,
         String regionName,
-        Map<String, OpeningHours> hoursByContentId,
+        Map<String, SlotHours> hoursByContentId,
         String shareToken,
         FirstDayChange firstDayChange) {
 
