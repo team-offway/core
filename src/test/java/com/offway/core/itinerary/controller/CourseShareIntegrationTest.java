@@ -2,6 +2,7 @@ package com.offway.core.itinerary.controller;
 
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -20,6 +21,7 @@ import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.itinerary.repository.CourseRepository;
+import com.offway.core.itinerary.repository.CourseShareRepository;
 import com.offway.core.transport.domain.TransportMode;
 import java.time.LocalDate;
 import java.util.List;
@@ -63,6 +65,9 @@ class CourseShareIntegrationTest {
 
     @Autowired
     private CourseRepository courseRepository;
+
+    @Autowired
+    private CourseShareRepository courseShareRepository;
 
     @Test
     void 저장하면_공유토큰이_함께_온다() throws Exception {
@@ -209,6 +214,26 @@ class CourseShareIntegrationTest {
         assertEquals(first, tokenFromDetail(guest, courseId));
 
         mockMvc.perform(get(PUBLIC_URL, first)).andExpect(status().isOk());
+    }
+
+    /**
+     * 목록은 없는 토큰을 <b>발급하지 않는다</b>(#259).
+     *
+     * <p>페이지당 최대 100건이라, 목록에서 발급하면 조회 한 번이 그만큼의 INSERT 가 된다. null 만 단언하면
+     * "발급은 했는데 응답에 안 실었다" 와 구분되지 않으므로 <b>공유 행이 안 생겼는지</b>까지 본다.
+     */
+    @Test
+    void 목록은_없는_공유토큰을_발급하지_않는다() throws Exception {
+        String guest = guest();
+        long courseId = saveWithoutShare(guest);
+
+        mockMvc.perform(get(COURSES_URL).with(user("dev")).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].courseId").value((int) courseId))
+                .andExpect(jsonPath("$.data[0].shareToken").doesNotExist());
+
+        assertTrue(courseShareRepository.findByCourseId(courseId).isEmpty(),
+                "목록 조회가 공유 행을 만들었다 — 한 페이지가 최대 100 INSERT 가 된다");
     }
 
     /** 날짜를 고친 순간 토큰이 빠지면 화면의 공유 버튼이 사라진다 — 응답 모양이 상세와 같아야 한다. */
