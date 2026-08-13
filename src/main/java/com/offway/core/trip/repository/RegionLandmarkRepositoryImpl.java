@@ -1,5 +1,6 @@
 package com.offway.core.trip.repository;
 
+import com.offway.core.trip.domain.PlaceKind;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -53,16 +54,18 @@ public class RegionLandmarkRepositoryImpl implements RegionLandmarkRepository {
     @Override
     public Map<Long, List<String>> topLicensedSightNames(int limit) {
         Map<Long, List<String>> byRegion = new HashMap<>();
+        // kind 는 PlaceKind 를 STRING 으로 저장한 값이다. 이름을 SQL 에 박으면 enum 상수를 바꿔도
+        // 컴파일이 통과해, 이 조회만 조용히 0건이 된다.
         jdbcTemplate.query("""
                 SELECT region_id, name FROM licensed_place
-                WHERE kind = 'SIGHT'
+                WHERE kind = ?
                 ORDER BY region_id, fitness_rank, name
                 """, rs -> {
             List<String> names = byRegion.computeIfAbsent(rs.getLong("region_id"), key -> new ArrayList<>());
             if (names.size() < limit) {
                 names.add(rs.getString("name"));
             }
-        });
+        }, PlaceKind.SIGHT.name());
         return byRegion;
     }
 }
