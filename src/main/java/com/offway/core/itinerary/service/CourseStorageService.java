@@ -73,6 +73,24 @@ public class CourseStorageService {
     }
 
     /**
+     * 담지 않고 <b>공유 링크만</b> 만든다(#261) — 추천 결과 화면의 공유 버튼.
+     *
+     * <p>링크로 열려면 코스가 어딘가 있어야 하므로 코스 자체는 영속한다. 다만 <b>주인 없이</b> 저장해
+     * "내 코스" 어디에도 나오지 않게 한다({@link Course#sharedOnly}). 사용자가 담은 것이 아니기 때문이다.
+     *
+     * <p>혜택·날씨를 붙이지 않는다 — 응답이 토큰 하나라 조립할 것이 없고, 그 조립은 외부 호출(기상청)을
+     * 탄다. 링크를 여는 쪽({@code GET /public/courses/{token}})이 그때 붙인다.
+     *
+     * @return 공유 토큰
+     */
+    public String shareWithoutSaving(Course course) {
+        Course stored = coursePersistenceService.persist(course);
+        log.info("담지 않은 코스로 공유 링크를 만들었습니다 courseId={} regionId={}",
+                stored.getId(), stored.getRegionId());
+        return shareTokenOf(stored.getId());
+    }
+
+    /**
      * 코스의 공유 토큰 — 동시에 발급하려는 경합을 흡수한다.
      *
      * <p>{@code findByCourseId} 후 {@code save} 사이에 다른 요청이 끼어들면 둘 다 "없다" 를 읽고 하나가

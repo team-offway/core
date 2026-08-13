@@ -8,6 +8,7 @@ import com.offway.core.itinerary.controller.dto.CourseLeaveDeductionRequest;
 import com.offway.core.itinerary.domain.CourseScope;
 import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.itinerary.controller.dto.CourseSaveRequest;
+import com.offway.core.itinerary.controller.dto.CourseShareResponse;
 import com.offway.core.itinerary.controller.dto.CourseSummaryResponse;
 import com.offway.core.itinerary.controller.dto.CourseUpdateRequest;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,6 +37,32 @@ public interface CourseStorageApi {
             description = "게스트 ID 누락 · 코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음")
     ApiResponseBody<CourseResponse> save(
             @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId, CourseSaveRequest request);
+
+    @Operation(
+            summary = "공유 링크만 발급 (내 코스에 담지 않음)",
+            description =
+                    """
+                    추천 결과 화면에서 **담지 않고 바로 공유**할 때 쓴다. 요청 본문은 저장(`POST /courses`)과 같고,
+                    응답은 `shareToken` 하나다. 공유 URL 은 `/c/{shareToken}` 이고, 받은 사람은
+                    `GET /api/v1/public/courses/{shareToken}` 으로 인증 없이 볼 수 있다.
+
+                    **내 코스 목록·상세에 나오지 않는다.** 담은 것이 아니므로 주인 없이 보관하며, 그래서
+                    `X-Guest-Id` 도 받지 않는다. 담으려면 저장 API 를 따로 부른다 — 그쪽 응답에도 토큰이 실린다.
+
+                    **한 번 발급하면 되돌릴 수 없다.** 주인이 없어 삭제 API 로 지울 수 없으므로, 링크를 뿌리기 전에
+                    누를 버튼이다. 담은 코스의 공유는 저장 API 로 가면 나중에 코스째 지울 수 있다.
+
+                    같은 코스를 두 번 보내면 **링크가 두 개** 생긴다. 요청 본문만으로는 같은 코스인지 알 수 없어
+                    멱등하게 만들 근거가 없다 — 담은 코스의 링크가 코스당 하나인 것과 다른 점이다.
+
+                    구성 검증은 저장과 똑같다. 링크로 열리는 코스가 담은 코스보다 느슨할 이유가 없다.
+                    """)
+    @ApiResponse(responseCode = "201", description = "발급 성공")
+    @ApiResponse(
+            responseCode = "400",
+            description = "코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음 · 출발지 위도·경도 중 하나만 보냄")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    ApiResponseBody<CourseShareResponse> share(CourseSaveRequest request);
 
     @Operation(
             summary = "내 코스 목록",
