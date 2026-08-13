@@ -3,6 +3,7 @@ package com.offway.core.trip.infrastructure.gallery;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.gallery.dto.GalleryPhotoItem;
 import java.net.URI;
@@ -120,7 +121,8 @@ class GalleryPhotoClientImpl implements GalleryPhotoClient {
     private static void addIfComplete(List<GalleryPhotoItem> parsed, JsonNode node) {
         GalleryPhotoItem item = toItem(node);
         if (!item.isComplete()) {
-            log.warn("관광사진 항목에 필수 값이 없어 건너뜁니다 contentId={}", item.contentId());
+            // 외부 응답의 문자열이라 개행·과길이가 섞여 올 수 있다 — 경로 변수와 같은 새니타이저를 탄다.
+            log.warn("관광사진 항목에 필수 값이 없어 건너뜁니다 contentId={}", SensitiveParams.forLog(item.contentId()));
             return;
         }
         parsed.add(item);

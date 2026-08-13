@@ -3,6 +3,7 @@ package com.offway.core.trip.service;
 import com.offway.core.common.cache.ExternalDataCache;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
 import com.offway.core.common.cache.ExternalDataCache.StalePolicy;
+import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.MapSearchLink;
@@ -186,14 +187,17 @@ public class PoiDetailService {
             }
             return new Loaded<>(CachedDetail.found(toPoiDetail(contentId, found.get())), CACHE_TTL);
         } catch (RuntimeException e) {
+            // contentId 는 공개 콘텐츠 식별자라 가리지 않는다 — 어느 장소가 degrade 했는지가 이 로그의 존재
+            // 이유다. 다만 경로 변수라 서블릿이 퍼센트 디코딩을 마친 값이 그대로 온다. 그대로 찍으면 개행
+            // 하나로 로그가 여러 줄로 쪼개지므로, 다른 외부 문자열과 같은 새니타이저를 통과시킨다.
             if (stale != null && stale.isFound()) {
                 log.warn("관광 API 상세 조회 실패 — 직전 값으로 내려보냅니다 contentId={} cause={}",
-                        contentId, e.getClass().getSimpleName());
+                        SensitiveParams.forLog(contentId), e.getClass().getSimpleName());
                 return new Loaded<>(stale, FAILURE_CACHE_TTL);
             }
             // degrade 를 조용히 넘기지 않는다 — 폴백이 정상처럼 보이면 장애를 아무도 모른다.
             log.warn("관광 API 상세 조회 실패 — 내려보낼 직전 값이 없습니다 contentId={} cause={}",
-                    contentId, e.getClass().getSimpleName());
+                    SensitiveParams.forLog(contentId), e.getClass().getSimpleName());
             return new Loaded<>(CachedDetail.failed(), FAILURE_CACHE_TTL);
         }
     }
