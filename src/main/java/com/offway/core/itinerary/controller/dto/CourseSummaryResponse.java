@@ -34,7 +34,13 @@ public record CourseSummaryResponse(
                         nullable = true)
                 String coverImageUrl,
         int placeCount,
-        @Schema(description = "이 코스로 연차를 차감했는가", example = "true") boolean leaveDeducted) {
+        @Schema(description = "이 코스로 연차를 차감했는가", example = "true") boolean leaveDeducted,
+        @Schema(
+                        description = "공유 링크 토큰(#259). 공유 URL 은 /c/{shareToken}. "
+                                + "아직 링크가 발급된 적 없는 코스는 null 이며, 상세를 한 번 열면 채워진다",
+                        example = "a1B2c3D4e5F6g7H8i9J0kL",
+                        nullable = true)
+                String shareToken) {
 
     public static CourseSummaryResponse from(Course course, MyCourses myCourses) {
         return new CourseSummaryResponse(
@@ -47,7 +53,8 @@ public record CourseSummaryResponse(
                 myCourses.regionName(course),
                 course.coverImageUrl().orElse(null),
                 course.totalSlots(),
-                myCourses.isDeducted(course));
+                myCourses.isDeducted(course),
+                myCourses.shareToken(course));
     }
 
     /** 목록 전체를 한 번에 — 차감 여부·D-day 는 코스마다 다시 묻지 않고 {@link MyCourses} 가 이미 들고 있다. */

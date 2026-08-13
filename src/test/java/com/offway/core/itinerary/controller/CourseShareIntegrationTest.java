@@ -1,20 +1,32 @@
 package com.offway.core.itinerary.controller;
 
 import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseShare;
+import com.offway.core.itinerary.domain.DaySchedule;
+import com.offway.core.itinerary.domain.Density;
+import com.offway.core.itinerary.domain.Slot;
+import com.offway.core.itinerary.domain.SlotDisplay;
+import com.offway.core.itinerary.domain.SlotKind;
+import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.repository.CourseShareRepository;
+import com.offway.core.transport.domain.TransportMode;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +49,9 @@ class CourseShareIntegrationTest {
     private static final String SHARE_URL = "/api/v1/courses/share";
     private static final String PUBLIC_URL = "/api/v1/public/courses/{shareToken}";
     private static final String GUEST_HEADER = "X-Guest-Id";
+
+    /** 128비트를 URL-safe base64(패딩 없음)로 적으면 22자다 — 규격이 바뀌면 뿌린 링크가 깨진다. */
+    private static final int TOKEN_LENGTH = 22;
 
     // 정선(16) 당일치기 · 유효한 코스
     private static final String VALID_BODY =
@@ -134,6 +149,111 @@ class CourseShareIntegrationTest {
                 .andExpect(header().doesNotExist("Access-Control-Allow-Credentials"));
     }
 
+    /**
+     * 상세에도 <b>저장 때와 같은</b> 토큰이 실린다(#259).
+     *
+     * <p>다른 토큰이 나오면 먼저 뿌린 링크가 죽는다. "실린다" 만 보면 그 회귀를 못 잡으므로 값을 대조한다.
+     */
+    @Test
+    void 상세_응답에_저장_때와_같은_공유토큰이_실린다() throws Exception {
+        String guest = guest();
+        String saved = saveAndGetToken(guest);
+
+        mockMvc.perform(get(COURSES_URL + "/" + courseIdOf(guest))
+                        .with(user("dev"))
+                        .header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.shareToken").value(saved));
+    }
+
+    @Test
+    void 목록_항목에도_같은_공유토큰이_실린다() throws Exception {
+        String guest = guest();
+        String saved = saveAndGetToken(guest);
+
+        mockMvc.perform(get(COURSES_URL).with(user("dev")).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data[0].shareToken").value(saved));
+    }
+
+    /** 목록은 소유자 범위로만 조회한다 — 남의 코스가 섞이면 그 사람의 공유 링크까지 함께 새어 나간다. */
+    @Test
+    void 목록은_남의_코스와_토큰을_주지_않는다() throws Exception {
+        String owner = guest();
+        saveAndGetToken(owner);
+        String stranger = guest();
+
+        mockMvc.perform(get(COURSES_URL).with(user("dev")).header(GUEST_HEADER, stranger))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isEmpty());
+
+        // 남의 코스 ID 를 직접 알아도 상세로 열 수 없다 — 토큰이 새는 다른 문이 없는지 함께 본다.
+        mockMvc.perform(get(COURSES_URL + "/" + courseIdOf(owner))
+                        .with(user("dev"))
+                        .header(GUEST_HEADER, stranger))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ITINERARY-003"));
+    }
+
+    /**
+     * 공유 행이 없는 코스(#143 이전 저장분)를 상세로 열면 <b>그 자리에서 발급</b>된다(#259).
+     *
+     * <p>발급하지 않으면 그 코스들은 영영 공유 불가로 남는다. 저장 API 를 거치면 항상 토큰이 붙으므로,
+     * 토큰 없는 상태는 리포지토리로 직접 만들어야 재현된다.
+     */
+    @Test
+    void 토큰이_없던_코스는_상세를_열면_발급된다() throws Exception {
+        String guest = guest();
+        long courseId = saveWithoutShare(guest);
+
+        String first = tokenFromDetail(guest, courseId);
+        assertEquals(TOKEN_LENGTH, first.length());
+
+        // 두 번째 조회가 새 토큰을 발급하면 먼저 뿌린 링크가 죽는다.
+        assertEquals(first, tokenFromDetail(guest, courseId));
+
+        mockMvc.perform(get(PUBLIC_URL, first)).andExpect(status().isOk());
+    }
+
+    /**
+     * 목록은 없는 토큰을 <b>발급하지 않는다</b>(#259).
+     *
+     * <p>페이지당 최대 100건이라, 목록에서 발급하면 조회 한 번이 그만큼의 INSERT 가 된다. null 만 단언하면
+     * "발급은 했는데 응답에 안 실었다" 와 구분되지 않으므로 <b>공유 행이 안 생겼는지</b>까지 본다.
+     */
+    @Test
+    void 목록은_없는_공유토큰을_발급하지_않는다() throws Exception {
+        String guest = guest();
+        long courseId = saveWithoutShare(guest);
+
+        mockMvc.perform(get(COURSES_URL).with(user("dev")).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].courseId").value((int) courseId))
+                .andExpect(jsonPath("$.data[0].shareToken").doesNotExist());
+
+        assertTrue(courseShareRepository.findByCourseId(courseId).isEmpty(),
+                "목록 조회가 공유 행을 만들었다 — 한 페이지가 최대 100 INSERT 가 된다");
+    }
+
+    /** 날짜를 고친 순간 토큰이 빠지면 화면의 공유 버튼이 사라진다 — 응답 모양이 상세와 같아야 한다. */
+    @Test
+    void 여행_날짜를_고쳐도_공유토큰이_그대로_실린다() throws Exception {
+        String guest = guest();
+        String saved = saveAndGetToken(guest);
+
+        mockMvc.perform(patch(COURSES_URL + "/" + courseIdOf(guest))
+                        .with(user("dev"))
+                        .header(GUEST_HEADER, guest)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"travelDate\":\"" + LocalDate.now().plusDays(30) + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.shareToken").value(saved));
+    }
+
     /** 담기 전 추천 결과 화면의 공유 버튼(#261) — 담지 않고 링크만 받는다. */
     @Test
     void 담지_않고_공유하면_토큰만_받고_링크가_열린다() throws Exception {
@@ -224,6 +344,27 @@ class CourseShareIntegrationTest {
                 .getResponse()
                 .getContentAsString();
         return JsonPath.read(response, "$.data.shareToken");
+    }
+
+    private String tokenFromDetail(String guest, long courseId) throws Exception {
+        String body = mockMvc.perform(get(COURSES_URL + "/" + courseId)
+                        .with(user("dev"))
+                        .header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return JsonPath.read(body, "$.data.shareToken");
+    }
+
+    /** 저장 API 를 거치지 않고 코스만 만든다 — 공유 행이 없는 상태를 재현하는 유일한 길이다. */
+    private long saveWithoutShare(String guest) {
+        Slot slot = Slot.of(1, TimeOfDay.MORNING, SlotKind.SIGHT, "c1", "장소1", 37.50, 128.60, 0,
+                new SlotDisplay(null, null, null, null));
+        Course course = Course.ownedBy(
+                guest, 16L, Density.PACKED, TransportMode.CAR,
+                List.of(DaySchedule.of(1, List.of(slot))), null, 1, null);
+        return courseRepository.save(course).getId();
     }
 
     private String saveAndGetToken(String guest) throws Exception {
