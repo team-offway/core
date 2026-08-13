@@ -132,8 +132,7 @@ public class MyLeaveService {
             return null;
         }
         return balanceRepository.findByGuestId(guestId)
-                .map(balance -> LeaveSummary.of(balance.getTotalDays(), usageRepository.sumDaysByGuestId(guestId))
-                        .remainingDays())
+                .map(balance -> summaryOf(guestId, balance.getTotalDays()).remainingDays())
                 .orElse(null);
     }
 
@@ -225,7 +224,18 @@ public class MyLeaveService {
         double total = balanceRepository.findByGuestId(guestId)
                 .map(LeaveBalance::getTotalDays)
                 .orElse(UNSET_TOTAL_DAYS);
-        LeaveSummary summary = LeaveSummary.of(total, usageRepository.sumDaysByGuestId(guestId));
+        return summaryOf(guestId, total);
+    }
+
+    /**
+     * 원장 합을 읽어 현황을 만든다 — 자르는 곳이 하나면 <b>알리는 곳도 하나여야 한다.</b>
+     *
+     * <p>총 연차를 이미 손에 든 호출자(홈 배지)도 여기를 지난다. 그쪽이 {@link LeaveSummary#of} 를 직접 부르면
+     * 같은 clamp 가 로그 없이 일어나, 화면 하나는 경고를 남기고 다른 하나는 조용히 넘어간다 — 그리고 홈 배지가
+     * 더 자주 불린다.
+     */
+    private LeaveSummary summaryOf(String guestId, double totalDays) {
+        LeaveSummary summary = LeaveSummary.of(totalDays, usageRepository.sumDaysByGuestId(guestId));
         if (summary.isLedgerNegative()) {
             // 잘라서 내려주고 끝내면 아무도 모른다 — 이 소유자의 내역에 상쇄 등록(음수 days)이 남아 있다는
             // 뜻이다(#265). 소유 키는 사용자 입력이라 로그에 싣지 않는다.
