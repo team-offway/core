@@ -3,6 +3,7 @@ package com.offway.core.itinerary.service.dto;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.service.dto.TrainAccess;
+import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
 import java.util.Map;
