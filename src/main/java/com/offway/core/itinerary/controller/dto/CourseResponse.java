@@ -252,7 +252,8 @@ public record CourseResponse(
             @Schema(description = """
                     오늘 이 장소가 여는지 — **여행일이 오늘일 때만** 실린다. 판정할 수 없으면 필드 자체가 없다.
 
-                    `OPEN` 영업 중 · `CLOSED_TODAY` 오늘은 휴무일이에요 · `CLOSED_NOW` 오늘 운영이 끝났어요""",
+                    `OPEN` 영업 중 · `CLOSED_TODAY` 오늘은 휴무일이에요 ·
+                    `BEFORE_OPEN` 아직 문을 열기 전이에요 · `CLOSED_NOW` 오늘 운영이 끝났어요""",
                     example = "CLOSED_TODAY", nullable = true) String openingStatus,
             double lat,
             double lng,

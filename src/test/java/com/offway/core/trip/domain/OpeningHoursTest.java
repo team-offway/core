@@ -41,15 +41,29 @@ class OpeningHoursTest {
     @CsvSource({
             "09:00~18:00, 14:00, OPEN",
             "09:00~18:00, 18:00, CLOSED_NOW",   // 마감 시각은 이미 끝난 것으로 본다
-            "09:00~18:00, 08:59, CLOSED_NOW",   // 열기 전
             "05:30~20:00, 19:59, OPEN",
             "09:00-18:00, 14:00, OPEN",         // 하이픈 변형
+            "매일 09:00~18:00, 14:00, OPEN",     // 뜻을 안 바꾸는 수식어
     })
     void 단일_시간범위는_시각을_비교한다(String useTime, String at, OpeningStatus expected) {
         LocalDateTime now = LocalDateTime.of(2026, 9, 15, Integer.parseInt(at.split(":")[0]),
                 Integer.parseInt(at.split(":")[1]));
 
         assertEquals(expected, status(useTime, "연중무휴", now, false));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "08:59, BEFORE_OPEN",
+            "09:00, OPEN",
+            "18:00, CLOSED_NOW",
+    })
+    void 개점_전은_운영_종료와_구분한다(String at, OpeningStatus expected) {
+        // 09시에 여는 곳을 08:59 에 보고 "오늘 운영이 끝났어요" 라고 하면 갈 수 있는 곳을 안 가게 만든다.
+        LocalDateTime now = LocalDateTime.of(2026, 9, 15, Integer.parseInt(at.split(":")[0]),
+                Integer.parseInt(at.split(":")[1]));
+
+        assertEquals(expected, status("09:00~18:00", "연중무휴", now, false));
     }
 
     @Test
@@ -117,6 +131,48 @@ class OpeningHoursTest {
         assertEquals(OpeningStatus.UNKNOWN, status("09:00~18:00", restDate, MONDAY_1400, false));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "연중무휴 (단, 설·추석 당일 휴무)",
+            "연중무휴(1월 1일, 설·추석 당일 휴무)",
+            "매주 월요일, 1월 1일, 설·추석 당일",          // 요일은 읽히지만 특정일이 남는다
+            "매주 월요일(공휴일인 경우 다음 날 휴무)",       // 우리가 모르는 예외 조항
+    })
+    void 못_읽은_조건이_남으면_확정하지_않는다(String restDate) {
+        // `연중무휴` 만 보고 OPEN 을 확정하면 설 당일에 "영업 중" 이라고 말한다 — 헛걸음을 만든다.
+        assertEquals(OpeningStatus.UNKNOWN, status("09:00~18:00", restDate, TUESDAY_1400, false));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "상시개방 (동절기 제외)",
+            "24시간 (동절기 제외)",
+            "하절기 09:00~18:00",                       // 계절 한정인데 단일 범위로 읽힌다
+            "동절기 09:00~17:00",
+            "09:00~12:00, 13:00~18:00",                 // 범위가 둘
+    })
+    void 운영시간에_못_읽은_조건이_남으면_확정하지_않는다(String useTime) {
+        assertEquals(OpeningStatus.UNKNOWN, status(useTime, "연중무휴", TUESDAY_1400, false));
+    }
+
+    @Test
+    void 연중무휴와_정기휴무가_함께_오면_모른다고_한다() {
+        // 서로 어긋난다 — 어느 쪽이 맞는지 우리가 모른다.
+        assertEquals(OpeningStatus.UNKNOWN, status("09:00~18:00", "연중무휴, 매주 월요일", MONDAY_1400, false));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"매주 월요일", "매주 월요일 휴관", "매주 월요일 정기휴무"})
+    void 뜻을_안_바꾸는_말이_붙어도_읽는다(String restDate) {
+        // 남기는 쪽을 나열하면 여기 빠진 표현이 UNKNOWN 이 될 뿐이라, 실측으로 볼 때마다 늘리면 된다.
+        assertEquals(OpeningStatus.CLOSED_TODAY, status("09:00~18:00", restDate, MONDAY_1400, false));
+    }
+
+    @Test
+    void 상시개방은_붙은_말을_읽어도_열림이다() {
+        assertEquals(OpeningStatus.OPEN, status("24시간 개방", "연중무휴", MONDAY_1400, false));
+    }
+
     @Test
     void 자정을_넘기는_영업은_판정하지_않는다() {
         // 22:00~02:00 을 그대로 비교하면 낮 시간이 전부 "운영 끝" 으로 나온다.
@@ -141,5 +197,6 @@ class OpeningHoursTest {
     void 모르는_상태는_화면에_안_내린다() {
         assertEquals(false, OpeningStatus.UNKNOWN.isDisplayable());
         assertEquals(true, OpeningStatus.CLOSED_TODAY.isDisplayable());
+        assertEquals(true, OpeningStatus.BEFORE_OPEN.isDisplayable());
     }
 }
