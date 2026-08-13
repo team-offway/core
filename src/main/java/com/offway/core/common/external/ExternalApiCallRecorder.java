@@ -1,5 +1,6 @@
 package com.offway.core.common.external;
 
+import com.offway.core.common.notification.Notifier;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Map;
@@ -32,6 +33,7 @@ public class ExternalApiCallRecorder {
     private static final int URGENT_PERCENT = 90;
 
     private final ExternalApiCallRepository repository;
+    private final Notifier notifier;
 
     /**
      * 한 건 기록한다. <b>실호출 직전</b>에 클라이언트가 명시적으로 부른다.
@@ -43,8 +45,10 @@ public class ExternalApiCallRecorder {
      */
     public void record(ExternalApi api) {
         try {
-            long used = repository.recordAndCount(api, today());
+            LocalDate today = today();
+            long used = repository.recordAndCount(api, today);
             logUsage(api, used);
+            notifyIfStepCrossed(api, today, used);
         } catch (RuntimeException e) {
             log.warn("외부 API 사용량 기록 실패 api={} cause={}", api, e.getClass().getSimpleName());
         }
@@ -58,6 +62,28 @@ public class ExternalApiCallRecorder {
     /** 지금 기준 KST 날짜. 자정을 넘기면 새 행이 되어 자연히 리셋된다. */
     public LocalDate today() {
         return LocalDate.now(SERVICE_ZONE);
+    }
+
+    /**
+     * 10% 단계를 처음 넘겼으면 팀에 알린다(#257).
+     *
+     * <p><b>단계 판정만으로는 부족하다.</b> 이 메서드는 외부 호출마다 도므로, 70% 를 넘긴 뒤로는 매 호출이
+     * 같은 단계에 있다. "어디까지 알렸나" 를 DB 가 들고 있고, 조건부 UPDATE 를 이긴 호출만 실제로 보낸다.
+     */
+    private void notifyIfStepCrossed(ExternalApi api, LocalDate date, long used) {
+        int step = api.usageStep(used);
+        if (step <= 0 || !repository.claimNotifyStep(api, date, step)) {
+            return;
+        }
+        notifier.send(usageMessage(api, used, step));
+    }
+
+    /** 한 줄로 읽히게. 한도 초과는 지금 무엇이 깨지는지까지 말한다. */
+    private String usageMessage(ExternalApi api, long used, int step) {
+        String usage = "%s %d/%d (%d%%)".formatted(api.label(), used, api.dailyLimit(), ExternalApi.percentOf(step));
+        return used >= api.dailyLimit()
+                ? "🔴 " + usage + " — 한도 소진. 이후 호출은 실패합니다"
+                : "⚠️ " + usage;
     }
 
     private void logUsage(ExternalApi api, long used) {
