@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.repository.BatchRunRepository;
+import com.offway.core.common.config.BatchBudgetProperties;
 import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.repository.PoiIntroRepository;
@@ -46,6 +47,10 @@ public class PoiIntroRefreshService {
      *
      * <p>나머지는 사용자 요청(코스 생성 1건당 3회)과 장소 상세가 쓴다. 이 배치가 한도를 다 먹으면
      * 정작 코스가 안 나온다 — 채우려던 값 때문에 채울 대상이 사라지는 셈이다.
+     *
+     * <p><b>로컬은 이보다 적게 쓴다.</b> 로컬과 운영이 같은 키를 쓰는데 배치 건너뛰기는 자기 DB 안에서만
+     * 중복을 막아, 그대로 두면 두 곳이 각자 하루치를 태운다(#254). {@code offway.batch.regions-per-run} 이
+     * 설정돼 있으면 그만큼으로 줄인다.
      */
     private static final int DAILY_BUDGET = 300;
 
@@ -69,6 +74,7 @@ public class PoiIntroRefreshService {
     private final TourApiClient tourApiClient;
     private final PoiIntroRepository poiIntroRepository;
     private final BatchRunRepository batchRunRepository;
+    private final BatchBudgetProperties batchBudget;
 
     /**
      * 하루 한 번 — 그날 이미 돌았으면 외부를 아예 안 부른다.
@@ -96,8 +102,10 @@ public class PoiIntroRefreshService {
      */
     public void refresh() {
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+        // 로컬은 한 회차에 몇 건만 채운다(#254) — 자세한 이유는 BatchBudgetProperties.
+        int budget = batchBudget.limits(DAILY_BUDGET) ? batchBudget.regionsPerRun() : DAILY_BUDGET;
         List<PoiIntroRepository.ContentRef> missing =
-                poiIntroRepository.findMissing(DAILY_BUDGET, now.minus(EMPTY_RETRY_INTERVAL));
+                poiIntroRepository.findMissing(budget, now.minus(EMPTY_RETRY_INTERVAL));
         if (missing.isEmpty()) {
             log.info("장소 운영시간 — 받을 것이 없습니다(저장={}건)", poiIntroRepository.count());
             return;
