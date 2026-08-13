@@ -51,7 +51,7 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
 
                     감성 카피가 아니라 사실이다 — 지역 소개를 주는 외부 출처가 없어, 지어내는 대신
                     우리가 가진 것(국가유산·볼거리)의 이름을 조합한다. 재료가 없으면 필드가 없다.""",
-                    example = "탑리리 오층석탑와(과) 고운사 가운루가(이) 있는 곳", nullable = true) String intro,
+                    example = "탑리리 오층석탑과 고운사 가운루가 있는 곳", nullable = true) String intro,
             List<Benefit> benefits) {
 
         static Item from(RecommendedRegion region) {

@@ -389,8 +389,8 @@ public record CourseResponse(
      */
     private static Map<SlotKind, String> slotBenefits(GeneratedCourse generated) {
         Map<SlotKind, String> byKind = new java.util.EnumMap<>(SlotKind.class);
-        generated.benefits().forEach(benefit ->
-                benefit.type().targetSlotKind().ifPresent(kind -> byKind.putIfAbsent(kind, benefit.text())));
+        generated.benefits().forEach(benefit -> benefit.type().targetScope()
+                .ifPresent(scope -> byKind.putIfAbsent(SlotKind.covering(scope), benefit.text())));
         return byKind;
     }
 
