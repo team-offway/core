@@ -31,8 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * 푸시 토큰 등록·해제의 HTTP 계약(#264).
  *
  * <p><b>소유자·토큰을 테스트마다 다르게 쓴다.</b> 이 클래스는 DB 를 롤백하지 않아(컨텍스트를 공유하는 다른
- * 컨트롤러 통합 테스트와 같다) 같은 값을 쓰면 앞 테스트의 잔여 상태가 다음 시나리오로 새어 든다. 특히
- * 토큰은 테이블 전체에서 유니크라 소유자만 갈라서는 격리되지 않는다.
+ * 컨트롤러 통합 테스트와 같다) 같은 값을 쓰면 앞 테스트의 잔여 상태가 다음 시나리오로 새어 든다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -101,23 +100,51 @@ class DeviceIntegrationTest {
     }
 
     @Test
-    void 같은_토큰이_다른_게스트로_오면_주인이_바뀐다() throws Exception {
-        // 앱을 지웠다 깔면 게스트 ID 는 새로 발급되지만 토큰은 이어질 수 있다. 그 기기의 주인은 새 게스트다.
+    void 남의_토큰을_등록해도_원래_소유자의_등록은_그대로다() throws Exception {
+        // **이 변경의 존재 이유다.** 유니크 제약이 토큰 단독이던 때는 이 두 번째 요청이 첫 행의 소유자를
+        // 갈아끼웠다 — 남의 FCM 토큰을 아는 쪽이 상대의 푸시를 끊고(주인이 바뀌므로) 자기 알림을 상대
+        // 기기로 보낼 수 있었다. X-Guest-Id 헤더뿐인 지금 인증에서는 사칭 비용도 없다.
         String token = uniqueToken();
 
         mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, "device-old-owner")
+                        .header(GUEST_HEADER, "device-victim")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(token, "IOS")))
                 .andExpect(status().isOk());
         mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, "device-new-owner")
+                        .header(GUEST_HEADER, "device-attacker")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(token, "ANDROID")))
+                .andExpect(status().isOk());
+
+        // 피해자의 행이 남아 있어야 하고, 플랫폼까지 공격자 값으로 덮이지 않아야 한다.
+        List<DevicePushToken> victims = devicePushTokenRepository.findByOwner("device-victim");
+        assertEquals(1, victims.size());
+        assertEquals(DevicePlatform.IOS, victims.getFirst().getPlatform());
+        // 공격자에게는 자기 소유의 행이 하나 생길 뿐이다.
+        assertEquals(1, devicePushTokenRepository.findByOwner("device-attacker").size());
+    }
+
+    @Test
+    void 재설치로_게스트가_바뀌면_같은_토큰이_두_행으로_남는다() throws Exception {
+        // 복합 유니크의 대가다. 옛 게스트의 행은 주인이 다시 오지 않는 죽은 행이라, 그대로 두면 같은
+        // 기기로 알림이 두 번 간다. 그 정리는 발송 단계가 한다 — 토큰 기준 중복 제거와 FCM 의
+        // UNREGISTERED 응답으로 걷어낸다(#270). 지금 정리 배치를 두지 않는 것이 의도임을 여기 남긴다.
+        String token = uniqueToken();
+
+        mockMvc.perform(post(URL)
+                        .header(GUEST_HEADER, "device-before-reinstall")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(token, "IOS")))
+                .andExpect(status().isOk());
+        mockMvc.perform(post(URL)
+                        .header(GUEST_HEADER, "device-after-reinstall")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(token, "IOS")))
                 .andExpect(status().isOk());
 
-        assertEquals(0, devicePushTokenRepository.findByOwner("device-old-owner").size());
-        assertEquals(1, devicePushTokenRepository.findByOwner("device-new-owner").size());
+        assertEquals(1, devicePushTokenRepository.findByOwner("device-before-reinstall").size());
+        assertEquals(1, devicePushTokenRepository.findByOwner("device-after-reinstall").size());
     }
 
     @Test
