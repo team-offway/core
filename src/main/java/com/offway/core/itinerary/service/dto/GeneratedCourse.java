@@ -18,8 +18,8 @@ import java.util.Map;
  * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근(자차·저장 코스는 null)
  * @param regionName 코스 지역의 짧은 이름(예: 정선군) — 슬롯마다 "관광명소 · 정선군" 으로 붙는다(#141)
  *     이 순간의 측정치라 다음 주 코스에 붙이면 여행일 상태로 오해된다. 그 밖에는 null
- * @param shareToken 공유 링크 토큰(#143). <b>소유자에게만</b> 준다 — 저장 응답에만 채우고, 공유 링크로 여는
- *     공개 조회에는 null 이다. 링크를 받은 사람에게 토큰을 되돌려줄 이유가 없다
+ * @param shareToken 공유 링크 토큰(#143). <b>소유자에게만</b> 준다 — 저장·상세·날짜수정 응답에 채우고(#259),
+ *     공유 링크로 여는 공개 조회에는 null 이다. 링크를 받은 사람에게 토큰을 되돌려줄 이유가 없다
  * @param firstDayChange 날짜 수정으로 <b>첫날 판단이 뒤집혔을 때만</b> 실린다(#214). 그 밖에는 null
  */
 public record GeneratedCourse(

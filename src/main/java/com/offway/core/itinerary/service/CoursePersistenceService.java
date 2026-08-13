@@ -9,7 +9,10 @@ import com.offway.core.itinerary.repository.CourseShareRepository;
 import com.offway.core.leave.service.MyLeaveService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -162,6 +165,21 @@ public class CoursePersistenceService {
     @Transactional(readOnly = true)
     public Optional<CourseShare> findShare(Long courseId) {
         return courseShareRepository.findByCourseId(courseId);
+    }
+
+    /**
+     * 여러 코스의 공유 토큰 — <b>한 번의 조회로</b>(#259). 목록 응답이 쓴다.
+     *
+     * <p><b>여기서는 발급하지 않는다.</b> 목록은 페이지당 최대 100건이라, 없는 것을 채우려 들면 조회 한 번이
+     * 최대 100번의 INSERT 가 된다. 아직 링크가 없는 코스는 상세를 열 때 그 자리에서 발급된다
+     * ({@link CourseStorageService#get}).
+     *
+     * @return 코스 ID → 토큰. 링크가 없는 코스는 <b>키가 없다</b>
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, String> shareTokensOf(Collection<Long> courseIds) {
+        return courseShareRepository.findByCourseIdIn(courseIds).stream()
+                .collect(Collectors.toMap(CourseShare::getCourseId, CourseShare::getShareToken, (a, b) -> a));
     }
 
     @Transactional

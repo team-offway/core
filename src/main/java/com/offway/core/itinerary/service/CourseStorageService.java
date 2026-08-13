@@ -113,10 +113,40 @@ public class CourseStorageService {
     }
 
     /**
+     * 조회 응답에 실을 공유 토큰 — <b>못 얻으면 코스를 포기하지 않고 토큰만 비운다</b>(#259).
+     *
+     * <p>토큰을 조회 경로에 실으면서 생긴 자리다. 그전까지 상세·날짜수정은 {@code course_share} 를 건드리지
+     * 않아 그 테이블 문제로 깨질 수 없었다. 그대로 두면 <b>공유 버튼 하나 때문에 코스 화면이 통째로 안 뜬다</b> —
+     * 사용자가 잃는 것(코스 전체)이 얻는 것(링크)보다 크다.
+     *
+     * <p>날짜 수정에서는 더 나쁘다. 날짜 갱신은 이미 커밋된 뒤라, 여기서 던지면 <b>바뀐 것을 안 바뀌었다고</b>
+     * 답하게 된다.
+     *
+     * <p><b>조용히 넘어가지는 않는다.</b> 폴백이 정상처럼 보이면 장애를 아무도 모른다 — 사유를 warn 으로
+     * 남긴다. 발급이 안 된 코스는 다음 상세 조회가 다시 시도한다.
+     *
+     * <p>저장({@link #save})은 그대로 둔다. 거기서 토큰이 비면 클라이언트가 링크를 못 만드는데, 그 상황을
+     * 이 PR 이 만든 것이 아니라 원래 그랬다. 바꾸려면 저장 응답 계약을 함께 봐야 한다.
+     */
+    private String shareTokenOrNull(Long courseId) {
+        try {
+            return shareTokenOf(courseId);
+        } catch (RuntimeException e) {
+            // 예외 객체를 그대로 찍지 않는다 — 중복 키 메시지에 토큰이 실려 나온다(shareTokenOf 참고).
+            log.warn("공유 토큰 없이 코스를 내린다 — 공유 버튼만 빠진다 courseId={} cause={}",
+                    courseId, e.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    /**
      * 공유 링크로 여는 코스(#143) — <b>인증 없이, 소유자 확인 없이</b>.
      *
      * <p>접근을 막는 것은 소유자가 아니라 추측 불가능한 토큰이다. 그래서 이 경로는 소유자 식별자를 절대
      * 반환하지 않는다 — 응답 조립은 {@link CourseResponse#publicView} 가 내부 식별자를 걷어낸다.
+     *
+     * <p><b>공유 토큰을 얹지 않는다</b> — 소유자 경로({@link #get})가 #259 에서 토큰을 싣게 됐지만 여기는
+     * 그대로다. 링크를 받은 사람은 이 코스를 수정·삭제할 수 없고, 토큰은 이미 자기가 연 URL 에 있다.
      */
     public GeneratedCourse findShared(String shareToken) {
         Course course = coursePersistenceService.loadShared(shareToken);
@@ -138,7 +168,12 @@ public class CourseStorageService {
         Page<Course> found = scope.find(courseRepository, guestId, today, Paging.of(page, size));
         List<Course> courses = found.getContent();
         courses.forEach(Course::totalSlots); // 응답 직렬화는 tx 밖 — 애그리거트(days·slots)를 여기서 초기화
-        return MyCourses.from(found, myLeaveService.deductedCourseIds(guestId), regionNamesOf(courses), today);
+        return MyCourses.from(
+                found,
+                myLeaveService.deductedCourseIds(guestId),
+                regionNamesOf(courses),
+                shareTokensOf(courses),
+                today);
     }
 
     /**
@@ -161,7 +196,12 @@ public class CourseStorageService {
     public GeneratedCourse get(String guestId, long courseId) {
         // 로딩만 트랜잭션 안에서 한다(별도 빈이라 프록시를 탄다). 날씨는 외부 호출이라 밖에서 붙인다(#169).
         Course course = coursePersistenceService.loadOwned(guestId, courseId);
-        return withBenefits(course, true);
+        // 공유 토큰을 상세에도 싣는다(#259). 저장 응답에만 실어 두니, 그 응답을 놓친 코스는 영영 공유할 수
+        // 없었다 — 앱을 다시 깔거나 기기를 바꾸면 이전 코스가 전부 그랬다.
+        //
+        // **여기서 발급까지 한다.** 없는 것을 null 로 두면 #143 이전에 저장된 코스가 그대로 공유 불가로 남는다.
+        // 조회가 쓰기를 하는 셈이지만, 코스당 한 번뿐이고 두 번째부터는 있는 것을 읽어 준다.
+        return withBenefits(course, true).withShareToken(shareTokenOrNull(course.getId()));
     }
 
     /**
@@ -194,7 +234,11 @@ public class CourseStorageService {
                 : updated;
 
         // 상세 조회와 같은 모양으로 돌려준다 — 화면이 날짜·날씨·요일을 새 날짜 기준으로 다시 그려야 한다.
-        return assemble(finalCourse, region, trainAccess).withFirstDayChange(change);
+        // 공유 토큰도 같은 이유로 함께 싣는다(#259). 여기서만 빠지면 날짜를 고친 순간 화면의 공유 버튼이
+        // 사라진다.
+        return assemble(finalCourse, region, trainAccess)
+                .withShareToken(shareTokenOrNull(courseId))
+                .withFirstDayChange(change);
     }
 
     /**
@@ -281,6 +325,22 @@ public class CourseStorageService {
         }
         return regionRepository.findByIds(regionIds).stream()
                 .collect(Collectors.toMap(Region::getId, Region::getSigungu, (a, b) -> a));
+    }
+
+    /**
+     * 목록에 실을 공유 토큰 — <b>한 번에 모아 조회한다</b>(#259).
+     *
+     * <p>코스마다 물으면 한 페이지에 쿼리가 코스 수만큼 늘어난다(N+1). 목록은 페이지당 최대 100건이다.
+     *
+     * <p><b>없는 것을 발급하지는 않는다.</b> 목록 한 번이 최대 100번의 INSERT 가 되기 때문이다. 그런 코스는
+     * 상세({@link #get})를 열 때 그 자리에서 발급된다.
+     */
+    private Map<Long, String> shareTokensOf(List<Course> courses) {
+        List<Long> courseIds = courses.stream().map(Course::getId).toList();
+        if (courseIds.isEmpty()) {
+            return Map.of();
+        }
+        return coursePersistenceService.shareTokensOf(courseIds);
     }
 
     private GeneratedCourse withBenefits(Course course, boolean withTrainAccess) {

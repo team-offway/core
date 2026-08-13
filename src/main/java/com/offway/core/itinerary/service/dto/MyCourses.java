@@ -18,6 +18,7 @@ import org.springframework.data.domain.Page;
  * @param courses 조회된 코스 (범위에 따라 정렬됨)
  * @param deductedCourseIds 연차를 차감한 코스 ID 들
  * @param regionNames 코스가 속한 지역명(코스 ID 가 아니라 지역 ID 로 색인) — 목록 카드가 숫자 대신 이름을 쓴다(#171)
+ * @param shareTokens 코스 ID → 공유 토큰(#259). 링크가 없는 코스는 키가 없다
  * @param today D-day 계산 기준일
  * @param page 0부터 시작하는 페이지 번호
  * @param size 페이지 크기
@@ -28,6 +29,7 @@ public record MyCourses(
         List<Course> courses,
         Set<Long> deductedCourseIds,
         Map<Long, String> regionNames,
+        Map<Long, String> shareTokens,
         LocalDate today,
         int page,
         int size,
@@ -38,15 +40,21 @@ public record MyCourses(
         courses = List.copyOf(courses);
         deductedCourseIds = Set.copyOf(deductedCourseIds);
         regionNames = Map.copyOf(regionNames);
+        shareTokens = Map.copyOf(shareTokens);
     }
 
     /** 한 페이지 — 목록 화면이 쓰는 길(#105). */
     public static MyCourses from(
-            Page<Course> page, Set<Long> deductedCourseIds, Map<Long, String> regionNames, LocalDate today) {
+            Page<Course> page,
+            Set<Long> deductedCourseIds,
+            Map<Long, String> regionNames,
+            Map<Long, String> shareTokens,
+            LocalDate today) {
         return new MyCourses(
                 page.getContent(),
                 deductedCourseIds,
                 regionNames,
+                shareTokens,
                 today,
                 page.getNumber(),
                 page.getSize(),
@@ -58,17 +66,28 @@ public record MyCourses(
      * 페이지 없이 전부 — 서버 안에서 <b>더 걸러 쓰는</b> 호출자용(다녀온 여행 확인 등).
      *
      * <p>화면에 그대로 내리는 길이 아니다. 응답으로 나가는 목록은 {@link #from} 을 쓴다.
+     *
+     * <p>공유 토큰은 비운다 — 응답으로 나가지 않는 길이라 읽어봐야 쿼리만 하나 더 는다.
      */
     public static MyCourses all(
             List<Course> courses, Set<Long> deductedCourseIds, Map<Long, String> regionNames, LocalDate today) {
         return new MyCourses(
-                courses, deductedCourseIds, regionNames, today, 0, courses.size(), courses.size(),
+                courses, deductedCourseIds, regionNames, Map.of(), today, 0, courses.size(), courses.size(),
                 courses.isEmpty() ? 0 : 1);
     }
 
     /** 코스가 속한 지역명. 모르면 null — 화면이 지역 칸을 비운다. */
     public String regionName(Course course) {
         return regionNames.get(course.getRegionId());
+    }
+
+    /**
+     * 코스의 공유 토큰. 아직 발급된 적 없으면 null — 상세를 한 번 열면 그때 발급된다(#259).
+     *
+     * <p>목록에서는 발급하지 않는다. 페이지당 최대 100건이라 조회 한 번이 그만큼의 INSERT 가 된다.
+     */
+    public String shareToken(Course course) {
+        return shareTokens.get(course.getId());
     }
 
     public boolean isDeducted(Course course) {
