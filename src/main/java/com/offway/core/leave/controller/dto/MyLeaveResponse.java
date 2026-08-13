@@ -10,7 +10,7 @@ import java.util.List;
  * "내 연차" 응답 — API 계약. 남은 연차는 서버가 계산해 내려준다(클라이언트가 빼지 않게).
  *
  * @param totalDays 총 연차
- * @param usedDays 쓴 연차. <b>0 아래로 내려가지 않는다</b> — 상쇄 등록(음수 행)이 섞여 있으면 {@code usages}
+ * @param usedDays 쓴 연차. <b>0 아래로 내려가지 않는다</b> — 옛 상쇄 등록(음수 행)이 남아 있으면 {@code usages}
  *     의 합보다 클 수 있다(#265). 클라이언트는 목록을 더해 검산하지 말고 이 값을 쓴다
  * @param remainingDays 남은 연차. <b>총 연차를 넘지 않고</b>(#265), 초과 사용 시 <b>음수일 수 있다</b>(결정 #38)
  * @param usages 사용 내역 (최근 순)
@@ -33,14 +33,14 @@ public record MyLeaveResponse(
     /**
      * @param id 내역 ID — 삭제({@code DELETE /me/usages/{id}})의 대상이다
      * @param usedOn 연차를 쓴 날
-     * @param days 증감 — 사용은 양수, <b>상쇄 등록은 음수</b>. 그 음수 행도 삭제 대상이다(#265)
+     * @param days 쓴 일수. 새 내역은 양수지만, <b>삭제 API 가 없던 시절의 상쇄 등록은 음수로 남아 있다</b>(#265)
      * @param reason 사유 (없으면 null)
      * @param courseId 이 내역을 만든 코스 (수동 입력이면 null). <b>값이 있으면 삭제할 수 없다</b> — 코스에서 차감을 취소한다
      */
     public record Usage(
             long id,
             @Schema(example = "2026-05-08") LocalDate usedOn,
-            @Schema(description = "증감 (사용 양수 · 상쇄 등록 음수)", example = "1.0") double days,
+            @Schema(description = "쓴 일수 (옛 상쇄 등록만 음수)", example = "1.0") double days,
             @Schema(example = "제주 여행", nullable = true) String reason,
             @Schema(nullable = true) Long courseId) {
 

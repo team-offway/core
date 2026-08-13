@@ -55,11 +55,10 @@ public enum LeaveErrorCode implements ErrorCode {
     LEAVE_USAGE_NOT_FOUND("LEAVE-012", ErrorCategory.NOT_FOUND, "연차 사용 내역을 찾을 수 없습니다."),
 
     /**
-     * 사용 내역을 음수로 등록하려 함 — 취소는 상쇄 등록이 아니라 삭제다.
+     * 사용 내역을 음수로 등록하려 함 — 취소는 상쇄 등록이 아니라 삭제다(#276).
      *
-     * <p><b>아직 아무도 던지지 않는다. 죽은 코드가 아니라 자리를 잡아둔 것이다</b> — #276 이 이 코드를 그대로
-     * 쓴다. #265 에서 거절까지 함께 넣었다가, 앱이 삭제 API 로 갈아타기 전에 배포되면 그 구간에서 취소가
-     * 끊긴다는 것이 드러나 거절만 떼어냈다. 번호는 append-only 라(재사용·재배치 금지) 되돌리면서 지우지 않았다.
+     * <p>#265 에서 자리만 잡아두고(append-only 라 번호를 비워둘 수 없다) 던지는 자리는 여기서 만든다.
+     * 앱이 삭제 API 로 갈아타기 전에 켜면 그 구간 동안 취소가 끊기기 때문이다.
      */
     LEAVE_USAGE_REVERSAL_NOT_ALLOWED(
             "LEAVE-013", ErrorCategory.BAD_REQUEST, "연차 사용은 0.5일 단위의 양수여야 합니다. 되돌리려면 해당 내역을 삭제해 주세요."),

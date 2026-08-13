@@ -70,12 +70,7 @@ public final class LeaveException extends BaseException {
         return new LeaveException(LeaveErrorCode.LEAVE_USAGE_NOT_FOUND);
     }
 
-    /**
-     * 사용 내역을 음수로 등록하려 함 — 취소는 삭제로 한다.
-     *
-     * <p><b>호출부는 #276 이 만든다</b>({@link LeaveErrorCode#LEAVE_USAGE_REVERSAL_NOT_ALLOWED} 와 함께 자리만
-     * 잡아둔 것이다). 거절을 지금 켜면 앱이 삭제 API 로 갈아타기 전 구간에서 취소가 끊긴다.
-     */
+    /** 사용 내역을 음수로 등록하려 함 — 취소는 삭제로 한다. */
     public static LeaveException leaveUsageReversalNotAllowed() {
         return new LeaveException(LeaveErrorCode.LEAVE_USAGE_REVERSAL_NOT_ALLOWED);
     }
