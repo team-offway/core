@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.controller;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -309,6 +310,36 @@ class CourseLeaveDeductionIntegrationTest {
 
         Assertions.assertEquals(List.of(200, 200), statuses.stream().sorted().toList(),
                 "동시 확정은 경합일 뿐 실패가 아니다. 실제=" + statuses);
+        mockMvc.perform(get(LEAVES).header("X-Guest-Id", guest))
+                .andExpect(jsonPath("$.data.usedDays").value(2.0))
+                .andExpect(jsonPath("$.data.usages.length()").value(1));
+    }
+
+    /**
+     * 코스 확정으로 생긴 내역은 <b>연차 화면에서 지울 수 없다</b>(#265) — 409 로 끊고 코스 쪽으로 안내한다.
+     *
+     * <p>지우게 두면 코스는 확정인데 연차는 안 깎인 상태가 남고, 그 행을 전제로 도는 코스 삭제·날짜 변경도
+     * 함께 어긋난다. 404 로 감추지도 않는다 — 자기 내역이 화면에 보이는데 "없다" 고 답하면 버그로 읽힌다.
+     */
+    @Test
+    void 코스_확정_내역은_연차_화면에서_지울_수_없다() throws Exception {
+        holidays(Set.of());
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 15.0);
+        long courseId = saveCourse(guest, TWO_DAY_COURSE);
+        String deducted = deduct(guest, courseId, "{}")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long usageId = ((Number) JsonPath.read(deducted, "$.data.usages[0].id")).longValue();
+
+        mockMvc.perform(delete(LEAVES + "/usages/{id}", usageId).header("X-Guest-Id", guest))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.code").value("LEAVE-014"))
+                .andExpect(jsonPath("$.detail").value("코스 확정으로 기록된 연차입니다. 코스에서 차감을 취소해 주세요."))
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        // 차감은 그대로 남는다.
         mockMvc.perform(get(LEAVES).header("X-Guest-Id", guest))
                 .andExpect(jsonPath("$.data.usedDays").value(2.0))
                 .andExpect(jsonPath("$.data.usages.length()").value(1));
