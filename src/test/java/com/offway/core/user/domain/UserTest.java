@@ -1,6 +1,7 @@
 package com.offway.core.user.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -32,6 +33,27 @@ class UserTest {
         String nickname = User.withNickname(tooLong).getNickname();
 
         assertEquals(User.MAX_NICKNAME_LENGTH, nickname.length());
+    }
+
+    @Test
+    void 이메일은_없을_수_있다() {
+        // Kakao 는 이메일 동의를 거부할 수 있고, Apple 은 최초 로그인에만 준다. 없는 것이 정상 경로다.
+        assertNull(User.of("세빈", null).getEmail());
+        assertNull(User.of("세빈", "   ").getEmail());
+    }
+
+    @Test
+    void 이메일_앞뒤_공백은_제거한다() {
+        assertEquals("user@example.com", User.of("세빈", "  user@example.com  ").getEmail());
+    }
+
+    @Test
+    void 이메일이_컬럼_폭을_넘으면_잘라낸다() {
+        // 형식을 강제하지 않는다 — provider 가 주는 값이라 우리가 통제하지 못하고, 이메일 하나 때문에
+        // 가입이 실패하면 안 된다. 길이만 컬럼에 맞춘다.
+        String tooLong = "a".repeat(User.MAX_EMAIL_LENGTH + 10);
+
+        assertEquals(User.MAX_EMAIL_LENGTH, User.of("세빈", tooLong).getEmail().length());
     }
 
     @Test

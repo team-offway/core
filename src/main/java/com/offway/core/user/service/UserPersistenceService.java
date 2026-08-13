@@ -1,12 +1,13 @@
 package com.offway.core.user.service;
 
-import com.offway.core.user.domain.OidcUser;
+import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.RefreshToken;
 import com.offway.core.user.domain.User;
 import com.offway.core.user.domain.UserIdentity;
 import com.offway.core.user.repository.RefreshTokenRepository;
 import com.offway.core.user.repository.UserIdentityRepository;
 import com.offway.core.user.repository.UserRepository;
+import com.offway.core.user.service.dto.AuthenticatedUser;
 import com.offway.core.user.service.dto.TokenRotation;
 import java.time.Instant;
 import java.util.Optional;
@@ -34,14 +35,15 @@ public class UserPersistenceService {
     /**
      * 검증된 provider 신원으로 사용자를 찾거나 만든다. 최초 로그인이 곧 가입이다.
      *
-     * <p>닉네임은 요청 값 → ID 토큰 클레임 순으로 채운다. Apple 은 토큰에 이름을 주지 않아 요청 값이 유일한 출처다.
+     * <p>가입이었는지를 {@link AuthenticatedUser#newUser()} 로 함께 돌려준다 — 앱이 온보딩과 홈을 가르는 값이라,
+     * 만든 그 자리에서만 정확히 알 수 있다.
      */
     @Transactional
-    public UUID findOrCreateUser(OidcUser oidcUser, String requestedNickname) {
+    public AuthenticatedUser findOrCreateUser(SocialIdentity identity, String requestedNickname, String requestedEmail) {
         return userIdentityRepository
-                .findByProviderAndSubject(oidcUser.provider(), oidcUser.subject())
-                .map(UserIdentity::getUserId)
-                .orElseGet(() -> register(oidcUser, requestedNickname));
+                .findByProviderAndSubject(identity.provider(), identity.providerUserId())
+                .map(found -> new AuthenticatedUser(found.getUserId(), false))
+                .orElseGet(() -> new AuthenticatedUser(register(identity, requestedNickname, requestedEmail), true));
     }
 
     /** local 개발 로그인용 — provider 연결 없이 사용자만 만든다. */
@@ -86,14 +88,28 @@ public class UserPersistenceService {
         revokeActive(userId, now);
     }
 
-    private UUID register(OidcUser oidcUser, String requestedNickname) {
-        String nickname = requestedNickname != null && !requestedNickname.isBlank()
-                ? requestedNickname
-                : oidcUser.nicknameIfPresent().orElse(null);
-        User user = userRepository.save(User.withNickname(nickname));
-        userIdentityRepository.save(UserIdentity.link(user.getId(), oidcUser.provider(), oidcUser.subject()));
-        log.info("신규 가입 provider={} userId={}", oidcUser.provider(), user.getId());
+    /**
+     * 새 사용자와 provider 신원을 함께 만든다.
+     *
+     * <p>닉네임·이메일은 <b>요청 값 → provider 가 확인해 준 값</b> 순으로 채운다. Apple 은 ID 토큰에 이름을 담지 않고
+     * 최초 인증 응답에만 주므로, 그 경로에서는 요청 값이 유일한 출처다. 반대로 Kakao 는 프로필 조회로 우리가 직접
+     * 받으므로 요청 값이 없어도 채워진다.
+     *
+     * <p>표시용 값이라 요청 값을 먼저 쓰는 것이 안전하다 — 신원(누구인가)은 요청 값을 절대 믿지 않지만
+     * ({@link SocialIdentity}), 표시 이름은 틀려도 사용자가 고칠 수 있는 정보다.
+     */
+    private UUID register(SocialIdentity identity, String requestedNickname, String requestedEmail) {
+        String nickname = firstPresent(requestedNickname, identity.nicknameIfPresent().orElse(null));
+        String email = firstPresent(requestedEmail, identity.emailIfPresent().orElse(null));
+        User user = userRepository.save(User.of(nickname, email));
+        userIdentityRepository.save(UserIdentity.link(user.getId(), identity.provider(), identity.providerUserId()));
+        // 이메일·닉네임은 개인정보라 로그에 남기지 않는다. 어느 provider 로 몇 명이 들어오는지만 남긴다.
+        log.info("신규 가입 provider={} userId={}", identity.provider(), user.getId());
         return user.getId();
+    }
+
+    private static String firstPresent(String preferred, String fallback) {
+        return preferred != null && !preferred.isBlank() ? preferred : fallback;
     }
 
     /** 트랜잭션 안에서만 호출된다 — 관리 상태 엔티티라 dirty checking 으로 반영된다. self-invocation 을 피하려 private. */
