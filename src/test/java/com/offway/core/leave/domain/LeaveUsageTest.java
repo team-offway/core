@@ -1,5 +1,6 @@
 package com.offway.core.leave.domain;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -7,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * 연차 사용 내역 한 건. 코스 날짜가 바뀌면 이 행이 따라 옮겨진다(#170).
@@ -104,5 +107,35 @@ class LeaveUsageTest {
     void 코스_차감은_음수를_받지_않는다() {
         // 코스 차감의 취소는 음수 누적이 아니라 행 삭제다(#113).
         assertThrows(LeaveException.class, () -> LeaveUsage.forCourse("guest-1", WHEN, -1.0, "코스 확정", 7L, false));
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = {-0.5, -1, -2, -99})
+    void 수동_내역은_아직_음수를_받는다(double days) {
+        // 되돌리기는 삭제가 맞지만, 거절을 지금 켜면 앱이 갈아타기 전 구간에서 취소가 끊긴다 —
+        // #276 으로 미뤘다. 미뤄도 잔여가 총을 넘는 증상은 LeaveSummary 의 clamp 가 막는다.
+        LeaveUsage usage = LeaveUsage.manual("guest-1", WHEN, days, "취소");
+
+        assertEquals(days, usage.getDays());
+        assertTrue(usage.isManual(), "상쇄 등록도 수동 내역이라 사용자가 삭제로 정리할 수 있다");
+    }
+
+    @Test
+    void 수동_내역은_손으로_지울_수_있다() {
+        LeaveUsage usage = LeaveUsage.manual("guest-1", WHEN, 1.0, "개인 사유");
+
+        assertTrue(usage.isManual());
+        assertDoesNotThrow(usage::requireManuallyDeletable);
+    }
+
+    @Test
+    void 코스_확정_내역은_연차_화면에서_지울_수_없다() {
+        // 그 행은 차감량이자 확정 표식이다 — 지우면 코스는 확정인데 연차는 안 깎인 상태가 남는다.
+        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, false);
+
+        LeaveException thrown = assertThrows(LeaveException.class, usage::requireManuallyDeletable);
+
+        assertEquals(LeaveErrorCode.COURSE_LEAVE_USAGE_NOT_DELETABLE, thrown.errorCode());
+        assertFalse(usage.isManual());
     }
 }
