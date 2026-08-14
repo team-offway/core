@@ -45,6 +45,16 @@ public class LeaveUsageRepositoryImpl implements LeaveUsageRepository {
     }
 
     @Override
+    public Optional<LeaveUsage> findByIdAndGuestId(Long id, String guestId) {
+        return jpaRepository.findByIdAndGuestId(id, guestId);
+    }
+
+    @Override
+    public void delete(LeaveUsage usage) {
+        jpaRepository.delete(usage);
+    }
+
+    @Override
     public LeaveUsage save(LeaveUsage usage) {
         return jpaRepository.save(usage);
     }

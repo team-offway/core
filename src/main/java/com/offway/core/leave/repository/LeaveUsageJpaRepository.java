@@ -21,6 +21,9 @@ public interface LeaveUsageJpaRepository extends JpaRepository<LeaveUsage, Long>
 
     Optional<LeaveUsage> findByGuestIdAndCourseId(String guestId, Long courseId);
 
+    /** 소유자를 조건에 함께 건다 — 남의 내역은 애초에 읽히지 않는다(#265). */
+    Optional<LeaveUsage> findByIdAndGuestId(Long id, String guestId);
+
     /** 코스 ID 만 뽑는다 — 목록 화면은 "차감했는가" 만 알면 되므로 내역 전체를 끌어올 이유가 없다. */
     @Query("SELECT u.courseId FROM LeaveUsage u WHERE u.guestId = :guestId AND u.courseId IS NOT NULL")
     Set<Long> findDeductedCourseIds(@Param("guestId") String guestId);
