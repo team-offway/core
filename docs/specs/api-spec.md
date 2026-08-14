@@ -238,6 +238,7 @@
 
 > 🎯 필터칩 목록 · **기능 F6** · 서버 내부에서 `SIGHT`→lclsSystm(NA+HS+VE+LS+EV) 등 매핑
 
+- `regionCount` 는 **적재된 지역 콘텐츠로 그때그때 세는 값**이라 아래 숫자는 예시다. `ALL`(89)만 고시로 고정이고 나머지는 적재 상태에 따라 달라진다.
 - `regionCount` = **그 칩으로 좁혔을 때 나오는 지역 수**(#266). `GET /regions?category={key}` 의 `pageResponse.totalElements` 와 같은 값이고, `ALL` 은 전체 지역 수다. 화면이 개수를 지어내거나("전부 1건") 빈 칩을 그리지 않게 하려는 것.
 
 **응답 `data`**
