@@ -57,7 +57,7 @@ class DeviceIntegrationTest {
 
     @Test
     void 등록하면_200과_빈_data를_준다() throws Exception {
-        String guest = "device-register";
+        String guest = guest("device-register");
 
         mockMvc.perform(post(URL)
                         .header(GUEST_HEADER, guest)
@@ -78,7 +78,7 @@ class DeviceIntegrationTest {
     @Test
     void 같은_토큰을_다시_보내도_행이_늘지_않고_갱신된다() throws Exception {
         // 토큰은 갱신되고 같은 기기가 여러 번 등록한다 — 그때마다 행이 생기면 같은 알림이 여러 번 간다.
-        String guest = "device-reregister";
+        String guest = guest("device-reregister");
         String token = uniqueToken();
 
         mockMvc.perform(post(URL)
@@ -149,7 +149,7 @@ class DeviceIntegrationTest {
 
     @Test
     void 한_게스트가_기기_두_대를_등록할_수_있다() throws Exception {
-        String guest = "device-two";
+        String guest = guest("device-two");
 
         mockMvc.perform(post(URL)
                         .header(GUEST_HEADER, guest)
@@ -167,7 +167,7 @@ class DeviceIntegrationTest {
 
     @Test
     void 해제하면_그_게스트의_토큰만_지운다() throws Exception {
-        String guest = "device-unregister";
+        String guest = guest("device-unregister");
         String other = "device-untouched";
         mockMvc.perform(post(URL)
                         .header(GUEST_HEADER, guest)
@@ -202,7 +202,7 @@ class DeviceIntegrationTest {
     void 같은_토큰이_동시에_등록돼도_행이_하나다() throws Exception {
         // 이 설계의 핵심 주장이다. "있나 보고 없으면 넣기" 로 풀었다면 여기서 둘 다 "없다" 를 읽고
         // 하나가 유니크 제약에 걸려 500 이 나간다. 판정을 DB 한 문장에 맡겨 경합 자체를 없앴다.
-        String guest = "device-concurrent";
+        String guest = guest("device-concurrent");
         String token = uniqueToken();
         int attempts = 4;
         ExecutorService pool = Executors.newFixedThreadPool(attempts);
@@ -273,5 +273,16 @@ class DeviceIntegrationTest {
         mockMvc.perform(delete(URL).header(GUEST_HEADER, " "))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("DEVICE-001"));
+    }
+
+    /**
+     * 매번 다른 소유 키.
+     *
+     * <p>통합 테스트는 DB 를 공유하고 이 클래스는 롤백하지 않는다({@code findByOwner} 의 전체 행 수를 단언하려면
+     * 커밋된 상태가 필요하다). 고정 id 를 쓰면 앞선 실행이 남긴 행이 그 수에 섞여, 코드가 멀쩡한데 빨간불이 되거나
+     * 반대로 깨진 코드가 통과한다.
+     */
+    private static String guest(String prefix) {
+        return prefix + "-" + UUID.randomUUID();
     }
 }
