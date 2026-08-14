@@ -5,12 +5,14 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -25,6 +27,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 /**
  * "내 연차" 통합 테스트.
@@ -43,6 +46,17 @@ class MyLeaveIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    private ResultActions addUsage(String guest, String body) throws Exception {
+        return mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, guest)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
+    }
+
+    /** 방금 만든 내역의 ID — 삭제 대상이다. 이 소유자에게 내역이 하나뿐인 시나리오에서만 쓴다. */
+    private static long onlyUsageId(String responseBody) {
+        return ((Number) JsonPath.read(responseBody, "$.data.usages[0].id")).longValue();
+    }
 
     @Test
     void 설정한_적_없으면_총0_내역없음으로_내려준다() throws Exception {
@@ -75,28 +89,160 @@ class MyLeaveIntegrationTest {
     }
 
     @Test
-    void 사용내역을_쌓으면_남은_연차가_줄고_취소하면_되돌아온다() throws Exception {
+    void 사용내역을_쌓으면_남은_연차가_줄고_지우면_되돌아온다() throws Exception {
         String guest = "leave-usage";
         mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 10}"))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, guest)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"usedOn\": \"2026-05-08\", \"days\": 3, \"reason\": \"제주 여행\"}"))
+        String created = addUsage(guest, "{\"usedOn\": \"2026-05-08\", \"days\": 3, \"reason\": \"제주 여행\"}")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value(201))
                 .andExpect(jsonPath("$.data.usedDays").value(3.0))
-                .andExpect(jsonPath("$.data.remainingDays").value(7.0));
+                .andExpect(jsonPath("$.data.remainingDays").value(7.0))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        long usageId = onlyUsageId(created);
 
-        // 취소는 행을 지우지 않고 음수 내역을 하나 더 쌓는다 — 언제 무엇이 취소됐는지가 남는다.
-        mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, guest)
+        // 취소는 음수 상쇄가 아니라 그 행을 지우는 것이다(#265) — 응답은 갱신된 내 연차 전체다.
+        mockMvc.perform(delete(USAGES_URL + "/{id}", usageId).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.totalDays").value(10.0))
+                .andExpect(jsonPath("$.data.usedDays").value(0.0))
+                .andExpect(jsonPath("$.data.remainingDays").value(10.0))
+                .andExpect(jsonPath("$.data.usages.length()").value(0));
+    }
+
+    /**
+     * 이 PR 의 존재 이유 — 같은 취소가 두 번 들어와도 <b>잔여가 총 연차를 넘지 않는다</b>.
+     *
+     * <p>예전에는 취소를 음수 등록으로 흉내냈고, 재시도·중복 탭으로 두 번 들어오면 총 15일인 사람의 잔여가
+     * 17 이 됐다. 지금은 두 번째 삭제가 404 로 끊기고 잔여는 총 그대로다.
+     */
+    @Test
+    void 취소를_두_번_보내도_잔여가_총_연차를_넘지_않는다() throws Exception {
+        String guest = "leave-double-cancel";
+        mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 15}"))
+                .andExpect(status().isOk());
+        String created = addUsage(guest, "{\"usedOn\": \"2026-05-08\", \"days\": 2}")
+                .andExpect(jsonPath("$.data.remainingDays").value(13.0))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        long usageId = onlyUsageId(created);
+
+        mockMvc.perform(delete(USAGES_URL + "/{id}", usageId).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.remainingDays").value(15.0));
+
+        mockMvc.perform(delete(USAGES_URL + "/{id}", usageId).header(GUEST_HEADER, guest))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LEAVE-012"));
+
+        mockMvc.perform(get(URL).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usedDays").value(0.0))
+                .andExpect(jsonPath("$.data.remainingDays").value(15.0));
+    }
+
+    @Test
+    void 음수_등록은_아직_받는다() throws Exception {
+        // 거절(400 LEAVE-013)은 #276 으로 미뤘다 — 앱이 삭제 API 로 갈아타기 전에 켜면 그 구간 동안
+        // 취소가 400 을 받아 사용자가 취소를 아예 못 한다. 지금 앱이 쓰는 경로라 열려 있어야 한다.
+        mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, "leave-reversal")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"usedOn\": \"2026-05-09\", \"days\": -1, \"reason\": \"하루 취소\"}"))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value(201))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.usages[0].days").value(-1.0));
+    }
+
+    @Test
+    void 없는_내역을_지우면_404_LEAVE_012() throws Exception {
+        mockMvc.perform(delete(USAGES_URL + "/{id}", 987654321L).header(GUEST_HEADER, "leave-missing"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.code").value("LEAVE-012"))
+                .andExpect(jsonPath("$.detail").value("연차 사용 내역을 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void 남의_내역은_지울_수_없고_없는_것과_같은_404다() throws Exception {
+        // 403 으로 나눠 답하면 id 를 넣어보며 "이 번호는 있다" 를 알아낼 수 있다 — 코스 조회와 같은 규칙이다.
+        String created = addUsage("leave-owner-x", "{\"usedOn\": \"2026-05-08\", \"days\": 1}")
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        long usageId = onlyUsageId(created);
+
+        mockMvc.perform(delete(USAGES_URL + "/{id}", usageId).header(GUEST_HEADER, "leave-owner-y"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LEAVE-012"));
+
+        // 주인의 내역은 그대로 남아 있다.
+        mockMvc.perform(get(URL).header(GUEST_HEADER, "leave-owner-x"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usages.length()").value(1));
+    }
+
+    @Test
+    void 삭제도_빈_소유_키는_400_LEAVE_011() throws Exception {
+        mockMvc.perform(delete(USAGES_URL + "/{id}", 1L).header(GUEST_HEADER, "  "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LEAVE-011"));
+    }
+
+    /**
+     * <b>#265 의 재현 시나리오 그 자체</b> — 지금 앱이 하는 그대로(상쇄 등록) 취소를 두 번 보낸 장부다.
+     *
+     * <p>넷을 한 번에 잠근다. ① 상쇄 등록은 아직 통과한다(#276 전이라 앱 경로가 열려 있어야 한다)
+     * ② 원장 합이 -2 로 내려가도 <b>잔여가 17 이 아니라 15</b> — clamp 가 단위 테스트가 아니라 실응답에서 돈다
+     * ③ 그래도 <b>음수 행은 목록에 그대로 보인다</b> — 마이그레이션으로 지우지 않기로 한 결정의 실제 모습이다
+     * ④ 사용자가 그 행을 지울 수 있고, 지우면 clamp 가 가리고 있던 값과 장부가 같아진다.
+     *
+     * <p>#276 이 음수 등록을 닫으면 이 시나리오의 준비 단계는 API 로 만들 수 없다 — 그때 남아 있는 옛 행을
+     * 재현하려면 도메인을 우회해 직접 적재해야 한다(하이드레이션은 생성자를 거치지 않는다).
+     */
+    @Test
+    void 상쇄_등록이_쌓여도_잔여가_총을_넘지_않고_지워서_정리할_수_있다() throws Exception {
+        String guest = "leave-reversal-ledger";
+        mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 15}"))
+                .andExpect(status().isOk());
+        addUsage(guest, "{\"usedOn\": \"2026-05-08\", \"days\": 2}").andExpect(status().isCreated());
+        // 같은 취소가 두 번 — 재시도·중복 탭이면 실제로 이렇게 들어온다. 원장 합이 -2 가 된다.
+        addUsage(guest, "{\"usedOn\": \"2026-05-09\", \"days\": -2}").andExpect(status().isCreated());
+        addUsage(guest, "{\"usedOn\": \"2026-05-09\", \"days\": -2}").andExpect(status().isCreated());
+
+        String found = mockMvc.perform(get(URL).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usedDays").value(0.0))
+                .andExpect(jsonPath("$.data.remainingDays").value(15.0)) // 17 이 아니다
+                .andExpect(jsonPath("$.data.usages.length()").value(3))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        List<Integer> negativeIds = JsonPath.read(found, "$.data.usages[?(@.days < 0)].id");
+        assertEquals(2, negativeIds.size(), "음수 행은 감춰지지 않고 목록에 그대로 나간다");
+
+        for (Integer id : negativeIds) {
+            mockMvc.perform(delete(USAGES_URL + "/{id}", id.longValue()).header(GUEST_HEADER, guest))
+                    .andExpect(status().isOk());
+        }
+
+        // 정리하고 나면 clamp 가 가리고 있던 값과 실제 장부가 같아진다.
+        mockMvc.perform(get(URL).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(2.0))
-                .andExpect(jsonPath("$.data.remainingDays").value(8.0))
-                .andExpect(jsonPath("$.data.usages.length()").value(2));
+                .andExpect(jsonPath("$.data.remainingDays").value(13.0))
+                .andExpect(jsonPath("$.data.usages.length()").value(1));
     }
 
     @Test
