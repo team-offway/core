@@ -7,6 +7,7 @@ import com.offway.core.trip.domain.RegionContent;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -42,6 +43,14 @@ public class RegionCategoryCountProvider {
 
     private static final String RECOUNT_INTERVAL_TEXT = "1시간";
 
+    /**
+     * 지역이 비어 warn 을 남기는 최소 간격.
+     *
+     * <p>다시 세는 것을 억제하려는 것이 아니다 — {@link RegionMaster} 가 이미 빈 상태의 재적재를 자기 간격으로 막는다.
+     * 여기서 막는 것은 <b>로그</b>다. 조회마다 같은 warn 을 남기면 시드가 늦어진 동안 로그가 그 한 줄로 덮인다.
+     */
+    private static final Duration EMPTY_WARN_INTERVAL = Duration.ofMinutes(5);
+
     private final RegionMaster regionMaster;
     private final RegionContentProvider regionContentProvider;
 
@@ -49,6 +58,20 @@ public class RegionCategoryCountProvider {
      * 마지막으로 센 결과. <b>{@code null} 이 "아직 세지 않았다"</b> 다 — 결과가 전부 0 인 것과 구별해야 다음 조회가 다시 센다.
      */
     private volatile Snapshot snapshot;
+
+    /**
+     * 원본이 바뀐 횟수 — <b>세는 동안 바뀌었는지</b>를 가른다.
+     *
+     * <p>재계산은 콘텐츠를 읽고 나서 결과를 세운다. 그 사이에 적재가 끝나 {@link #invalidate()} 가 스냅샷을 버리면,
+     * 진행 중이던 재계산이 <b>옛 입력으로 만든 결과</b>를 새 시각으로 다시 세운다 — 버린 것이 되살아나 새 콘텐츠가 최대
+     * {@value #RECOUNT_INTERVAL_TEXT} 동안 칩에 안 나온다. 적재 직후 버리는 것이 이 클래스의 설계인데 그 자리가 무력해진다.
+     *
+     * <p>읽기 전에 세대를 적어 두고 세울 때 대조한다. 달라졌으면 세우지 않는다 — 다음 조회가 새 입력으로 다시 센다.
+     */
+    private final AtomicLong generation = new AtomicLong();
+
+    /** 지역이 비어 마지막으로 warn 을 남긴 시각(단조 시계). */
+    private volatile long lastEmptyWarnNanos = Long.MIN_VALUE;
 
     /** 센 결과와 센 시각(단조 시계). 벽시계로 재면 시스템 시각 보정에 간격이 늘거나 즉시 만료된다. */
     private record Snapshot(CategoryCounts counts, long countedNanos) {
@@ -83,6 +106,7 @@ public class RegionCategoryCountProvider {
      * 어차피 다음 조회가 센다.
      */
     public void invalidate() {
+        generation.incrementAndGet();
         snapshot = null;
     }
 
@@ -93,11 +117,12 @@ public class RegionCategoryCountProvider {
      * 같은 값으로 덮을 뿐이고, 락을 걸면 89행 조회 하나 때문에 요청 스레드가 서로를 기다린다.
      */
     private CategoryCounts recount() {
+        long startedAt = generation.get();
         List<Region> all = regionMaster.all();
         if (all.isEmpty()) {
             // 시드가 아직 없는 상태(초기 부팅)다. 스냅샷을 세우지 않아 다음 조회가 다시 시도한다 —
             // 여기서 "전부 0" 을 굳히면 시드가 들어온 뒤에도 한 시간 동안 빈 칩이 나간다.
-            log.warn("지역이 없어 필터칩 개수를 세지 못했습니다 — 다음 조회에서 다시 셉니다");
+            warnEmptyRegions();
             return CategoryCounts.EMPTY;
         }
         List<Long> regionIds = all.stream().map(Region::getId).toList();
@@ -107,8 +132,25 @@ public class RegionCategoryCountProvider {
                 .map(regionId -> stored.getOrDefault(regionId, RegionContent.EMPTY))
                 .toList();
         CategoryCounts counted = CategoryCounts.of(contents);
+        if (generation.get() != startedAt) {
+            // 세는 동안 적재가 끝났다. 이 결과는 옛 입력에서 나왔으므로 세우지 않는다 — 세우면 방금 버린 것이
+            // 되살아나 새 콘텐츠가 안전망 간격만큼 늦게 반영된다. 다음 조회가 새 입력으로 다시 센다.
+            log.debug("집계 중 지역 콘텐츠가 갱신돼 결과를 버립니다 — 다음 조회가 다시 셉니다");
+            return counted;
+        }
         snapshot = new Snapshot(counted, System.nanoTime());
         log.debug("필터칩 개수 집계 지역={} 콘텐츠={} 결과={}", all.size(), stored.size(), counted.byCategory());
         return counted;
+    }
+
+    /** 같은 warn 이 조회마다 쌓이지 않게 창당 한 줄로 누른다. 창이 지나면 다시 남겨 장애 지속도 보이게 한다. */
+    private void warnEmptyRegions() {
+        long now = System.nanoTime();
+        long last = lastEmptyWarnNanos;
+        if (last != Long.MIN_VALUE && now - last < EMPTY_WARN_INTERVAL.toNanos()) {
+            return;
+        }
+        lastEmptyWarnNanos = now;
+        log.warn("지역이 없어 필터칩 개수를 세지 못했습니다 — 다음 조회에서 다시 셉니다");
     }
 }
