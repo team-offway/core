@@ -33,6 +33,7 @@ public class HomeService {
     private final RegionRankingService regionRankingService;
     private final RegionContentProvider regionContentProvider;
     private final RegionHeroPhotoProvider regionHeroPhotoProvider;
+    private final RegionCategoryCountProvider regionCategoryCountProvider;
     private final PolicyService policyService;
     private final MyLeaveService myLeaveService;
 
@@ -73,7 +74,8 @@ public class HomeService {
                 .map(score -> toCard(
                         regionById.get(score.regionId()), score, contents, heroPhotos, policiesByRegion))
                 .toList();
-        return new HomeResult(remainingLeaveDays, cards);
+        // 필터칩 개수는 미리 세어 둔 값을 읽기만 한다(#266) — 요청마다 89곳을 다시 세지 않는다.
+        return new HomeResult(remainingLeaveDays, cards, regionCategoryCountProvider.counts());
     }
 
     private HomeResult.RegionCard toCard(
