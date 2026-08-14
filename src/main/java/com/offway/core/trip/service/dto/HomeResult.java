@@ -2,6 +2,7 @@ package com.offway.core.trip.service.dto;
 
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.trip.domain.Category;
+import com.offway.core.trip.domain.CategoryCounts;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
 import java.util.List;
@@ -13,8 +14,9 @@ import java.util.List;
  *
  * @param remainingLeaveDays 남은 연차 (저장값. 설정한 적 없으면 null — 0 과 구분한다). 반차가 0.5 라 실수다
  * @param regions 추천 지역 카드 (랭킹 top-N)
+ * @param categoryCounts 필터칩별 지역 수(#266). 홈이 그리는 칩이 개수를 지어내지 않게 함께 내린다
  */
-public record HomeResult(Double remainingLeaveDays, List<RegionCard> regions) {
+public record HomeResult(Double remainingLeaveDays, List<RegionCard> regions, CategoryCounts categoryCounts) {
 
     /**
      * @param regionId 지역 ID

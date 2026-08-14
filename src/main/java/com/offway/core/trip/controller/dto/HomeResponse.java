@@ -16,7 +16,7 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
     public static HomeResponse from(HomeResult result) {
         return new HomeResponse(
                 new User(GUEST_NAME, result.remainingLeaveDays()),
-                CategoryResponse.of().categories(),
+                CategoryResponse.of(result.categoryCounts()).categories(),
                 result.regions().stream().map(RegionCard::from).toList());
     }
 
@@ -34,7 +34,7 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
      * @param name 지역명 (시군구 · 시도)
      * @param crowdLevel 한산도 뱃지
      * @param imageUrl 대표 이미지 URL (없으면 null)
-     * @param categories 볼거리 카테고리 칩
+     * @param categories 볼거리 카테고리 태그 (필터칩과 달리 개수가 없다 — {@link CategoryTagResponse})
      * @param benefit 대표 혜택 (없으면 null)
      */
     public record RegionCard(
@@ -45,7 +45,7 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
                             example = "http://tong.visitkorea.or.kr/cms/resource/83/1234583_image2_1.jpg",
                             nullable = true)
                     String imageUrl,
-            List<CategoryResponse.Item> categories,
+            List<CategoryTagResponse> categories,
             @Schema(description = "대표 혜택 (없으면 null)", nullable = true) Benefit benefit) {
 
         static RegionCard from(HomeResult.RegionCard card) {
@@ -54,7 +54,7 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
                     card.sigungu() + " · " + card.sido(),
                     card.crowdLevel(),
                     card.imageUrl(),
-                    card.categories().stream().map(CategoryResponse.Item::from).toList(),
+                    card.categories().stream().map(CategoryTagResponse::from).toList(),
                     card.benefit() == null ? null : Benefit.from(card.benefit()));
         }
     }
