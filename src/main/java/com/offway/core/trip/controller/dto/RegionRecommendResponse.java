@@ -30,7 +30,7 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
      * @param crowdLevel 한산도 뱃지
      * @param imageUrl 대표 이미지 URL (없으면 null)
      * @param contentCount 볼거리 수 (인접 50km 병합 시 합산)
-     * @param categories 볼거리 카테고리 칩
+     * @param categories 볼거리 카테고리 태그 (필터칩과 달리 개수가 없다 — {@link CategoryTagResponse})
      * @param neighborIncluded 볼거리 부족으로 인접 50km 지역이 포함됐는지
      * @param benefits 적용 혜택 뱃지
      */
@@ -44,7 +44,7 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
                             nullable = true)
                     String imageUrl,
             @Schema(example = "38") int contentCount,
-            List<CategoryResponse.Item> categories,
+            List<CategoryTagResponse> categories,
             @Schema(example = "false") boolean neighborIncluded,
             @Schema(description = """
                     지역 한 줄 소개(#140). 그 지역에 실제로 있는 대표 볼거리 이름으로 만든다.
@@ -62,7 +62,7 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
                     region.crowdLevel(),
                     region.imageUrl(),
                     region.contentCount(),
-                    region.categories().stream().map(CategoryResponse.Item::from).toList(),
+                    region.categories().stream().map(CategoryTagResponse::from).toList(),
                     region.neighborIncluded(),
                     region.intro(),
                     region.benefits().stream().map(Benefit::from).toList());

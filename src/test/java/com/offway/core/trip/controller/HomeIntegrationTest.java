@@ -103,6 +103,11 @@ class HomeIntegrationTest {
                 .andExpect(jsonPath("$.data.user.remainingLeaveDays").value(13.0))
                 .andExpect(jsonPath("$.data.filters.length()").value(5))
                 .andExpect(jsonPath("$.data.filters[0].key").value("ALL"))
+                // 칩 개수를 함께 내린다(#266) — 앱이 "전부 1건" 으로 채우던 자리다. 89곳 전부에 관광지(NA)
+                // 콘텐츠를 적재했으므로 ALL·SIGHT 가 둘 다 89 다.
+                .andExpect(jsonPath("$.data.filters[0].regionCount").value(89))
+                .andExpect(jsonPath("$.data.filters[1].key").value("SIGHT"))
+                .andExpect(jsonPath("$.data.filters[1].regionCount").value(89))
                 .andExpect(jsonPath("$.data.recommendedRegions.length()").value(6))
                 .andExpect(jsonPath("$.data.recommendedRegions[0].name").exists())
                 .andExpect(jsonPath("$.data.recommendedRegions[0].crowdLevel").value("LOW"))

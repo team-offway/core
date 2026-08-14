@@ -80,9 +80,31 @@ public class RegionRankingService {
     private final TourDataLabClient tourDataLabClient;
     private final RegionVisitorAggregateRepository aggregateRepository;
 
+    /**
+     * 성과 없이 끝난 최초 적재를 다시 시도하기까지의 간격.
+     *
+     * <p><b>왜 필요한가.</b> 집계가 비어 있는 동안은 {@link #stored()} 가 <b>요청마다</b> 적재를 다시 시도한다.
+     * 이 집계를 채우는 경로가 요청 경로 하나뿐(스케줄러·워머 없음)이라 그 자체는 의도한 것이지만, 외부가 죽어
+     * 있거나 한도가 말라 결과가 계속 비면 <b>재시도가 트래픽에 비례해 늘어난다</b>. 실측(2026-08-14): 집계가 빈
+     * 상태에서 목록 5회에 관광빅데이터 호출 15건(요청당 3건 = {@value #MAX_MONTHS_BACK}개월 역행)이 나갔다.
+     * "더보기" 는 한 세션에 여러 페이지를 넘기는 화면이라 이 곱셈이 그대로 한도로 간다.
+     *
+     * <p>그래서 <b>실패에는 간격을 둔다</b>(빈 응답도 실패와 같이 취급 — 값이 없다는 점에서 결과가 같다).
+     * 5분이면 재시도가 트래픽과 무관하게 인스턴스당 시간당 12회로 묶이고, 외부가 회복하면 5분 안에 스스로
+     * 채워진다. 성공하면 집계가 차서 이 경로 자체를 더 타지 않으므로 정상 상태의 비용은 그대로 0 이다.
+     */
+    private static final Duration BOOTSTRAP_RETRY_COOLDOWN = Duration.ofMinutes(5);
+
     /** 최초 적재가 진행 중인가 — 동시 요청이 같은 60초 집계를 겹쳐 돌리지 않게. */
     private final java.util.concurrent.atomic.AtomicBoolean bootstrapping =
             new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * 마지막으로 최초 적재가 성과 없이 끝난 시각(단조 시계). {@code null} 이면 아직 실패한 적이 없다.
+     *
+     * <p>벽시계로 재지 않는다 — 시스템 시각 보정에 간격이 늘거나 즉시 만료된다.
+     */
+    private volatile Long lastFailedBootstrapNanos;
 
     /**
      * 지금 들고 있는 집계가 어느 달 것인지 — 실패했을 때 "얼마나 낡았나" 를 로그가 답하게 한다.
@@ -94,13 +116,22 @@ public class RegionRankingService {
         return aggregateRepository.latestBaseMonth().map(YearMonth::toString).orElse("없음");
     }
 
-    /** 저장된 집계를 비운다 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트의 격리용. */
+    /**
+     * 저장된 집계를 비운다 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트의 격리용.
+     *
+     * <p>재시도 대기도 함께 푼다. 비워 놓고 대기가 남아 있으면 "강제 갱신" 이 다음 조회에서 아무 일도 하지 않는다.
+     */
     public void evictCache() {
         aggregateRepository.replaceAll(List.of());
+        lastFailedBootstrapNanos = null;
     }
 
     /**
-     * 관광빅데이터를 다시 받아 <b>영속</b>한다 — 워머가 부른다(#193).
+     * 관광빅데이터를 다시 받아 <b>영속</b>한다.
+     *
+     * <p><b>부르는 곳은 요청 경로의 최초 적재({@link #stored()})뿐이다.</b> 이 집계에는 스케줄러도 워머도 없다 —
+     * 한 번 채워지면 월 단위로만 바뀌는 값이라 그대로 두는 것이 의도다. 그래서 실패가 이어질 때의 재시도 간격을
+     * {@link #BOOTSTRAP_RETRY_COOLDOWN} 이 소유한다.
      *
      * <p>비어 있으면 저장하지 않는다. 빈 집계로 덮으면 전 지역 방문자가 0이 돼 랭킹이 무의미해지는데,
      * 그건 이전 값을 그대로 두는 것보다 나쁘다 — 미발행·장애가 지나가면 이전 달 값으로도 순위는 선다.
@@ -155,8 +186,9 @@ public class RegionRankingService {
     /**
      * 저장된 집계를 랭킹이 쓰는 모양으로 되돌린다. 평상시엔 <b>DB 만 읽는다</b>.
      *
-     * <p><b>비어 있을 때만</b> 한 번 받아 온다 — 새 환경에 처음 배포해 워머가 아직 안 돈 구간이다. 그마저 하지
-     * 않으면 전 지역 방문자가 0이 돼 랭킹이 무의미해진다.
+     * <p><b>비어 있을 때만</b> 받아 온다 — 새 환경에 처음 배포해 아직 아무도 적재하지 않은 구간이다. 이 집계를
+     * 채우는 경로가 여기뿐이라, 그마저 하지 않으면 전 지역 방문자가 0이 돼 랭킹이 무의미해진다. 다만 결과가 계속
+     * 비면 재시도가 트래픽에 비례하므로 {@link #BOOTSTRAP_RETRY_COOLDOWN} 만큼 간격을 둔다.
      *
      * <p>동시 요청은 <b>기다리지 않는다</b>. 이 적재는 호출 하나가 아니라 {@link #AGGREGATE_DEADLINE} 짜리
      * 집계라, 기다려 봐야 대부분 상한에 걸려 결국 같은 결과에 지연만 얹힌다. 첫 요청 하나만 채우고 나머지는
@@ -164,23 +196,45 @@ public class RegionRankingService {
      *
      * <p><b>적재가 실패해도 랭킹은 나간다.</b> {@link #refresh()} 는 {@link TourApiException} 만 삼키므로
      * 영속화 충돌·락 타임아웃 같은 {@link RuntimeException} 은 여기까지 올라온다. 이 경로는 <b>요청 스레드</b>라
-     * (워머와 달리) 위에 안전망이 없어 그대로 두면 500 이 된다 — 가중치일 뿐인 값 때문에 홈·추천이 죽는 것은
-     * 이 클래스의 설계 의도와 정반대다. 빈 가중치로도 순위는 선다.
+     * 위에 안전망이 없어 그대로 두면 500 이 된다 — 가중치일 뿐인 값 때문에 홈·추천이 죽는 것은 이 클래스의 설계
+     * 의도와 정반대다. 빈 가중치로도 순위는 선다.
      */
     private Map<String, VisitorAgg> stored() {
         Map<String, VisitorAgg> byCode = read();
-        if (byCode.isEmpty() && bootstrapping.compareAndSet(false, true)) {
-            try {
-                refresh();
-            } catch (RuntimeException e) {
-                log.warn("방문자 집계 최초 적재 실패 — 빈 가중치로 진행합니다", e);
-                return byCode;
-            } finally {
-                bootstrapping.set(false);
+        if (!byCode.isEmpty()) {
+            return byCode;
+        }
+        if (inRetryCooldown()) {
+            // 왜 가중치 없이 나가는지 남긴다 — 폴백이 정상처럼 보이면 집계가 비어 있는 것을 아무도 모른다.
+            log.debug("방문자 집계가 비었지만 최초 적재 재시도 대기 중입니다 — 빈 가중치로 진행합니다");
+            return byCode;
+        }
+        if (!bootstrapping.compareAndSet(false, true)) {
+            return byCode;
+        }
+        try {
+            if (refresh()) {
+                return read();
             }
-            return read();
+            // 실패·빈 결과. refresh() 가 사유를 warn 으로 남겼으므로 여기서는 재시도만 늦춘다.
+            markBootstrapFailed();
+        } catch (RuntimeException e) {
+            markBootstrapFailed();
+            log.warn("방문자 집계 최초 적재 실패 — 빈 가중치로 진행합니다", e);
+        } finally {
+            bootstrapping.set(false);
         }
         return byCode;
+    }
+
+    /** 최초 적재가 성과 없이 끝났음을 기록해 {@link #BOOTSTRAP_RETRY_COOLDOWN} 동안 재시도를 막는다. */
+    private void markBootstrapFailed() {
+        lastFailedBootstrapNanos = System.nanoTime();
+    }
+
+    private boolean inRetryCooldown() {
+        Long failedAt = lastFailedBootstrapNanos;
+        return failedAt != null && System.nanoTime() - failedAt < BOOTSTRAP_RETRY_COOLDOWN.toNanos();
     }
 
     private Map<String, VisitorAgg> read() {
