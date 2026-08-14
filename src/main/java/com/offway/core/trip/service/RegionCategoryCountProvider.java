@@ -66,18 +66,29 @@ public class RegionCategoryCountProvider {
      * 진행 중이던 재계산이 <b>옛 입력으로 만든 결과</b>를 새 시각으로 다시 세운다 — 버린 것이 되살아나 새 콘텐츠가 최대
      * {@value #RECOUNT_INTERVAL_TEXT} 동안 칩에 안 나온다. 적재 직후 버리는 것이 이 클래스의 설계인데 그 자리가 무력해진다.
      *
-     * <p>읽기 전에 세대를 적어 두고 세울 때 대조한다. 달라졌으면 세우지 않는다 — 다음 조회가 새 입력으로 다시 센다.
+     * <p><b>세대를 스냅샷 자신이 들고 다닌다.</b> 세울 때 대조하고 끝내면 대조와 대입 사이에 또 틈이 생긴다(TOCTOU) —
+     * 좁아질 뿐 닫히지 않는다. 값에 세대를 붙여 두면 늦게 세워진 옛 결과도 <b>읽는 쪽이 알아보고 무시</b>하므로
+     * 락 없이 닫힌다. 임계구역을 만들지 않아 조회 스레드가 적재 스레드를 기다릴 일도 없다.
      */
     private final AtomicLong generation = new AtomicLong();
 
-    /** 지역이 비어 마지막으로 warn 을 남긴 시각(단조 시계). */
-    private volatile long lastEmptyWarnNanos = Long.MIN_VALUE;
+    /** 지역이 비어 마지막으로 warn 을 남긴 시각(단조 시계). 창 진입은 CAS 로 한 스레드만 통과한다. */
+    private final AtomicLong lastEmptyWarnNanos = new AtomicLong(Long.MIN_VALUE);
 
-    /** 센 결과와 센 시각(단조 시계). 벽시계로 재면 시스템 시각 보정에 간격이 늘거나 즉시 만료된다. */
-    private record Snapshot(CategoryCounts counts, long countedNanos) {
+    /**
+     * 센 결과와 센 시각(단조 시계), 그리고 <b>어느 세대의 입력으로 셌는지</b>.
+     *
+     * <p>시각은 벽시계로 재지 않는다 — 시스템 시각 보정에 간격이 늘거나 즉시 만료된다.
+     */
+    private record Snapshot(CategoryCounts counts, long countedNanos, long generation) {
 
         private boolean isStale() {
             return System.nanoTime() - countedNanos >= RECOUNT_INTERVAL.toNanos();
+        }
+
+        /** 이 결과를 만든 입력이 아직 최신인가. */
+        private boolean isCurrent(long latestGeneration) {
+            return generation == latestGeneration;
         }
     }
 
@@ -93,7 +104,7 @@ public class RegionCategoryCountProvider {
     /** 지금 칩별 지역 수. 오래됐거나 아직 안 셌으면 그 자리에서 센다(89행 한 번). */
     public CategoryCounts counts() {
         Snapshot current = snapshot;
-        if (current != null && !current.isStale()) {
+        if (current != null && current.isCurrent(generation.get()) && !current.isStale()) {
             return current.counts();
         }
         return recount();
@@ -132,13 +143,8 @@ public class RegionCategoryCountProvider {
                 .map(regionId -> stored.getOrDefault(regionId, RegionContent.EMPTY))
                 .toList();
         CategoryCounts counted = CategoryCounts.of(contents);
-        if (generation.get() != startedAt) {
-            // 세는 동안 적재가 끝났다. 이 결과는 옛 입력에서 나왔으므로 세우지 않는다 — 세우면 방금 버린 것이
-            // 되살아나 새 콘텐츠가 안전망 간격만큼 늦게 반영된다. 다음 조회가 새 입력으로 다시 센다.
-            log.debug("집계 중 지역 콘텐츠가 갱신돼 결과를 버립니다 — 다음 조회가 다시 셉니다");
-            return counted;
-        }
-        snapshot = new Snapshot(counted, System.nanoTime());
+        // 세운 뒤 적재가 끝나도 안전하다 — 이 스냅샷은 startedAt 세대를 달고 있어 읽는 쪽이 알아보고 무시한다.
+        snapshot = new Snapshot(counted, System.nanoTime(), startedAt);
         log.debug("필터칩 개수 집계 지역={} 콘텐츠={} 결과={}", all.size(), stored.size(), counted.byCategory());
         return counted;
     }
@@ -146,11 +152,15 @@ public class RegionCategoryCountProvider {
     /** 같은 warn 이 조회마다 쌓이지 않게 창당 한 줄로 누른다. 창이 지나면 다시 남겨 장애 지속도 보이게 한다. */
     private void warnEmptyRegions() {
         long now = System.nanoTime();
-        long last = lastEmptyWarnNanos;
+        long last = lastEmptyWarnNanos.get();
         if (last != Long.MIN_VALUE && now - last < EMPTY_WARN_INTERVAL.toNanos()) {
             return;
         }
-        lastEmptyWarnNanos = now;
+        // 읽고 쓰는 사이에 다른 스레드가 먼저 통과했으면 양보한다 — 창이 열린 순간 몰린 요청이
+        // 저마다 같은 warn 을 남기면 억제하려던 것이 그대로 일어난다.
+        if (!lastEmptyWarnNanos.compareAndSet(last, now)) {
+            return;
+        }
         log.warn("지역이 없어 필터칩 개수를 세지 못했습니다 — 다음 조회에서 다시 셉니다");
     }
 }
