@@ -7,13 +7,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.offway.core.common.exception.BaseException;
 import com.offway.core.user.domain.AuthProvider;
+import com.offway.core.user.domain.RefreshToken;
 import com.offway.core.user.domain.UserException;
 import com.offway.core.user.infrastructure.kakao.StubKakaoProfileClient;
 import com.offway.core.user.infrastructure.social.StubSocialIdentityVerifier;
 import com.offway.core.user.repository.UserJpaRepository;
+import com.offway.core.user.service.AuthService;
+import com.offway.core.user.service.TokenIssuer;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,6 +37,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -35,6 +50,11 @@ class AuthIntegrationTest {
     private static final String REISSUE_URL = "/api/v1/auth/reissue";
     private static final String LOGOUT_URL = "/api/v1/auth/logout";
     private static final String BEARER = "Bearer ";
+
+    /** 동시 재발급 결과에서 실패를 표시하는 접두사. 성공은 새 refresh 토큰 원문이라 겹칠 수 없다. */
+    private static final String FAILED = "FAILED:";
+
+    private static final long CONCURRENCY_TIMEOUT_SECONDS = 30;
 
     @TestConfiguration
     static class SocialStubConfiguration {
@@ -62,6 +82,15 @@ class AuthIntegrationTest {
 
     @Autowired
     private UserJpaRepository userJpaRepository;
+
+    @Autowired
+    private AuthService authService;
+
+    @Autowired
+    private TokenIssuer tokenIssuer;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     /** 테스트마다 고유한 provider 신원 — 롤백 없이 이전 실행과 계정이 섞이지 않게. */
     private static String uniqueProviderUserId() {
@@ -345,6 +374,9 @@ class AuthIntegrationTest {
         socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
         Tokens issued = login();
         String rotated = JsonPath.read(bodyOf(reissueRequest(issued.refreshToken())), "$.data.refreshToken");
+        // 회전 직후 유예 창(정상 앱의 재시도·동시 요청)을 벗어나게 폐기 시각을 과거로 민다. 그러지 않으면
+        // 이 재사용이 "재시도" 로 해석돼 탈취 경보가 울리지 않는다 — 그건 별도 테스트가 잠근다.
+        backdateRevocation(issued.refreshToken());
 
         mockMvc.perform(reissueRequest(issued.refreshToken()))
                 .andExpect(status().isUnauthorized())
@@ -353,6 +385,83 @@ class AuthIntegrationTest {
         mockMvc.perform(reissueRequest(rotated))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("USER-003"));
+    }
+
+    // ── refresh 회전의 동시성 ──────────────────────────────────
+
+    /**
+     * 스레드를 <b>둘</b>로 짠다. 테스트 컨텍스트의 hikari {@code maximum-pool-size} 가 2 라 실효 동시성이 2 이고,
+     * 스레드를 더 늘려도 커넥션을 기다리며 줄을 서 순차 실행에 가까워진다 — 숫자만 커지고 겹치지 않는다.
+     */
+    private static final int CONCURRENT_REISSUES = 2;
+
+    @Test
+    void 같은_refresh로_동시에_재발급하면_하나만_성공한다() throws Exception {
+        // 잠금이 없으면 두 트랜잭션이 같은 스냅샷(revoked_at IS NULL)을 보고 둘 다 회전에 성공한다.
+        // 토큰 하나에서 살아 있는 refresh 가 둘 나오고, 그 순간 재사용 감지의 보장이 성립하지 않는다.
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+        Tokens issued = login();
+
+        List<String> results = reissueConcurrently(issued.refreshToken());
+
+        assertEquals(1, results.stream().filter(result -> !result.startsWith(FAILED)).count(), results.toString());
+    }
+
+    @Test
+    void 동시_재발급에서_진_요청이_세션을_끊지_않는다() throws Exception {
+        // 진 요청을 탈취로 오인해 전체 폐기를 돌리면, 이긴 요청이 방금 받아 간 정상 토큰까지 죽어 사용자가
+        // 멀쩡한 토큰을 들고도 로그아웃된다. 회전 직후 유예 창이 막는 자리다.
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+        Tokens issued = login();
+
+        List<String> results = reissueConcurrently(issued.refreshToken());
+        String winner = results.stream()
+                .filter(result -> !result.startsWith(FAILED))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("동시 재발급에서 성공한 요청이 없다: " + results));
+
+        mockMvc.perform(reissueRequest(winner)).andExpect(status().isOk());
+    }
+
+    @Test
+    void 유예_창_안의_재시도는_경보를_울리지_않고_그_요청만_거절한다() throws Exception {
+        // 네트워크 재시도로 같은 refresh 가 곧바로 다시 오는 것은 탈취가 아니다. 그 요청은 거절하되(줄 토큰이
+        // 없다 — 새 토큰은 이미 이긴 요청이 가져갔다) 세션 전체를 끊지는 않는다.
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+        Tokens issued = login();
+        String rotated = JsonPath.read(bodyOf(reissueRequest(issued.refreshToken())), "$.data.refreshToken");
+
+        mockMvc.perform(reissueRequest(issued.refreshToken()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER-003"));
+
+        mockMvc.perform(reissueRequest(rotated)).andExpect(status().isOk());
+    }
+
+    /** 같은 refresh 로 동시에 재발급을 시도하고, 성공은 새 refresh 를, 실패는 {@code FAILED:code} 를 돌려준다. */
+    private List<String> reissueConcurrently(String refreshToken) throws Exception {
+        CyclicBarrier barrier = new CyclicBarrier(CONCURRENT_REISSUES);
+        ExecutorService executor = Executors.newFixedThreadPool(CONCURRENT_REISSUES);
+        try {
+            List<Future<String>> futures = new ArrayList<>();
+            for (int i = 0; i < CONCURRENT_REISSUES; i++) {
+                futures.add(executor.submit(() -> {
+                    barrier.await();
+                    try {
+                        return authService.reissue(refreshToken).refreshToken();
+                    } catch (BaseException exception) {
+                        return FAILED + exception.errorCode().code();
+                    }
+                }));
+            }
+            List<String> results = new ArrayList<>();
+            for (Future<String> future : futures) {
+                results.add(future.get(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            }
+            return results;
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -366,6 +475,28 @@ class AuthIntegrationTest {
         mockMvc.perform(reissueRequest(issued.refreshToken()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("USER-003"));
+    }
+
+    /**
+     * 폐기 시각을 유예 창 밖으로 민다 — "회전 직후 재시도" 가 아니라 "한참 뒤의 재사용" 을 만든다.
+     *
+     * <p>시계를 주입하는 대신 DB 를 직접 미는 이유는, 유예 판정이 도메인이 받은 {@code now} 하나로 끝나
+     * 흉내 낼 상태가 폐기 시각뿐이기 때문이다. 프로덕션 코드에 테스트용 시계를 뚫는 것보다 싸다.
+     */
+    /**
+     * 폐기 시각을 유예 창 밖으로 민다.
+     *
+     * <p><b>DB 안에서 상대적으로 뺀다.</b> 클라이언트에서 계산한 {@code Timestamp} 를 넣으면 드라이버가 JVM
+     * 기본 시간대로 변환하는데, 이 커넥션은 {@code serverTimezone=Asia/Seoul} 이라 값이 그만큼 틀어진다 —
+     * 과거로 민다는 것이 미래로 가서 "방금 폐기됨" 으로 읽혔다. 저장된 값에서 빼면 시간대가 끼어들지 않는다.
+     */
+    private void backdateRevocation(String refreshToken) {
+        long seconds = RefreshToken.ROTATION_GRACE.plus(Duration.ofMinutes(1)).toSeconds();
+        int updated = jdbcTemplate.update(
+                "UPDATE refresh_token SET revoked_at = revoked_at - INTERVAL ? SECOND WHERE token_hash = ?",
+                seconds,
+                tokenIssuer.hashRefreshToken(refreshToken));
+        assertEquals(1, updated, "폐기 시각을 밀 대상이 없다 — 앞선 회전이 실제로 폐기했는지 확인하라");
     }
 
     private record Tokens(String accessToken, String refreshToken) {}
