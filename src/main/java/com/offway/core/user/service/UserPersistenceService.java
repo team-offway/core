@@ -50,6 +50,20 @@ public class UserPersistenceService {
                 .orElseGet(() -> new AuthenticatedUser(register(identity, requestedNickname, requestedEmail), true));
     }
 
+    /**
+     * 이미 있는 신원만 찾는다 — <b>만들지 않는다</b>.
+     *
+     * <p>{@link #findOrCreateUser} 가 유니크 제약에 걸렸을 때 먼저 만든 쪽의 사용자를 다시 읽으려고 있다.
+     * 제약 위반은 그 트랜잭션을 rollback-only 로 만들어 같은 트랜잭션에서는 다시 읽을 수 없다 — 별도 빈의
+     * 새 트랜잭션이어야 한다({@code CoursePersistenceService.findShare} 와 같은 이유).
+     */
+    @Transactional(readOnly = true)
+    public Optional<AuthenticatedUser> findExistingUser(SocialIdentity identity) {
+        return userIdentityRepository
+                .findByProviderAndSubject(identity.provider(), identity.providerUserId())
+                .map(found -> new AuthenticatedUser(found.getUserId(), false));
+    }
+
     /** local 개발 로그인용 — provider 연결 없이 사용자만 만든다. */
     @Transactional
     public UUID createUser(String nickname) {
@@ -141,14 +155,17 @@ public class UserPersistenceService {
      */
     @Transactional
     public void linkGuest(UUID userId, String guestId, Instant now) {
-        if (guestId == null || guestId.isBlank() || userGuestLinkRepository.isLinked(guestId)) {
+        Optional<UserGuestLink> existing = userGuestLinkRepository.findByGuestId(guestId);
+        if (existing.isPresent()) {
+            if (!existing.get().getUserId().equals(userId)) {
+                // 한 기기를 두 사람이 썼다. 먼저 로그인한 쪽의 것으로 두고, 이 사용자의 코스·연차는 이어지지
+                // 않는다 — 조용히 넘어가면 나중에 "왜 이 계정만 탈퇴해도 데이터가 남나" 를 추적할 수 없다.
+                log.warn("이미 다른 사용자에게 이어진 기기입니다 — 이 사용자의 데이터는 이어지지 않습니다 userId={}", userId);
+            }
             return;
         }
-        try {
-            userGuestLinkRepository.save(UserGuestLink.of(userId, guestId, now));
-        } catch (DataIntegrityViolationException e) {
-            // 같은 기기에서 동시에 로그인했다. 먼저 넣은 쪽이 이겼고 그 결과가 우리가 원하는 상태라 그대로 둔다.
-            log.info("기기 연결 경합 — 먼저 기록된 연결을 그대로 씁니다 userId={}", userId);
-        }
+        // 여기서 잡지 않는다. 제약 위반은 이 트랜잭션을 rollback-only 로 만들어, 삼켜도 커밋에서
+        // UnexpectedRollbackException 으로 끝난다. 경합 처리는 트랜잭션 밖(호출자)이 한다.
+        userGuestLinkRepository.save(UserGuestLink.of(userId, guestId, now));
     }
 }

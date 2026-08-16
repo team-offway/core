@@ -1,5 +1,7 @@
 package com.offway.core.user.service;
 
+import com.offway.core.common.logging.RootCause;
+import com.offway.core.leave.domain.LeaveBalance;
 import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.UserException;
 import com.offway.core.user.infrastructure.social.SocialIdentityResolver;
@@ -36,11 +38,8 @@ public class AuthService {
      */
     public IssuedToken login(SocialLoginCommand command) {
         SocialIdentity identity = socialIdentityResolver.resolve(command.provider(), command.credential());
-        AuthenticatedUser user =
-                userPersistenceService.findOrCreateUser(identity, command.nickname(), command.email());
-        // 이 기기를 사용자에게 이어 둔다(#34). 코스·연차가 아직 guest_id 로 묶여 있어, 서버가 "이 사용자의
-        // 데이터가 무엇인가" 를 알 수 있는 유일한 근거다 — 탈퇴가 이것으로 대상을 찾는다.
-        userPersistenceService.linkGuest(user.userId(), command.guestId(), Instant.now());
+        AuthenticatedUser user = findOrCreateUser(identity, command);
+        linkDevice(user.userId(), command.guestId());
         return issueTokens(user);
     }
 
@@ -110,5 +109,70 @@ public class AuthService {
                 refreshToken,
                 tokenIssuer.accessTokenSeconds(),
                 user.newUser());
+    }
+
+    /**
+     * 이 기기를 사용자에게 이어 둔다(#34) — <b>실패해도 로그인을 막지 않는다</b>.
+     *
+     * <p>코스·연차가 아직 {@code guest_id} 로 묶여 있어, 서버가 "이 사용자의 데이터가 무엇인가" 를 알 수 있는
+     * 유일한 근거다. 탈퇴가 이것으로 대상을 찾는다. 다만 <b>기록은 나중을 위한 것이지 로그인의 조건이 아니다</b> —
+     * 여기서 터지면 계정은 만들어졌는데 토큰을 못 받아, 재시도해도 같은 자리에서 계속 실패하는 락아웃이 된다.
+     *
+     * <p>그래서 두 가지를 트랜잭션 <b>밖</b>에서 처리한다.
+     *
+     * <ul>
+     *   <li><b>형식</b> — 헤더는 아무나 아무 값이나 보낼 수 있다. 길이를 넘기면 DB 가 잘라내며 터지는데,
+     *       그 값으로는 코스·연차도 저장되지 않으므로 이어 둘 이유 자체가 없다. 넘어가고 흔적만 남긴다.
+     *   <li><b>경합</b> — 유니크 제약 위반은 그 트랜잭션을 rollback-only 로 만들어 <b>안에서 삼켜도 소용없다</b>.
+     *       커밋에서 {@code UnexpectedRollbackException} 으로 끝난다. 밖에서 잡아야 한다.
+     * </ul>
+     */
+    private void linkDevice(UUID userId, String guestId) {
+        if (guestId == null || guestId.isBlank()) {
+            log.info("기기 식별자 없이 로그인했습니다 — 이 사용자의 코스·연차는 이어지지 않습니다 userId={}", userId);
+            return;
+        }
+        if (guestId.length() > LeaveBalance.MAX_OWNER_ID_LENGTH) {
+            log.warn("기기 식별자가 너무 깁니다 — 이어 두지 않습니다 userId={} length={}", userId, guestId.length());
+            return;
+        }
+        try {
+            userPersistenceService.linkGuest(userId, guestId, Instant.now());
+        } catch (RuntimeException e) {
+            // **좁게 잡지 않는다.** 제약 위반은 그 트랜잭션을 rollback-only 로 만들어, 커밋 시점에
+            // DataIntegrityViolationException 이 아니라 UnexpectedRollbackException 으로 올라온다.
+            // 타입을 골라 잡으면 그중 하나가 새어 나가 로그인 전체가 500 이 되고, 계정은 만들어졌는데
+            // 토큰을 못 받아 재시도해도 같은 자리에서 실패하는 락아웃이 된다.
+            //
+            // 무엇으로 실패했는지는 남긴다 — 경합이면 정상이고(먼저 넣은 쪽이 이겼다) 그 밖이면 봐야 한다.
+            log.warn("기기를 잇지 못했습니다 — 로그인은 계속합니다 userId={} cause={}", userId, RootCause.label(e));
+        }
+    }
+
+    /**
+     * 신원으로 사용자를 찾거나 만든다 — <b>동시 가입을 흡수한다</b>.
+     *
+     * <p>같은 계정으로 동시에 로그인하면(로그인 버튼 더블탭이면 그대로 일어난다) 두 요청이 모두 "없다" 를
+     * 읽고 둘 다 만들려 해서 하나가 {@code uk_user_identity_provider} 에 걸린다. 그대로 두면 진 쪽이 500 을
+     * 받는데, 사용자가 원한 상태(계정이 하나 있다)는 이미 이뤄져 있다.
+     *
+     * <p>먼저 만든 쪽의 사용자를 다시 읽어 돌려준다. <b>그때 {@code isNewUser} 는 false 다</b> — 이 요청이
+     * 만든 것이 아니고, 진 쪽에도 true 를 주면 앱이 온보딩을 두 번 띄운다.
+     *
+     * <p>다시 읽어도 없으면 중복이 아닌 다른 제약 위반이다. 그건 삼키지 않는다 — 확인 없이 넘기면 계정이
+     * 없는데 로그인에 성공한 것처럼 보인다.
+     */
+    private AuthenticatedUser findOrCreateUser(SocialIdentity identity, SocialLoginCommand command) {
+        try {
+            return userPersistenceService.findOrCreateUser(identity, command.nickname(), command.email());
+        } catch (RuntimeException e) {
+            return userPersistenceService
+                    .findExistingUser(identity)
+                    .map(existing -> {
+                        log.info("가입 경합 — 먼저 만들어진 계정을 그대로 씁니다 provider={}", identity.provider());
+                        return existing;
+                    })
+                    .orElseThrow(() -> e);
+        }
     }
 }
