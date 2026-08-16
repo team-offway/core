@@ -4,6 +4,7 @@ import com.offway.core.device.domain.DevicePushToken;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 /** port 구현(adapter) — Spring Data 에 위임. */
 @Repository
@@ -13,6 +14,7 @@ public class DevicePushTokenRepositoryImpl implements DevicePushTokenRepository 
     private final DevicePushTokenJpaRepository devicePushTokenJpaRepository;
 
     @Override
+    @Transactional
     public void register(DevicePushToken devicePushToken) {
         devicePushTokenJpaRepository.upsert(
                 devicePushToken.getGuestId(),
@@ -24,6 +26,12 @@ public class DevicePushTokenRepositoryImpl implements DevicePushTokenRepository 
     @Override
     public int deleteByOwner(String guestId) {
         return devicePushTokenJpaRepository.deleteByGuestId(guestId);
+    }
+
+    @Override
+    @Transactional
+    public int deleteByToken(String token) {
+        return devicePushTokenJpaRepository.deleteByToken(token);
     }
 
     @Override

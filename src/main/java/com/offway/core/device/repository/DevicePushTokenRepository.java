@@ -27,4 +27,15 @@ public interface DevicePushTokenRepository {
 
     /** 소유자의 푸시 토큰들. 알림을 보낼 주소를 꺼내는 읽기 경로다. */
     List<DevicePushToken> findByOwner(String guestId);
+
+    /**
+     * 그 토큰으로 등록된 행을 <b>소유자를 가리지 않고</b> 전부 지운다 — FCM 이 죽었다고 답한 토큰 정리(#270).
+     *
+     * <p>소유자 범위로 지우지 않는 이유는 재설치 때문이다. 게스트 ID 가 새로 발급되면 같은 토큰이 여러
+     * 소유자로 남는데, FCM 이 그 토큰을 {@code UNREGISTERED} 로 답했다면 <b>그 행들이 전부 죽은 것</b>이다.
+     * 한 행만 지우면 나머지가 남아 다음 발송에서 또 실패한다.
+     *
+     * @return 지운 건수
+     */
+    int deleteByToken(String token);
 }
