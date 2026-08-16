@@ -23,6 +23,14 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.RestOperations;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
+import com.nimbusds.jose.proc.JWSKeySelector;
+import com.nimbusds.jose.proc.JWSVerificationKeySelector;
+import com.nimbusds.jose.proc.SecurityContext;
+import java.net.MalformedURLException;
+import java.net.URI;
 import java.time.Duration;
 import org.springframework.stereotype.Component;
 
@@ -41,6 +49,18 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
 
     /** JWKS 조회 상한 — 로그인 경로라 오래 물릴 수 없다. 기본값(30초)을 그대로 두지 않는 이유는 jwksClient() 주석에. */
     private static final Duration JWKS_TIMEOUT = Duration.ofSeconds(3);
+
+    /** 공개키 캐시 수명. 회전을 따라갈 만큼 짧게 두되, 매 로그인이 조회가 되지 않을 만큼은 길게. */
+    private static final Duration JWKS_CACHE_TTL = Duration.ofMinutes(30);
+
+    /** 캐시가 비었을 때 다른 스레드가 적재를 기다릴 상한. 호출 상한(3초)보다 길 이유가 없다. */
+    private static final Duration JWKS_CACHE_REFRESH_TIMEOUT = JWKS_TIMEOUT;
+
+    /** 만료 이 시간 전부터 미리 받아 둔다 — 만료 직후 요청이 조회를 뒤집어쓰지 않게. */
+    private static final Duration JWKS_REFRESH_AHEAD = Duration.ofMinutes(5);
+
+    /** 강제 갱신 사이 최소 간격 — 위조 토큰이 조회를 유발해도 이 간격을 넘지 못한다. */
+    private static final Duration JWKS_MIN_REFRESH_INTERVAL = Duration.ofSeconds(30);
 
 
     private static final String AUDIENCE_MISMATCH = "audience 가 일치하지 않습니다.";
@@ -97,6 +117,7 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
     private static JwtDecoder buildDecoder(AuthProvider.Oidc oidc, List<String> audiences) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(oidc.jwksUri())
                 .restOperations(jwksClient())
+                .jwtProcessorCustomizer(processor -> processor.setJWSKeySelector(keySelector(oidc.jwksUri())))
                 .build();
         decoder.setJwtValidator(tokenValidator(oidc.issuers(), audiences));
         return decoder;
@@ -110,6 +131,36 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
      */
     static OAuth2TokenValidator<Jwt> tokenValidator(List<String> issuers, List<String> audiences) {
         return JwtValidators.createDefaultWithValidators(issuerValidator(issuers), audienceValidator(audiences));
+    }
+
+    /**
+     * 공개키를 고르는 자리 — <b>기본 조립을 그대로 쓰지 않는다</b>.
+     *
+     * <p>기본값은 요청이 아는 키를 못 찾으면 <b>그때마다 JWKS 를 다시 받는다</b>. 키 선택은 서명 검증보다
+     * 먼저라, 서명이 가짜인 토큰도 그 경로를 탄다. 이 엔드포인트는 인증 없이 열려 있어(로그인 전이니 당연하다)
+     * 아무나 쓰레기 토큰을 던지면 던진 수만큼 우리가 provider 를 두드리고, 요청마다 톰캣 스레드가 물린다.
+     * 실측으로 확인했다 — 모르는 {@code kid} 10회에 JWKS 10회, 위조 서명 10회에도 10회.
+     *
+     * <p>세 가지를 함께 건다.
+     *
+     * <ul>
+     *   <li><b>rate limit</b> — 강제 갱신 사이 최소 간격. 위조 토큰이 조회를 유발해도 이 간격을 넘지 못한다.
+     *   <li><b>선갱신</b> — 만료 전에 미리 받아 둔다. TTL 만 두면 만료 직후 요청이 조회를 뒤집어쓴다.
+     *   <li><b>캐시 TTL</b> — 키 회전을 따라갈 만큼 짧게. 공개키는 자주 바뀌지 않지만 회전 자체는 일어난다.
+     * </ul>
+     */
+    private static JWSKeySelector<SecurityContext> keySelector(String jwksUri) {
+        try {
+            JWKSource<SecurityContext> source = JWKSourceBuilder.create(URI.create(jwksUri).toURL())
+                    .cache(JWKS_CACHE_TTL.toMillis(), JWKS_CACHE_REFRESH_TIMEOUT.toMillis())
+                    .refreshAheadCache(JWKS_REFRESH_AHEAD.toMillis(), true)
+                    .rateLimited(JWKS_MIN_REFRESH_INTERVAL.toMillis())
+                    .build();
+            return new JWSVerificationKeySelector<>(JWSAlgorithm.Family.RSA, source);
+        } catch (MalformedURLException e) {
+            // provider 상수라 여기 닿으면 코드 버그다 — 부팅 시점에 드러나는 편이 낫다.
+            throw new IllegalStateException("JWKS 주소가 올바르지 않습니다 provider 설정을 확인하세요", e);
+        }
     }
 
     /**
