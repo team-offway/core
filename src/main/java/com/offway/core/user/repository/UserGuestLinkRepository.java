@@ -14,4 +14,7 @@ public interface UserGuestLinkRepository {
 
     /** 이 사용자에게 붙은 기기들. 탈퇴가 지울 대상을 여기서 얻는다. */
     List<UserGuestLink> findByUserId(UUID userId);
+
+    /** 탈퇴 — 이 사용자의 기기 연결을 지운다. 계정이 사라지면 그 기기를 다음 사람이 쓸 수 있어야 한다. */
+    int deleteByUserId(UUID userId);
 }

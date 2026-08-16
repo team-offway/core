@@ -11,4 +11,6 @@ interface UserGuestLinkJpaRepository extends JpaRepository<UserGuestLink, Long> 
     boolean existsByGuestId(String guestId);
 
     List<UserGuestLink> findByUserId(UUID userId);
+
+    int deleteByUserId(UUID userId);
 }

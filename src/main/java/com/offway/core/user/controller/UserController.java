@@ -31,9 +31,8 @@ public class UserController implements UserApi {
      */
     @Override
     @DeleteMapping("/me")
-    public ApiResponseBody<Void> withdraw(
-            @LoginUser UUID userId, @RequestHeader(value = GUEST_HEADER, required = false) String guestId) {
-        userWithdrawalService.withdraw(userId, guestId);
+    public ApiResponseBody<Void> withdraw(@LoginUser UUID userId) {
+        userWithdrawalService.withdraw(userId);
         return ApiResponseBody.okWithDetail(WITHDRAWN_DETAIL);
     }
 }

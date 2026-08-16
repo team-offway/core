@@ -26,4 +26,9 @@ public class UserGuestLinkRepositoryImpl implements UserGuestLinkRepository {
     public List<UserGuestLink> findByUserId(UUID userId) {
         return userGuestLinkJpaRepository.findByUserId(userId);
     }
+
+    @Override
+    public int deleteByUserId(UUID userId) {
+        return userGuestLinkJpaRepository.deleteByUserId(userId);
+    }
 }

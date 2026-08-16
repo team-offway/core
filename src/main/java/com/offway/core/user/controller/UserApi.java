@@ -40,10 +40,5 @@ public interface UserApi {
             responseCode = "401",
             description =
                     "access 토큰이 없거나 무효·만료(USER-004) · 자격증명 없음(COMMON-401) · 이미 탈퇴한 계정(USER-006)")
-    ApiResponseBody<Void> withdraw(
-            UUID userId,
-            @Parameter(
-                            description = "저장·조회에 쓰던 게스트 식별자. 없으면 코스·연차가 지워지지 않는다",
-                            example = "3f2a9c1e-5b6d-4e7f-8a90-1b2c3d4e5f60")
-                    String guestId);
+    ApiResponseBody<Void> withdraw(UUID userId);
 }
