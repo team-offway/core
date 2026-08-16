@@ -20,6 +20,10 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestOperations;
+import java.time.Duration;
 import org.springframework.stereotype.Component;
 
 /**
@@ -34,6 +38,10 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class NimbusOidcVerifier implements SocialIdentityVerifier {
+
+    /** JWKS 조회 상한 — 로그인 경로라 오래 물릴 수 없다. 기본값(30초)을 그대로 두지 않는 이유는 jwksClient() 주석에. */
+    private static final Duration JWKS_TIMEOUT = Duration.ofSeconds(3);
+
 
     private static final String AUDIENCE_MISMATCH = "audience 가 일치하지 않습니다.";
 
@@ -87,10 +95,28 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
      * 나중에 추가하는 것을 놓친다.
      */
     private static JwtDecoder buildDecoder(AuthProvider.Oidc oidc, List<String> audiences) {
-        NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(oidc.jwksUri()).build();
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(oidc.jwksUri())
+                .restOperations(jwksClient())
+                .build();
         decoder.setJwtValidator(
                 JwtValidators.createDefaultWithValidators(issuerValidator(oidc.issuers()), audienceValidator(audiences)));
         return decoder;
+    }
+
+    /**
+     * JWKS 를 받아올 때 쓰는 클라이언트 — <b>기본값을 그대로 두지 않는다</b>.
+     *
+     * <p>Spring Security 7 의 기본 연결·읽기 timeout 은 <b>30초</b>다. 이 조회는 로그인 요청 경로에서 일어나므로,
+     * 제공자의 JWKS 엔드포인트가 멎으면 사용자가 30초를 기다린 뒤 실패한다. 그 사이 요청 스레드도 물려 있다.
+     *
+     * <p>3초로 잡는다 — 이 서비스가 외부 호출에 두는 상한과 같다. JWKS 는 정적 문서라 정상이면 수백 ms 에 온다.
+     * 못 받으면 {@code USER-005}(502)로 끊고, 다음 요청이 다시 시도한다.
+     */
+    private static RestOperations jwksClient() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(JWKS_TIMEOUT);
+        factory.setReadTimeout(JWKS_TIMEOUT);
+        return new RestTemplate(factory);
     }
 
     /**
