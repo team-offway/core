@@ -26,6 +26,10 @@ public final class SensitiveParams {
      *
      * <p>토큰은 {@code token} 하나로 뭉뚱그릴 수 없다 — 실제로 오는 이름이 {@code accessToken}·{@code idToken}·
      * {@code refreshToken}·{@code identityToken} 이라 각각 적어야 걸린다.
+     *
+     * <p><b>snake_case 도 함께 적는다.</b> 우리 앱은 camelCase 로 보내지만 OAuth 규격(RFC 6749)이 쓰는 이름은
+     * {@code access_token}·{@code id_token}·{@code refresh_token} 이다. 제공자 쪽 URL 이 예외 메시지에 실려
+     * 들어오는 경로가 있어, 한쪽만 적으면 그 경로로 토큰이 그대로 로그에 남는다.
      */
     private static final Set<String> MASKED_NAMES = Set.of(
             "servicekey",
@@ -33,6 +37,10 @@ public final class SensitiveParams {
             "password",
             "token",
             "accesstoken",
+            "access_token",
+            "id_token",
+            "refresh_token",
+            "identity_token",
             "idtoken",
             "identitytoken",
             "refreshtoken",
@@ -91,7 +99,7 @@ public final class SensitiveParams {
      * 헤더가 섞여 오면 액세스 토큰이 통째로 로그에 남는데, 그 토큰은 <b>그대로 카카오 프로필을 부를 수 있는 값</b>
      * 이다. JWT 는 점을 포함하므로 값 문자 집합에 {@code .} 을 넣는다.
      */
-    private static final Pattern BEARER_TOKEN = Pattern.compile("(?i)\\b(Bearer)\\s+[\\w.\\-+/=]+");
+    private static final Pattern BEARER_TOKEN = Pattern.compile("(?i)\\b(Bearer)\\s+[\\w.~\\-+/=]+");
     private static final String PAIR_DELIMITER = "&";
     private static final String NAME_VALUE_DELIMITER = "=";
     private static final int NAME_VALUE_LIMIT = 2;
