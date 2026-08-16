@@ -15,9 +15,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class UserController implements UserApi {
 
-    /** 코스·연차의 소유 키. 인증이 붙었지만 그 데이터는 아직 이 값으로 묶여 있다. */
-    private static final String GUEST_HEADER = "X-Guest-Id";
-
     private static final String WITHDRAWN_DETAIL = "탈퇴 처리되었습니다.";
 
     private final UserWithdrawalService userWithdrawalService;
@@ -26,8 +23,11 @@ public class UserController implements UserApi {
      * 지울 대상이 남지 않아 내려보낼 데이터가 없지만 204 가 아니라 200 이다 — 공통 래퍼가 항상 body 를 만들어
      * "body 없음" 이 본질인 204 와 충돌한다(exception-and-response 규약).
      *
-     * <p>{@code X-Guest-Id} 는 <b>선택</b>이다. 없다고 탈퇴 자체를 400 으로 막으면, 계정을 지울 권리가 헤더
-     * 하나에 인질로 잡힌다 — 심사·방침이 요구하는 것은 계정 삭제다. 대신 그때 무엇을 못 지웠는지 로그로 남긴다.
+     * <p><b>게스트 헤더를 받지 않는다.</b> 지울 대상은 로그인할 때 기록해 둔 기기 연결이 정한다 — 요청이
+     * 대상을 정하면 남의 값을 적어 남의 데이터를 지울 수 있다.
+     *
+     * <p>이어 둔 기기가 없으면 계정만 지워진다. 그렇다고 탈퇴를 막지는 않는다 — 계정을 지울 권리가 옛 로그인에
+     * 인질로 잡힌다. 심사·방침이 요구하는 것은 계정 삭제다. 대신 무엇을 못 지웠는지 로그로 남긴다.
      */
     @Override
     @DeleteMapping("/me")
