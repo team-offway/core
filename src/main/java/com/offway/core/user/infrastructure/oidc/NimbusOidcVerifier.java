@@ -98,9 +98,18 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(oidc.jwksUri())
                 .restOperations(jwksClient())
                 .build();
-        decoder.setJwtValidator(
-                JwtValidators.createDefaultWithValidators(issuerValidator(oidc.issuers()), audienceValidator(audiences)));
+        decoder.setJwtValidator(tokenValidator(oidc.issuers(), audiences));
         return decoder;
+    }
+
+    /**
+     * 서명을 뺀 나머지 검증 전부 — 기본 검증(토큰 타입·{@code exp}/{@code nbf})에 issuer·audience 를 얹는다.
+     *
+     * <p>서명은 {@link NimbusJwtDecoder} 가 JWKS 로 확인한다. 그 앞단 검증만 여기 모여 있어, 테스트가 네트워크
+     * 없이 {@code aud}·{@code iss}·만료를 직접 확인할 수 있다 — 이 셋이 뚫리면 남의 앱 토큰으로 로그인이 된다.
+     */
+    static OAuth2TokenValidator<Jwt> tokenValidator(List<String> issuers, List<String> audiences) {
+        return JwtValidators.createDefaultWithValidators(issuerValidator(issuers), audienceValidator(audiences));
     }
 
     /**
@@ -130,7 +139,10 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
      */
     private static OAuth2TokenValidator<Jwt> issuerValidator(List<String> issuers) {
         return token -> {
-            if (issuers.contains(token.getClaimAsString(JwtClaimNames.ISS))) {
+            // iss 가 없으면 여기서 끝낸다. List.of 로 만든 불변 목록은 contains(null) 에서 NPE 를 던져,
+            // 클레임을 비운 토큰 하나가 401 이 아니라 500 이 된다.
+            String issuer = token.getClaimAsString(JwtClaimNames.ISS);
+            if (issuer != null && issuers.contains(issuer)) {
                 return OAuth2TokenValidatorResult.success();
             }
             return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", ISSUER_MISMATCH, null));
