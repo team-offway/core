@@ -614,4 +614,56 @@ class AuthIntegrationTest {
         mockMvc.perform(request).andExpect(status().isOk());
         return currentOwner(guestId);
     }
+
+    /**
+     * 헤더가 길어도 <b>로그인은 성공한다</b> — 기록은 나중을 위한 것이지 로그인의 조건이 아니다.
+     *
+     * <p>여기서 터지면 계정은 만들어졌는데 토큰을 못 받아, 재시도해도 같은 자리에서 계속 실패하는 락아웃이
+     * 된다. 실제로 그랬다 — {@code VARCHAR(64)} 를 넘긴 값이 DB 에서 잘리며 500 을 냈다.
+     */
+    @Test
+    void 기기_식별자가_너무_길어도_로그인은_된다() throws Exception {
+        String tooLong = "d".repeat(200);
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+
+        mockMvc.perform(callback("google", "any-id-token").header(GUEST_HEADER, tooLong))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accessToken").isNotEmpty());
+
+        assertEquals(0, linkCount(tooLong), "이을 수 없는 값을 기록했다");
+    }
+
+    /**
+     * 같은 기기로 동시에 로그인해도 <b>둘 다 성공한다</b>.
+     *
+     * <p>유니크 제약 위반을 트랜잭션 <b>안에서</b> 삼키면 소용이 없다 — 세션이 rollback-only 가 되어 커밋에서
+     * {@code UnexpectedRollbackException} 으로 끝난다. 진 쪽이 로그인에 실패하면 새 기기 첫 로그인을
+     * 두 번 누른 사용자가 들어오지 못한다.
+     */
+    @Test
+    void 같은_기기로_동시에_로그인해도_둘_다_성공한다() throws Exception {
+        String guest = "link-" + UUID.randomUUID();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+        int attempts = 2;
+        CyclicBarrier barrier = new CyclicBarrier(attempts);
+        ExecutorService executor = Executors.newFixedThreadPool(attempts);
+        try {
+            List<Future<Integer>> results = new ArrayList<>();
+            for (int i = 0; i < attempts; i++) {
+                results.add(executor.submit(() -> {
+                    barrier.await();
+                    return mockMvc.perform(callback("google", "any-id-token").header(GUEST_HEADER, guest))
+                            .andReturn()
+                            .getResponse()
+                            .getStatus();
+                }));
+            }
+            for (Future<Integer> result : results) {
+                assertEquals(200, result.get(), "동시 로그인 중 하나가 실패했다");
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+        assertEquals(1, linkCount(guest));
+    }
 }

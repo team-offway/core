@@ -2,6 +2,7 @@ package com.offway.core.user.repository;
 
 import com.offway.core.user.domain.UserGuestLink;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -18,8 +19,8 @@ public class UserGuestLinkRepositoryImpl implements UserGuestLinkRepository {
     }
 
     @Override
-    public boolean isLinked(String guestId) {
-        return userGuestLinkJpaRepository.existsByGuestId(guestId);
+    public Optional<UserGuestLink> findByGuestId(String guestId) {
+        return userGuestLinkJpaRepository.findByGuestId(guestId);
     }
 
     @Override
