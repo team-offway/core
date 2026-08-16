@@ -54,10 +54,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static String resolveToken(HttpServletRequest request) {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (header == null || !header.startsWith(BEARER_PREFIX)) {
+        if (!hasBearerScheme(header)) {
             return null;
         }
         String token = header.substring(BEARER_PREFIX.length()).trim();
         return token.isEmpty() ? null : token;
+    }
+
+    /**
+     * {@code Authorization} 이 Bearer 인지 — <b>대소문자를 구분하지 않는다</b>.
+     *
+     * <p>HTTP 인증 scheme 은 규격상 대소문자를 가리지 않는다(RFC 7235). {@code startsWith("Bearer ")} 로 보면
+     * {@code bearer <token>} 을 들고 온 클라이언트가 토큰을 안 보낸 것으로 취급돼, 고칠 데가 없는데 401 을 받는다.
+     */
+    private static boolean hasBearerScheme(String header) {
+        return header != null && header.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length());
     }
 }
