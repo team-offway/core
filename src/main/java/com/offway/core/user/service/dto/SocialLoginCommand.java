@@ -10,5 +10,8 @@ import com.offway.core.user.domain.AuthProvider;
  * @param nickname 앱이 함께 넘긴 표시 이름. Apple 은 최초 인증 응답에만 이름을 주므로 그때 받아 넘기지 않으면 영영
  *     얻을 수 없다. 없을 수 있다
  * @param email 앱이 함께 넘긴 이메일. 위와 같은 이유로 Apple 최초 로그인에서만 온다. 없을 수 있다
+ * @param guestId 이 기기의 게스트 키(#34). 코스·연차가 아직 이 값으로 묶여 있어, 로그인할 때 사용자에게 이어 둔다.
+ *     헤더를 안 보내는 클라이언트도 있으므로 없을 수 있다
  */
-public record SocialLoginCommand(AuthProvider provider, String credential, String nickname, String email) {}
+public record SocialLoginCommand(
+        AuthProvider provider, String credential, String nickname, String email, String guestId) {}

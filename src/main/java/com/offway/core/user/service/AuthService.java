@@ -38,6 +38,9 @@ public class AuthService {
         SocialIdentity identity = socialIdentityResolver.resolve(command.provider(), command.credential());
         AuthenticatedUser user =
                 userPersistenceService.findOrCreateUser(identity, command.nickname(), command.email());
+        // 이 기기를 사용자에게 이어 둔다(#34). 코스·연차가 아직 guest_id 로 묶여 있어, 서버가 "이 사용자의
+        // 데이터가 무엇인가" 를 알 수 있는 유일한 근거다 — 탈퇴가 이것으로 대상을 찾는다.
+        userPersistenceService.linkGuest(user.userId(), command.guestId(), Instant.now());
         return issueTokens(user);
     }
 

@@ -4,7 +4,9 @@ import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.RefreshToken;
 import com.offway.core.user.domain.User;
 import com.offway.core.user.domain.UserIdentity;
+import com.offway.core.user.domain.UserGuestLink;
 import com.offway.core.user.repository.RefreshTokenRepository;
+import com.offway.core.user.repository.UserGuestLinkRepository;
 import com.offway.core.user.repository.UserIdentityRepository;
 import com.offway.core.user.repository.UserRepository;
 import com.offway.core.user.service.dto.AuthenticatedUser;
@@ -14,6 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +34,7 @@ public class UserPersistenceService {
     private final UserRepository userRepository;
     private final UserIdentityRepository userIdentityRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final UserGuestLinkRepository userGuestLinkRepository;
 
     /**
      * 검증된 provider 신원으로 사용자를 찾거나 만든다. 최초 로그인이 곧 가입이다.
@@ -120,5 +124,30 @@ public class UserPersistenceService {
     /** 트랜잭션 안에서만 호출된다 — 관리 상태 엔티티라 dirty checking 으로 반영된다. self-invocation 을 피하려 private. */
     private void revokeActive(UUID userId, Instant now) {
         refreshTokenRepository.findActiveByUserId(userId).forEach(token -> token.revoke(now));
+    }
+
+    /**
+     * 이 기기를 사용자에게 잇는다(#34) — <b>이미 누군가의 것이면 그대로 둔다</b>.
+     *
+     * <p>코스·연차가 아직 {@code guest_id} 로 묶여 있어, 서버가 "이 사용자의 데이터가 무엇인가" 를 알 수 있는
+     * 유일한 근거다. 탈퇴가 이것으로 대상을 찾고, 나중에 소유를 옮길 때 backfill 키가 된다.
+     *
+     * <p><b>덮어쓰지 않는다.</b> 한 기기에서 두 사람이 로그인하면 그 기기의 옛 데이터는 먼저 로그인한 사용자의
+     * 것이다. 뒤에 온 사람에게 넘기면 남의 코스·연차를 넘기는 셈이라, 안 넘기는 쪽이 낫다.
+     *
+     * <p><b>실패해도 로그인을 막지 않는다.</b> 이 기록은 나중을 위한 것이지 로그인의 조건이 아니다. 다만 조용히
+     * 넘어가지는 않는다 — 없으면 그 사용자의 탈퇴가 데이터를 못 찾으므로 사유를 warn 으로 남긴다.
+     */
+    @Transactional
+    public void linkGuest(UUID userId, String guestId, Instant now) {
+        if (guestId == null || guestId.isBlank() || userGuestLinkRepository.isLinked(guestId)) {
+            return;
+        }
+        try {
+            userGuestLinkRepository.save(UserGuestLink.of(userId, guestId, now));
+        } catch (DataIntegrityViolationException e) {
+            // 같은 기기에서 동시에 로그인했다. 먼저 넣은 쪽이 이겼고 그 결과가 우리가 원하는 상태라 그대로 둔다.
+            log.info("기기 연결 경합 — 먼저 기록된 연결을 그대로 씁니다 userId={}", userId);
+        }
     }
 }

@@ -37,7 +37,11 @@ public record SocialLoginRequest(
                         nullable = true)
                 String providerUserId) {
 
-    public SocialLoginCommand toCommand(String provider) {
-        return new SocialLoginCommand(AuthProvider.from(provider), accessToken, name, email);
+    /**
+     * @param guestId 이 기기의 게스트 키(#34). 본문이 아니라 헤더로 온다 — 코스·연차가 쓰는 그 값과 같은 것이라
+     *     계약을 둘로 만들지 않는다. 안 보내는 클라이언트도 있어 null 일 수 있다
+     */
+    public SocialLoginCommand toCommand(String provider, String guestId) {
+        return new SocialLoginCommand(AuthProvider.from(provider), accessToken, name, email, guestId);
     }
 }
