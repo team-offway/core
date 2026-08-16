@@ -68,6 +68,15 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
     private static final Duration JWKS_REFRESH_AHEAD = Duration.ofMinutes(5);
 
     /**
+     * JWKS 응답 크기 상한 — Nimbus 기본값(50KB)을 그대로 둔다.
+     *
+     * <p>2인자 생성자를 쓰면 <b>상한이 사라진다</b>. provider 가 잘못 응답하거나 중간에서 가로챈 응답이 크면
+     * 그만큼 메모리로 읽어 들인다. 이 레포는 외부 응답에 상한을 두는 것을 규약으로 삼는다
+     * ({@code WebClientConfig} 의 {@code maxInMemorySize}).
+     */
+    private static final int JWKS_MAX_BYTES = 50 * 1024;
+
+    /**
      * 강제 갱신 사이 최소 간격 — 위조 토큰이 조회를 유발해도 이 간격을 넘지 못한다.
      *
      * <p>10초다. 이 값이 곧 <b>키 회전 직후 정상 토큰이 거절될 수 있는 최악의 시간</b>이다(실측으로 확인했다).
@@ -75,6 +84,16 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
      * 그 차이는 무의미하다. 반면 지연은 사용자가 그대로 겪는다. 이득이 포화한 쪽을 더 조이지 않는다.
      */
     private static final Duration JWKS_MIN_REFRESH_INTERVAL = Duration.ofSeconds(10);
+
+    static {
+        // Nimbus 는 (선갱신 + 적재 대기) 가 수명을 넘으면 예외를 던지는데, 그 예외는 디코더를 처음 만드는
+        // 시점 — 즉 <b>첫 로그인</b> — 에 터진다. 상수를 잘못 조정하면 부팅은 멀쩡하고 사용자가 500 을 받는다.
+        // 여기서 먼저 끊어 부팅에서 드러나게 한다.
+        if (JWKS_REFRESH_AHEAD.plus(JWKS_CACHE_REFRESH_TIMEOUT).compareTo(JWKS_CACHE_TTL) >= 0) {
+            throw new IllegalStateException(
+                    "JWKS 캐시 상수가 어긋납니다 — 선갱신 + 적재 대기는 수명보다 짧아야 합니다");
+        }
+    }
 
 
     private static final String AUDIENCE_MISMATCH = "audience 가 일치하지 않습니다.";
@@ -172,7 +191,7 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
             // 상한을 여기서도 명시한다. create(URL) 만 쓰면 Nimbus 기본 retriever(각 500ms)가 붙어,
             // restOperations 에 준 3초가 이 경로에서는 죽은 설정이 된다 — 재측정 없이 8배 좁아지는 셈이다.
             DefaultResourceRetriever retriever = new DefaultResourceRetriever(
-                    (int) JWKS_TIMEOUT.toMillis(), (int) JWKS_TIMEOUT.toMillis());
+                    (int) JWKS_TIMEOUT.toMillis(), (int) JWKS_TIMEOUT.toMillis(), JWKS_MAX_BYTES);
             JWKSource<SecurityContext> source = JWKSourceBuilder.<SecurityContext>create(
                             URI.create(jwksUri).toURL(), retriever)
                     .cache(JWKS_CACHE_TTL.toMillis(), JWKS_CACHE_REFRESH_TIMEOUT.toMillis())
