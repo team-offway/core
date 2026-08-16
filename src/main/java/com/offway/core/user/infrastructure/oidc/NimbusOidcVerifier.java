@@ -1,6 +1,7 @@
 package com.offway.core.user.infrastructure.oidc;
 
 import com.offway.core.user.config.AuthProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.user.domain.AuthProvider;
 import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.UserException;
@@ -29,6 +30,7 @@ import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.proc.JWSKeySelector;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jose.util.DefaultResourceRetriever;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.time.Duration;
@@ -50,8 +52,14 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
     /** JWKS 조회 상한 — 로그인 경로라 오래 물릴 수 없다. 기본값(30초)을 그대로 두지 않는 이유는 jwksClient() 주석에. */
     private static final Duration JWKS_TIMEOUT = Duration.ofSeconds(3);
 
-    /** 공개키 캐시 수명. 회전을 따라갈 만큼 짧게 두되, 매 로그인이 조회가 되지 않을 만큼은 길게. */
-    private static final Duration JWKS_CACHE_TTL = Duration.ofMinutes(30);
+    /**
+     * 공개키 캐시 수명.
+     *
+     * <p>10분이다. 백그라운드 갱신은 한도 없는 정적 문서라 사실상 공짜인데(provider 당 5분 주기여도 하루
+     * 수백 회), 수명을 늘리면 <b>회전된 키를 모르는 채로 있는 창</b>이 그만큼 길어진다. 그 창에서 정상
+     * 토큰이 강제 갱신을 유발하고 rate limit 에 걸려 502 를 받는다. 공짜인 쪽을 아끼고 비싼 쪽을 늘릴 이유가 없다.
+     */
+    private static final Duration JWKS_CACHE_TTL = Duration.ofMinutes(10);
 
     /** 캐시가 비었을 때 다른 스레드가 적재를 기다릴 상한. 호출 상한(3초)보다 길 이유가 없다. */
     private static final Duration JWKS_CACHE_REFRESH_TIMEOUT = JWKS_TIMEOUT;
@@ -59,8 +67,14 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
     /** 만료 이 시간 전부터 미리 받아 둔다 — 만료 직후 요청이 조회를 뒤집어쓰지 않게. */
     private static final Duration JWKS_REFRESH_AHEAD = Duration.ofMinutes(5);
 
-    /** 강제 갱신 사이 최소 간격 — 위조 토큰이 조회를 유발해도 이 간격을 넘지 못한다. */
-    private static final Duration JWKS_MIN_REFRESH_INTERVAL = Duration.ofSeconds(30);
+    /**
+     * 강제 갱신 사이 최소 간격 — 위조 토큰이 조회를 유발해도 이 간격을 넘지 못한다.
+     *
+     * <p>10초다. 이 값이 곧 <b>키 회전 직후 정상 토큰이 거절될 수 있는 최악의 시간</b>이다(실측으로 확인했다).
+     * 30초로 두면 증폭이 분당 4회, 10초면 12회인데 — 요청당 1회였던 것에서 이미 두 자릿수 배 줄어든 뒤라
+     * 그 차이는 무의미하다. 반면 지연은 사용자가 그대로 겪는다. 이득이 포화한 쪽을 더 조이지 않는다.
+     */
+    private static final Duration JWKS_MIN_REFRESH_INTERVAL = Duration.ofSeconds(10);
 
 
     private static final String AUDIENCE_MISMATCH = "audience 가 일치하지 않습니다.";
@@ -102,7 +116,11 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
             throw UserException.invalidIdToken(exception);
         } catch (JwtException exception) {
             // JWKS 조회 실패 등 provider 측 문제 — 재시도로 풀릴 수 있으므로 502 로 구분한다.
-            log.warn("provider 공개키 조회 실패 provider={} cause={}", provider, exception.getClass().getSimpleName());
+            //
+            // 사유를 원인 체인에서 꺼내 남긴다. 클래스명만 찍으면 전부 JwtException 이라, 봇이 위조 토큰을
+            // 뿌려 rate limit 에 걸린 것과 provider 가 실제로 죽은 것이 로그에서 같아 보인다 — 밤새 쌓인
+            // 경고를 보고 "Google 이 죽었다" 로 읽게 된다.
+            log.warn("provider 공개키 조회 실패 provider={} cause={}", provider, RootCause.label(exception));
             throw UserException.oidcProviderUnavailable(exception);
         }
     }
@@ -151,12 +169,19 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
      */
     private static JWSKeySelector<SecurityContext> keySelector(String jwksUri) {
         try {
-            JWKSource<SecurityContext> source = JWKSourceBuilder.create(URI.create(jwksUri).toURL())
+            // 상한을 여기서도 명시한다. create(URL) 만 쓰면 Nimbus 기본 retriever(각 500ms)가 붙어,
+            // restOperations 에 준 3초가 이 경로에서는 죽은 설정이 된다 — 재측정 없이 8배 좁아지는 셈이다.
+            DefaultResourceRetriever retriever = new DefaultResourceRetriever(
+                    (int) JWKS_TIMEOUT.toMillis(), (int) JWKS_TIMEOUT.toMillis());
+            JWKSource<SecurityContext> source = JWKSourceBuilder.<SecurityContext>create(
+                            URI.create(jwksUri).toURL(), retriever)
                     .cache(JWKS_CACHE_TTL.toMillis(), JWKS_CACHE_REFRESH_TIMEOUT.toMillis())
                     .refreshAheadCache(JWKS_REFRESH_AHEAD.toMillis(), true)
                     .rateLimited(JWKS_MIN_REFRESH_INTERVAL.toMillis())
                     .build();
-            return new JWSVerificationKeySelector<>(JWSAlgorithm.Family.RSA, source);
+            // RS256 하나로 좁혀 둔다. Family.RSA 는 PS 계열까지 열리는데, 두 provider 가 쓰는 것은
+            // RS256 이고 받을 알고리즘을 넓히는 것은 검증을 느슨하게 하는 쪽이다.
+            return new JWSVerificationKeySelector<>(JWSAlgorithm.RS256, source);
         } catch (MalformedURLException e) {
             // provider 상수라 여기 닿으면 코드 버그다 — 부팅 시점에 드러나는 편이 낫다.
             throw new IllegalStateException("JWKS 주소가 올바르지 않습니다 provider 설정을 확인하세요", e);
