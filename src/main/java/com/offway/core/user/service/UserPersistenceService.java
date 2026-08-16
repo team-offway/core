@@ -66,20 +66,25 @@ public class UserPersistenceService {
      */
     @Transactional
     public TokenRotation rotateRefreshToken(String currentHash, String nextHash, Instant nextExpiry, Instant now) {
+        // 판정과 폐기를 한 문장으로 합친다. 읽고 검사하고 폐기하면 그 사이에 다른 요청이 같은 스냅샷을 읽어
+        // 둘 다 회전에 성공한다 — 토큰 하나에서 살아 있는 refresh 가 둘 나오고 재사용 감지가 무의미해진다.
+        boolean won = refreshTokenRepository.claimRotation(currentHash, now) > 0;
         Optional<RefreshToken> found = refreshTokenRepository.findByTokenHash(currentHash);
         if (found.isEmpty()) {
             return new TokenRotation.Invalid();
         }
         RefreshToken current = found.get();
-        if (current.isRevoked()) {
-            return new TokenRotation.Reused(current.getUserId());
+        if (won) {
+            refreshTokenRepository.save(RefreshToken.issue(current.getUserId(), nextHash, nextExpiry));
+            return new TokenRotation.Rotated(current.getUserId());
         }
         if (current.isExpired(now)) {
             return new TokenRotation.Invalid();
         }
-        current.revoke(now);
-        refreshTokenRepository.save(RefreshToken.issue(current.getUserId(), nextHash, nextExpiry));
-        return new TokenRotation.Rotated(current.getUserId());
+        // 선점에 졌다. 방금 회전된 것이면 정상 앱의 재시도·동시 요청이고, 오래전에 폐기된 것이면 탈취 정황이다.
+        return current.revokedWithin(RefreshToken.ROTATION_GRACE, now)
+                ? new TokenRotation.Raced()
+                : new TokenRotation.Reused(current.getUserId());
     }
 
     /** 로그아웃 — 살아 있는 refresh 를 모두 폐기한다. access 는 만료까지 유효하다(무상태 JWT 의 대가). */

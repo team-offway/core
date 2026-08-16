@@ -1,6 +1,7 @@
 package com.offway.core.user.repository;
 
 import com.offway.core.user.domain.RefreshToken;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,5 +28,10 @@ public class RefreshTokenRepositoryImpl implements RefreshTokenRepository {
     @Override
     public List<RefreshToken> findActiveByUserId(UUID userId) {
         return refreshTokenJpaRepository.findByUserIdAndRevokedAtIsNull(userId);
+    }
+
+    @Override
+    public int claimRotation(String tokenHash, Instant now) {
+        return refreshTokenJpaRepository.claimRotation(tokenHash, now);
     }
 }

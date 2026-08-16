@@ -17,6 +17,15 @@ public sealed interface TokenRotation {
     /** 이미 폐기된 토큰이 다시 왔다 — 탈취 정황이라 이 사용자의 토큰을 전부 끊어야 한다. */
     record Reused(UUID userId) implements TokenRotation {}
 
+    /**
+     * <b>방금</b> 회전된 토큰이 다시 왔다 — 탈취가 아니라 정상 앱의 재시도·동시 요청으로 본다.
+     *
+     * <p>정상 앱도 같은 refresh 를 두 번 쏜다. 401 을 받은 요청 둘이 동시에 재발급을 걸거나, 응답을 못 받고
+     * 타임아웃 재시도를 하면 그렇다. 이것을 {@link Reused} 로 다루면 <b>이긴 요청이 방금 받아 간 정상 토큰까지
+     * 끊겨</b> 사용자가 멀쩡한 토큰을 들고 로그아웃된다. 요청 자체는 거절하되 세션은 살린다.
+     */
+    record Raced() implements TokenRotation {}
+
     /** 없는 토큰이거나 만료됨. 끊을 대상이 없다. */
     record Invalid() implements TokenRotation {}
 }
