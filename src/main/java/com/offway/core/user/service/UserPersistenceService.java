@@ -123,7 +123,8 @@ public class UserPersistenceService {
 
     /** 트랜잭션 안에서만 호출된다 — 관리 상태 엔티티라 dirty checking 으로 반영된다. self-invocation 을 피하려 private. */
     private void revokeActive(UUID userId, Instant now) {
-        refreshTokenRepository.findActiveByUserId(userId).forEach(token -> token.revoke(now));
+        // 읽어서 하나씩 고치면 행 수만큼 UPDATE 가 나간다. 이 표는 삭제 경로가 없어 계속 쌓이는 자리다.
+        refreshTokenRepository.revokeActive(userId, now);
     }
 
     /**

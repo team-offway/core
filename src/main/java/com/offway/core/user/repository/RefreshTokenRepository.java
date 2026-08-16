@@ -25,4 +25,11 @@ public interface RefreshTokenRepository {
      * 한 문장으로 합쳐 DB 가 갈라주게 한다({@code ExternalApiCallRepository.claimNotifyStep} 과 같은 방식).
      */
     int claimRotation(String tokenHash, Instant now);
+
+    /**
+     * 이 사용자의 살아 있는 토큰을 전부 폐기한다 — 로그아웃·재사용 감지.
+     *
+     * @return 폐기한 행 수
+     */
+    int revokeActive(UUID userId, Instant now);
 }

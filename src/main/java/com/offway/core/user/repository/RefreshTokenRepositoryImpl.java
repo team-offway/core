@@ -34,4 +34,9 @@ public class RefreshTokenRepositoryImpl implements RefreshTokenRepository {
     public int claimRotation(String tokenHash, Instant now) {
         return refreshTokenJpaRepository.claimRotation(tokenHash, now);
     }
+
+    @Override
+    public int revokeActive(UUID userId, Instant now) {
+        return refreshTokenJpaRepository.revokeActiveByUserId(userId, now);
+    }
 }
