@@ -46,6 +46,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @AutoConfigureMockMvc
 class AuthIntegrationTest {
 
+    private static final String GUEST_HEADER = "X-Guest-Id";
+
     private static final String CALLBACK_URL = "/api/v1/auth/callback/%s";
     private static final String REISSUE_URL = "/api/v1/auth/reissue";
     private static final String LOGOUT_URL = "/api/v1/auth/logout";
@@ -539,5 +541,77 @@ class AuthIntegrationTest {
     private static String subjectOf(String accessToken) {
         String payload = new String(Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]));
         return JsonPath.read(payload, "$.sub");
+    }
+
+    // ── 기기 연결(#34) ────────────────────────────────────────
+
+    /**
+     * 로그인할 때 이 기기를 사용자에게 이어 둔다 — <b>탈퇴가 데이터를 찾는 유일한 근거다</b>.
+     *
+     * <p>코스·연차는 아직 {@code guest_id} 로 묶여 있다. 이 기록이 없으면 서버는 "이 사용자의 데이터가
+     * 무엇인가" 를 스스로 알지 못해, 헤더 없이 온 탈퇴 요청에서 코스·연차가 주인 없이 영영 남는다.
+     */
+    @Test
+    void 로그인하면_이_기기가_사용자에게_이어진다() throws Exception {
+        String guest = "link-" + UUID.randomUUID();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+
+        mockMvc.perform(callback("google", "any-id-token").header(GUEST_HEADER, guest))
+                .andExpect(status().isOk());
+
+        assertEquals(1, linkCount(guest), "로그인이 기기를 잇지 않았다");
+    }
+
+    @Test
+    void 헤더가_없어도_로그인은_된다() throws Exception {
+        // 기록은 나중을 위한 것이지 로그인의 조건이 아니다. 여기서 막으면 헤더를 안 보내는 앱이 못 들어온다.
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+
+        mockMvc.perform(callback("google", "any-id-token")).andExpect(status().isOk());
+    }
+
+    @Test
+    void 같은_기기로_다시_로그인해도_연결은_하나다() throws Exception {
+        String guest = "link-" + UUID.randomUUID();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+
+        mockMvc.perform(callback("google", "t1").header(GUEST_HEADER, guest)).andExpect(status().isOk());
+        mockMvc.perform(callback("google", "t2").header(GUEST_HEADER, guest)).andExpect(status().isOk());
+
+        assertEquals(1, linkCount(guest));
+    }
+
+    /**
+     * 한 기기에서 두 사람이 로그인해도 그 기기는 <b>먼저 로그인한 사용자</b>의 것으로 남는다.
+     *
+     * <p>뒤에 온 사람에게 넘기면 그 기기에 쌓인 남의 코스·연차를 넘기는 셈이고, 탈퇴가 그것을 지운다.
+     * 데이터를 잘못 넘기는 것보다 안 넘기는 쪽이 낫다.
+     */
+    @Test
+    void 한_기기를_두_사람이_쓰면_먼저_로그인한_쪽이_갖는다() throws Exception {
+        String guest = "link-" + UUID.randomUUID();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "먼저", null);
+        String firstUser = ownerOf(guest, callback("google", "t1").header(GUEST_HEADER, guest));
+
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "나중", null);
+        mockMvc.perform(callback("google", "t2").header(GUEST_HEADER, guest)).andExpect(status().isOk());
+
+        assertEquals(1, linkCount(guest));
+        assertEquals(firstUser, currentOwner(guest), "뒤에 로그인한 사용자가 기기를 가져갔다");
+    }
+
+    private int linkCount(String guestId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_guest_link WHERE guest_id = ?", Integer.class, guestId);
+    }
+
+    private String currentOwner(String guestId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT HEX(user_id) FROM user_guest_link WHERE guest_id = ?", String.class, guestId);
+    }
+
+    private String ownerOf(String guestId, MockHttpServletRequestBuilder request) throws Exception {
+        mockMvc.perform(request).andExpect(status().isOk());
+        return currentOwner(guestId);
     }
 }
