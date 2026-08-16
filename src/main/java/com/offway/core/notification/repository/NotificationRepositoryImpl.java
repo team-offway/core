@@ -21,6 +21,16 @@ public class NotificationRepositoryImpl implements NotificationRepository {
     }
 
     @Override
+    public boolean saveIfAbsent(Notification notification) {
+        return notificationJpaRepository.insertIfAbsent(
+                        notification.getGuestId(),
+                        notification.getType().name(),
+                        notification.course().orElse(null),
+                        notification.getCreatedAt())
+                > 0;
+    }
+
+    @Override
     public Page<Notification> findByOwner(String guestId, Pageable pageable) {
         return notificationJpaRepository.findByGuestIdOrderByCreatedAtDescIdDesc(guestId, pageable);
     }

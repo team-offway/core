@@ -23,6 +23,43 @@ interface NotificationJpaRepository extends JpaRepository<Notification, Long> {
 
     Optional<Notification> findByIdAndGuestId(Long id, String guestId);
 
+    /**
+     * 유니크 키 {@code (guest_id, type, course_id)} 가 이미 있으면 아무것도 하지 않는다.
+     *
+     * <p>{@code save} 로는 안 된다 — 식별자로만 신규·기존을 가르는데, 여기서 같은 것을 가르는 기준은
+     * 그 유니크 키다. 그래서 native 다.
+     *
+     * <p><b>삽입 조건을 문장 안에 둔다.</b> 처음에는 {@code ON DUPLICATE KEY UPDATE id = id} 로 짰는데,
+     * 그 관용구로는 "새로 만들었나" 를 영향 행수로 가를 수 없었다 — MySQL JDBC 는 기본이
+     * {@code useAffectedRows=false} 라 실제 변경 행이 아니라 <b>매칭된 행</b>을 돌려주므로, 중복이라
+     * 아무것도 안 바뀐 경우에도 1 이 온다. 그래서 재실행이 "새로 1건 만들었다" 고 거짓 보고했다.
+     *
+     * <p>{@code NOT EXISTS} 로 바꾸면 삽입이 일어난 경우에만 1, 아니면 0 이라 그 값이 곧 답이 된다.
+     * 조회와 삽입 사이의 경쟁은 유니크 키가 최종 방어로 남는다(그때는 예외 → 롤백 → 다음 실행이 채운다).
+     *
+     * <p>{@code INSERT IGNORE} 를 쓰지 않는 이유는 그것이 중복 외의 오류(길이 초과·타입 불일치)까지
+     * 경고로 낮춰 삼키기 때문이다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+            value =
+                    """
+                    INSERT INTO notification (guest_id, type, course_id, created_at)
+                    SELECT :guestId, :type, :courseId, :createdAt
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM notification existing
+                        WHERE existing.guest_id = :guestId
+                          AND existing.type = :type
+                          AND existing.course_id <=> :courseId
+                    )
+                    """,
+            nativeQuery = true)
+    int insertIfAbsent(
+            @Param("guestId") String guestId,
+            @Param("type") String type,
+            @Param("courseId") Long courseId,
+            @Param("createdAt") LocalDateTime createdAt);
+
     long countByGuestIdAndReadAtIsNull(String guestId);
 
     /**
