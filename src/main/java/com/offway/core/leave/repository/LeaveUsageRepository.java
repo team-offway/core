@@ -38,11 +38,22 @@ public interface LeaveUsageRepository {
      * 코스 차감 내역을 지운다(차감 취소).
      *
      * <p>음수 행을 덧붙이지 않는 이유 — {@code uk_leave_usage_guest_course} 가 코스당 한 행을 강제한다(#91).
-     * 음수 누적은 수동 내역 전용이다.
+     * 수동 내역도 같은 규칙을 따른다 — 되돌리기는 삭제다(#265).
      *
      * @return 지운 행 수 (없었으면 0)
      */
     int deleteByGuestIdAndCourseId(String guestId, Long courseId);
+
+    /**
+     * 내 내역 한 건 — 삭제하려고 읽는다(#265).
+     *
+     * <p><b>소유자를 조건에 함께 건다.</b> id 로만 읽고 나중에 소유자를 비교하면, 그 비교를 빠뜨린 코드
+     * 한 줄이 곧 남의 내역을 지우는 길이 된다.
+     */
+    Optional<LeaveUsage> findByIdAndGuestId(Long id, String guestId);
+
+    /** 수동 내역 한 건을 지운다(#265). 코스 차감 내역인지의 판단은 도메인이 소유한다. */
+    void delete(LeaveUsage usage);
 
     LeaveUsage save(LeaveUsage usage);
 

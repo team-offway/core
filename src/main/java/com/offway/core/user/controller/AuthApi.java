@@ -6,6 +6,7 @@ import com.offway.core.user.controller.dto.SocialLoginRequest;
 import com.offway.core.user.controller.dto.TokenResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.UUID;
@@ -39,9 +40,17 @@ public interface AuthApi {
     @ApiResponse(
             responseCode = "502",
             description = "provider 를 부르지 못함 — 공개키(JWKS) 조회 실패 · 카카오 프로필 API 실패·타임아웃(USER-005)")
+    @Parameter(
+            name = "X-Guest-Id",
+            in = ParameterIn.HEADER,
+            required = false,
+            description = "이 기기의 게스트 키(#34). 코스·연차가 쓰는 그 값과 같다. 로그인할 때 함께 보내면 "
+                    + "서버가 이 기기를 사용자에게 이어 두고, 나중에 탈퇴가 그 데이터를 찾아 지운다. "
+                    + "안 보내도 로그인은 되지만 그 사용자의 코스·연차는 주인 없이 남는다")
     ApiResponseBody<TokenResponse> callback(
             @Parameter(description = "소셜 provider — kakao · apple · google (대소문자 무관)", example = "kakao")
                     String provider,
+            String guestId,
             SocialLoginRequest request);
 
     @Operation(

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -63,6 +64,22 @@ class AuthProviderTest {
                 .orElseThrow()
                 .nicknameClaimIfPresent()
                 .isEmpty());
+    }
+
+    @Test
+    void 구글은_iss_표기_두_가지를_모두_받는다() {
+        // Google 은 스킴 있는 표기와 없는 표기를 모두 낸다. 하나만 허용하면 다른 표기를 받은 사용자가 전부
+        // 401 이 된다 — Google 자신의 검증 라이브러리도 둘 다 받는다.
+        assertEquals(
+                List.of("https://accounts.google.com", "accounts.google.com"),
+                AuthProvider.GOOGLE.oidc().orElseThrow().issuers());
+    }
+
+    @Test
+    void 애플은_iss_표기가_하나다() {
+        assertEquals(
+                List.of("https://appleid.apple.com"),
+                AuthProvider.APPLE.oidc().orElseThrow().issuers());
     }
 
     @Test

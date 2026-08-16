@@ -60,7 +60,7 @@ MySQL·H2 양쪽에서 동작하고 Hibernate 의 UUID 기본 매핑이다. 생�
 
 ## 패키지 구조
 
-```
+```text
 user/
 ├── controller/
 │   ├── AuthController        @RestController @RequestMapping("/api/v1/auth")
@@ -313,7 +313,7 @@ provider 클라이언트 ID(audience)가 비어 있어도 부팅은 되고, 해�
 
 그래서 `OidcTokenVerifier` 단일 port 를 **provider 별 전략**으로 나눴다.
 
-```
+```text
 infrastructure/social/  SocialIdentityResolver(port, 서비스가 의존)
                         SocialIdentityVerifier(전략)
                         DelegatingSocialIdentityResolver(supports() 로 위임 — provider 분기 없음)

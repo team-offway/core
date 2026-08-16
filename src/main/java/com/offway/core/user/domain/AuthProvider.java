@@ -1,5 +1,6 @@
 package com.offway.core.user.domain;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -16,10 +17,18 @@ import java.util.Optional;
  */
 public enum AuthProvider {
 
-    GOOGLE(new Oidc("https://accounts.google.com", "https://www.googleapis.com/oauth2/v3/certs", "name")),
+    /**
+     * Google 은 {@code iss} 를 <b>두 가지 표기</b>로 낸다 — {@code https://accounts.google.com} 과 스킴 없는
+     * {@code accounts.google.com}. 어느 쪽이 오는지는 토큰을 만든 SDK·흐름에 달렸다. 하나만 허용하면 다른 표기를
+     * 받은 사용자가 전부 401 이 되므로 둘 다 받는다(Google 자신의 검증 라이브러리도 그렇게 한다).
+     */
+    GOOGLE(new Oidc(
+            List.of("https://accounts.google.com", "accounts.google.com"),
+            "https://www.googleapis.com/oauth2/v3/certs",
+            "name")),
 
     /** Apple 은 ID 토큰에 이름을 담지 않는다 — 최초 인증 응답에만, 그것도 사용자가 제공을 선택했을 때만 온다. */
-    APPLE(new Oidc("https://appleid.apple.com", "https://appleid.apple.com/auth/keys", null)),
+    APPLE(new Oidc(List.of("https://appleid.apple.com"), "https://appleid.apple.com/auth/keys", null)),
 
     /** 액세스 토큰에 신원 정보가 없어 프로필 API 조회로 확인한다. */
     KAKAO(null);
@@ -60,11 +69,15 @@ public enum AuthProvider {
      *
      * <p>audience(클라이언트 ID)는 여기 없다 — 환경별로 다르고 비밀에 가까워 설정({@code offway.auth.oidc.*})이 소유한다.
      *
-     * @param issuer 토큰의 {@code iss} 가 이 값이어야 한다
+     * @param issuers 토큰의 {@code iss} 가 이 중 하나여야 한다. 표기를 여러 개 쓰는 provider(Google)가 있어 목록이다
      * @param jwksUri 서명 검증용 공개키 주소
      * @param nicknameClaim 표시 이름이 담긴 클레임. 주지 않는 provider 는 {@code null}
      */
-    public record Oidc(String issuer, String jwksUri, String nicknameClaim) {
+    public record Oidc(List<String> issuers, String jwksUri, String nicknameClaim) {
+
+        public Oidc {
+            issuers = List.copyOf(issuers);
+        }
 
         /** ID 토큰에서 닉네임을 담고 있는 클레임 이름. Apple 처럼 주지 않는 provider 는 비어 있다. */
         public Optional<String> nicknameClaimIfPresent() {

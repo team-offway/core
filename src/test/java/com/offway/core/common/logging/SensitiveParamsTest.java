@@ -200,4 +200,21 @@ class SensitiveParamsTest {
     void 값이_null_이어도_깨지지_않는다() {
         assertEquals("", SensitiveParams.forLog(null));
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"access_token", "id_token", "refresh_token", "identity_token"})
+    void OAuth_규격_이름의_토큰도_가린다(String name) {
+        // 우리 앱은 camelCase 로 보내지만 OAuth 규격(RFC 6749)이 쓰는 이름은 snake_case 다. 제공자 쪽 URL 이
+        // 예외 메시지에 실려 들어오는 경로가 있어, 한쪽만 적으면 그 경로로 토큰이 그대로 로그에 남는다.
+        assertEquals(name + "=***", SensitiveParams.readableParams(name + "=secret"));
+    }
+
+    @Test
+    void 물결이_섞인_Bearer_토큰도_통째로_가린다() {
+        // base64url·RFC 6750 이 허용하는 문자다. 문자 집합에서 빠지면 거기서 끊겨 뒷부분이 로그에 남는다.
+        String masked = SensitiveParams.maskSecretsInText("401 from GET /me Authorization: Bearer abc~def.ghi");
+
+        assertFalse(masked.contains("def"), "실제=" + masked);
+        assertTrue(masked.contains("Bearer ***"), "실제=" + masked);
+    }
 }

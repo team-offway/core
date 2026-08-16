@@ -38,6 +38,9 @@ public class AuthService {
         SocialIdentity identity = socialIdentityResolver.resolve(command.provider(), command.credential());
         AuthenticatedUser user =
                 userPersistenceService.findOrCreateUser(identity, command.nickname(), command.email());
+        // 이 기기를 사용자에게 이어 둔다(#34). 코스·연차가 아직 guest_id 로 묶여 있어, 서버가 "이 사용자의
+        // 데이터가 무엇인가" 를 알 수 있는 유일한 근거다 — 탈퇴가 이것으로 대상을 찾는다.
+        userPersistenceService.linkGuest(user.userId(), command.guestId(), Instant.now());
         return issueTokens(user);
     }
 
@@ -66,11 +69,24 @@ public class AuthService {
                 userPersistenceService.revokeAllRefreshTokens(userId, now);
                 throw UserException.invalidRefreshToken();
             }
+            case TokenRotation.Raced ignored -> {
+                // 세션을 끊지 않는다 — 이긴 요청이 방금 받아 간 정상 토큰까지 죽으면 사용자가 멀쩡한 토큰을
+                // 들고 로그아웃된다. 이 요청만 거절하고 클라이언트가 새 토큰으로 다시 오게 둔다.
+                log.info("회전 직후 같은 refresh 가 다시 왔습니다 — 재시도로 보고 이 요청만 거절합니다");
+                throw UserException.invalidRefreshToken();
+            }
             case TokenRotation.Invalid ignored -> throw UserException.invalidRefreshToken();
         };
     }
 
     public void logout(UUID userId) {
+        // Basic 으로 들어온 요청은 principal 이 UUID 가 아니라 null 로 온다(@LoginUser 가 JWT 가 넣은 것만 푼다).
+        // 그대로 두면 폐기할 대상이 없는데 200 이 나가, 클라이언트는 로그아웃됐다고 믿고 토큰은 살아 있다 —
+        // 규약이 막는 '조용한 실패' 다. 애초에 Basic 은 앱의 로그인 수단이 아니므로 401 로 끊는다.
+        if (userId == null) {
+            log.info("로그아웃 요청에 사용자 식별자가 없습니다 — Bearer 로 온 요청이 아닙니다");
+            throw UserException.invalidAccessToken();
+        }
         userPersistenceService.revokeAllRefreshTokens(userId, Instant.now());
     }
 

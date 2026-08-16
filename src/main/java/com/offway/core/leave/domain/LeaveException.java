@@ -64,4 +64,24 @@ public final class LeaveException extends BaseException {
     public static LeaveException invalidOwnerId() {
         return new LeaveException(LeaveErrorCode.INVALID_OWNER_ID);
     }
+
+    /** 지우려는 사용 내역이 없거나 남의 것. */
+    public static LeaveException leaveUsageNotFound() {
+        return new LeaveException(LeaveErrorCode.LEAVE_USAGE_NOT_FOUND);
+    }
+
+    /**
+     * 사용 내역을 음수로 등록하려 함 — 취소는 삭제로 한다.
+     *
+     * <p><b>호출부는 #276 이 만든다</b>({@link LeaveErrorCode#LEAVE_USAGE_REVERSAL_NOT_ALLOWED} 와 함께 자리만
+     * 잡아둔 것이다). 거절을 지금 켜면 앱이 삭제 API 로 갈아타기 전 구간에서 취소가 끊긴다.
+     */
+    public static LeaveException leaveUsageReversalNotAllowed() {
+        return new LeaveException(LeaveErrorCode.LEAVE_USAGE_REVERSAL_NOT_ALLOWED);
+    }
+
+    /** 코스 확정으로 기록된 내역을 연차 화면에서 지우려 함. */
+    public static LeaveException courseLeaveUsageNotDeletable() {
+        return new LeaveException(LeaveErrorCode.COURSE_LEAVE_USAGE_NOT_DELETABLE);
+    }
 }

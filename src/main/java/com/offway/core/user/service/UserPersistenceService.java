@@ -4,7 +4,9 @@ import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.RefreshToken;
 import com.offway.core.user.domain.User;
 import com.offway.core.user.domain.UserIdentity;
+import com.offway.core.user.domain.UserGuestLink;
 import com.offway.core.user.repository.RefreshTokenRepository;
+import com.offway.core.user.repository.UserGuestLinkRepository;
 import com.offway.core.user.repository.UserIdentityRepository;
 import com.offway.core.user.repository.UserRepository;
 import com.offway.core.user.service.dto.AuthenticatedUser;
@@ -14,6 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +34,7 @@ public class UserPersistenceService {
     private final UserRepository userRepository;
     private final UserIdentityRepository userIdentityRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final UserGuestLinkRepository userGuestLinkRepository;
 
     /**
      * 검증된 provider 신원으로 사용자를 찾거나 만든다. 최초 로그인이 곧 가입이다.
@@ -66,20 +70,25 @@ public class UserPersistenceService {
      */
     @Transactional
     public TokenRotation rotateRefreshToken(String currentHash, String nextHash, Instant nextExpiry, Instant now) {
+        // 판정과 폐기를 한 문장으로 합친다. 읽고 검사하고 폐기하면 그 사이에 다른 요청이 같은 스냅샷을 읽어
+        // 둘 다 회전에 성공한다 — 토큰 하나에서 살아 있는 refresh 가 둘 나오고 재사용 감지가 무의미해진다.
+        boolean won = refreshTokenRepository.claimRotation(currentHash, now) > 0;
         Optional<RefreshToken> found = refreshTokenRepository.findByTokenHash(currentHash);
         if (found.isEmpty()) {
             return new TokenRotation.Invalid();
         }
         RefreshToken current = found.get();
-        if (current.isRevoked()) {
-            return new TokenRotation.Reused(current.getUserId());
+        if (won) {
+            refreshTokenRepository.save(RefreshToken.issue(current.getUserId(), nextHash, nextExpiry));
+            return new TokenRotation.Rotated(current.getUserId());
         }
         if (current.isExpired(now)) {
             return new TokenRotation.Invalid();
         }
-        current.revoke(now);
-        refreshTokenRepository.save(RefreshToken.issue(current.getUserId(), nextHash, nextExpiry));
-        return new TokenRotation.Rotated(current.getUserId());
+        // 선점에 졌다. 방금 회전된 것이면 정상 앱의 재시도·동시 요청이고, 오래전에 폐기된 것이면 탈취 정황이다.
+        return current.revokedWithin(RefreshToken.ROTATION_GRACE, now)
+                ? new TokenRotation.Raced()
+                : new TokenRotation.Reused(current.getUserId());
     }
 
     /** 로그아웃 — 살아 있는 refresh 를 모두 폐기한다. access 는 만료까지 유효하다(무상태 JWT 의 대가). */
@@ -114,6 +123,32 @@ public class UserPersistenceService {
 
     /** 트랜잭션 안에서만 호출된다 — 관리 상태 엔티티라 dirty checking 으로 반영된다. self-invocation 을 피하려 private. */
     private void revokeActive(UUID userId, Instant now) {
-        refreshTokenRepository.findActiveByUserId(userId).forEach(token -> token.revoke(now));
+        // 읽어서 하나씩 고치면 행 수만큼 UPDATE 가 나간다. 이 표는 삭제 경로가 없어 계속 쌓이는 자리다.
+        refreshTokenRepository.revokeActive(userId, now);
+    }
+
+    /**
+     * 이 기기를 사용자에게 잇는다(#34) — <b>이미 누군가의 것이면 그대로 둔다</b>.
+     *
+     * <p>코스·연차가 아직 {@code guest_id} 로 묶여 있어, 서버가 "이 사용자의 데이터가 무엇인가" 를 알 수 있는
+     * 유일한 근거다. 탈퇴가 이것으로 대상을 찾고, 나중에 소유를 옮길 때 backfill 키가 된다.
+     *
+     * <p><b>덮어쓰지 않는다.</b> 한 기기에서 두 사람이 로그인하면 그 기기의 옛 데이터는 먼저 로그인한 사용자의
+     * 것이다. 뒤에 온 사람에게 넘기면 남의 코스·연차를 넘기는 셈이라, 안 넘기는 쪽이 낫다.
+     *
+     * <p><b>실패해도 로그인을 막지 않는다.</b> 이 기록은 나중을 위한 것이지 로그인의 조건이 아니다. 다만 조용히
+     * 넘어가지는 않는다 — 없으면 그 사용자의 탈퇴가 데이터를 못 찾으므로 사유를 warn 으로 남긴다.
+     */
+    @Transactional
+    public void linkGuest(UUID userId, String guestId, Instant now) {
+        if (guestId == null || guestId.isBlank() || userGuestLinkRepository.isLinked(guestId)) {
+            return;
+        }
+        try {
+            userGuestLinkRepository.save(UserGuestLink.of(userId, guestId, now));
+        } catch (DataIntegrityViolationException e) {
+            // 같은 기기에서 동시에 로그인했다. 먼저 넣은 쪽이 이겼고 그 결과가 우리가 원하는 상태라 그대로 둔다.
+            log.info("기기 연결 경합 — 먼저 기록된 연결을 그대로 씁니다 userId={}", userId);
+        }
     }
 }

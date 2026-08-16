@@ -7,13 +7,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.offway.core.common.exception.BaseException;
 import com.offway.core.user.domain.AuthProvider;
+import com.offway.core.user.domain.RefreshToken;
 import com.offway.core.user.domain.UserException;
 import com.offway.core.user.infrastructure.kakao.StubKakaoProfileClient;
 import com.offway.core.user.infrastructure.social.StubSocialIdentityVerifier;
 import com.offway.core.user.repository.UserJpaRepository;
+import com.offway.core.user.service.AuthService;
+import com.offway.core.user.service.TokenIssuer;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,6 +37,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -31,10 +46,17 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @AutoConfigureMockMvc
 class AuthIntegrationTest {
 
+    private static final String GUEST_HEADER = "X-Guest-Id";
+
     private static final String CALLBACK_URL = "/api/v1/auth/callback/%s";
     private static final String REISSUE_URL = "/api/v1/auth/reissue";
     private static final String LOGOUT_URL = "/api/v1/auth/logout";
     private static final String BEARER = "Bearer ";
+
+    /** 동시 재발급 결과에서 실패를 표시하는 접두사. 성공은 새 refresh 토큰 원문이라 겹칠 수 없다. */
+    private static final String FAILED = "FAILED:";
+
+    private static final long CONCURRENCY_TIMEOUT_SECONDS = 30;
 
     @TestConfiguration
     static class SocialStubConfiguration {
@@ -62,6 +84,15 @@ class AuthIntegrationTest {
 
     @Autowired
     private UserJpaRepository userJpaRepository;
+
+    @Autowired
+    private AuthService authService;
+
+    @Autowired
+    private TokenIssuer tokenIssuer;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     /** 테스트마다 고유한 provider 신원 — 롤백 없이 이전 실행과 계정이 섞이지 않게. */
     private static String uniqueProviderUserId() {
@@ -227,6 +258,48 @@ class AuthIntegrationTest {
     }
 
     @Test
+    void 다른_카카오_앱에서_발급된_액세스_토큰은_거부한다() throws Exception {
+        // 카카오 프로필 조회(/v2/user/me)는 토큰이 유효하기만 하면 주인을 돌려준다 — 어느 앱이 발급했는지는
+        // 알려주지 않는다. 앱 번호를 대조하지 않으면 남의 카카오 앱 토큰을 손에 넣은 사람이 그 토큰을 그대로
+        // 우리 서버에 던져 그 사용자로 로그인할 수 있다. Apple·Google 에서 aud 가 막는 자리다.
+        kakaoProfileClient.respondWith(uniqueProviderUserId(), "남의앱사용자", null);
+        kakaoProfileClient.respondTokenInfoFromApp("9999999");
+
+        mockMvc.perform(callback("kakao", "other-app-access-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER-001"));
+    }
+
+    @Test
+    void 남의_앱_토큰으로는_가입도_일어나지_않는다() throws Exception {
+        // 거부가 401 을 내는 것으로 끝나면 안 된다 — 그 사이 가입이 일어나 있으면 막은 의미가 없다.
+        // 같은 신원으로 정상 로그인했을 때 isNewUser 가 true 면, 앞선 시도가 계정을 만들지 않았다는 뜻이다.
+        String kakaoId = uniqueProviderUserId();
+        kakaoProfileClient.respondWith(kakaoId, "사용자", null);
+        kakaoProfileClient.respondTokenInfoFromApp("9999999");
+        mockMvc.perform(callback("kakao", "other-app-access-token")).andExpect(status().isUnauthorized());
+
+        kakaoProfileClient.respondWith(kakaoId, "사용자", null);
+
+        mockMvc.perform(callback("kakao", "our-app-access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.isNewUser").value(true));
+    }
+
+    @Test
+    void 카카오_토큰_정보_조회가_실패하면_502_USER_005() throws Exception {
+        // 앱 번호를 확인하지 못한 것은 "확인했더니 남의 앱" 과 다르다 — 재시도로 풀릴 수 있어 502 로 구분한다.
+        kakaoProfileClient.respondWith(uniqueProviderUserId(), "세빈", null);
+        kakaoProfileClient.respondTokenInfo(accessToken -> {
+            throw UserException.oidcProviderUnavailable(new IllegalStateException("read timeout"));
+        });
+
+        mockMvc.perform(callback("kakao", "kakao-access-token"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("USER-005"));
+    }
+
+    @Test
     void 클라이언트가_보낸_providerUserId는_신원_판단에_쓰이지_않는다() throws Exception {
         // 이 값을 믿으면 남의 식별자를 적어 그 계정으로 로그인할 수 있다 — 요청 한 번짜리 계정 탈취다.
         String verified = uniqueProviderUserId();
@@ -303,6 +376,9 @@ class AuthIntegrationTest {
         socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
         Tokens issued = login();
         String rotated = JsonPath.read(bodyOf(reissueRequest(issued.refreshToken())), "$.data.refreshToken");
+        // 회전 직후 유예 창(정상 앱의 재시도·동시 요청)을 벗어나게 폐기 시각을 과거로 민다. 그러지 않으면
+        // 이 재사용이 "재시도" 로 해석돼 탈취 경보가 울리지 않는다 — 그건 별도 테스트가 잠근다.
+        backdateRevocation(issued.refreshToken());
 
         mockMvc.perform(reissueRequest(issued.refreshToken()))
                 .andExpect(status().isUnauthorized())
@@ -311,6 +387,83 @@ class AuthIntegrationTest {
         mockMvc.perform(reissueRequest(rotated))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("USER-003"));
+    }
+
+    // ── refresh 회전의 동시성 ──────────────────────────────────
+
+    /**
+     * 스레드를 <b>둘</b>로 짠다. 테스트 컨텍스트의 hikari {@code maximum-pool-size} 가 2 라 실효 동시성이 2 이고,
+     * 스레드를 더 늘려도 커넥션을 기다리며 줄을 서 순차 실행에 가까워진다 — 숫자만 커지고 겹치지 않는다.
+     */
+    private static final int CONCURRENT_REISSUES = 2;
+
+    @Test
+    void 같은_refresh로_동시에_재발급하면_하나만_성공한다() throws Exception {
+        // 잠금이 없으면 두 트랜잭션이 같은 스냅샷(revoked_at IS NULL)을 보고 둘 다 회전에 성공한다.
+        // 토큰 하나에서 살아 있는 refresh 가 둘 나오고, 그 순간 재사용 감지의 보장이 성립하지 않는다.
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+        Tokens issued = login();
+
+        List<String> results = reissueConcurrently(issued.refreshToken());
+
+        assertEquals(1, results.stream().filter(result -> !result.startsWith(FAILED)).count(), results.toString());
+    }
+
+    @Test
+    void 동시_재발급에서_진_요청이_세션을_끊지_않는다() throws Exception {
+        // 진 요청을 탈취로 오인해 전체 폐기를 돌리면, 이긴 요청이 방금 받아 간 정상 토큰까지 죽어 사용자가
+        // 멀쩡한 토큰을 들고도 로그아웃된다. 회전 직후 유예 창이 막는 자리다.
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+        Tokens issued = login();
+
+        List<String> results = reissueConcurrently(issued.refreshToken());
+        String winner = results.stream()
+                .filter(result -> !result.startsWith(FAILED))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("동시 재발급에서 성공한 요청이 없다: " + results));
+
+        mockMvc.perform(reissueRequest(winner)).andExpect(status().isOk());
+    }
+
+    @Test
+    void 유예_창_안의_재시도는_경보를_울리지_않고_그_요청만_거절한다() throws Exception {
+        // 네트워크 재시도로 같은 refresh 가 곧바로 다시 오는 것은 탈취가 아니다. 그 요청은 거절하되(줄 토큰이
+        // 없다 — 새 토큰은 이미 이긴 요청이 가져갔다) 세션 전체를 끊지는 않는다.
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+        Tokens issued = login();
+        String rotated = JsonPath.read(bodyOf(reissueRequest(issued.refreshToken())), "$.data.refreshToken");
+
+        mockMvc.perform(reissueRequest(issued.refreshToken()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER-003"));
+
+        mockMvc.perform(reissueRequest(rotated)).andExpect(status().isOk());
+    }
+
+    /** 같은 refresh 로 동시에 재발급을 시도하고, 성공은 새 refresh 를, 실패는 {@code FAILED:code} 를 돌려준다. */
+    private List<String> reissueConcurrently(String refreshToken) throws Exception {
+        CyclicBarrier barrier = new CyclicBarrier(CONCURRENT_REISSUES);
+        ExecutorService executor = Executors.newFixedThreadPool(CONCURRENT_REISSUES);
+        try {
+            List<Future<String>> futures = new ArrayList<>();
+            for (int i = 0; i < CONCURRENT_REISSUES; i++) {
+                futures.add(executor.submit(() -> {
+                    barrier.await();
+                    try {
+                        return authService.reissue(refreshToken).refreshToken();
+                    } catch (BaseException exception) {
+                        return FAILED + exception.errorCode().code();
+                    }
+                }));
+            }
+            List<String> results = new ArrayList<>();
+            for (Future<String> future : futures) {
+                results.add(future.get(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            }
+            return results;
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -324,6 +477,28 @@ class AuthIntegrationTest {
         mockMvc.perform(reissueRequest(issued.refreshToken()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("USER-003"));
+    }
+
+    /**
+     * 폐기 시각을 유예 창 밖으로 민다 — "회전 직후 재시도" 가 아니라 "한참 뒤의 재사용" 을 만든다.
+     *
+     * <p>시계를 주입하는 대신 DB 를 직접 미는 이유는, 유예 판정이 도메인이 받은 {@code now} 하나로 끝나
+     * 흉내 낼 상태가 폐기 시각뿐이기 때문이다. 프로덕션 코드에 테스트용 시계를 뚫는 것보다 싸다.
+     */
+    /**
+     * 폐기 시각을 유예 창 밖으로 민다.
+     *
+     * <p><b>DB 안에서 상대적으로 뺀다.</b> 클라이언트에서 계산한 {@code Timestamp} 를 넣으면 드라이버가 JVM
+     * 기본 시간대로 변환하는데, 이 커넥션은 {@code serverTimezone=Asia/Seoul} 이라 값이 그만큼 틀어진다 —
+     * 과거로 민다는 것이 미래로 가서 "방금 폐기됨" 으로 읽혔다. 저장된 값에서 빼면 시간대가 끼어들지 않는다.
+     */
+    private void backdateRevocation(String refreshToken) {
+        long seconds = RefreshToken.ROTATION_GRACE.plus(Duration.ofMinutes(1)).toSeconds();
+        int updated = jdbcTemplate.update(
+                "UPDATE refresh_token SET revoked_at = revoked_at - INTERVAL ? SECOND WHERE token_hash = ?",
+                seconds,
+                tokenIssuer.hashRefreshToken(refreshToken));
+        assertEquals(1, updated, "폐기 시각을 밀 대상이 없다 — 앞선 회전이 실제로 폐기했는지 확인하라");
     }
 
     private record Tokens(String accessToken, String refreshToken) {}
@@ -366,5 +541,77 @@ class AuthIntegrationTest {
     private static String subjectOf(String accessToken) {
         String payload = new String(Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]));
         return JsonPath.read(payload, "$.sub");
+    }
+
+    // ── 기기 연결(#34) ────────────────────────────────────────
+
+    /**
+     * 로그인할 때 이 기기를 사용자에게 이어 둔다 — <b>탈퇴가 데이터를 찾는 유일한 근거다</b>.
+     *
+     * <p>코스·연차는 아직 {@code guest_id} 로 묶여 있다. 이 기록이 없으면 서버는 "이 사용자의 데이터가
+     * 무엇인가" 를 스스로 알지 못해, 헤더 없이 온 탈퇴 요청에서 코스·연차가 주인 없이 영영 남는다.
+     */
+    @Test
+    void 로그인하면_이_기기가_사용자에게_이어진다() throws Exception {
+        String guest = "link-" + UUID.randomUUID();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+
+        mockMvc.perform(callback("google", "any-id-token").header(GUEST_HEADER, guest))
+                .andExpect(status().isOk());
+
+        assertEquals(1, linkCount(guest), "로그인이 기기를 잇지 않았다");
+    }
+
+    @Test
+    void 헤더가_없어도_로그인은_된다() throws Exception {
+        // 기록은 나중을 위한 것이지 로그인의 조건이 아니다. 여기서 막으면 헤더를 안 보내는 앱이 못 들어온다.
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+
+        mockMvc.perform(callback("google", "any-id-token")).andExpect(status().isOk());
+    }
+
+    @Test
+    void 같은_기기로_다시_로그인해도_연결은_하나다() throws Exception {
+        String guest = "link-" + UUID.randomUUID();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+
+        mockMvc.perform(callback("google", "t1").header(GUEST_HEADER, guest)).andExpect(status().isOk());
+        mockMvc.perform(callback("google", "t2").header(GUEST_HEADER, guest)).andExpect(status().isOk());
+
+        assertEquals(1, linkCount(guest));
+    }
+
+    /**
+     * 한 기기에서 두 사람이 로그인해도 그 기기는 <b>먼저 로그인한 사용자</b>의 것으로 남는다.
+     *
+     * <p>뒤에 온 사람에게 넘기면 그 기기에 쌓인 남의 코스·연차를 넘기는 셈이고, 탈퇴가 그것을 지운다.
+     * 데이터를 잘못 넘기는 것보다 안 넘기는 쪽이 낫다.
+     */
+    @Test
+    void 한_기기를_두_사람이_쓰면_먼저_로그인한_쪽이_갖는다() throws Exception {
+        String guest = "link-" + UUID.randomUUID();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "먼저", null);
+        String firstUser = ownerOf(guest, callback("google", "t1").header(GUEST_HEADER, guest));
+
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "나중", null);
+        mockMvc.perform(callback("google", "t2").header(GUEST_HEADER, guest)).andExpect(status().isOk());
+
+        assertEquals(1, linkCount(guest));
+        assertEquals(firstUser, currentOwner(guest), "뒤에 로그인한 사용자가 기기를 가져갔다");
+    }
+
+    private int linkCount(String guestId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_guest_link WHERE guest_id = ?", Integer.class, guestId);
+    }
+
+    private String currentOwner(String guestId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT HEX(user_id) FROM user_guest_link WHERE guest_id = ?", String.class, guestId);
+    }
+
+    private String ownerOf(String guestId, MockHttpServletRequestBuilder request) throws Exception {
+        mockMvc.perform(request).andExpect(status().isOk());
+        return currentOwner(guestId);
     }
 }
