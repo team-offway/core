@@ -95,7 +95,7 @@ class UserWithdrawalIntegrationTest {
     void 탈퇴하면_200과_안내_문구가_내려간다() throws Exception {
         Session session = login();
 
-        mockMvc.perform(withdraw(session.accessToken(), session.guestId()))
+        mockMvc.perform(withdraw(session.accessToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.code").value("OK"))
@@ -109,7 +109,7 @@ class UserWithdrawalIntegrationTest {
     void 탈퇴하면_refresh로_재발급할_수_없다() throws Exception {
         Session session = login();
 
-        mockMvc.perform(withdraw(session.accessToken(), session.guestId())).andExpect(status().isOk());
+        mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
 
         mockMvc.perform(post(REISSUE_URL)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -123,9 +123,9 @@ class UserWithdrawalIntegrationTest {
         // access 토큰은 무상태라 탈퇴 후에도 만료(1시간)까지 서명 검증을 통과한다. 그 창을 막지 않으면
         // 없는 계정에 삭제가 또 돌아 200 이 나가고, 앱은 두 번째 탈퇴도 성공했다고 오해한다.
         Session session = login();
-        mockMvc.perform(withdraw(session.accessToken(), session.guestId())).andExpect(status().isOk());
+        mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
 
-        mockMvc.perform(withdraw(session.accessToken(), session.guestId()))
+        mockMvc.perform(withdraw(session.accessToken()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("USER-006"));
     }
@@ -143,12 +143,12 @@ class UserWithdrawalIntegrationTest {
         String providerUserId = "sub-" + UUID.randomUUID();
         socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
         Session first = login(providerUserId);
-        mockMvc.perform(withdraw(first.accessToken(), first.guestId())).andExpect(status().isOk());
+        mockMvc.perform(withdraw(first.accessToken())).andExpect(status().isOk());
 
         Session second = login(providerUserId);
 
         assertFalse(first.userId().equals(second.userId()), "탈퇴 후 재가입은 새 계정이어야 한다");
-        mockMvc.perform(withdraw(second.accessToken(), second.guestId())).andExpect(status().isOk());
+        mockMvc.perform(withdraw(second.accessToken())).andExpect(status().isOk());
     }
 
     // ── 게스트 키로 묶인 데이터 ────────────────────────────────
@@ -159,7 +159,7 @@ class UserWithdrawalIntegrationTest {
         Long courseId = saveCourse(session.guestId());
         seedLeave(session.guestId());
 
-        mockMvc.perform(withdraw(session.accessToken(), session.guestId())).andExpect(status().isOk());
+        mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
 
         assertTrue(courseJpaRepository.findById(courseId).isEmpty(), "코스가 남았다");
         assertTrue(leaveBalanceJpaRepository.findByGuestId(session.guestId()).isEmpty(), "연차 설정이 남았다");
@@ -167,17 +167,45 @@ class UserWithdrawalIntegrationTest {
     }
 
     @Test
-    void 게스트_헤더가_없으면_계정만_지워지고_코스는_남는다() throws Exception {
-        // 문서화된 한계다. 코스·연차의 소유 키가 아직 guest_id 라 userId 만으로는 닿지 못한다.
-        // 그렇다고 헤더 없는 탈퇴를 400 으로 막지는 않는다 — 계정을 지울 권리가 헤더에 인질로 잡힌다.
-        Session session = login();
-        Long courseId = saveCourse(session.guestId());
+    void 로그인할_때_기기를_안_이었으면_계정만_지워진다() throws Exception {
+        // 남은 한계다. 지울 대상은 로그인 시점의 기록이 정하므로, 그때 헤더를 안 보낸 앱의 코스·연차에는
+        // 닿지 못한다. 그렇다고 탈퇴를 막지는 않는다 — 계정을 지울 권리가 옛 로그인에 인질로 잡힌다.
+        // 못 지운 사실은 서버가 warn 으로 남긴다.
+        String providerUserId = "sub-" + UUID.randomUUID();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
+        String response = mockMvc.perform(post(CALLBACK_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accessToken\": \"any-id-token\"}"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String accessToken = JsonPath.read(response, "$.data.accessToken");
+        Long courseId = saveCourse("guest-" + UUID.randomUUID());
 
-        mockMvc.perform(delete(WITHDRAW_URL).header(HttpHeaders.AUTHORIZATION, BEARER + session.accessToken()))
+        mockMvc.perform(withdraw(accessToken)).andExpect(status().isOk());
+
+        assertTrue(userJpaRepository.findById(userIdOf(accessToken)).isEmpty(), "계정은 지워져야 한다");
+        assertTrue(courseJpaRepository.findById(courseId).isPresent(), "이은 기기가 없으면 코스에 닿지 못한다");
+    }
+
+    /**
+     * 헤더로 남의 데이터를 지목할 수 없다 — <b>탈퇴가 헤더를 아예 안 받는다</b>.
+     *
+     * <p>지울 대상은 로그인 때 기록된 연결이 정한다. 예전에는 요청 헤더가 대상을 정해서, 남의 게스트 키를
+     * 적어 보내면 그 사람의 연차·후기가 지워졌다.
+     */
+    @Test
+    void 남의_게스트_키를_헤더로_보내도_남의_데이터는_안_지워진다() throws Exception {
+        Session mine = login();
+        Session other = login();
+        Long otherCourse = saveCourse(other.guestId());
+
+        mockMvc.perform(withdraw(mine.accessToken()).header(GUEST_HEADER, other.guestId()))
                 .andExpect(status().isOk());
 
-        assertTrue(userJpaRepository.findById(session.userId()).isEmpty(), "계정은 지워져야 한다");
-        assertTrue(courseJpaRepository.findById(courseId).isPresent(), "헤더가 없으면 코스에 닿지 못한다");
+        assertTrue(courseJpaRepository.findById(otherCourse).isPresent(), "남의 코스가 지워졌다");
+        assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
     }
 
     // ── 공유 링크 ─────────────────────────────────────────────
@@ -192,7 +220,7 @@ class UserWithdrawalIntegrationTest {
                 .save(CourseShare.issue(courseId, LocalDateTime.now()))
                 .getShareToken();
 
-        mockMvc.perform(withdraw(session.accessToken(), session.guestId())).andExpect(status().isOk());
+        mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
 
         mockMvc.perform(get(SHARED_COURSE_URL.formatted(shareToken)))
                 .andExpect(status().isGone())
@@ -210,8 +238,19 @@ class UserWithdrawalIntegrationTest {
     }
 
     private Session login(String providerUserId) throws Exception {
+        return login(providerUserId, "guest-" + UUID.randomUUID());
+    }
+
+    /**
+     * 로그인하며 이 기기를 사용자에게 잇는다.
+     *
+     * <p>탈퇴가 지울 대상을 여기서 정한다 — 헤더를 안 보내고 로그인하면 그 사용자의 코스·연차는 서버가
+     * 찾지 못한다({@link #로그인할_때_기기를_안_이었으면_계정만_지워진다}).
+     */
+    private Session login(String providerUserId, String guestId) throws Exception {
         socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
         String response = mockMvc.perform(post(CALLBACK_URL)
+                        .header(GUEST_HEADER, guestId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"accessToken\": \"any-id-token\"}"))
                 .andExpect(status().isOk())
@@ -220,17 +259,16 @@ class UserWithdrawalIntegrationTest {
                 .getContentAsString();
         String accessToken = JsonPath.read(response, "$.data.accessToken");
         return new Session(
-                userIdOf(accessToken),
-                accessToken,
-                JsonPath.read(response, "$.data.refreshToken"),
-                "guest-" + UUID.randomUUID());
+                userIdOf(accessToken), accessToken, JsonPath.read(response, "$.data.refreshToken"), guestId);
     }
 
-    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder withdraw(
-            String accessToken, String guestId) {
-        return delete(WITHDRAW_URL)
-                .header(HttpHeaders.AUTHORIZATION, BEARER + accessToken)
-                .header(GUEST_HEADER, guestId);
+    /**
+     * 탈퇴 — <b>게스트 헤더를 보내지 않는다</b>. 지울 대상은 로그인 때 기록된 연결이 정한다.
+     *
+     * <p>헤더를 받지 않으므로 남의 값을 적어 넣을 자리도 없다.
+     */
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder withdraw(String accessToken) {
+        return delete(WITHDRAW_URL).header(HttpHeaders.AUTHORIZATION, BEARER + accessToken);
     }
 
     private Long saveCourse(String guestId) {
@@ -273,7 +311,7 @@ class UserWithdrawalIntegrationTest {
         Session other = login();
         Long otherCourse = saveCourse(other.guestId());
 
-        mockMvc.perform(withdraw(mine.accessToken(), mine.guestId())).andExpect(status().isOk());
+        mockMvc.perform(withdraw(mine.accessToken())).andExpect(status().isOk());
 
         assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
         assertEquals(otherCourse, courseJpaRepository.findById(otherCourse).orElseThrow().getId());
