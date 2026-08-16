@@ -2,6 +2,7 @@ package com.offway.core.user.config;
 
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -29,11 +30,14 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  *   <tr><td>{@code Authorization: Basic ...}</td><td>팀 · Swagger · apidog</td><td>#122 의 임시 게이트. 사람이 브라우저로 API 를 여는 유일한 수단</td></tr>
  * </table>
  *
- * <p><b>Basic 게이트를 이 PR 에서 걷어내지 않는 이유</b>: #122 는 "소셜 로그인이 붙으면 걷어낸다" 는 전제로 들어왔지만,
- * 걷어내는 조건은 로그인이 <i>존재</i>하는 것이 아니라 <b>모든 호출자가 실제 토큰을 들고 오는 것</b>이다. 앱이 배포되기
- * 전까지 Swagger·apidog 는 provider 토큰을 만들 수 없다. 지금 걷어내면 8080 이 다시 열려 TMAP 하루 50건이 봇 한 마리에
- * 고갈된다 — #122 가 막으려던 바로 그 상황이다. 앱 배포 후 별도 PR 에서 {@code httpBasic} 한 줄과
- * {@link BasicAuthProperties} 를 함께 지운다.
+ * <p><b>Basic 으로는 읽기만 할 수 있다.</b> 브라우저는 캐시된 Basic 자격증명을 <b>교차 출처 쓰기 요청</b>에도 붙이고,
+ * 공개 GET 경로의 CORS 제한은 그 전송을 막지 못한다(CSRF). 이 서비스는 CSRF 토큰을 쓰지 않는 무상태 API 라, 막는 방법은
+ * 자격증명의 힘을 줄이는 쪽이다 — Basic 에는 안전한 메서드(GET·HEAD)만 허용하고 상태를 바꾸는 요청은 Bearer 만 받는다.
+ *
+ * <p>Basic 을 통째로 걷어내지 않는 이유는 <b>그것이 사람이 서버를 들여다보는 유일한 수단</b>이기 때문이다. Swagger 로
+ * 명세를 보는 것도, 배포 스모크가 "적재가 실제로 채워졌는지" 를 확인하는 것도 이 경로를 탄다 — 그 스모크는 89곳 중
+ * 42곳에서 멈춘 배포를 실제로 잡아냈다. 걷어내면 그 안전망이 함께 사라진다. 앱이 토큰을 들고 오게 된 뒤 별도 PR 에서
+ * {@code httpBasic} 한 줄과 {@link BasicAuthProperties} 를 함께 지운다.
  *
  * <p>인증 실패 응답은 {@link ApiResponseAuthenticationEntryPoint}·{@link ApiAccessDeniedHandler} 가 공통 래퍼
  * 규격으로 만든다 — 이 경로는 {@code GlobalExceptionHandler} 가 닿지 못한다.
@@ -56,6 +60,17 @@ public class SecurityConfig {
         "/api/v1/auth/callback/*", "/api/v1/auth/reissue", "/api/v1/auth/dev-login"
     };
 
+    /**
+     * 상태를 바꾸는 요청에 요구하는 역할 — <b>Bearer 로 온 요청만 갖는다</b>.
+     *
+     * <p>Basic 사용자에게는 주지 않는다. 브라우저가 자동으로 붙이는 자격증명으로는 쓰기를 못 하게 하려는 것이고,
+     * 그것이 CSRF 토큰 없이 무상태 API 를 지키는 방법이다.
+     */
+    private static final String APP_USER_ROLE = "USER";
+
+    /** 사람이 서버를 들여다보는 수단. Basic 이 남아 있는 이유이자, 여기까지가 Basic 의 한계다. */
+    private static final String[] DOCS_PATHS = {"/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**"};
+
     /** 공유 웹앱은 브라우저에서 직접 부른다 — 읽기만 하므로 GET 만 연다. */
     private static final String CORS_ALLOWED_METHOD = "GET";
 
@@ -77,8 +92,14 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(CREDENTIAL_ISSUING_PATHS)
                         .permitAll()
+                        // 읽기는 두 수단 다 받는다 — Swagger 로 명세를 보고, 스모크가 적재를 확인한다.
+                        .requestMatchers(HttpMethod.GET, "/**")
+                        .authenticated()
+                        .requestMatchers(HttpMethod.HEAD, "/**")
+                        .authenticated()
+                        // 쓰기는 Bearer 만. Basic 사용자는 이 역할이 없어 여기서 403 이 된다.
                         .anyRequest()
-                        .authenticated())
+                        .hasRole(APP_USER_ROLE))
                 .httpBasic(basic -> basic.authenticationEntryPoint(authenticationEntryPoint))
                 .exceptionHandling(handling -> handling.authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(apiAccessDeniedHandler))
@@ -127,8 +148,10 @@ public class SecurityConfig {
 
     @Bean
     public UserDetailsService userDetailsService() {
+        // 역할을 주지 않는다 — 쓰기는 APP_USER_ROLE 을 요구하므로 이 계정으로는 상태를 바꿀 수 없다.
         return new InMemoryUserDetailsManager(User.withUsername(basicAuthProperties.username())
                 .password(basicAuthProperties.password())
+                .authorities(List.of())
                 .build());
     }
 }
