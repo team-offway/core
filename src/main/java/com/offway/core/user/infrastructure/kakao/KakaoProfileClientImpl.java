@@ -116,8 +116,12 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
      *
      * <p>회원번호가 없으면 <b>성공으로 넘기지 않는다.</b> 200 인데 신원이 없는 응답은 예외보다 위험하다 — 그대로 두면
      * 식별자 없이 가입이 진행되거나 엉뚱한 계정에 붙는데, 로그에는 아무 흔적이 남지 않는다.
+     *
+     * <p><b>package-private 은 테스트 seam 이다.</b> 통합 테스트는 이 클래스를 감싸는 port 를 stub 으로 갈아끼우므로
+     * 파싱 코드가 한 번도 돌지 않는다. 카카오가 실제로 주는 JSON 모양(숫자 {@code id})을 직접 넣어 확인하려면
+     * 여기에 닿을 수 있어야 한다.
      */
-    private KakaoProfile parse(String body) {
+    KakaoProfile parse(String body) {
         if (body == null || body.isBlank()) {
             log.warn("카카오 프로필 응답이 비었다 — 200 이지만 신원을 확인할 수 없다");
             throw UserException.oidcProviderUnavailable(null);
@@ -135,7 +139,14 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
                 account.path(EMAIL_FIELD).asString(null));
     }
 
-    private KakaoTokenInfo parseTokenInfo(String body) {
+    /**
+     * 응답에서 발급 앱 번호를 꺼낸다.
+     *
+     * <p><b>{@code app_id} 는 숫자로 온다.</b> 문자열로 오지 않으므로 강제 변환에 의존한다 — 그 변환이 깨지면
+     * {@code appId} 가 {@code null} 이 되어 <b>카카오 로그인이 전부</b> 502 가 된다. 부팅도 되고 설정도 채워져
+     * 있어 원인이 드러나지 않는 실패라, {@code parse} 와 같은 이유로 seam 을 열어 테스트로 잠갔다.
+     */
+    KakaoTokenInfo parseTokenInfo(String body) {
         if (body == null || body.isBlank()) {
             log.warn("카카오 토큰 정보 응답이 비었다 — 200 이지만 발급 앱을 확인할 수 없다");
             throw UserException.oidcProviderUnavailable(null);
