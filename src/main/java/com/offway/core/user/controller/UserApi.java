@@ -1,6 +1,7 @@
 package com.offway.core.user.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.user.controller.dto.MyUserResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -8,8 +9,37 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.UUID;
 
 /** 사용자 API 문서 계약. 매핑은 구현체({@link UserController})가 소유한다. */
-@Tag(name = "사용자", description = "회원 탈퇴")
+@Tag(name = "사용자", description = "내 정보 조회 · 회원 탈퇴")
 public interface UserApi {
+
+    @Operation(
+            summary = "내 정보 조회",
+            description =
+                    """
+                    로그인한 사용자 자신의 정보를 준다. 앱이 재시작·재설치 후에도 마이페이지를 서버 값으로 채우게
+                    하려는 것이다 — 로그인 응답을 로컬에 저장해 두는 것 말고 알 방법이 없었다.
+
+                    **null 로 올 수 있는 필드**
+                    - `email` — 카카오는 동의를 안 하면 주지 않고, Apple 은 **최초 로그인에만** 준다.
+                      그때 앱이 `email` 을 로그인 요청에 실어 보내지 않았다면 서버도 모른다.
+                    - `provider` — local 개발 로그인(`/auth/dev-login`)으로 만든 계정은 연결이 없다.
+                      운영에서는 항상 값이 있다.
+
+                    `nickname` 은 항상 있다. provider 가 이름을 주지 않았으면 가입 때 기본값이 채워진다.
+
+                    **`isNewUser` 는 여기 없다.** 그건 "이번 로그인이 가입이었나" 라서 조회에는 뜻이 없다 —
+                    온보딩 분기는 로그인 응답(`POST /auth/callback/{provider}`)이 소유한다. 앱은 그 값을 받은
+                    시점에 온보딩 완료 여부를 로컬에 남겨야 한다.
+
+                    이미 발급한 access 토큰은 탈퇴 후에도 만료(기본 1시간)까지 서명 검증을 통과한다. 그 창에
+                    이 API 를 부르면 `USER-006` 이다.
+                    """)
+    @ApiResponse(responseCode = "200", description = "조회 성공")
+    @ApiResponse(
+            responseCode = "401",
+            description =
+                    "access 토큰이 없거나 무효·만료(USER-004) · 자격증명 없음(COMMON-401) · 이미 탈퇴한 계정(USER-006)")
+    ApiResponseBody<MyUserResponse> me(UUID userId);
 
     @Operation(
             summary = "회원 탈퇴",
