@@ -115,8 +115,8 @@ jobs:
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           KAKAO_REST_API_KEY=${{ secrets.KAKAO_REST_API_KEY }}
           KAKAO_APP_ID=${{ secrets.KAKAO_APP_ID }}
-          GOOGLE_WEB_CLIENT_ID=${{ secrets.GOOGLE_WEB_CLIENT_ID }}
-          APPLE_SERVICE_ID=${{ secrets.APPLE_SERVICE_ID }}
+          GOOGLE_AUDIENCES=${{ secrets.GOOGLE_AUDIENCES }}
+          APPLE_AUDIENCES=${{ secrets.APPLE_AUDIENCES }}
           APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}
           APPLE_KEY_ID=${{ secrets.APPLE_KEY_ID }}
           APPLE_PRIVATE_KEY_BASE64=${{ secrets.APPLE_PRIVATE_KEY_BASE64 }}
