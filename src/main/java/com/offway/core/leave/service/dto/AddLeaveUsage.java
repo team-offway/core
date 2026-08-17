@@ -1,5 +1,6 @@
 package com.offway.core.leave.service.dto;
 
+import com.offway.core.leave.domain.StartDayLeave;
 import java.time.LocalDate;
 
 /**
@@ -10,12 +11,14 @@ import java.time.LocalDate;
  *     앱이 갈아탄 뒤로 미뤘다(#276)
  * @param reason 사유 (선택)
  * @param courseId 이 내역을 만든 코스 (수동 입력이면 null)
- * @param halfDayStart 첫날 반차 여부. 코스 차감에서만 뜻이 있고, 날짜를 고칠 때 차감량을 다시 계산하는 입력이라 남긴다(#170)
+ * @param startDayLeave 첫날에 쓴 연차. 코스 차감에서만 뜻이 있고, 날짜를 고칠 때 차감량을 다시 계산하는
+ *     입력이라 함께 남긴다(#170)
  */
-public record AddLeaveUsage(LocalDate usedOn, double days, String reason, Long courseId, boolean halfDayStart) {
+public record AddLeaveUsage(
+        LocalDate usedOn, double days, String reason, Long courseId, StartDayLeave startDayLeave) {
 
-    /** 사용자가 직접 남기는 내역 — 반차 개념이 없다. */
+    /** 사용자가 직접 남기는 내역 — 첫날 단위 개념이 없어 종일로 둔다. */
     public static AddLeaveUsage manual(LocalDate usedOn, double days, String reason, Long courseId) {
-        return new AddLeaveUsage(usedOn, days, reason, courseId, false);
+        return new AddLeaveUsage(usedOn, days, reason, courseId, StartDayLeave.DEFAULT);
     }
 }

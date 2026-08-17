@@ -14,7 +14,7 @@ import java.util.Set;
  *
  * @param travelDays 여행 일수. 당일치기(1) · 1박2일(2) · 2박3일(3)
  * @param maxReachMinutes 편도 도달 한계(분)
- * @param consumedLeaveDays 소모 연차. 구간의 평일에서 공휴일을 뺀 값 (반차는 0.5 — 결정 #38)
+ * @param consumedLeaveDays 소모 연차. 구간의 평일에서 공휴일을 뺀 값 (첫날은 쓴 단위만큼 — 반차 0.5 · 반반차 0.25)
  */
 public record AvailableTime(int travelDays, int maxReachMinutes, double consumedLeaveDays) {
 
@@ -22,9 +22,6 @@ public record AvailableTime(int travelDays, int maxReachMinutes, double consumed
 
     /** 평일 하루가 소모하는 연차. */
     private static final double FULL_DAY_LEAVE = 1.0;
-
-    /** 반차가 소모하는 연차. */
-    private static final double HALF_DAY_LEAVE = 0.5;
 
     /** 여행 상한 — 코스 생성이 Day1~3 만 지원한다(결정 #38). 열려면 이 상수와 코스 생성을 함께 확장한다. */
     public static final int MAX_TRIP_DAYS = 3;
@@ -45,20 +42,26 @@ public record AvailableTime(int travelDays, int maxReachMinutes, double consumed
      * @param transport 이동수단
      */
     public static AvailableTime of(LocalDate start, LocalDate end, Set<LocalDate> holidays, TransportMode transport) {
-        return of(start, end, holidays, transport, false);
+        return of(start, end, holidays, transport, StartDayLeave.DEFAULT);
     }
 
     /**
-     * 출발일 반차를 반영해 가용 정보를 만든다.
+     * 첫날에 쓴 연차를 반영해 가용 정보를 만든다.
      *
-     * @param halfDayStart 출발일을 반차로 쓰는가. 참이고 출발일이 평일이면 그날 연차를 0.5 만 소모한다.
+     * @param startDayLeave 첫날에 쓴 연차. 첫날이 평일이면 그 단위만큼만 소모한다(반차 0.5 · 반반차 0.25).
+     *     출발 시각도 이 값이 소유하지만 여기서는 쓰지 않는다 — 도달 한계는 여행일수가 정한다(결정 #38)
      */
     public static AvailableTime of(
-            LocalDate start, LocalDate end, Set<LocalDate> holidays, TransportMode transport, boolean halfDayStart) {
+            LocalDate start,
+            LocalDate end,
+            Set<LocalDate> holidays,
+            TransportMode transport,
+            StartDayLeave startDayLeave) {
         Objects.requireNonNull(start, "start 는 null 일 수 없습니다.");
         Objects.requireNonNull(end, "end 는 null 일 수 없습니다.");
         Objects.requireNonNull(holidays, "holidays 는 null 일 수 없습니다.");
         Objects.requireNonNull(transport, "transport 는 null 일 수 없습니다.");
+        Objects.requireNonNull(startDayLeave, "startDayLeave 는 null 일 수 없습니다.");
 
         // 불변식 — 유효한 구간은 상위(요청 DTO·스타일 해석)가 보장한다. 여기 닿는 위반은 버그다.
         if (end.isBefore(start)) {
@@ -73,25 +76,27 @@ public record AvailableTime(int travelDays, int maxReachMinutes, double consumed
         int days = (int) span;
 
         int reach = transport.applyReach(BASE_REACH_MINUTES[days]);
-        double leave = countLeaveDays(start, end, holidays, halfDayStart);
+        double leave = countLeaveDays(start, end, holidays, startDayLeave);
         return new AvailableTime(days, reach, leave);
     }
 
     /**
      * 구간의 평일에서 공휴일을 뺀 소모 연차. 주말·공휴일은 무료(결정 #38).
      *
-     * <p>반차는 <b>출발일이 평일일 때 그날을 0.5 로</b> 센다(창 안 대체). "목금토일" 처럼 여행 창 밖으로 반나절 앞당기는 조기출발
-     * 반차(+0.5)는 이 값객체가 아니라 서비스가 창을 정한 뒤 더한다.
+     * <p>반차·반반차는 <b>출발일이 평일일 때 그날만</b> 그 단위로 센다(창 안 대체). "목금토일" 처럼 여행 창 밖으로 반나절
+     * 앞당기는 조기출발 반차(+0.5)는 이 값객체가 아니라 서비스가 창을 정한 뒤 더한다.
+     *
+     * <p>단위별 값을 여기서 분기하지 않는다 — {@link StartDayLeave} 가 자기 소모량을 들고 있어, 단위가 늘어도
+     * 이 메서드는 그대로다.
      */
     private static double countLeaveDays(
-            LocalDate start, LocalDate end, Set<LocalDate> holidays, boolean halfDayStart) {
+            LocalDate start, LocalDate end, Set<LocalDate> holidays, StartDayLeave startDayLeave) {
         double leave = 0;
         for (LocalDate day = start; !day.isAfter(end); day = day.plusDays(1)) {
             if (WEEKEND.contains(day.getDayOfWeek()) || holidays.contains(day)) {
                 continue;
             }
-            boolean isHalfDay = halfDayStart && day.isEqual(start);
-            leave += isHalfDay ? HALF_DAY_LEAVE : FULL_DAY_LEAVE;
+            leave += day.isEqual(start) ? startDayLeave.consumedLeave() : FULL_DAY_LEAVE;
         }
         return leave;
     }

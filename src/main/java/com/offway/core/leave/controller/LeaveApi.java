@@ -98,7 +98,8 @@ public interface LeaveApi {
             responseCode = "400",
             description = "날짜 형식 오류 · 날짜와 기간스타일을 함께 보냄 또는 둘 다 없음 · 종료일이 시작일보다 앞섬 · "
                     + "여행 구간이 2박 3일 초과 · 기간스타일에 기준일 누락 · WEEKEND 인데 브릿지 요일 누락 · "
-                    + "CONNECTED 인데 연차 일수 누락 또는 2~3 범위 밖")
+                    + "CONNECTED 인데 연차 일수 누락 또는 2~3 범위 밖"
+                    + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "502", description = "공휴일 정보(특일정보) 조회 실패")
     ApiResponseBody<AvailableTimeResponse> availableTime(AvailableTimeRequest request);
