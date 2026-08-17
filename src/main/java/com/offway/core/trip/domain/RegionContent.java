@@ -32,6 +32,16 @@ public record RegionContent(int contentCount, String imageUrl, List<Category> ca
     }
 
     /**
+     * 이 지역이 그 필터칩에 걸리는가. {@code ALL} 은 필터가 아니라 전체 표지라 항상 참이다({@link Category#includes} 와 같은 규칙).
+     *
+     * <p><b>목록 필터와 칩 개수가 이 한 메서드를 공유한다</b>({@link CategoryCounts}). 판정이 둘로 갈리면 "12곳" 이라고 적힌 칩을 눌렀는데
+     * 9곳이 나온다 — 예외도 로그도 없이 조용히 틀리는 종류의 어긋남이다.
+     */
+    public boolean has(Category category) {
+        return category == Category.ALL || categories.contains(category);
+    }
+
+    /**
      * 인접 지역 콘텐츠를 이 지역에 병합한다 — 볼거리 수는 합산, categories 는 합집합(순서 유지), 대표 이미지는 이쪽이 없을 때만 인접 것으로
      * 폴백. 병합이 실제로 콘텐츠를 더했으면 {@code neighborIncluded} 를 세운다.
      */
