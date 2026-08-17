@@ -26,6 +26,7 @@ import com.offway.core.leave.repository.LeaveBalanceJpaRepository;
 import com.offway.core.leave.repository.LeaveUsageJpaRepository;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.user.domain.AuthProvider;
+import com.offway.core.user.repository.UserGuestLinkRepository;
 import com.offway.core.user.infrastructure.social.StubSocialIdentityVerifier;
 import com.offway.core.user.repository.UserJpaRepository;
 import java.time.LocalDate;
@@ -88,6 +89,9 @@ class UserWithdrawalIntegrationTest {
 
     @Autowired
     private LeaveUsageJpaRepository leaveUsageJpaRepository;
+
+    @Autowired
+    private UserGuestLinkRepository userGuestLinkRepository;
 
     // ── 계정 ──────────────────────────────────────────────────
 
@@ -206,6 +210,45 @@ class UserWithdrawalIntegrationTest {
 
         assertTrue(courseJpaRepository.findById(otherCourse).isPresent(), "남의 코스가 지워졌다");
         assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
+    }
+
+    /**
+     * 남의 기기 키를 <b>로그인 헤더로</b> 보내 이어 붙인 뒤 탈퇴해도 그 사람의 데이터는 남는다.
+     *
+     * <p>위 테스트는 탈퇴 요청에 헤더를 실었을 때를 본다. 이건 다른 경로다 — <b>로그인 때</b> 남의 키를
+     * 실으면 그 기기가 내 것으로 기록되고, 그다음 탈퇴는 헤더 없이도 그 기기를 지운다. 탈퇴가 헤더를 안 받는
+     * 것만으로는 이 경로가 막히지 않는다.
+     *
+     * <p>막는 것은 <b>한 게스트 키가 한 사용자에게만 붙는다</b>는 제약이다({@code uk_user_guest_link_guest}).
+     * 먼저 로그인한 쪽이 그 기기를 갖고, 뒤에 온 로그인은 가져가지 못한다.
+     *
+     * <p><b>그래도 로그인 자체는 성공한다.</b> 이을 수 없다고 로그인을 막으면, 남의 키 한 줄을 헤더에 적어
+     * 보내는 것으로 그 사람의 가입을 봉쇄할 수 있다.
+     *
+     * <p>남은 구멍은 <b>피해자가 한 번도 로그인하지 않은 경우</b>다 — 그때는 선점자가 없어 공격자가 그 기기를
+     * 가져간다. 헤더가 파괴 범위를 정하는 구조 자체를 없애야 닫히고, 그것이 이슈 #280 이다.
+     */
+    @Test
+    void 남의_기기_키로_로그인한_뒤_탈퇴해도_남의_데이터는_안_지워진다() throws Exception {
+        Session victim = login();
+        Long victimCourse = saveCourse(victim.guestId());
+        seedLeave(victim.guestId());
+        // 공격자가 피해자의 게스트 키를 로그인 헤더에 실어 보낸다.
+        Session attacker = login("sub-" + UUID.randomUUID(), victim.guestId());
+
+        // 탈퇴 전에 선점을 직접 확인한다 — 여기가 뚫리면 아래 단언들은 이미 늦었다.
+        assertEquals(
+                victim.userId(),
+                userGuestLinkRepository.findByGuestId(victim.guestId()).orElseThrow().getUserId(),
+                "공격자가 피해자의 기기를 가져갔다");
+
+        mockMvc.perform(withdraw(attacker.accessToken())).andExpect(status().isOk());
+
+        assertTrue(userJpaRepository.findById(attacker.userId()).isEmpty(), "공격자 계정은 지워져야 한다");
+        assertTrue(courseJpaRepository.findById(victimCourse).isPresent(), "피해자의 코스가 지워졌다");
+        assertFalse(
+                leaveBalanceJpaRepository.findByGuestId(victim.guestId()).isEmpty(), "피해자의 연차 설정이 지워졌다");
+        assertTrue(userJpaRepository.findById(victim.userId()).isPresent(), "피해자의 계정이 지워졌다");
     }
 
     // ── 공유 링크 ─────────────────────────────────────────────
