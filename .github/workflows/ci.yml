@@ -156,10 +156,13 @@ jobs:
           DB_URL: jdbc:mysql://127.0.0.1:3306/offway?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
           DB_USERNAME: root
           DB_PASSWORD: ci-verify
-          # 이 둘은 비면 부팅이 실패한다(열린 채 뜨는 쪽이 더 위험해서 그렇게 만들어 두었다).
+          # 아래 셋은 비면 부팅이 실패한다(열린 채 뜨는 쪽이 더 위험해서 그렇게 만들어 두었다).
           # 검증용 더미이고 이 잡 밖으로 나가지 않는다.
           OFFWAY_BASIC_USERNAME: ci
           OFFWAY_BASIC_PASSWORD: '{noop}ci'
+          # 자체 토큰 서명키(#34). 없으면 아무 토큰이나 위조 가능해져 TokenIssuer 가 부팅을 막는다.
+          # HS256 최소 32바이트라 길이를 채운 더미를 쓴다. 운영 값은 JWT_SECRET 시크릿에서 온다.
+          JWT_SECRET: ci-migration-verify-only-not-a-real-signing-key
         run: |
           set -uo pipefail
           JAR=$(ls build/libs/*.jar | grep -v plain | head -1)
