@@ -109,12 +109,13 @@ public class CourseGenerationService {
                 nearestNeighborOrder(sights, command.transport(), regionAnchor(command, trainAccess));
 
         // ⑥ 슬롯 배치 → ⑨ 조립. 첫날은 도착 시각 이후 남는 시간대만 쓴다.
-        List<DaySchedule> days = buildDays(command, firstDayStart(command, trainAccess), orderedSights, foods, stays);
+        List<DaySchedule> days =
+                buildDays(command, firstDayStart(command, region, trainAccess), orderedSights, foods, stays);
         // 기간은 days.size() 가 아니라 **요청한 일수**다. 일정이 없는 날은 코스에서 빠지므로(#159) 둘이 갈린다 —
         // 첫날이 이동뿐이어도 그날은 여행 중이고, 연차도 그만큼 나간다(#164).
         Course course = Course.of(
                 command.regionId(), command.density(), command.transport(), days, command.travelDate(),
-                command.travelDays());
+                command.travelDays(), command.startDayLeave());
 
         // ⑧ 혜택 (policy)
         List<GeneratedCourse.Benefit> benefits = policyService.matchForRegion(command.regionId(), command.travelDate())
@@ -182,7 +183,8 @@ public class CourseGenerationService {
         }
         return trainAccessService.accessTo(
                 command.originLat(), command.originLng(),
-                region.getLat(), region.getLng(), command.travelDate());
+                region.getLat(), region.getLng(), command.travelDate(),
+                command.startDayLeave().departureTime());
     }
 
     /**
@@ -202,18 +204,43 @@ public class CourseGenerationService {
     }
 
     /**
-     * 여행 첫날 가용 시간대 — 도착 시각을 <b>알 때만</b> 줄인다(#127).
+     * 여행 첫날 가용 시간대 — 도착 시각을 <b>알 때만</b> 줄인다(#127·#138).
      *
-     * <p>자차·역 없음·그날 운행 없음·조회 실패는 전부 하루 전부다. 모르는 것을 늦은 도착으로 단정하면 조회 실패가 조용히
-     * 코스를 깎는다 — degrade 가 정상처럼 보이는 최악의 형태다.
+     * <p><b>자차도 줄인다.</b> 예전에는 자차를 하루 전부로 뒀는데, 그러면 반반차로 15시에 나서는 사용자에게 오전
+     * 볼거리를 넣는 코스가 나온다. 자차는 시간표가 없어 오히려 계산이 단순하다 — 출발 시각 + 이동시간이 도착
+     * 시각이다.
+     *
+     * <p>역 없음·그날 운행 없음·조회 실패는 여전히 하루 전부다. 모르는 것을 늦은 도착으로 단정하면 조회 실패가
+     * 조용히 코스를 깎는다 — degrade 가 정상처럼 보이는 최악의 형태다.
      */
-    private static DayStart firstDayStart(GenerateCourse command, TrainAccess trainAccess) {
+    private DayStart firstDayStart(GenerateCourse command, Region region, TrainAccess trainAccess) {
         if (trainAccess == null) {
-            return DayStart.fullDay();
+            return carFirstDayStart(command, region);
         }
         return trainAccess.arrivalAt()
                 .map(arriveAt -> DayStart.afterArriving(command.travelDate(), arriveAt))
                 .orElseGet(DayStart::fullDay);
+    }
+
+    /**
+     * 자차 첫날 — 집을 나서는 시각에 지역까지의 이동시간을 얹어 도착 시각을 만든다.
+     *
+     * <p><b>외부 호출이 코스 하나에 1건 늘어난다</b>({@code travelTimeProvider}). 이미 장소 정렬에 쓰는 같은
+     * provider 이고 캐시를 타므로, 같은 (출발지, 지역) 조합이면 다시 부르지 않는다. 키·한도가 없을 때는 직선거리
+     * 폴백이 값을 채운다 — 그래도 하루 전부로 되돌아가지는 않는다.
+     *
+     * <p>지역 좌표를 모르면 하루 전부다. 이동시간의 기준점이 없어 도착 시각을 지어낼 수밖에 없다.
+     */
+    private DayStart carFirstDayStart(GenerateCourse command, Region region) {
+        if (region == null) {
+            return DayStart.fullDay();
+        }
+        Coordinate origin = new Coordinate(command.originLat(), command.originLng());
+        Coordinate destination = new Coordinate(region.getLat(), region.getLng());
+        int minutes = travelTimeProvider.reachMinutes(origin, destination, command.transport());
+        LocalDateTime arriveAt = LocalDateTime.of(command.travelDate(), command.startDayLeave().departureTime())
+                .plusMinutes(minutes);
+        return DayStart.afterArriving(command.travelDate(), arriveAt);
     }
 
     /** 기준점에서 가장 가까운 곳부터 이어붙이는 그리디 정렬(하루 묶기용). 하루 내부 순서는 TMAP 경유지 최적화로 다시 다듬는다. */
