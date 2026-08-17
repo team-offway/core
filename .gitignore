@@ -31,6 +31,10 @@ secret.properties
 *.key
 credentials.json
 **/secrets/
+# Firebase — 서비스 계정 비공개 키(서버가 쓴다)와 앱 설정 파일(앱이 쓴다). 둘 다 레포에 두지 않는다.
+*-firebase-adminsdk-*.json
+google-services.json
+GoogleService-Info.plist
 
 ### 설계 과정 문서 (git 제외 — 로컬 참고용) ###
 docs/superpowers/
