@@ -112,6 +112,14 @@ jobs:
           DATA_GO_KR_SERVICE_KEY=${{ secrets.DATA_GO_KR_SERVICE_KEY }}
           TMAP_APP_KEY=${{ secrets.TMAP_APP_KEY }}
           DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          KAKAO_REST_API_KEY=${{ secrets.KAKAO_REST_API_KEY }}
+          KAKAO_APP_ID=${{ secrets.KAKAO_APP_ID }}
+          GOOGLE_AUDIENCES=${{ secrets.GOOGLE_AUDIENCES }}
+          APPLE_AUDIENCES=${{ secrets.APPLE_AUDIENCES }}
+          APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}
+          APPLE_KEY_ID=${{ secrets.APPLE_KEY_ID }}
+          APPLE_PRIVATE_KEY_BASE64=${{ secrets.APPLE_PRIVATE_KEY_BASE64 }}
           ENVEOF
           scp -i ~/.ssh/deploy_key env.prod \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/offway/env.prod"
