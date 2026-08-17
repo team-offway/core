@@ -34,4 +34,18 @@ interface NotificationJpaRepository extends JpaRepository<Notification, Long> {
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update Notification n set n.readAt = :readAt where n.guestId = :guestId and n.readAt is null")
     int markAllRead(@Param("guestId") String guestId, @Param("readAt") LocalDateTime readAt);
+
+    /**
+     * 하나 읽음도 <b>조건부 UPDATE</b> 다 — 위 전체 읽음과 같은 방식이다.
+     *
+     * <p>읽고 검사하고 쓰면 두 요청이 모두 {@code readAt == null} 을 보고 나중 쪽이 처음 읽은 시각을
+     * 덮어쓴다. 같은 알림을 두 번 누르기 쉬운 자리라(목록에서 눌러 들어가며 함께 발생) 판정과 기록을
+     * 한 문장으로 합쳐 DB 가 갈라주게 한다.
+     *
+     * @return 이 호출이 실제로 바꾼 행 수. 0 이면 이미 읽은 알림이다
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Notification n set n.readAt = :readAt"
+            + " where n.id = :id and n.guestId = :guestId and n.readAt is null")
+    int markRead(@Param("guestId") String guestId, @Param("id") Long id, @Param("readAt") LocalDateTime readAt);
 }

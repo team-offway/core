@@ -91,24 +91,12 @@ public class Notification {
     }
 
     /**
-     * 읽음으로 바꾼다 — <b>이미 읽었으면 아무것도 하지 않는다</b>.
+     * 읽음 여부 — 응답의 {@code read} 와 안읽음 개수 판정이 이 값을 쓴다.
      *
-     * <p>재요청을 409 로 막지 않는 이유: 사용자가 원한 상태("읽음")가 이미 이뤄져 있다. 알림 화면은 스크롤
-     * 중에 같은 요청을 두 번 보내기 쉬운 자리라, 두 번째를 실패로 만들면 화면이 오류를 띄운다.
-     *
-     * <p>처음 읽은 시각을 덮어쓰지 않는다.
-     *
-     * @return 이 호출로 실제 바뀌었으면 true
+     * <p><b>읽음으로 바꾸는 것은 엔티티가 하지 않는다.</b> 예전에는 여기에 {@code markRead} 가 있었는데,
+     * 읽고 검사하고 쓰는 사이에 다른 요청이 끼면 나중 쪽이 처음 읽은 시각을 덮어썼다. 판정과 기록을 한
+     * 문장으로 합쳐야 해서 조건부 UPDATE 로 옮겼다({@code NotificationRepository.markRead}).
      */
-    public boolean markRead(LocalDateTime readAt) {
-        Objects.requireNonNull(readAt, "읽은 시각은 필수입니다");
-        if (isRead()) {
-            return false;
-        }
-        this.readAt = readAt;
-        return true;
-    }
-
     public boolean isRead() {
         return readAt != null;
     }
