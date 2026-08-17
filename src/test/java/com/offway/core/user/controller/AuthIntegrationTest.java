@@ -482,11 +482,8 @@ class AuthIntegrationTest {
     /**
      * 폐기 시각을 유예 창 밖으로 민다 — "회전 직후 재시도" 가 아니라 "한참 뒤의 재사용" 을 만든다.
      *
-     * <p>시계를 주입하는 대신 DB 를 직접 미는 이유는, 유예 판정이 도메인이 받은 {@code now} 하나로 끝나
-     * 흉내 낼 상태가 폐기 시각뿐이기 때문이다. 프로덕션 코드에 테스트용 시계를 뚫는 것보다 싸다.
-     */
-    /**
-     * 폐기 시각을 유예 창 밖으로 민다.
+     * <p><b>시계를 주입하지 않고 DB 를 직접 민다.</b> 유예 판정이 도메인이 받은 {@code now} 하나로 끝나
+     * 흉내 낼 상태가 폐기 시각뿐이다. 프로덕션 코드에 테스트용 시계를 뚫는 것보다 싸다.
      *
      * <p><b>DB 안에서 상대적으로 뺀다.</b> 클라이언트에서 계산한 {@code Timestamp} 를 넣으면 드라이버가 JVM
      * 기본 시간대로 변환하는데, 이 커넥션은 {@code serverTimezone=Asia/Seoul} 이라 값이 그만큼 틀어진다 —
@@ -605,6 +602,18 @@ class AuthIntegrationTest {
                 "SELECT COUNT(*) FROM user_guest_link WHERE guest_id = ?", Integer.class, guestId);
     }
 
+    /**
+     * 앞머리가 일치하는 연결 행 수.
+     *
+     * <p><b>전체 값으로 세면 잘려서 저장된 행을 못 본다.</b> 구현이 64자로 자르면 원본 200자로 조회한 결과는
+     * 0 인데 {@code user_guest_link} 에는 행이 남는다 — "기록하지 않았다" 를 확인하려는 단언이 조용히 통과한다.
+     * 상한 안에 들어가는 고유 앞머리로 세면 잘린 행도 잡힌다.
+     */
+    private int linkCountStartingWith(String guestIdPrefix) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_guest_link WHERE guest_id LIKE ?", Integer.class, guestIdPrefix + "%");
+    }
+
     private String currentOwner(String guestId) {
         return jdbcTemplate.queryForObject(
                 "SELECT HEX(user_id) FROM user_guest_link WHERE guest_id = ?", String.class, guestId);
@@ -623,14 +632,16 @@ class AuthIntegrationTest {
      */
     @Test
     void 기기_식별자가_너무_길어도_로그인은_된다() throws Exception {
-        String tooLong = "d".repeat(200);
+        // 앞머리를 컬럼 상한(64) 안에 두고 고유하게 만든다 — 잘려서 저장돼도 이 앞머리는 살아남아 조회에 걸린다.
+        String head = "toolong-" + UUID.randomUUID();
+        String tooLong = head + "d".repeat(200);
         socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
 
         mockMvc.perform(callback("google", "any-id-token").header(GUEST_HEADER, tooLong))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.accessToken").isNotEmpty());
 
-        assertEquals(0, linkCount(tooLong), "이을 수 없는 값을 기록했다");
+        assertEquals(0, linkCountStartingWith(head), "이을 수 없는 값을 기록했다");
     }
 
     /**
@@ -659,7 +670,10 @@ class AuthIntegrationTest {
                 }));
             }
             for (Future<Integer> result : results) {
-                assertEquals(200, result.get(), "동시 로그인 중 하나가 실패했다");
+                assertEquals(
+                        200,
+                        result.get(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                        "동시 로그인 중 하나가 실패했다");
             }
         } finally {
             executor.shutdownNow();
