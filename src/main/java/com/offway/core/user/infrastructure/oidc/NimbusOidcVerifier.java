@@ -25,8 +25,10 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.RestOperations;
 import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.source.JWKSetSource;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
+import com.nimbusds.jose.jwk.source.URLBasedJWKSetSource;
 import com.nimbusds.jose.proc.JWSKeySelector;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
@@ -192,8 +194,10 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
             // restOperations 에 준 3초가 이 경로에서는 죽은 설정이 된다 — 재측정 없이 8배 좁아지는 셈이다.
             DefaultResourceRetriever retriever = new DefaultResourceRetriever(
                     (int) JWKS_TIMEOUT.toMillis(), (int) JWKS_TIMEOUT.toMillis(), JWKS_MAX_BYTES);
-            JWKSource<SecurityContext> source = JWKSourceBuilder.<SecurityContext>create(
-                            URI.create(jwksUri).toURL(), retriever)
+            // 캐시보다 아래에 끼운다 — 빈 응답이 캐시 계층에 닿기 전에 끊어야 캐시를 차지하지 못한다.
+            JWKSetSource<SecurityContext> remote = new NonEmptyJwkSetSource<>(
+                    new URLBasedJWKSetSource<>(URI.create(jwksUri).toURL(), retriever));
+            JWKSource<SecurityContext> source = JWKSourceBuilder.<SecurityContext>create(remote)
                     .cache(JWKS_CACHE_TTL.toMillis(), JWKS_CACHE_REFRESH_TIMEOUT.toMillis())
                     .refreshAheadCache(JWKS_REFRESH_AHEAD.toMillis(), true)
                     .rateLimited(JWKS_MIN_REFRESH_INTERVAL.toMillis())
