@@ -1,6 +1,7 @@
 package com.offway.core.notification.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,10 +16,16 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -48,6 +55,9 @@ class NotificationIntegrationTest {
 
     @Autowired
     private NotificationRepository notificationRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private Notification given(String guestId, Long courseId, int minutesAfterBase) {
         return notificationRepository.save(Notification.builder()
@@ -246,5 +256,46 @@ class NotificationIntegrationTest {
     @Test
     void 게스트_헤더가_아예_없으면_400이다() throws Exception {
         mockMvc.perform(get(URL)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * 같은 알림을 동시에 읽어도 <b>처음 읽은 시각이 유지된다</b>.
+     *
+     * <p>예전에는 엔티티가 읽고 검사하고 썼다. 두 요청이 모두 {@code readAt == null} 을 보면 나중 쪽이
+     * 처음 읽은 시각을 덮어썼다 — 목록에서 눌러 들어가며 같은 요청이 두 번 나가기 쉬운 자리다.
+     * 판정과 기록을 조건부 UPDATE 한 문장으로 합쳐 DB 가 갈라준다.
+     */
+    @Test
+    void 동시에_읽어도_처음_읽은_시각이_유지된다() throws Exception {
+        String guest = "noti-race-" + UUID.randomUUID();
+        Notification target = given(guest, null, 0);
+        int attempts = 2;
+        CyclicBarrier barrier = new CyclicBarrier(attempts);
+        ExecutorService executor = Executors.newFixedThreadPool(attempts);
+        try {
+            List<Future<Integer>> results = new ArrayList<>();
+            for (int i = 0; i < attempts; i++) {
+                results.add(executor.submit(() -> {
+                    barrier.await();
+                    // 클래스의 @WithMockUser 는 이 스레드에 안 따라온다 — 요청마다 인증을 싣는다.
+                    return mockMvc.perform(patch(READ_URL, target.getId())
+                                    .with(user("dev"))
+                                    .header(GUEST_HEADER, guest))
+                            .andReturn()
+                            .getResponse()
+                            .getStatus();
+                }));
+            }
+            for (Future<Integer> result : results) {
+                assertEquals(200, result.get(), "동시 읽음 중 하나가 실패했다");
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+
+        // 두 요청이 각자 시각을 쓰면 나중 값이 남는다. 조건부 UPDATE 면 먼저 이긴 쪽 하나만 쓴다.
+        Long changed = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM notification WHERE id = ? AND read_at IS NOT NULL", Long.class, target.getId());
+        assertEquals(1L, changed);
     }
 }

@@ -70,24 +70,9 @@ class NotificationTest {
     }
 
     @Test
-    void 읽으면_읽은_시각이_기록된다() {
-        Notification notification = valid().build();
-        LocalDateTime readAt = CREATED_AT.plusHours(3);
-
-        assertTrue(notification.markRead(readAt));
-        assertTrue(notification.isRead());
-        assertEquals(readAt, notification.getReadAt());
-    }
-
-    @Test
-    void 이미_읽은_알림을_다시_읽어도_처음_시각을_유지한다() {
-        // 재요청을 실패로 만들지 않는다 — 사용자가 원한 상태가 이미 이뤄져 있다.
-        Notification notification = valid().build();
-        LocalDateTime first = CREATED_AT.plusHours(1);
-        notification.markRead(first);
-
-        assertFalse(notification.markRead(CREATED_AT.plusHours(5)));
-        assertEquals(first, notification.getReadAt());
+    void 읽은_시각이_없으면_안_읽은_것이다() {
+        // 읽음으로 바꾸는 것은 엔티티가 하지 않는다 — 조건부 UPDATE 가 한다. 그 보장은 통합 테스트가 잠근다.
+        assertFalse(valid().build().isRead());
     }
 
     @Test
