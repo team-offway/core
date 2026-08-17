@@ -1,5 +1,6 @@
 package com.offway.core.itinerary.controller;
 
+import com.offway.core.leave.domain.StartDayLeave;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -363,7 +364,7 @@ class CourseShareIntegrationTest {
                 new SlotDisplay(null, null, null, null));
         Course course = Course.ownedBy(
                 guest, 16L, Density.PACKED, TransportMode.CAR,
-                List.of(DaySchedule.of(1, List.of(slot))), null, 1, null);
+                List.of(DaySchedule.of(1, List.of(slot))), null, 1, null, StartDayLeave.FULL_DAY);
         return courseRepository.save(course).getId();
     }
 

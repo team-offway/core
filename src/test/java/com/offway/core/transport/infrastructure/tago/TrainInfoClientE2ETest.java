@@ -1,5 +1,6 @@
 package com.offway.core.transport.infrastructure.tago;
 
+import java.time.LocalTime;
 import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -34,8 +35,8 @@ class TrainInfoClientE2ETest {
         assertFalse(result instanceof TrainAvailability.Unavailable,
                 "실호출 접점(경로·casing·키)이 정상이어야 한다 — Unavailable 은 조회 실패");
         if (result instanceof TrainAvailability.Available available) {
-            assertTrue(available.fastest().durationMinutes() > 0, "소요시간은 양수여야 한다");
-            assertTrue(available.fastest().durationMinutes() < 600, "서울→부산은 10시간 미만이어야 한다");
+            assertTrue(available.fastestDepartingFrom(LocalTime.MIN).orElseThrow().durationMinutes() > 0, "소요시간은 양수여야 한다");
+            assertTrue(available.fastestDepartingFrom(LocalTime.MIN).orElseThrow().durationMinutes() < 600, "서울→부산은 10시간 미만이어야 한다");
         }
     }
 }

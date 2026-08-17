@@ -21,29 +21,29 @@ class LeaveUsageTest {
     @Test
     void 코스_내역은_반차_여부를_기억한다() {
         // 이 값이 없으면 날짜를 옮길 때 재계산이 종일로 되돌아가 0.5 를 더 깎는다.
-        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 1.5, "코스 확정", 7L, true);
+        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 1.5, "코스 확정", 7L, StartDayLeave.HALF_DAY);
 
-        assertTrue(usage.isHalfDayStart());
+        assertEquals(StartDayLeave.HALF_DAY, usage.startDayLeave());
     }
 
     @Test
     void 반차_여부는_차감_일수에서_되짚을_수_없다() {
         // 출발일이 주말·공휴일이면 반차를 골라도 차감이 정수로 나온다. 소수점 유무로 판단하면 여기서 틀린다.
-        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, true);
+        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, StartDayLeave.HALF_DAY);
 
-        assertTrue(usage.isHalfDayStart(), "정수 차감이어도 반차였다");
+        assertEquals(StartDayLeave.HALF_DAY, usage.startDayLeave(), "정수 차감이어도 반차였다");
     }
 
     @Test
     void 수동_내역은_반차_개념이_없다() {
         LeaveUsage usage = LeaveUsage.manual("guest-1", WHEN, 1.0, "개인 사유");
 
-        assertFalse(usage.isHalfDayStart());
+        assertEquals(StartDayLeave.FULL_DAY, usage.startDayLeave(), "수동 내역은 첫날 단위 개념이 없어 종일이다");
     }
 
     @Test
     void 코스_내역을_새_날짜와_일수로_옮긴다() {
-        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, false);
+        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, StartDayLeave.FULL_DAY);
 
         usage.moveTo(LocalDate.of(2026, 10, 5), 1.0);
 
@@ -54,11 +54,11 @@ class LeaveUsageTest {
     @Test
     void 옮겨도_반차_여부는_그대로다() {
         // 사용자가 확정할 때 고른 값이다. 날짜를 고쳤다고 바뀌지 않는다.
-        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 1.5, "코스 확정", 7L, true);
+        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 1.5, "코스 확정", 7L, StartDayLeave.HALF_DAY);
 
         usage.moveTo(LocalDate.of(2026, 10, 5), 2.5);
 
-        assertTrue(usage.isHalfDayStart());
+        assertEquals(StartDayLeave.HALF_DAY, usage.startDayLeave());
     }
 
     @Test
@@ -71,7 +71,7 @@ class LeaveUsageTest {
 
     @Test
     void 반차_단위가_아닌_일수로는_옮길_수_없다() {
-        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, false);
+        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, StartDayLeave.FULL_DAY);
 
         assertThrows(LeaveException.class, () -> usage.moveTo(LocalDate.of(2026, 10, 5), 1.3));
         assertEquals(2.0, usage.getDays(), "거절했으면 원래 값이 남아야 한다");
@@ -81,7 +81,7 @@ class LeaveUsageTest {
     void 코스_차감은_영_일도_기록한다() {
         // 주말·공휴일뿐인 구간이면 깎을 연차가 없다. 그래도 확정은 확정이다 — 이 행이 차감량이자
         // 확정 표식이라, 0 을 막으면 주말 여행을 확정할 수 없게 된다(#212).
-        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 0, "코스 확정", 7L, false);
+        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 0, "코스 확정", 7L, StartDayLeave.FULL_DAY);
 
         assertEquals(0, usage.getDays());
     }
@@ -89,7 +89,7 @@ class LeaveUsageTest {
     @Test
     void 코스_차감을_영_일로_옮길_수_있다() {
         // 날짜를 주말로 옮겼다고 확정이 풀리면 안 된다.
-        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, false);
+        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, StartDayLeave.FULL_DAY);
 
         usage.moveTo(LocalDate.of(2026, 10, 5), 0);
 
@@ -106,7 +106,7 @@ class LeaveUsageTest {
     @Test
     void 코스_차감은_음수를_받지_않는다() {
         // 코스 차감의 취소는 음수 누적이 아니라 행 삭제다(#113).
-        assertThrows(LeaveException.class, () -> LeaveUsage.forCourse("guest-1", WHEN, -1.0, "코스 확정", 7L, false));
+        assertThrows(LeaveException.class, () -> LeaveUsage.forCourse("guest-1", WHEN, -1.0, "코스 확정", 7L, StartDayLeave.FULL_DAY));
     }
 
     @ParameterizedTest
@@ -131,7 +131,7 @@ class LeaveUsageTest {
     @Test
     void 코스_확정_내역은_연차_화면에서_지울_수_없다() {
         // 그 행은 차감량이자 확정 표식이다 — 지우면 코스는 확정인데 연차는 안 깎인 상태가 남는다.
-        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, false);
+        LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, StartDayLeave.FULL_DAY);
 
         LeaveException thrown = assertThrows(LeaveException.class, usage::requireManuallyDeletable);
 

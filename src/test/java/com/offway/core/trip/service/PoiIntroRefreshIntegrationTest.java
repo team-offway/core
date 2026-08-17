@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.leave.domain.StartDayLeave;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -178,7 +179,7 @@ class PoiIntroRefreshIntegrationTest {
         Slot slot = Slot.of(1, TimeOfDay.MORNING, SlotKind.SIGHT, contentId, contentTypeId,
                 "운영시간 적재 테스트 장소", 37.5, 127.0, 0, SlotDisplay.none());
         courseRepository.save(Course.of(1L, Density.RELAXED, TransportMode.CAR,
-                List.of(DaySchedule.of(1, List.of(slot))), LocalDate.now(), 1));
+                List.of(DaySchedule.of(1, List.of(slot))), LocalDate.now(), 1, StartDayLeave.FULL_DAY));
         return contentId;
     }
 

@@ -1,5 +1,8 @@
 package com.offway.core.itinerary.controller;
 
+import com.jayway.jsonpath.JsonPath;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -268,6 +271,78 @@ class CourseGenerateIntegrationTest {
                 .formatted(transport, SEOUL_LAT, SEOUL_LNG);
     }
 
+    /** 첫날 연차 단위를 실어 보낸다 — 출발 시각이 여기서 도출된다(#138). */
+    private static String bodyWithStartDayLeave(String transport, String startDayLeave) {
+        return """
+                { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "%s",
+                  "originLat": %s, "originLng": %s, "travelDate": "2026-05-01",
+                  "startDayLeave": "%s" }"""
+                .formatted(transport, SEOUL_LAT, SEOUL_LNG, startDayLeave);
+    }
+
+    private List<String> sightsOf(String requestBody) throws Exception {
+        String body = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(requestBody))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return JsonPath.read(body, "$.data.days[0].items[?(@.kind == 'SIGHT')].poiContentId");
+    }
+
+    @Test
+    void 늦게_떠나면_첫날_볼거리가_줄어든다() throws Exception {
+        // 대중교통 — 반반차(15시)는 종일(08시)보다 늦은 편을 타므로 첫날에 남는 시간대가 적다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainInfoClient.respond(() -> new TrainAvailability.Available(List.of(
+                TrainLeg.of("KTX", LocalDateTime.of(2026, 5, 1, 9, 0), LocalDateTime.of(2026, 5, 1, 11, 0)),
+                TrainLeg.of("KTX", LocalDateTime.of(2026, 5, 1, 16, 0), LocalDateTime.of(2026, 5, 1, 18, 0)))));
+
+        trainRouteService.evictCache();
+        List<String> fullDay = sightsOf(bodyWithStartDayLeave("TRANSIT", "FULL_DAY"));
+        trainRouteService.evictCache();
+        List<String> quarterDay = sightsOf(bodyWithStartDayLeave("TRANSIT", "QUARTER_DAY"));
+
+        assertTrue(
+                quarterDay.size() < fullDay.size(),
+                "늦게 떠나면 첫날이 줄어야 한다 종일=%s 반반차=%s".formatted(fullDay, quarterDay));
+    }
+
+    @Test
+    void 자차도_늦게_떠나면_첫날이_줄어든다() throws Exception {
+        // 예전에는 자차를 하루 전부로 뒀다 — 15시에 나서도 오전 일정을 넣었다. 자차는 시간표가 없어
+        // 출발 시각 + 이동시간이 곧 도착 시각이다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+
+        List<String> fullDay = sightsOf(bodyWithStartDayLeave("CAR", "FULL_DAY"));
+        List<String> quarterDay = sightsOf(bodyWithStartDayLeave("CAR", "QUARTER_DAY"));
+
+        assertTrue(
+                quarterDay.size() < fullDay.size(),
+                "자차도 늦게 떠나면 첫날이 줄어야 한다 종일=%s 반반차=%s".formatted(fullDay, quarterDay));
+    }
+
+    @Test
+    void 단위를_안_보내면_종일과_같다() throws Exception {
+        // 안 보내던 클라이언트가 지금과 같은 결과를 받아야 한다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+
+        assertEquals(sightsOf(bodyWithStartDayLeave("CAR", "FULL_DAY")), sightsOf(transitBody("CAR")));
+    }
+
+    @Test
+    void 모르는_단위는_400이고_종일로_흘리지_않는다() throws Exception {
+        // 오타를 종일로 흘리면 사용자는 반차를 골랐는데 코스가 아침 출발로 짜이고, 이유를 알 방법이 없다.
+        //
+        // 코드는 COMMON-400 이다. 요청 dto 가 enum 타입으로 받으므로 Jackson 이 먼저 막고, 그건 "본문을 읽을
+        // 수 없다" 라서 프레임워크가 판정하는 자리다(exception-and-response 규약). 전용 에러코드를 두려
+        // 했는데 그 파서를 아무도 부르지 않아 죽은 코드가 됐고, 번호는 append-only 라 넣지 않았다.
+        mockMvc.perform(post(URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyWithStartDayLeave("CAR", "HALFDAY")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMMON-400"));
+    }
+
     /**
      * 열차 동작을 정하고 <b>경로 캐시를 비운다.</b>
      *
@@ -279,10 +354,16 @@ class CourseGenerateIntegrationTest {
         trainRouteService.evictCache();
     }
 
+    /**
+     * 그 시각에 닿는 편 하나 — <b>출발은 도착 3시간 전</b>이다.
+     *
+     * <p>예전에는 05:00 출발로 고정했는데, 이제 종일 연차 기준(08:00) 이후 편만 고르므로(#138) 그 편은 걸러진다.
+     * 걸러지면 "그날 열차 없음" 이 되어 첫날이 하루 전부로 열리고, 도착 시각을 검증하려던 테스트가 조용히
+     * 반대 결과를 본다.
+     */
     private static TrainAvailability arrivingAt(int hour, int minute) {
-        return new TrainAvailability.Available(TrainLeg.of("KTX",
-                LocalDateTime.of(2026, 5, 1, 5, 0),
-                LocalDateTime.of(2026, 5, 1, hour, minute)));
+        LocalDateTime arriveAt = LocalDateTime.of(2026, 5, 1, hour, minute);
+        return new TrainAvailability.Available(List.of(TrainLeg.of("KTX", arriveAt.minusHours(3), arriveAt)));
     }
 
     @Test
@@ -300,13 +381,22 @@ class CourseGenerateIntegrationTest {
     @Test
     void 자차_코스는_출발지_기준_그대로다() throws Exception {
         // 회귀 방어 — 자차는 집에서 출발하므로 앵커가 바뀌면 안 된다. 같은 후보인데 첫 장소가 위 테스트와 달라야 한다.
+        //
+        // 첫날 items[0] 로 보지 않는다. 자차도 출발 시각 + 이동시간으로 첫날이 줄어들면서(#138) 서울→부산
+        // 자차는 첫날에 볼거리가 안 들어간다 — 앵커는 그대로인데 관찰 지점이 사라졌다. 코스 전체에서 첫 볼거리를
+        // 보면 일정이 어느 날로 밀리든 순서가 드러난다.
         tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
 
-        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(transitBody("CAR")))
+        String body = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(transitBody("CAR")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").value(NEAR_SEOUL))
                 // 값이 없는 선택 필드는 응답에서 빠진다 — 자차 코스에는 열차 접근 정보가 없다.
-                .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
+                .andExpect(jsonPath("$.data.trainAccess").doesNotExist())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        List<String> sights = JsonPath.read(body, "$.data.days[*].items[?(@.kind == 'SIGHT')].poiContentId");
+        assertEquals(NEAR_SEOUL, sights.get(0), "자차는 집에서 출발하므로 서울에 가장 가까운 곳부터다");
     }
 
     @Test
