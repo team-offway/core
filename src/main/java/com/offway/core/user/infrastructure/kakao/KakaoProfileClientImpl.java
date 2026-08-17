@@ -51,6 +51,11 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
      */
     private static final Duration TIMEOUT = Duration.ofSeconds(3);
 
+    /** 파싱 실패 로그가 가리킬 응답 이름 — 두 호출이 같은 파싱 자리를 쓴다. */
+    private static final String PROFILE_RESPONSE = "프로필 응답";
+
+    private static final String TOKEN_INFO_RESPONSE = "토큰 정보 응답";
+
     private static final String ID_FIELD = "id";
     private static final String APP_ID_FIELD = "app_id";
     private static final String ACCOUNT_FIELD = "kakao_account";
@@ -117,7 +122,7 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
             log.warn("카카오 프로필 응답이 비었다 — 200 이지만 신원을 확인할 수 없다");
             throw UserException.oidcProviderUnavailable(null);
         }
-        JsonNode root = readTree(body);
+        JsonNode root = readTree(body, PROFILE_RESPONSE);
         String id = root.path(ID_FIELD).asString(null);
         if (id == null || id.isBlank()) {
             log.warn("카카오 프로필 응답에 회원번호가 없다 — 신원을 확인할 수 없다");
@@ -135,7 +140,7 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
             log.warn("카카오 토큰 정보 응답이 비었다 — 200 이지만 발급 앱을 확인할 수 없다");
             throw UserException.oidcProviderUnavailable(null);
         }
-        JsonNode root = readTree(body);
+        JsonNode root = readTree(body, TOKEN_INFO_RESPONSE);
         String appId = root.path(APP_ID_FIELD).asString(null);
         if (appId == null || appId.isBlank()) {
             log.warn("카카오 토큰 정보 응답에 app_id 가 없다 — 우리 앱 토큰인지 확인할 수 없다");
@@ -144,12 +149,18 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
         return new KakaoTokenInfo(root.path(ID_FIELD).asString(null), appId);
     }
 
-    private JsonNode readTree(String body) {
+    /**
+     * 두 응답이 함께 쓰는 파싱 자리 — <b>어느 응답이 깨졌는지 인자로 받는다.</b>
+     *
+     * <p>문구를 프로필로 고정해 두면 토큰 정보가 깨져도 로그가 프로필 조회를 가리킨다. 두 호출이 다른 이유로
+     * 실패하는데 로그가 한쪽 이름만 대면, 원인을 찾을 때 엉뚱한 엔드포인트를 들여다보게 된다.
+     */
+    private JsonNode readTree(String body, String responseName) {
         try {
             return objectMapper.readTree(body);
         } catch (JacksonException exception) {
             // 응답 본문은 로그에 남기지 않는다 — 파싱에 실패한 문자열에 무엇이 섞여 있는지 알 수 없다.
-            log.warn("카카오 프로필 응답 파싱 실패 cause={}", exception.getClass().getSimpleName());
+            log.warn("카카오 {} 파싱 실패 cause={}", responseName, exception.getClass().getSimpleName());
             throw UserException.oidcProviderUnavailable(exception);
         }
     }
