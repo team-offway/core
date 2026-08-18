@@ -22,6 +22,14 @@ public interface UserIdentityRepository {
     Optional<UserIdentity> findFirstByUserId(UUID userId);
 
     /**
+     * 이 사용자의 특정 provider 신원 — 연결 해제용 토큰을 읽고 쓰는 자리(#287).
+     *
+     * <p>{@link #findFirstByUserId} 와 달리 provider 를 좁힌다. Apple 토큰을 카카오 신원에 적으면 해제할 때
+     * 엉뚱한 곳에 서명을 보낸다.
+     */
+    Optional<UserIdentity> findByUserIdAndProvider(UUID userId, AuthProvider provider);
+
+    /**
      * 탈퇴 — 이 사용자의 provider 연결을 모두 끊는다.
      *
      * <p>지우지 않으면 {@code (provider, provider_user_id)} UNIQUE 가 남아, 같은 사람이 다시 가입할 때

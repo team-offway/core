@@ -30,6 +30,11 @@ public class UserIdentityRepositoryImpl implements UserIdentityRepository {
     }
 
     @Override
+    public Optional<UserIdentity> findByUserIdAndProvider(UUID userId, AuthProvider provider) {
+        return userIdentityJpaRepository.findByUserIdAndProvider(userId, provider);
+    }
+
+    @Override
     public int deleteByUserId(UUID userId) {
         return userIdentityJpaRepository.deleteByUserId(userId);
     }
