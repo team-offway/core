@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.cache.ExternalDataCache;
+import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.logging.DegradeTally;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
@@ -181,7 +182,9 @@ public class RegionContentProvider {
             }
             Region region = targets.get(index);
             try {
-                futures.add(CompletableFuture.runAsync(fillTask(region, deadlineNanos, contents, degraded),
+                // 맥락을 붙여 넘긴다(#285). 스레드가 바뀌면 호출 주체가 사라져 130 콜이 통째로 미상이 된다.
+                futures.add(CompletableFuture.runAsync(
+                                CallerContext.wrap(fillTask(region, deadlineNanos, contents, degraded)),
                                 fanoutExecutor)
                         .exceptionally(error -> {
                             // contentFor 는 스스로 degrade 하는 게 계약이지만, 그 계약이 깨져도 나머지를 막지 않는다.

@@ -1,8 +1,11 @@
 package com.offway.core.common.external.controller.dto;
 
 import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -13,7 +16,7 @@ import java.util.Map;
  */
 public record QuotaResponse(
         @Schema(example = "2026-08-11") LocalDate date,
-        java.util.List<Item> apis) {
+        List<Item> apis) {
 
     /**
      * @param api enum 이름 — 클라이언트가 분기에 쓸 안정된 키
@@ -21,22 +24,56 @@ public record QuotaResponse(
      * @param limit 하루 한도
      * @param usedToday 오늘 쓴 수
      * @param remaining 남은 수(한도를 넘겼으면 0)
+     * @param callers 누가 얼마나 썼나 — 많이 쓴 순(#285). 아직 안 부른 API 는 빈 목록
      */
     public record Item(
             @Schema(example = "TOUR_API") String api,
             @Schema(example = "국문관광정보") String label,
             @Schema(example = "1000") int limit,
             @Schema(example = "542") long usedToday,
-            @Schema(example = "458") int remaining) {
+            @Schema(example = "458") int remaining,
+            List<CallerShare> callers) {
     }
 
-    /** 한 번도 안 부른 API 도 0 으로 함께 낸다 — 빠져 있으면 "안 센 것" 과 구분이 안 된다. */
-    public static QuotaResponse of(LocalDate date, Map<ExternalApi, Long> usage) {
-        return new QuotaResponse(date, java.util.Arrays.stream(ExternalApi.values())
+    /**
+     * 주체 하나의 몫(#285).
+     *
+     * <p>총량만으로는 "어디서 새나" 에 답할 수 없어 갈라 낸다. 배치 이름이거나 요청 엔드포인트다.
+     *
+     * @param caller 주체 이름
+     * @param count 그 주체가 오늘 부른 수
+     */
+    public record CallerShare(
+            @Schema(example = "중심관광지배치") String caller,
+            @Schema(example = "89") long count) {
+    }
+
+    /**
+     * 한 번도 안 부른 API 도 0 으로 함께 낸다 — 빠져 있으면 "안 센 것" 과 구분이 안 된다.
+     *
+     * <p>날짜·총량·주체 내역을 <b>한 스냅샷에서</b> 받는다. 각각 따로 받으면 자정을 걸친 요청에서
+     * 응답의 {@code date} 와 숫자가 서로 다른 날을 가리킬 수 있다.
+     */
+    public static QuotaResponse from(ExternalApiCallRecorder.UsageSnapshot snapshot) {
+        return new QuotaResponse(snapshot.date(), Arrays.stream(ExternalApi.values())
                 .map(api -> {
-                    long used = usage.getOrDefault(api, 0L);
-                    return new Item(api.name(), api.label(), api.dailyLimit(), used, api.remainingAfter(used));
+                    long used = snapshot.totals().getOrDefault(api, 0L);
+                    return new Item(api.name(), api.label(), api.dailyLimit(), used, api.remainingAfter(used),
+                            sharesOf(snapshot.callers().get(api)));
                 })
                 .toList());
+    }
+
+    private static List<CallerShare> sharesOf(Map<String, Long> counts) {
+        if (counts == null) {
+            return List.of();
+        }
+        return counts.entrySet().stream()
+                .map(entry -> new CallerShare(entry.getKey(), entry.getValue()))
+                .sorted((left, right) -> {
+                    int byCount = Long.compare(right.count(), left.count());
+                    return byCount != 0 ? byCount : left.caller().compareTo(right.caller());
+                })
+                .toList();
     }
 }

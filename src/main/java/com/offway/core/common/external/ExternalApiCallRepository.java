@@ -2,6 +2,7 @@ package com.offway.core.common.external;
 
 import java.time.LocalDate;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -50,6 +51,53 @@ public class ExternalApiCallRepository {
                         + " WHERE call_date = ? AND api = ? AND notified_step < ?",
                 step, date, api.name(), step);
         return updated > 0;
+    }
+
+    /**
+     * 이 호출을 <b>누가</b> 일으켰는지 한 건 더한다(#285).
+     *
+     * <p>총량과 테이블을 나눈 이유는 마이그레이션 주석에 있다 — {@code external_api_call} 의 PK 를 넓히면
+     * {@code notified_step} 이 주체별로 쪼개져 같은 10% 단계를 주체 수만큼 알린다.
+     *
+     * <p>PK 가 (날짜, API, 주체)라 같은 주체가 몇 번을 불러도 <b>행은 하나</b>고 카운트만 오른다. 하루 최대
+     * 11 API × 주체 25 로 유한하다.
+     */
+    public void recordCaller(ExternalApi api, LocalDate date, Caller caller) {
+        jdbcTemplate.update(
+                "INSERT INTO external_api_call_caller (call_date, api, caller, call_count) VALUES (?, ?, ?, 1)"
+                        + " ON DUPLICATE KEY UPDATE call_count = call_count + 1",
+                date, api.name(), caller.name());
+    }
+
+    /** 그날 <b>그 API</b> 를 주체별로 얼마나 썼나. 많이 쓴 순이라 호출자가 다시 정렬하지 않는다. */
+    public Map<String, Long> callerCountsOn(ExternalApi api, LocalDate date) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        jdbcTemplate.query(
+                "SELECT caller, call_count FROM external_api_call_caller"
+                        + " WHERE call_date = ? AND api = ? ORDER BY call_count DESC, caller",
+                // 블록으로 둔다 — 식 람다는 put 의 반환값 탓에 ResultSetExtractor 와 겹쳐 컴파일이 안 된다.
+                rs -> {
+                    counts.put(rs.getString("caller"), rs.getLong("call_count"));
+                },
+                date, api.name());
+        return counts;
+    }
+
+    /** 그날 전체를 API → (주체 → 호출 수)로. 한 번도 안 부른 API 는 키가 없다. */
+    public Map<ExternalApi, Map<String, Long>> callerCountsOn(LocalDate date) {
+        Map<ExternalApi, Map<String, Long>> counts = new EnumMap<>(ExternalApi.class);
+        jdbcTemplate.query(
+                "SELECT api, caller, call_count FROM external_api_call_caller"
+                        + " WHERE call_date = ? ORDER BY call_count DESC, caller",
+                rs -> {
+                    try {
+                        counts.computeIfAbsent(ExternalApi.valueOf(rs.getString("api")), key -> new LinkedHashMap<>())
+                                .put(rs.getString("caller"), rs.getLong("call_count"));
+                    } catch (IllegalArgumentException ignored) {
+                        // 코드에서 없어진 API 의 옛 기록. countsOn 과 같은 이유로 무시한다.
+                    }
+                }, date);
+        return counts;
     }
 
     /** 그날의 API 별 호출 수. 한 번도 안 부른 API 는 키가 없다. */

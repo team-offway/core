@@ -2,6 +2,8 @@ package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.config.BatchBudgetProperties;
+import com.offway.core.common.external.Caller;
+import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.logging.DegradeTally;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.region.domain.Region;
@@ -62,6 +64,9 @@ public class HubAttractionRefreshService {
      */
     static final String BATCH_NAME = "hub-attraction-refresh";
 
+    /** 이 배치가 태운 외부 호출에 붙는 이름(#285). 알림에 그대로 실리므로 사람이 읽는 말로 둔다. */
+    private static final Caller CALLER = Caller.of("중심관광지배치");
+
     /** 발행일·"오늘" 판정 모두 KST. 서버 타임존을 따라가면 자정 근처에서 하루가 어긋난다. */
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
@@ -96,17 +101,19 @@ public class HubAttractionRefreshService {
      */
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = CHECK_INTERVAL)
     public void refreshIfStale() {
-        LocalDate today = LocalDate.now(SERVICE_ZONE);
-        if (batchRunRepository.hasRunOn(BATCH_NAME, today)) {
-            log.info("중심 관광지를 오늘 이미 돌려 갱신을 건너뜁니다 date={}", today);
-            return;
-        }
-        try {
-            refresh();
-        } finally {
-            // 실패해도 남긴다 — 안 남기면 같은 날 재부팅마다 89회를 다시 쏜다.
-            batchRunRepository.markStarted(BATCH_NAME, LocalDateTime.now(SERVICE_ZONE));
-        }
+        CallerContext.run(CALLER, () -> {
+            LocalDate today = LocalDate.now(SERVICE_ZONE);
+            if (batchRunRepository.hasRunOn(BATCH_NAME, today)) {
+                log.info("중심 관광지를 오늘 이미 돌려 갱신을 건너뜁니다 date={}", today);
+                return;
+            }
+            try {
+                refresh();
+            } finally {
+                // 실패해도 남긴다 — 안 남기면 같은 날 재부팅마다 89회를 다시 쏜다.
+                batchRunRepository.markStarted(BATCH_NAME, LocalDateTime.now(SERVICE_ZONE));
+            }
+        });
     }
 
     /**
