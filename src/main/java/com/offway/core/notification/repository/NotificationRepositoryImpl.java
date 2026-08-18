@@ -49,4 +49,9 @@ public class NotificationRepositoryImpl implements NotificationRepository {
     public int markAllRead(String guestId, LocalDateTime readAt) {
         return notificationJpaRepository.markAllRead(guestId, readAt);
     }
+
+    @Override
+    public int markRead(String guestId, Long id, LocalDateTime readAt) {
+        return notificationJpaRepository.markRead(guestId, id, readAt);
+    }
 }

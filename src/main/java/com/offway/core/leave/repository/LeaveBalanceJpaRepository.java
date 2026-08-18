@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface LeaveBalanceJpaRepository extends JpaRepository<LeaveBalance, Long> {
 
     Optional<LeaveBalance> findByGuestId(String guestId);
+
+    int deleteByGuestId(String guestId);
 }

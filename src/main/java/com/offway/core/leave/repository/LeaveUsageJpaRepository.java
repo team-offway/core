@@ -30,4 +30,6 @@ public interface LeaveUsageJpaRepository extends JpaRepository<LeaveUsage, Long>
 
     /** @return 지운 행 수 */
     int deleteByGuestIdAndCourseId(String guestId, Long courseId);
+
+    int deleteByGuestId(String guestId);
 }
