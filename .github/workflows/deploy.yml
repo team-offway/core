@@ -30,6 +30,10 @@ concurrency:
 
 permissions:
   contents: read
+  # 배포 대상 커밋이 이미 테스트를 통과했는지 되짚는 데 쓴다(#298) — 커밋이 담긴 PR 을 찾고(pull-requests),
+  # 그 PR head 의 CI 결과를 읽는다(checks). 둘 다 읽기만 한다.
+  pull-requests: read
+  checks: read
 
 jobs:
   deploy:
@@ -50,11 +54,58 @@ jobs:
       - name: Gradle 준비 (의존성 캐시 포함)
         uses: gradle/actions/setup-gradle@v6
 
-      # 테스트까지 돌린다 — 배포 직전이 마지막 방어선이다.
+      # 이 커밋이 **이미 테스트를 통과했는지** 되짚는다(#298).
+      #
+      # dev 브랜치 보호가 strict + 필수 체크 `build & test` 라, PR 이 dev 최신을 품은 상태에서만
+      # 머지된다 — CI 가 검사한 트리와 머지된 트리의 내용이 같다. 그런데 **그 보호를 믿고 건너뛰지
+      # 않는다.** 우회 경로가 실재하기 때문이다(수동 배포, enforce_admins=false 인 관리자 직접 push).
+      #
+      # 그래서 가정하지 않고 사슬을 따라가 확인한다: dev 커밋 → 그 커밋을 담은 PR → PR head 의
+      # `build & test` 결과. 어느 고리든 끊기면 전체 빌드로 떨어져 안전망이 유지된다.
+      - name: 검증된 커밋인지 확인
+        id: verified
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # 1) 이 커밋을 담은 머지된 PR. 없으면 PR 을 안 거친 커밋이다.
+          PR_HEAD=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+            --jq '[.[] | select(.merged_at != null)] | first | .head.sha // empty' 2>/dev/null || echo "")
+          if [ -z "$PR_HEAD" ]; then
+            echo "PR 을 거치지 않은 커밋입니다 — 전체 빌드로 검증합니다."
+            echo "tested=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 2) 그 PR head 에서 CI 의 `build & test` 가 통과했는지. 이름은 ci.yml 의 job name 과 같아야 한다.
+          RESULT=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD}/check-runs" \
+            --jq '[.check_runs[] | select(.name == "build & test")] | first | .conclusion // empty' 2>/dev/null || echo "")
+          if [ "$RESULT" = "success" ]; then
+            echo "PR head ${PR_HEAD:0:7} 에서 build & test 통과 — 배포에서는 테스트를 건너뜁니다."
+            echo "tested=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "PR head ${PR_HEAD:0:7} 의 build & test 결과=${RESULT:-없음} — 전체 빌드로 검증합니다."
+            echo "tested=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 검증된 커밋이면 jar 만 만든다. 아니면 지금까지처럼 테스트까지 돌린다.
+      #
+      # jar 조립은 어느 쪽이든 한다 — 테스트만 돌리면 조립 단계(리소스 중복·repackaging)에서 나는
+      # 문제를 놓친다는 것이 CI 가 `build` 를 쓰는 이유이고, 그 이유는 여기서도 그대로다.
+      #
       # 외부 API 키를 넘기지 않는다: 테스트가 실키로 외부를 호출해 일일 허용량을 태운 적이 있다(#110).
-      - name: 빌드 & 테스트
+      - name: 빌드
         id: build
-        run: ./gradlew build
+        env:
+          TESTED: ${{ steps.verified.outputs.tested }}
+        run: |
+          if [ "${TESTED:-false}" = "true" ]; then
+            echo "이미 검증된 커밋 — jar 만 조립합니다."
+            ./gradlew bootJar
+          else
+            echo "검증되지 않은 커밋 — 테스트까지 돌립니다."
+            ./gradlew build
+          fi
 
       # EC2 의 22번은 특정 IP 하나만 열려 있다(offway-tokyo-sg). Actions 러너는 매번 다른 IP 라
       # 그대로면 SSH 가 timeout 으로 죽는다. 22번을 상시 개방하는 대신 이 실행의 러너 IP 만
