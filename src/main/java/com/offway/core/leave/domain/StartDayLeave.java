@@ -27,14 +27,20 @@ import java.time.LocalTime;
  */
 public enum StartDayLeave {
 
-    /** 종일 연차 — 하루를 다 썼으니 아침부터 움직인다. */
-    FULL_DAY("연차", 1.0, LocalTime.of(8, 0)),
+    /**
+     * 종일 연차 — 하루를 다 썼으니 아침부터 움직인다.
+     *
+     * <p>첫날 도달 상한을 두지 않는다({@link Integer#MAX_VALUE} 라 {@code min} 에서 늘 진다). 하루가
+     * 통째로 있어 <b>여행일수 축이 이미 답을 낸다</b> — 여기에 또 상한을 두면 같은 제약을 두 번 거는 셈이다.
+     * 상수 인자에 직접 쓴 것은 enum 상수가 static 필드보다 먼저 초기화돼 이름을 앞당겨 참조할 수 없어서다.
+     */
+    FULL_DAY("연차", 1.0, LocalTime.of(8, 0), Integer.MAX_VALUE),
 
-    /** 반차 — 오전 근무를 마치고 점심 무렵 떠난다. */
-    HALF_DAY("반차", 0.5, LocalTime.of(12, 0)),
+    /** 반차 — 오전 근무를 마치고 점심 무렵 떠난다. 12시에 떠나 2시간 30분이면 14시 30분 도착이라 오후가 남는다. */
+    HALF_DAY("반차", 0.5, LocalTime.of(12, 0), 150),
 
-    /** 반반차 — 근무를 거의 마치고 늦은 오후에 떠난다. */
-    QUARTER_DAY("반반차", 0.25, LocalTime.of(15, 0));
+    /** 반반차 — 근무를 거의 마치고 늦은 오후에 떠난다. 15시 출발에 2시간이면 17시 도착으로 저녁·체크인 전이다. */
+    QUARTER_DAY("반반차", 0.25, LocalTime.of(15, 0), 120);
 
     /** 값이 없을 때의 기준. 안 보내던 클라이언트가 지금과 같은 결과를 받아야 한다. */
     public static final StartDayLeave DEFAULT = FULL_DAY;
@@ -42,11 +48,13 @@ public enum StartDayLeave {
     private final String label;
     private final double consumedLeave;
     private final LocalTime departureTime;
+    private final int firstDayReachMinutes;
 
-    StartDayLeave(String label, double consumedLeave, LocalTime departureTime) {
+    StartDayLeave(String label, double consumedLeave, LocalTime departureTime, int firstDayReachMinutes) {
         this.label = label;
         this.consumedLeave = consumedLeave;
         this.departureTime = departureTime;
+        this.firstDayReachMinutes = firstDayReachMinutes;
     }
 
     /** 예전 계약({@code halfDayStart} 불리언)에서 옮겨온다. 앱이 갈아타는 동안 둘을 함께 받는다. */
@@ -67,6 +75,20 @@ public enum StartDayLeave {
     /** 집을 나서는 시각. 첫날 도착 시각의 기준이다. */
     public LocalTime departureTime() {
         return departureTime;
+    }
+
+    /**
+     * 첫날 출발 시각이 허용하는 편도 이동 상한(분) — <b>여행일수와는 다른 질문</b>이다(#289).
+     *
+     * <p>여행일수는 "얼마나 멀리 갈 수 있나" 를, 이 값은 "첫날 언제까지 도착할 수 있나" 를 답한다.
+     * 둘을 안 나누면 <b>금요일 반반차 + 주말</b>이 여행일수 3일로 계산돼 7시간 거리까지 추천된다 —
+     * 15시에 떠나 22시 도착이다. 일수는 맞지만 첫날 쓸 수 있는 시간은 반나절도 안 된다.
+     *
+     * <p>{@link #FULL_DAY} 는 {@link Integer#MAX_VALUE} 라 {@code min} 에서 늘 지고, 결과적으로
+     * 여행일수 축만 남는다.
+     */
+    public int firstDayReachMinutes() {
+        return firstDayReachMinutes;
     }
 
     /** 하루를 통째로 쓰는가 — 첫날 연차를 깎지 않는 경로가 이 값으로 갈린다. */
