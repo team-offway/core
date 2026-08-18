@@ -1,6 +1,7 @@
 package com.offway.core.common.external.controller.dto;
 
 import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 import java.util.Arrays;
@@ -47,14 +48,18 @@ public record QuotaResponse(
             @Schema(example = "89") long count) {
     }
 
-    /** 한 번도 안 부른 API 도 0 으로 함께 낸다 — 빠져 있으면 "안 센 것" 과 구분이 안 된다. */
-    public static QuotaResponse of(LocalDate date, Map<ExternalApi, Long> usage,
-            Map<ExternalApi, Map<String, Long>> callerUsage) {
-        return new QuotaResponse(date, Arrays.stream(ExternalApi.values())
+    /**
+     * 한 번도 안 부른 API 도 0 으로 함께 낸다 — 빠져 있으면 "안 센 것" 과 구분이 안 된다.
+     *
+     * <p>날짜·총량·주체 내역을 <b>한 스냅샷에서</b> 받는다. 각각 따로 받으면 자정을 걸친 요청에서
+     * 응답의 {@code date} 와 숫자가 서로 다른 날을 가리킬 수 있다.
+     */
+    public static QuotaResponse from(ExternalApiCallRecorder.UsageSnapshot snapshot) {
+        return new QuotaResponse(snapshot.date(), Arrays.stream(ExternalApi.values())
                 .map(api -> {
-                    long used = usage.getOrDefault(api, 0L);
+                    long used = snapshot.totals().getOrDefault(api, 0L);
                     return new Item(api.name(), api.label(), api.dailyLimit(), used, api.remainingAfter(used),
-                            sharesOf(callerUsage.get(api)));
+                            sharesOf(snapshot.callers().get(api)));
                 })
                 .toList());
     }

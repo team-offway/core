@@ -47,7 +47,7 @@ public class ExternalApiCallRecorder {
         try {
             LocalDate today = today();
             long used = repository.recordAndCount(api, today);
-            repository.recordCaller(api, today, CallerContext.current());
+            recordCaller(api, today);
             logUsage(api, used);
             notifyIfStepCrossed(api, today, used);
         } catch (RuntimeException e) {
@@ -55,14 +55,39 @@ public class ExternalApiCallRecorder {
         }
     }
 
-    /** 오늘자 API 별 사용량·잔여. 한 번도 안 부른 API 도 0 으로 함께 낸다. */
-    public Map<ExternalApi, Long> usageToday() {
-        return repository.countsOn(today());
+    /**
+     * 주체 내역을 남긴다 — <b>실패해도 총량 알림을 막지 않는다</b>(#285).
+     *
+     * <p>여기서 던지면 바깥 catch 가 받아 {@code logUsage} 와 {@code notifyIfStepCrossed} 가 통째로
+     * 건너뛰어진다. 총량은 이미 올랐는데 <b>한도 알림만 조용히 멈추는</b> 상태가 되어, #257 이 하려던 일이
+     * 무력화된다. 내역은 총량의 부가 정보라 없어도 알림은 나가야 한다.
+     */
+    private void recordCaller(ExternalApi api, LocalDate date) {
+        try {
+            repository.recordCaller(api, date, CallerContext.current());
+        } catch (RuntimeException e) {
+            log.warn("외부 API 주체 기록 실패 api={} cause={}", api, e.getClass().getSimpleName());
+        }
     }
 
-    /** 오늘자 API 별 <b>주체 내역</b>(#285). 한 번도 안 부른 API 는 키가 없다. */
-    public Map<ExternalApi, Map<String, Long>> callerUsageToday() {
-        return repository.callerCountsOn(today());
+    /**
+     * 오늘자 사용량 한 벌 — 총량과 주체 내역을 <b>같은 날짜로</b> 읽는다(#285).
+     *
+     * <p>각각 날짜를 다시 구하면 자정을 걸친 요청에서 응답의 {@code date} 는 어제인데 사용량은 오늘 값이
+     * 될 수 있다. 날짜를 한 번만 정해 그 값으로 둘 다 읽는다.
+     *
+     * @param date 기준 날짜(KST)
+     * @param totals API 별 총 호출 수. 한 번도 안 부른 API 는 키가 없다
+     * @param callers API 별 주체 내역. 한 번도 안 부른 API 는 키가 없다
+     */
+    public record UsageSnapshot(LocalDate date, Map<ExternalApi, Long> totals,
+            Map<ExternalApi, Map<String, Long>> callers) {
+    }
+
+    /** 오늘자 사용량 스냅샷. */
+    public UsageSnapshot snapshotToday() {
+        LocalDate today = today();
+        return new UsageSnapshot(today, repository.countsOn(today), repository.callerCountsOn(today));
     }
 
     /** 지금 기준 KST 날짜. 자정을 넘기면 새 행이 되어 자연히 리셋된다. */

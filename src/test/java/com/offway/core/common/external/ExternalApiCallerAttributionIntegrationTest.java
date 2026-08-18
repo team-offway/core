@@ -10,10 +10,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -39,11 +41,19 @@ class ExternalApiCallerAttributionIntegrationTest {
     @Autowired
     private ExternalApiCallRepository repository;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    /**
+     * 증가분으로 단언한다 — 이 테이블은 (날짜, API, 주체) 누적이라 앞선 테스트가 남긴 행 위에 쌓인다.
+     * 절대값으로 두면 실행 순서에 따라 깨진다.
+     */
     @Test
     void 심은_주체로_갈라_센다() {
         LocalDate today = recorder.today();
         Caller batch = Caller.of("중심관광지배치");
         Caller detail = Caller.of("장소상세");
+        Map<String, Long> before = repository.callerCountsOn(ExternalApi.TOUR_DATA_LAB, today);
 
         CallerContext.run(batch, () -> {
             recorder.record(ExternalApi.TOUR_DATA_LAB);
@@ -51,9 +61,9 @@ class ExternalApiCallerAttributionIntegrationTest {
         });
         CallerContext.run(detail, () -> recorder.record(ExternalApi.TOUR_DATA_LAB));
 
-        Map<String, Long> counts = repository.callerCountsOn(ExternalApi.TOUR_DATA_LAB, today);
-        assertEquals(2L, counts.get(batch.name()));
-        assertEquals(1L, counts.get(detail.name()));
+        Map<String, Long> after = repository.callerCountsOn(ExternalApi.TOUR_DATA_LAB, today);
+        assertEquals(before.getOrDefault(batch.name(), 0L) + 2, after.get(batch.name()));
+        assertEquals(before.getOrDefault(detail.name(), 0L) + 1, after.get(detail.name()));
     }
 
     /**
@@ -121,6 +131,42 @@ class ExternalApiCallerAttributionIntegrationTest {
         CallerContext.run(Caller.of("코스생성"), () -> broken.record(ExternalApi.TOUR_API));
 
         assertTrue(true, "예외 없이 지나가야 한다");
+    }
+
+    /**
+     * <b>주체 기록이 실패해도 한도 알림 판정까지 간다.</b>
+     *
+     * <p>내역 upsert 를 총량 뒤에 그냥 이어 붙이면, 그것만 실패해도 바깥 catch 가 받아 뒤따르는 로그와
+     * 알림 판정이 통째로 건너뛰어진다. 총량은 이미 올랐는데 <b>한도 알림만 조용히 멈추는</b> 상태가 되어
+     * #257 이 하려던 일이 무력화된다 — 화면상으로는 아무 문제가 없어 보인다.
+     *
+     * <p>알림이 실제로 나갔는지가 아니라 <b>판정에 닿았는지</b>를 본다. 그 단계를 오늘 이미 알렸으면
+     * 선점이 실패해 메시지가 안 나가는데, 그건 이 테스트의 관심사가 아니다.
+     */
+    @Test
+    void 주체_기록이_실패해도_한도_알림_판정까지_간다() {
+        AtomicBoolean stepChecked = new AtomicBoolean();
+        ExternalApiCallRepository callerBroken = new ExternalApiCallRepository(jdbcTemplate) {
+            @Override
+            public void recordCaller(ExternalApi api, LocalDate date, Caller caller) {
+                throw new IllegalStateException("주체 기록만 실패");
+            }
+
+            @Override
+            public boolean claimNotifyStep(ExternalApi api, LocalDate date, int step) {
+                stepChecked.set(true);
+                return super.claimNotifyStep(api, date, step);
+            }
+        };
+        ExternalApiCallRecorder recorder = new ExternalApiCallRecorder(callerBroken, message -> {
+        });
+
+        // TMAP 경유지최적화는 한도 50 이라 5 콜이면 10% 단계에 닿는다.
+        for (int i = 0; i < 5; i++) {
+            recorder.record(ExternalApi.TMAP_WAYPOINT);
+        }
+
+        assertTrue(stepChecked.get(), "주체 기록 실패가 한도 알림 판정을 막았다");
     }
 
     @Test
