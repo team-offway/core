@@ -102,6 +102,20 @@ class CoursePlanManagementIntegrationTest {
         return start;
     }
 
+    /**
+     * <b>지난</b> 토·일 쌍 — 차감이 걸린 주말 시나리오가 쓴다.
+     *
+     * <p>차감은 여행이 끝나야 되므로(#288) 앞으로 가는 {@link #weekendRun} 을 쓸 수 없다. 종료일이 오늘이면
+     * 아직 여행 중일 수 있어 답할 수 없으니, 넉넉히 지난 주말을 고른다.
+     */
+    private static LocalDate pastWeekendRun() {
+        LocalDate start = today().minusDays(7);
+        while (start.getDayOfWeek() != DayOfWeek.SATURDAY) {
+            start = start.minusDays(1);
+        }
+        return start;
+    }
+
     private static boolean allWeekdays(LocalDate start, int length) {
         for (int i = 0; i < length; i++) {
             DayOfWeek day = start.plusDays(i).getDayOfWeek();
@@ -123,6 +137,11 @@ class CoursePlanManagementIntegrationTest {
     }
 
     /** 이틀 연속 일정이 있는 코스 — 하루짜리는 차감이 늘 1.0 이라 재계산이 달라졌는지 보이지 않는다. */
+    /** 첫날을 반차로 시작하는 2일 코스 — 단위는 저장 시점에 정해진다(#284·#288). */
+    private static String halfDayCourseBody(LocalDate travelDate) {
+        return twoDayCourseBody(travelDate).replace("\"days\":", "\"startDayLeave\": \"HALF_DAY\", \"days\":");
+    }
+
     private static String twoDayCourseBody(LocalDate travelDate) {
         return """
                 { "regionId": 16, "density": "PACKED", "transport": "CAR", "travelDate": "%s", "days": [
@@ -136,8 +155,13 @@ class CoursePlanManagementIntegrationTest {
     }
 
     private long saveTwoDayCourse(String guest, LocalDate travelDate) throws Exception {
+        return saveWithBody(guest, twoDayCourseBody(travelDate));
+    }
+
+    /** 본문을 그대로 받아 저장한다 — 첫날 단위처럼 템플릿에 없는 값을 실을 때 쓴다. */
+    private long saveWithBody(String guest, String body) throws Exception {
         String saved = mockMvc.perform(post(COURSES).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(twoDayCourseBody(travelDate)))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return ((Number) JsonPath.read(saved, "$.data.courseId")).longValue();
@@ -169,13 +193,17 @@ class CoursePlanManagementIntegrationTest {
                 .andExpect(status().isOk());
     }
 
-    private ResultActions deduct(String guest, long courseId) throws Exception {
-        return deduct(guest, courseId, "{}");
-    }
-
-    private ResultActions deduct(String guest, long courseId, String body) throws Exception {
-        return mockMvc.perform(post(COURSES + "/{id}/leave-deduction", courseId)
-                .header("X-Guest-Id", guest).contentType(MediaType.APPLICATION_JSON).content(body));
+    /**
+     * 여행을 다녀왔다고 답한다 — <b>차감의 유일한 입구</b>(#288).
+     *
+     * <p>여행이 <b>끝난 뒤</b>에만 답할 수 있다({@code tripNotEnded}). 그래서 차감이 걸린 시나리오는
+     * 여행일을 과거로 잡는다 — 예전 {@code POST /leave-deduction} 은 시점 가드가 없어 미래 날짜로도 깎였다.
+     */
+    private ResultActions answerVisited(String guest, long courseId) throws Exception {
+        return mockMvc.perform(post(COURSES + "/{id}/trip-outcome", courseId)
+                .header("X-Guest-Id", guest)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"outcome\": \"VISITED\"}"));
     }
 
     /** 여행 날짜 수정(#170) — 누락·형식 오류도 보내야 해서 body 를 문자열 그대로 받는다. */
@@ -278,8 +306,8 @@ class CoursePlanManagementIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        long courseId = saveCourse(guest, weekdayRun(10, 1));
-        deduct(guest, courseId).andExpect(status().isOk()).andExpect(jsonPath("$.data.usedDays").value(1.0));
+        long courseId = saveCourse(guest, weekdayRun(-10, 1));
+        answerVisited(guest, courseId).andExpect(status().isOk()).andExpect(jsonPath("$.data.usedDays").value(1.0));
 
         mockMvc.perform(delete(COURSES + "/{id}/leave-deduction", courseId).header("X-Guest-Id", guest))
                 .andExpect(status().isOk())
@@ -308,8 +336,8 @@ class CoursePlanManagementIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        long courseId = saveCourse(guest, weekdayRun(10, 1));
-        deduct(guest, courseId).andExpect(status().isOk());
+        long courseId = saveCourse(guest, weekdayRun(-10, 1));
+        answerVisited(guest, courseId).andExpect(status().isOk());
 
         for (int i = 0; i < 2; i++) {
             mockMvc.perform(delete(COURSES + "/{id}/leave-deduction", courseId).header("X-Guest-Id", guest))
@@ -335,8 +363,8 @@ class CoursePlanManagementIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        long courseId = saveCourse(guest, weekdayRun(10, 1));
-        deduct(guest, courseId).andExpect(status().isOk()).andExpect(jsonPath("$.data.remainingDays").value(14.0));
+        long courseId = saveCourse(guest, weekdayRun(-10, 1));
+        answerVisited(guest, courseId).andExpect(status().isOk()).andExpect(jsonPath("$.data.remainingDays").value(14.0));
 
         mockMvc.perform(delete(COURSES + "/{id}", courseId).header("X-Guest-Id", guest))
                 .andExpect(status().isOk());
@@ -353,13 +381,13 @@ class CoursePlanManagementIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        LocalDate when = weekdayRun(10, 1);
+        LocalDate when = weekdayRun(-10, 1);
         long first = saveCourse(guest, when);
-        deduct(guest, first).andExpect(status().isOk());
+        answerVisited(guest, first).andExpect(status().isOk());
         mockMvc.perform(delete(COURSES + "/{id}", first).header("X-Guest-Id", guest)).andExpect(status().isOk());
 
         long second = saveCourse(guest, when);
-        deduct(guest, second)
+        answerVisited(guest, second)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(1.0))
                 .andExpect(jsonPath("$.data.remainingDays").value(14.0));
@@ -372,9 +400,9 @@ class CoursePlanManagementIntegrationTest {
         setTotalLeave(guest, 15.0);
         // 차감을 부르므로 여행일이 평일이어야 한다 — plusDays(7) 은 7의 배수라 요일이 그대로 보존돼,
         // 토·일에 돌리면 차감할 평일이 0일이 되고 "0 은 차감하지 않는다"(LeaveDays) 규칙에 걸려 400 이 난다.
-        LocalDate when = weekdayRun(7, 1);
+        LocalDate when = weekdayRun(-7, 1);
         long courseId = saveCourse(guest, when);
-        deduct(guest, courseId).andExpect(status().isOk());
+        answerVisited(guest, courseId).andExpect(status().isOk());
 
         list(guest, "ALL")
                 .andExpect(status().isOk())
@@ -502,8 +530,8 @@ class CoursePlanManagementIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        long courseId = saveTwoDayCourse(guest, weekdayRun(10, 2));
-        deduct(guest, courseId).andExpect(status().isOk()).andExpect(jsonPath("$.data.usedDays").value(2.0));
+        long courseId = saveTwoDayCourse(guest, weekdayRun(-10, 2));
+        answerVisited(guest, courseId).andExpect(status().isOk()).andExpect(jsonPath("$.data.usedDays").value(2.0));
 
         LocalDate moved = weekdayRun(40, 2);
         holidays(Set.of(moved.plusDays(1)));
@@ -525,8 +553,10 @@ class CoursePlanManagementIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        long courseId = saveTwoDayCourse(guest, weekdayRun(10, 2));
-        deduct(guest, courseId, "{\"halfDayStart\": true}")
+        // 차감은 여행이 끝나야 되므로 출발은 과거로, 옮기는 곳은 미래로 잡는다(#288).
+        // 두 가드가 반대 방향이다 — 지난 날짜로는 옮길 수 없다(ITINERARY-007).
+        long courseId = saveWithBody(guest, halfDayCourseBody(weekdayRun(-20, 2)));
+        answerVisited(guest, courseId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(1.5));
 
@@ -540,7 +570,7 @@ class CoursePlanManagementIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        long courseId = saveTwoDayCourse(guest, weekdayRun(10, 2));
+        long courseId = saveTwoDayCourse(guest, weekdayRun(-10, 2));
 
         moveTo(guest, courseId, weekdayRun(40, 2)).andExpect(status().isOk());
 
@@ -556,8 +586,8 @@ class CoursePlanManagementIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        long courseId = saveTwoDayCourse(guest, weekdayRun(10, 2));
-        deduct(guest, courseId).andExpect(status().isOk()).andExpect(jsonPath("$.data.usedDays").value(2.0));
+        long courseId = saveTwoDayCourse(guest, weekdayRun(-10, 2));
+        answerVisited(guest, courseId).andExpect(status().isOk()).andExpect(jsonPath("$.data.usedDays").value(2.0));
 
         LocalDate moved = weekdayRun(40, 2);
         holidays(Set.of(moved, moved.plusDays(1)));
@@ -579,9 +609,9 @@ class CoursePlanManagementIntegrationTest {
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        long courseId = saveTwoDayCourse(guest, weekendRun());
+        long courseId = saveTwoDayCourse(guest, pastWeekendRun());
 
-        deduct(guest, courseId)
+        answerVisited(guest, courseId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.usedDays").value(0.0))
@@ -592,17 +622,19 @@ class CoursePlanManagementIntegrationTest {
     }
 
     @Test
-    void 주말뿐인_코스를_두_번_확정해도_내역이_늘지_않는다() throws Exception {
+    void 주말뿐인_여행에_두_번_답해도_내역이_늘지_않는다() throws Exception {
         // 0 짜리 행도 멱등해야 한다 — 유니크 제약(#91)이 그대로 막는지 본다.
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        long courseId = saveTwoDayCourse(guest, weekendRun());
+        long courseId = saveTwoDayCourse(guest, pastWeekendRun());
 
-        deduct(guest, courseId).andExpect(status().isOk());
-        deduct(guest, courseId)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.usages.length()").value(1));
+        answerVisited(guest, courseId).andExpect(status().isOk());
+        // 두 번째 답은 409 다(#288) — 예전 POST /leave-deduction 은 "차감 명령" 이라 멱등하게 200 이었지만,
+        // 이제는 "다녀왔다는 답" 이라 두 번 답할 수 없다. 0 짜리 내역이어도 규칙은 같다.
+        answerVisited(guest, courseId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ITINERARY-005"));
     }
 
     @Test
