@@ -15,6 +15,13 @@ import java.time.LocalDate;
  */
 public sealed interface AvailableTimeCommand {
 
+    /**
+     * 이동수단 — <b>가용시간 산출에는 쓰지 않는다</b>(#289).
+     *
+     * <p>도달 한계 분(分)은 여행일수와 첫날 연차가 정하고, 수단은 그 시간에 얼마나 멀리 가는지에만 관여한다
+     * (추천 단계의 {@code HaversineTravelTimeProvider}). 요청 계약에서 빼지 않은 것은 앱이 이미 보내고 있고,
+     * 필수 필드를 없애면 계약이 깨지기 때문이다 — 다음 계약 변경 때 함께 정리한다.
+     */
     TransportMode transport();
 
     StartDayLeave startDayLeave();

@@ -1,6 +1,5 @@
 package com.offway.core.leave.domain;
 
-import com.offway.core.transport.domain.TransportMode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.EnumSet;
@@ -27,11 +26,18 @@ public record AvailableTime(int travelDays, int maxReachMinutes, double consumed
     public static final int MAX_TRIP_DAYS = 3;
 
     /**
-     * 여행일수별 자차 기준 도달 한계(분). index = travelDays.
+     * 여행일수별 도달 한계(분). index = travelDays. 당일 2h · 1박2일 3h · 2박3일 4h.
      *
-     * <p>당일 2h · 1박2일 4h · 2박3일 7h. 튜닝 전제의 초기값이다(결정 #38). 이동수단 배율은 {@link TransportMode} 가 적용한다.
+     * <p><b>이동수단은 여기 관여하지 않는다</b>(#289). 이 값은 "이동에 쓸 수 있는 시간" 이고, 그 시간에
+     * 얼마나 멀리 가는지는 수단의 평균속도가 정한다({@code HaversineTravelTimeProvider}). 예전에는
+     * {@code TransportMode} 가 이 분 예산까지 0.7 로 깎아 대중교통이 <b>감쇠를 두 번</b> 받았다 —
+     * 당일 서울 출발이 89곳 중 3곳까지 줄었다.
+     *
+     * <p><b>2박3일이 7h 였을 때는 필터가 아니었다.</b> 서울 최원거리가 완도 363분이라 420분은 89곳을
+     * 하나도 거르지 못했고, 2박3일을 고르면 거리 조건이 사실상 사라졌다. 4h 로 내려 55곳이 된다.
+     * 1박2일도 함께 내린다 — 안 내리면 두 등급이 240 으로 같아져 구분이 없어진다.
      */
-    private static final int[] BASE_REACH_MINUTES = {0, 120, 240, 420};
+    private static final int[] BASE_REACH_MINUTES = {0, 120, 180, 240};
 
     /**
      * 확정된 날짜 구간에서 가용 정보를 만든다.
@@ -39,28 +45,25 @@ public record AvailableTime(int travelDays, int maxReachMinutes, double consumed
      * @param start 여행 시작일
      * @param end 여행 종료일
      * @param holidays 구간에 걸치는 공휴일 (소모 연차 계산용)
-     * @param transport 이동수단
      */
-    public static AvailableTime of(LocalDate start, LocalDate end, Set<LocalDate> holidays, TransportMode transport) {
-        return of(start, end, holidays, transport, StartDayLeave.DEFAULT);
+    public static AvailableTime of(LocalDate start, LocalDate end, Set<LocalDate> holidays) {
+        return of(start, end, holidays, StartDayLeave.DEFAULT);
     }
 
     /**
      * 첫날에 쓴 연차를 반영해 가용 정보를 만든다.
      *
-     * @param startDayLeave 첫날에 쓴 연차. 첫날이 평일이면 그 단위만큼만 소모한다(반차 0.5 · 반반차 0.25).
-     *     출발 시각도 이 값이 소유하지만 여기서는 쓰지 않는다 — 도달 한계는 여행일수가 정한다(결정 #38)
+     * @param startDayLeave 첫날에 쓴 연차. 소모 연차(반차 0.5 · 반반차 0.25)와 <b>첫날 도달 상한</b>을 함께
+     *     정한다 — 늦게 떠나면 그날 갈 수 있는 거리가 준다(#289)
      */
     public static AvailableTime of(
             LocalDate start,
             LocalDate end,
             Set<LocalDate> holidays,
-            TransportMode transport,
             StartDayLeave startDayLeave) {
         Objects.requireNonNull(start, "start 는 null 일 수 없습니다.");
         Objects.requireNonNull(end, "end 는 null 일 수 없습니다.");
         Objects.requireNonNull(holidays, "holidays 는 null 일 수 없습니다.");
-        Objects.requireNonNull(transport, "transport 는 null 일 수 없습니다.");
         Objects.requireNonNull(startDayLeave, "startDayLeave 는 null 일 수 없습니다.");
 
         // 불변식 — 유효한 구간은 상위(요청 DTO·스타일 해석)가 보장한다. 여기 닿는 위반은 버그다.
@@ -75,7 +78,8 @@ public record AvailableTime(int travelDays, int maxReachMinutes, double consumed
         }
         int days = (int) span;
 
-        int reach = transport.applyReach(BASE_REACH_MINUTES[days]);
+        // 두 축의 작은 쪽을 따른다 — 여행일수는 "얼마나 멀리", 첫날 연차는 "언제까지 도착" 을 답한다(#289).
+        int reach = Math.min(BASE_REACH_MINUTES[days], startDayLeave.firstDayReachMinutes());
         double leave = countLeaveDays(start, end, holidays, startDayLeave);
         return new AvailableTime(days, reach, leave);
     }
