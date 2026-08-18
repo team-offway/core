@@ -5,6 +5,7 @@ import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.leave.service.LeaveService;
 import com.offway.core.leave.service.MyLeaveService;
+import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.leave.service.dto.AddLeaveUsage;
 import com.offway.core.leave.service.dto.AvailableTimeCommand;
 import com.offway.core.leave.service.dto.MyLeave;
@@ -47,9 +48,9 @@ public class CourseLeaveDeductionService {
      * 먼저 조회로 거르고(대부분의 재확정), 동시 요청은 유니크 제약이 막는다. 조회만으로는 두 요청이 <b>둘 다</b>
      * "아직 안 했다" 를 보고 두 번 차감한다.
      *
-     * @param halfDayStart 첫날 반차 여부 — 차감이 0.5 줄어든다
+     * @param startDayLeave 첫날에 쓴 연차 — 차감이 그 단위만큼 줄어든다(반차 0.5 · 반반차 0.25)
      */
-    public MyLeave deduct(String guestId, long courseId, boolean halfDayStart) {
+    public MyLeave deduct(String guestId, long courseId, StartDayLeave startDayLeave) {
         Course course = findOwned(guestId, courseId);
         course.requireTravelDate();
 
@@ -58,11 +59,11 @@ public class CourseLeaveDeductionService {
             return myLeaveService.myLeave(guestId);
         }
 
-        double days = consumedLeaveDays(course, halfDayStart);
+        double days = consumedLeaveDays(course, startDayLeave);
         try {
             MyLeave after = myLeaveService.addUsage(
                     guestId,
-                    new AddLeaveUsage(course.getTravelDate(), days, DEDUCTION_REASON, courseId, halfDayStart));
+                    new AddLeaveUsage(course.getTravelDate(), days, DEDUCTION_REASON, courseId, startDayLeave));
             log.info("코스 연차 차감 courseId={} days={} 남은={}", courseId, days, after.summary().remainingDays());
             return after;
         } catch (DataIntegrityViolationException e) {
@@ -97,8 +98,8 @@ public class CourseLeaveDeductionService {
      *
      * <p>{@link LeaveService} 가 공휴일(특일정보)을 조회하므로 <b>외부 호출이다</b>. 실패해도 그쪽이 폴백을 갖는다.
      */
-    private double consumedLeaveDays(Course course, boolean halfDayStart) {
-        return consumedLeaveDays(course.getTravelDate(), course.travelEndDate(), course, halfDayStart);
+    private double consumedLeaveDays(Course course, StartDayLeave startDayLeave) {
+        return consumedLeaveDays(course.getTravelDate(), course.travelEndDate(), course, startDayLeave);
     }
 
     /**
@@ -120,13 +121,17 @@ public class CourseLeaveDeductionService {
         return myLeaveService
                 .courseDeduction(course.getGuestId(), course.getId())
                 .map(deduction -> OptionalDouble.of(consumedLeaveDays(
-                        travelDate, travelDate.plusDays(course.getTravelDays() - 1L), course, deduction.halfDayStart())))
+                        travelDate,
+                        travelDate.plusDays(course.getTravelDays() - 1L),
+                        course,
+                        deduction.startDayLeave())))
                 .orElseGet(OptionalDouble::empty);
     }
 
-    private double consumedLeaveDays(LocalDate start, LocalDate end, Course course, boolean halfDayStart) {
+    private double consumedLeaveDays(
+            LocalDate start, LocalDate end, Course course, StartDayLeave startDayLeave) {
         return leaveService
-                .calculate(new AvailableTimeCommand.FixedDates(start, end, course.getTransport(), halfDayStart))
+                .calculate(new AvailableTimeCommand.FixedDates(start, end, course.getTransport(), startDayLeave))
                 .availableTime()
                 .consumedLeaveDays();
     }

@@ -1,5 +1,7 @@
 package com.offway.core.leave.service.dto;
 
+import com.offway.core.leave.domain.StartDayLeave;
+
 /**
  * 코스 하나로 깎인 연차 — 다른 도메인(itinerary)이 차감량을 다시 계산할 때 보는 값(#170).
  *
@@ -7,7 +9,6 @@ package com.offway.core.leave.service.dto;
  * 연차 내역을 직접 고칠 수 있게 되고, 그 순간 "연차는 leave 가 소유한다" 가 무너진다.
  *
  * @param days 지금 깎여 있는 일수
- * @param halfDayStart 차감할 때 첫날을 반차로 썼는가 — 날짜가 바뀌어도 유지되는 사용자의 선택이다
+ * @param startDayLeave 차감할 때 첫날에 쓴 연차 — 날짜가 바뀌어도 유지되는 사용자의 선택이다
  */
-public record CourseDeduction(double days, boolean halfDayStart) {
-}
+public record CourseDeduction(double days, StartDayLeave startDayLeave) {}

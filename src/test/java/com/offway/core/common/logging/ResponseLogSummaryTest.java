@@ -6,6 +6,7 @@ import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.leave.controller.dto.AvailableTimeResponse;
 import com.offway.core.trip.controller.dto.PoiDetailResponse;
 import com.offway.core.trip.controller.dto.RegionRecommendResponse;
+import com.offway.core.leave.domain.StartDayLeave;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.IntStream;
@@ -60,10 +61,17 @@ class ResponseLogSummaryTest {
 
     @Test
     void 가용시간은_계산_결과만_낸다() {
-        AvailableTimeResponse response =
-                new AvailableTimeResponse(LocalDate.of(2026, 8, 19), LocalDate.of(2026, 8, 21), 3, 3.0, 420);
+        AvailableTimeResponse response = new AvailableTimeResponse(
+                LocalDate.of(2026, 8, 19),
+                LocalDate.of(2026, 8, 21),
+                3,
+                2.25,
+                420,
+                StartDayLeave.QUARTER_DAY,
+                StartDayLeave.QUARTER_DAY.departureTime());
 
         // 날짜는 요청 쿼리에 이미 드러나므로 로그에는 싣지 않는다.
-        assertEquals("3일 연차3.0 도달420분", response.logSummary());
+        // 소모 연차는 소수점 두 자리로 남긴다 — 한 자리면 반반차(0.25)가 0.2 로 잘려 로그가 값을 잃는다.
+        assertEquals("3일 연차2.25 도달420분 출발15:00", response.logSummary());
     }
 }

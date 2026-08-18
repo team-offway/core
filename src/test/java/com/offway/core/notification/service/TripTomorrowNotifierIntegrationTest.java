@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.itinerary.domain.Course;
+import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.domain.Slot;
@@ -136,7 +137,7 @@ class TripTomorrowNotifierIntegrationTest {
                 new SlotDisplay(null, null, null, null));
         return courseRepository.save(Course.ownedBy(
                 owner, 1L, Density.RELAXED, TransportMode.CAR,
-                List.of(DaySchedule.of(1, List.of(slot))), travelDate, 1, null));
+                List.of(DaySchedule.of(1, List.of(slot))), travelDate, 1, null, StartDayLeave.DEFAULT));
     }
 
     private Page<com.offway.core.notification.domain.Notification> ownedNotifications(String owner) {

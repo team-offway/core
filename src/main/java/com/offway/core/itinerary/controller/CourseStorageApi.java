@@ -34,7 +34,8 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "201", description = "저장 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "게스트 ID 누락 · 코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음")
+            description = "게스트 ID 누락 · 코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음"
+                    + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     ApiResponseBody<CourseResponse> save(
             @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId, CourseSaveRequest request);
 
@@ -60,7 +61,8 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "201", description = "발급 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음 · 출발지 위도·경도 중 하나만 보냄")
+            description = "코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음 · 출발지 위도·경도 중 하나만 보냄"
+                    + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<CourseShareResponse> share(CourseSaveRequest request);
 
@@ -169,7 +171,10 @@ public interface CourseStorageApi {
 
                     **잔여가 부족해도 막지 않는다** — 남은 연차는 음수가 될 수 있다. 경고와 확인은 프론트가 맡는다.""")
     @ApiResponse(responseCode = "200", description = "차감 성공 (또는 이미 차감된 코스 — 상태를 그대로 준다)")
-    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·형식 오류, 또는 저장 시 여행 날짜를 넣지 않은 코스")
+    @ApiResponse(
+            responseCode = "400",
+            description = "X-Guest-Id 헤더 누락·형식 오류, 또는 저장 시 여행 날짜를 넣지 않은 코스"
+                    + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
     @ApiResponse(responseCode = "502", description = "공휴일 조회(특일정보) 실패로 차감 일수를 계산할 수 없음")
     ApiResponseBody<MyLeaveResponse> deductLeave(

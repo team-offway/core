@@ -9,6 +9,7 @@ import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.repository.TripOutcomeRepository;
 import com.offway.core.itinerary.service.dto.MyCourses;
 import com.offway.core.itinerary.service.dto.PendingTrips;
+import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.leave.service.LeaveService;
 import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.leave.service.dto.AvailableTimeCommand;
@@ -43,7 +44,7 @@ import org.springframework.stereotype.Service;
 public class TripOutcomeService {
 
     /** 홈 모달은 반차를 묻지 않는다 — 버튼 두 개짜리 모달에 넣을 질문이 아니다. 반차가 필요하면 내 코스 카드에서 한다. */
-    private static final boolean MODAL_ASSUMES_FULL_DAY = false;
+    private static final StartDayLeave MODAL_ASSUMES_FULL_DAY = StartDayLeave.FULL_DAY;
 
     private final CourseRepository courseRepository;
     private final CourseStorageService courseStorageService;

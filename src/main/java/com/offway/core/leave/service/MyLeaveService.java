@@ -93,7 +93,7 @@ public class MyLeaveService {
                         command.days(),
                         command.reason(),
                         command.courseId(),
-                        command.halfDayStart());
+                        command.startDayLeave());
         usageRepository.save(usage);
         MyLeave after = myLeave(owner);
         log.info("연차 사용내역 추가 days={} 남은={}", command.days(), after.summary().remainingDays());
@@ -187,7 +187,7 @@ public class MyLeaveService {
     public Optional<CourseDeduction> courseDeduction(String guestId, long courseId) {
         return usageRepository
                 .findByGuestIdAndCourseId(requireOwner(guestId), courseId)
-                .map(usage -> new CourseDeduction(usage.getDays(), usage.isHalfDayStart()));
+                .map(usage -> new CourseDeduction(usage.getDays(), usage.startDayLeave()));
     }
 
     /**

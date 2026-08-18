@@ -309,7 +309,14 @@ public class CourseStorageService {
         // 이 필드가 생기기 전에 저장된 코스는 근거가 없다. 지어내지 않는다.
         return course.origin()
                 .map(origin -> trainAccessService.accessTo(
-                        origin.lat(), origin.lng(), region.getLat(), region.getLng(), course.getTravelDate()))
+                        origin.lat(),
+                        origin.lng(),
+                        region.getLat(),
+                        region.getLng(),
+                        course.getTravelDate(),
+                        // 저장할 때 기억해 둔 근거를 쓴다. 여기서 종일로 굳히면 반차로 짠 코스를 상세가
+                        // 아침 출발로 되짚어, 같은 코스가 두 근거를 갖는다(#138·#214).
+                        course.startDayLeave().departureTime()))
                 .orElse(null);
     }
 

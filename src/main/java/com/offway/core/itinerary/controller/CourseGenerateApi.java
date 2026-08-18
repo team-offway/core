@@ -18,7 +18,10 @@ public interface CourseGenerateApi {
             description = "지역·일수·밀도·이동수단으로 날짜별 타임라인(관광·식사·숙박 슬롯 + 이동시간 + 지도 좌표)과 적용 혜택을 만든다."
                     + " 동선은 이동수단 기반 최근접 정렬(자차 기준 interim)로 배치한다.")
     @ApiResponse(responseCode = "200", description = "생성 성공")
-    @ApiResponse(responseCode = "400", description = "지역 누락 · 일수 범위(1~3) 초과 · 좌표 범위 초과 · 필수값 누락")
+    @ApiResponse(
+            responseCode = "400",
+            description = "지역 누락 · 일수 범위(1~3) 초과 · 좌표 범위 초과 · 필수값 누락"
+                    + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     @ApiResponse(responseCode = "404", description = "해당 지역으로 만들 수 있는 코스가 없음(볼거리 부족)")
     @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")
     ApiResponseBody<CourseResponse> generate(CourseGenerateRequest request);
@@ -41,7 +44,10 @@ public interface CourseGenerateApi {
 
                     응답의 `seed` 를 다음 재생성에 `previousSeed` 로 넘기면 계속 다른 코스를 받을 수 있다.""")
     @ApiResponse(responseCode = "200", description = "재생성 성공 (더 다르게 못 만들었어도 200 — differentFromPrevious 로 알린다)")
-    @ApiResponse(responseCode = "400", description = "지역 누락 · 일수 범위(1~3) 초과 · 좌표 범위 초과 · 필수값 누락")
+    @ApiResponse(
+            responseCode = "400",
+            description = "지역 누락 · 일수 범위(1~3) 초과 · 좌표 범위 초과 · 필수값 누락"
+                    + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     @ApiResponse(responseCode = "404", description = "해당 지역으로 만들 수 있는 코스가 없음 (제외한 장소가 많아 볼거리가 남지 않은 경우 포함)")
     @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")
     ApiResponseBody<CourseRegenerateResponse> regenerate(CourseRegenerateRequest request);

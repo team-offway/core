@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.offway.core.itinerary.domain.Course;
+import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.itinerary.domain.CourseShare;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
@@ -363,7 +364,8 @@ class UserWithdrawalIntegrationTest {
                 List.of(DaySchedule.of(1, List.of(slot))),
                 LocalDate.now().plusDays(7),
                 1,
-                null);
+                null,
+                StartDayLeave.DEFAULT);
         return courseJpaRepository.save(course).getId();
     }
 
