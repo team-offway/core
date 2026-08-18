@@ -284,6 +284,62 @@ class UserWithdrawalIntegrationTest {
 
     // ── Apple 연결 해제 (#287) ─────────────────────────────────
 
+    /** 실물과 같은 후보 순서 — 웹(Service ID)이 먼저, 네이티브(Bundle ID)가 다음이다. */
+    private static final String SERVICE_ID = "com.nth.offway.service";
+
+    private static final String BUNDLE_ID = "com.nth.offway";
+
+    /**
+     * <b>코드를 한 번만 쓴다.</b> {@code authorizationCode} 는 1회용이라, 틀린 클라이언트로 먼저 시도하면
+     * Apple 이 코드를 살려 둔다는 보장이 없다 — 그러면 맞는 쪽으로 다시 시도해도 늦고, 갱신 토큰을 영영 못 받아
+     * 탈퇴해도 Apple 연결이 남는다. 이 PR 이 하려는 일이 정확히 그것이라 추측으로 한 번을 낭비할 수 없다.
+     *
+     * <p>후보 목록의 <b>뒤쪽</b>을 {@code aud} 로 준다 — 앞쪽을 주면 순서대로 시도해도 우연히 통과해서
+     * 이 테스트가 아무것도 못 잡는다.
+     */
+    @Test
+    void 검증된_aud_가_있으면_그_클라이언트로만_교환한다() throws Exception {
+        appleAccountLink.reset();
+        appleAccountLink.exchangesTo("apple-refresh-token");
+
+        loginWithAppleFrom("apple-auth-code", BUNDLE_ID);
+
+        assertEquals(List.of(BUNDLE_ID), appleAccountLink.exchangedClientIds(), "코드를 한 번만 써야 한다");
+    }
+
+    /**
+     * 발급한 클라이언트가 해제까지 <b>그대로</b> 흘러야 한다.
+     *
+     * <p>Apple 은 발급 때와 다른 클라이언트로 서명하면 해제를 거절한다. 로그인에서 고른 값이 저장되지 않거나
+     * 탈퇴가 다른 후보를 집으면, 우리 데이터는 지워지고 Apple 목록에만 남는다 — 심사가 보는 그 상태다.
+     */
+    @Test
+    void 로그인에서_고른_클라이언트로_해제한다() throws Exception {
+        appleAccountLink.reset();
+        appleAccountLink.exchangesTo("apple-refresh-token");
+        appleAccountLink.revokeSucceeds();
+        Session session = loginWithAppleFrom("apple-auth-code", BUNDLE_ID);
+
+        mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
+
+        assertEquals(List.of(BUNDLE_ID), appleAccountLink.revokedClientIds(), "발급한 클라이언트로 끊어야 한다");
+    }
+
+    /**
+     * {@code aud} 를 모르면 예전처럼 후보를 돈다 — 아무것도 안 하는 것보다는 낫다.
+     *
+     * <p>{@code aud} 를 안 싣는 옛 경로가 남아 있어서다. 이 경우에만 코드 소진 위험을 감수한다.
+     */
+    @Test
+    void aud_를_모르면_후보를_순서대로_시도한다() throws Exception {
+        appleAccountLink.reset();
+        appleAccountLink.exchangeFails();
+
+        loginWithApple("apple-auth-code");
+
+        assertEquals(List.of(SERVICE_ID, BUNDLE_ID), appleAccountLink.exchangedClientIds());
+    }
+
     /**
      * Apple 로 로그인하며 {@code authorizationCode} 를 함께 보낸다.
      *
@@ -292,6 +348,18 @@ class UserWithdrawalIntegrationTest {
      */
     private Session loginWithApple(String authorizationCode) throws Exception {
         socialIdentityVerifier.respondWith(AuthProvider.APPLE, "sub-" + UUID.randomUUID(), "세빈", null);
+        return performAppleLogin(authorizationCode);
+    }
+
+    /** 검증된 {@code aud} 가 있는 로그인 — 어느 클라이언트로 발급된 토큰인지 서버가 아는 상황(#287). */
+    private Session loginWithAppleFrom(String authorizationCode, String audience) throws Exception {
+        socialIdentityVerifier.respondWithAudience(
+                AuthProvider.APPLE, "sub-" + UUID.randomUUID(), "세빈", null, audience);
+        return performAppleLogin(authorizationCode);
+    }
+
+    /** 신원 stub 은 호출자가 이미 정했다 — 여기서는 콜백만 친다. */
+    private Session performAppleLogin(String authorizationCode) throws Exception {
         String body = authorizationCode == null
                 ? "{\"accessToken\": \"any-id-token\"}"
                 : "{\"accessToken\": \"any-id-token\", \"authorizationCode\": \"%s\"}".formatted(authorizationCode);

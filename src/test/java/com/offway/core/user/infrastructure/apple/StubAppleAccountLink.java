@@ -25,6 +25,10 @@ public class StubAppleAccountLink implements AppleAccountLink {
 
     private final List<String> revokedTokens = new ArrayList<>();
 
+    private final List<String> exchangedClientIds = new ArrayList<>();
+
+    private final List<String> revokedClientIds = new ArrayList<>();
+
     @Override
     public List<String> clientIds() {
         return clientIds;
@@ -32,12 +36,14 @@ public class StubAppleAccountLink implements AppleAccountLink {
 
     @Override
     public Optional<String> exchange(String authorizationCode, String clientId) {
+        exchangedClientIds.add(clientId);
         return exchange.apply(authorizationCode, clientId);
     }
 
     @Override
     public boolean revoke(String refreshToken, String clientId) {
         revokedTokens.add(refreshToken);
+        revokedClientIds.add(clientId);
         return revoke.apply(refreshToken, clientId);
     }
 
@@ -61,6 +67,23 @@ public class StubAppleAccountLink implements AppleAccountLink {
         this.revoke = (token, clientId) -> false;
     }
 
+    /**
+     * 실제로 교환을 시도한 클라이언트들 — <b>몇 번</b> 시도했는지가 중요하다(#287).
+     *
+     * <p>{@code authorizationCode} 는 1회용이라, 틀린 클라이언트로 한 번 쓰면 맞는 쪽으로 다시 시도해도
+     * 늦을 수 있다. 검증된 {@code aud} 가 있으면 <b>딱 하나</b>여야 한다.
+     */
+    public List<String> exchangedClientIds() {
+        return List.copyOf(exchangedClientIds);
+    }
+
+    /**
+     * 실제로 해제를 시도한 클라이언트들 — 발급 때와 <b>같은</b> 것이어야 Apple 이 받아준다(#287).
+     */
+    public List<String> revokedClientIds() {
+        return List.copyOf(revokedClientIds);
+    }
+
     /** 실제로 해제를 시도한 토큰들 — 건너뛴 것과 부른 것을 가른다. */
     public List<String> revokedTokens() {
         return List.copyOf(revokedTokens);
@@ -72,5 +95,7 @@ public class StubAppleAccountLink implements AppleAccountLink {
         this.exchange = (code, clientId) -> Optional.empty();
         this.revoke = (token, clientId) -> false;
         this.revokedTokens.clear();
+        this.exchangedClientIds.clear();
+        this.revokedClientIds.clear();
     }
 }
