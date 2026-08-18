@@ -1,5 +1,6 @@
 package com.offway.core.user.infrastructure.apple;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -35,5 +36,5 @@ public interface AppleAccountLink {
     boolean revoke(String refreshToken, String clientId);
 
     /** 우리 클라이언트 식별자들 — 어느 것으로 발급됐는지 모를 때 순서대로 시도한다. */
-    java.util.List<String> clientIds();
+    List<String> clientIds();
 }

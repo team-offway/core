@@ -17,7 +17,9 @@ import java.util.function.BiFunction;
 public class StubAppleAccountLink implements AppleAccountLink {
 
     /** 실물과 같은 후보 순서 — Service ID 먼저, Bundle ID 다음. */
-    private List<String> clientIds = List.of("com.nth.offway.service", "com.nth.offway");
+    private static final List<String> DEFAULT_CLIENT_IDS = List.of("com.nth.offway.service", "com.nth.offway");
+
+    private List<String> clientIds = DEFAULT_CLIENT_IDS;
 
     private BiFunction<String, String, Optional<String>> exchange = (code, clientId) -> Optional.empty();
 
@@ -91,7 +93,7 @@ public class StubAppleAccountLink implements AppleAccountLink {
 
     /** 시나리오마다 기본 상태로 되돌린다 — 앞 테스트가 남긴 설정이 새어 들지 않게. */
     public void reset() {
-        this.clientIds = List.of("com.nth.offway.service", "com.nth.offway");
+        this.clientIds = DEFAULT_CLIENT_IDS;
         this.exchange = (code, clientId) -> Optional.empty();
         this.revoke = (token, clientId) -> false;
         this.revokedTokens.clear();
