@@ -1,0 +1,11 @@
+-- 여행 날짜로 코스를 찾는 배치가 둘이 됐다 (#269 여행 전날 · #302 여행 종료 다음 날).
+--
+-- 지금까지 인덱스가 없어 두 배치가 매일 course 전체를 훑는다. 저장된 코스는 사용자가 늘수록
+-- 함께 늘고, 운영 DB 는 EC2 도커 안의 MySQL 하나라 전량 스캔이 쌓일 자리가 없다.
+--
+-- 종료일 배치는 등호가 아니라 범위(시작일 between)로 찾는다 — 종료일이 컬럼이 아니라
+-- travel_date + travel_days - 1 로 계산되는 값이기 때문이다. 단일 컬럼 인덱스가 두 접근을
+-- 모두 받는다.
+--
+-- additive(CREATE INDEX)라 out-of-order 안전. FK 없음(persistence-convention).
+CREATE INDEX idx_course_travel_date ON course (travel_date);

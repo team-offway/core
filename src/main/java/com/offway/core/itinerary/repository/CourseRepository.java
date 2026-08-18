@@ -27,6 +27,13 @@ public interface CourseRepository {
      */
     List<Course> findByTravelDate(LocalDate travelDate);
 
+    /**
+     * 그 날 여행이 <b>끝난</b> 코스 전부(소유자 무관) — 종료 다음 날 알림 배치용(#302).
+     *
+     * <p>소유자 없는 코스(공유 링크용, #261)는 빠진다 — 알릴 상대가 없다.
+     */
+    List<Course> findEndedOn(LocalDate endedOn);
+
     /** 오늘 포함 이후 여행 — 가까운 것부터. 날짜 없는 코스는 분류 근거가 없어 빠진다. */
     List<Course> findUpcoming(String guestId, LocalDate today);
 
