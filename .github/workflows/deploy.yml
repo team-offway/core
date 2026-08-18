@@ -53,6 +53,7 @@ jobs:
       # 테스트까지 돌린다 — 배포 직전이 마지막 방어선이다.
       # 외부 API 키를 넘기지 않는다: 테스트가 실키로 외부를 호출해 일일 허용량을 태운 적이 있다(#110).
       - name: 빌드 & 테스트
+        id: build
         run: ./gradlew build
 
       # EC2 의 22번은 특정 IP 하나만 열려 있다(offway-tokyo-sg). Actions 러너는 매번 다른 IP 라
@@ -84,6 +85,7 @@ jobs:
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
       - name: 배포 산출물 전송
+        id: transfer
         run: |
           JAR=$(ls build/libs/*.jar | grep -v plain | head -1)
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
@@ -129,6 +131,7 @@ jobs:
           rm -f env.prod
 
       - name: 이미지 빌드 & 컨테이너 교체
+        id: swap
         run: |
           # 커밋 SHA 를 원격 스크립트의 $1 로 넘긴다. heredoc 이 quoted('REMOTE') 라 러너 쪽 변수는 확장되지 않는다.
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' -- "${{ github.sha }}" <<'REMOTE'
@@ -186,15 +189,23 @@ jobs:
       # 그리고 떴다고 기능이 되는 것도 아니다 — 스모크로 실제 응답까지 본 뒤에야 배포를 성공으로 친다.
       # 어느 쪽이든 실패하면 이전 이미지로 되돌린다. 자동 배포에서는 사람이 손으로 되돌릴 수 없다.
       - name: 기동 확인 · 스모크 · 실패 시 롤백
+        id: smoke
+        shell: bash
         run: |
+          # **pipefail 을 반드시 켠다.** 아래에서 원격 출력을 tee 로 갈라 파일에도 남기는데, pipefail 이
+          # 없으면 파이프라인 종료코드가 tee 의 0 이 되어 **배포 실패가 성공으로 둔갑한다.** Actions 의
+          # 기본 셸은 `bash -e` 라 pipefail 이 꺼져 있어, 여기서 켜지 않으면 롤백이 돌아도 초록불이 뜬다.
+          set -o pipefail
           # 스모크 비밀번호만 러너에서 넘긴다. 서버의 env.prod 에는 bcrypt 해시만 있어 평문을 복원할 수
           # 없다({bcrypt} 접두어를 떼면 해시가 남을 뿐이다).
           #
           # 사용자명은 반대로 **서버 파일에서 읽는다.** 시크릿을 인자로 넘기면 값 끝의 개행 하나만으로도
           # `-u "user\n:pass"` 가 되어 401 이 난다 — 실제로 그렇게 두 번 거짓 롤백이 났다.
           # env.prod 에서 읽으면 그 줄만 잘라오므로 개행이 섞이지 않고, 서버가 실제로 쓰는 값과도 어긋나지 않는다.
+          # 원격 출력을 파일로도 갈라 둔다 — 알림 스텝이 "왜 실패했나"(롤백됐는지, 서비스가 살아 있는지)를
+          # 이 로그의 표식으로 가른다. 화면 출력은 tee 라 그대로 남는다.
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            'bash -s' -- "${{ secrets.OFFWAY_SMOKE_PASSWORD }}" <<'REMOTE'
+            'bash -s' -- "${{ secrets.OFFWAY_SMOKE_PASSWORD }}" <<'REMOTE' 2>&1 | tee "$RUNNER_TEMP/deploy-remote.log"
           set -uo pipefail
           # 비밀번호도 같은 이유로 개행을 걷어낸다.
           SMOKE_PASS=$(printf '%s' "$1" | tr -d '\r\n')
@@ -342,3 +353,82 @@ jobs:
       - name: SSH 키 삭제
         if: always()
         run: rm -f ~/.ssh/deploy_key
+
+      # 배포 결과를 디스코드로 알린다(#295).
+      #
+      # **앱이 아니라 여기서 보낸다.** 앱의 Notifier 에 맡기면 배포가 깨져 앱이 안 뜰 때 알림도 함께
+      # 죽는다 — 정작 알아야 할 때 못 받는다. 알림 수단이 알림 대상과 함께 사라지면 안 된다.
+      #
+      # **쿼터 경보(#257)와 다른 웹훅을 쓴다.** 배포는 성공해도 매번 울려, 같은 채널에 두면 "봐야 하는"
+      # 신호를 묻는다.
+      - name: 배포 결과 알림
+        if: always()
+        shell: bash
+        env:
+          # 표현식을 셸 인용부호 안에 직접 박지 않는다 — 값에 따옴표·백틱이 섞이면 명령이 깨지거나
+          # 실행된다. env 로 넘기면 셸이 값을 해석하지 않는다.
+          WEBHOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
+          JOB_STATUS: ${{ job.status }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TRANSFER_OUTCOME: ${{ steps.transfer.outcome }}
+          SWAP_OUTCOME: ${{ steps.swap.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -uo pipefail
+
+          # 웹훅이 없으면 조용히 건너뛴다. 알림 설정 때문에 배포가 실패하면 본말이 전도된다.
+          if [ -z "${WEBHOOK:-}" ]; then
+            echo "DISCORD_DEPLOY_WEBHOOK_URL 이 없어 배포 알림을 건너뜁니다."
+            exit 0
+          fi
+
+          REMOTE_LOG="$RUNNER_TEMP/deploy-remote.log"
+          # 제목 첫 줄만 쓴다. 커밋 본문이 길면 알림이 통째로 그것에 밀린다.
+          SUBJECT=$(printf '%s' "${COMMIT_MESSAGE:-}" | head -1)
+
+          # 실패했으면 **어느 단계에서 왜** 죽었는지 가른다. "실패" 만 오면 결국 Actions 를 열어야 해서
+          # 알림의 값어치가 절반이다.
+          case "$JOB_STATUS" in
+            success) TITLE="배포 성공"; DETAIL="기동·스모크 모두 통과" ;;
+            cancelled) TITLE="배포 취소됨"; DETAIL="누군가 중단했거나 새 배포가 밀어냈습니다" ;;
+            *)
+              TITLE="배포 실패"
+              if [ "$BUILD_OUTCOME" = "failure" ]; then
+                DETAIL="빌드·테스트 실패 — 서버는 이전 버전 그대로입니다"
+              elif [ "$TRANSFER_OUTCOME" = "failure" ]; then
+                DETAIL="산출물 전송 실패 — 서버는 이전 버전 그대로입니다"
+              elif [ "$SWAP_OUTCOME" = "failure" ]; then
+                DETAIL="이미지 빌드·컨테이너 교체 실패"
+              elif [ "$SMOKE_OUTCOME" = "failure" ]; then
+                # 원격 스크립트가 남긴 표식으로 **서비스가 지금 살아 있는지**를 가른다. 이게 이 알림의
+                # 핵심이다 — 롤백이 돌았으면 아침에 봐도 되고, 안 돌았으면 지금 붙어야 한다.
+                if grep -q '롤백 완료' "$REMOTE_LOG" 2>/dev/null; then
+                  DETAIL="기동·스모크 실패 → **이전 버전으로 롤백됨** (서비스 정상)"
+                elif grep -q '대체 기동 확인' "$REMOTE_LOG" 2>/dev/null; then
+                  DETAIL="스모크 실패 · 롤백 이미지가 없어 **방금 배포한 버전으로 유지** (서비스는 떠 있음)"
+                elif grep -qE '롤백까지 실패|대체 기동까지 실패|되돌릴 이전 이미지가 없습니다' "$REMOTE_LOG" 2>/dev/null; then
+                  DETAIL="**서비스 중단 — 수동 개입 필요**"
+                else
+                  DETAIL="기동·스모크 실패 (롤백 결과를 확인하지 못했습니다)"
+                fi
+              else
+                DETAIL="배포 전 단계에서 실패"
+              fi
+              ;;
+          esac
+
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          TEXT=$(printf '**%s**\n%s\n`%s` %s\n실행: %s\n%s' \
+            "$TITLE" "$DETAIL" "${GITHUB_SHA:0:7}" "$SUBJECT" "$GITHUB_ACTOR" "$RUN_URL")
+
+          # 본문은 jq 로 만든다 — 커밋 메시지에 따옴표·개행이 섞여도 JSON 이 깨지지 않는다.
+          jq -n --arg content "$TEXT" '{content: $content}' > "$RUNNER_TEMP/discord.json"
+
+          # **알림 실패가 배포 결과를 바꾸지 않는다.** URL 은 그 자체가 자격증명이라 출력에 남기지 않는다
+          # (-s 로 진행률도 끈다). 상태코드만 찍는다.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+            -H 'Content-Type: application/json' \
+            -d "@$RUNNER_TEMP/discord.json" "$WEBHOOK" || echo "000")
+          echo "디스코드 알림 전송 결과: HTTP $code"
+          exit 0
