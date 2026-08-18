@@ -31,6 +31,11 @@ public class RefreshTokenRepositoryImpl implements RefreshTokenRepository {
     }
 
     @Override
+    public int deleteByUserId(UUID userId) {
+        return refreshTokenJpaRepository.deleteByUserId(userId);
+    }
+
+    @Override
     public int claimRotation(String tokenHash, Instant now) {
         return refreshTokenJpaRepository.claimRotation(tokenHash, now);
     }

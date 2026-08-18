@@ -10,4 +10,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface UserIdentityJpaRepository extends JpaRepository<UserIdentity, UUID> {
 
     Optional<UserIdentity> findByProviderAndProviderUserId(AuthProvider provider, String providerUserId);
+
+    int deleteByUserId(UUID userId);
 }

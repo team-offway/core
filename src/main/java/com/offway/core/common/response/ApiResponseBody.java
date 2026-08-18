@@ -40,6 +40,19 @@ public record ApiResponseBody<T>(
         return success(HttpStatus.OK, null, null);
     }
 
+    /**
+     * 내릴 데이터가 없고 <b>문구 자체가 결과</b>인 성공 응답 — 예: 탈퇴.
+     *
+     * <p>기본 detail("요청이 정상 처리되었습니다")로 충분하면 {@link #ok()} 를 쓴다. 이 오버로드는 data 가
+     * null 이라 응답에서 사용자가 읽을 것이 detail 뿐인 경우를 위한 것이다.
+     *
+     * <p>이름을 {@code ok} 로 겹치지 않게 한 이유 — {@code ok(T)} 와 시그니처가 충돌해 {@code T} 가 String 일
+     * 때 어느 쪽이 불릴지 읽는 사람이 알 수 없다.
+     */
+    public static <T> ApiResponseBody<T> okWithDetail(String detail) {
+        return new ApiResponseBody<>(HttpStatus.OK.value(), null, detail, SUCCESS_CODE, null);
+    }
+
     public static <T> ApiResponseBody<T> created(T data) {
         return success(HttpStatus.CREATED, data, null);
     }

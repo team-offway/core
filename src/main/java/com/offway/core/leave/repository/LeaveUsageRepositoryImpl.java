@@ -58,4 +58,9 @@ public class LeaveUsageRepositoryImpl implements LeaveUsageRepository {
     public LeaveUsage save(LeaveUsage usage) {
         return jpaRepository.save(usage);
     }
+
+    @Override
+    public int deleteByGuestId(String guestId) {
+        return jpaRepository.deleteByGuestId(guestId);
+    }
 }

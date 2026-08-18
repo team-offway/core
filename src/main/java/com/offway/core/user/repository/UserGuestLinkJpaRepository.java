@@ -12,4 +12,6 @@ interface UserGuestLinkJpaRepository extends JpaRepository<UserGuestLink, Long> 
     Optional<UserGuestLink> findByGuestId(String guestId);
 
     List<UserGuestLink> findByUserId(UUID userId);
+
+    int deleteByUserId(UUID userId);
 }
