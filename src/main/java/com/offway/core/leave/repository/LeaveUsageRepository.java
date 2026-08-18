@@ -3,6 +3,7 @@ package com.offway.core.leave.repository;
 import com.offway.core.leave.domain.LeaveUsage;
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 import java.util.Set;
 
 /** 도메인이 의존하는 port. 구현은 {@link LeaveUsageRepositoryImpl}. */
@@ -33,6 +34,9 @@ public interface LeaveUsageRepository {
      * <p>코스마다 {@link #existsByGuestIdAndCourseId} 를 부르면 N+1 이라 한 번에 모아온다.
      */
     Set<Long> findDeductedCourseIds(String guestId);
+
+    /** 이 코스들 중 이미 차감한 것 — 알림 배치가 소유자별로 묻지 않게 한 번에 판다(#302). */
+    Set<Long> findDeductedCourseIdsIn(Collection<Long> courseIds);
 
     /**
      * 코스 차감 내역을 지운다(차감 취소).

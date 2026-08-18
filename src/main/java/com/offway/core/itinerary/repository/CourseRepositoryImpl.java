@@ -41,6 +41,24 @@ public class CourseRepositoryImpl implements CourseRepository {
         return courseJpaRepository.findByTravelDateAndGuestIdIsNotNull(travelDate);
     }
 
+    /**
+     * <b>후보를 시작일 범위로 좁혀 오고, 종료일 판정은 도메인에 맡긴다.</b>
+     *
+     * <p>종료일은 컬럼이 아니라 {@code travel_date + travel_days - 1} 로 계산된다. 그 계산을 질의에 옮겨 적으면
+     * 규칙이 도메인과 SQL 두 곳에 살게 되는데, 이 값은 실제로 한 번 어긋난 적이 있다 — 예전에 일정이 있는 날의
+     * 수를 기간으로 쓰다가 종료일이 하루 이르게 나왔고 <b>연차가 하루 덜 차감됐다</b>(#159·#164).
+     * 규칙을 {@link Course#travelEndDate()} 한 곳에만 두면 그 종류의 어긋남이 생길 자리가 없다.
+     *
+     * <p>범위 폭은 코스 최대 기간이라 후보가 며칠치를 넘지 않는다 — 전부 훑는 것과 다르다.
+     */
+    @Override
+    public List<Course> findEndedOn(LocalDate endedOn) {
+        LocalDate earliestStart = endedOn.minusDays(Course.MAX_TRAVEL_DAYS - 1L);
+        return courseJpaRepository.findByTravelDateBetweenAndGuestIdIsNotNull(earliestStart, endedOn).stream()
+                .filter(course -> endedOn.equals(course.travelEndDate()))
+                .toList();
+    }
+
     @Override
     public List<Course> findUpcoming(String guestId, LocalDate today) {
         return courseJpaRepository.findByGuestIdAndTravelDateGreaterThanEqualOrderByTravelDateAscIdDesc(guestId, today);

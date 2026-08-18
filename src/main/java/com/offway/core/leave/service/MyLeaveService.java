@@ -12,6 +12,7 @@ import com.offway.core.leave.service.dto.CourseDeduction;
 import com.offway.core.leave.service.dto.MyLeave;
 import com.offway.core.leave.service.dto.UpdateLeaveUsage;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -193,6 +194,17 @@ public class MyLeaveService {
     @Transactional(readOnly = true)
     public Set<Long> deductedCourseIds(String guestId) {
         return usageRepository.findDeductedCourseIds(requireOwner(guestId));
+    }
+
+    /**
+     * 이 코스들 중 이미 차감한 것 — 알림 배치용(#302).
+     *
+     * <p>소유자를 안 받는다. 코스 id 는 이미 그 소유자의 것으로 좁혀져 넘어오고, 배치는 여러 소유자를
+     * 한 번에 훑기 때문이다. 소유자마다 {@link #deductedCourseIds} 를 부르면 대상 수만큼 질의가 나간다.
+     */
+    @Transactional(readOnly = true)
+    public Set<Long> deductedCourseIdsIn(Collection<Long> courseIds) {
+        return usageRepository.findDeductedCourseIdsIn(courseIds);
     }
 
     /** 코스로 이미 차감했는지 — 중복 차감 방지(#91). */
