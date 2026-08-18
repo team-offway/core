@@ -3,6 +3,7 @@ package com.offway.core.leave.domain;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -121,11 +122,80 @@ class LeaveUsageTest {
     }
 
     @Test
-    void 수동_내역은_손으로_지울_수_있다() {
+    void 수동_내역은_손으로_고치고_지울_수_있다() {
         LeaveUsage usage = LeaveUsage.manual("guest-1", WHEN, 1.0, "개인 사유");
 
         assertTrue(usage.isManual());
-        assertDoesNotThrow(usage::requireManuallyDeletable);
+        assertDoesNotThrow(usage::requireManuallyManaged);
+    }
+
+    // ── 내역 수정(#267) ────────────────────────────────────────
+
+    @Test
+    void 보낸_필드만_바뀌고_나머지는_그대로다() {
+        // PATCH 의 의미다. 안 보낸 필드를 기본값으로 덮으면 사용자가 건드리지도 않은 값이 사라진다.
+        LeaveUsage usage = LeaveUsage.manual("guest-1", WHEN, 1.0, "개인 사유");
+
+        usage.edit(null, 2.5, null);
+
+        assertEquals(2.5, usage.getDays());
+        assertEquals(WHEN, usage.getUsedOn());
+        assertEquals("개인 사유", usage.getReason());
+    }
+
+    @Test
+    void 빈_사유를_보내면_사유가_지워진다() {
+        // 빠진 필드와 명시적 null 이 똑같이 null 로 도착해 구분되지 않는다. 빈 문자열이 "지워라" 를
+        // 표현하는 유일한 신호다.
+        LeaveUsage usage = LeaveUsage.manual("guest-1", WHEN, 1.0, "개인 사유");
+
+        usage.edit(null, null, "");
+
+        assertNull(usage.getReason());
+    }
+
+    @Test
+    void 아무것도_안_보내면_아무것도_바뀌지_않는다() {
+        LeaveUsage usage = LeaveUsage.manual("guest-1", WHEN, 1.0, "개인 사유");
+
+        usage.edit(null, null, null);
+
+        assertEquals(WHEN, usage.getUsedOn());
+        assertEquals(1.0, usage.getDays());
+        assertEquals("개인 사유", usage.getReason());
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = {0, 0.3, 100})
+    void 수정도_등록과_같은_값_규칙을_탄다(double days) {
+        // 같은 값에 계약이 두 개면 화면이 어느 쪽을 따를지 알 수 없다.
+        LeaveUsage usage = LeaveUsage.manual("guest-1", WHEN, 1.0, "개인 사유");
+
+        LeaveException thrown = assertThrows(LeaveException.class, () -> usage.edit(null, days, null));
+
+        assertEquals(LeaveErrorCode.INVALID_LEAVE_USAGE_DAYS, thrown.errorCode());
+    }
+
+    @Test
+    void 수정으로_음수를_넣는_것도_상쇄_등록으로_가른다() {
+        LeaveUsage usage = LeaveUsage.manual("guest-1", WHEN, 1.0, "개인 사유");
+
+        LeaveException thrown = assertThrows(LeaveException.class, () -> usage.edit(null, -1.0, null));
+
+        assertEquals(LeaveErrorCode.LEAVE_USAGE_REVERSAL_NOT_ALLOWED, thrown.errorCode());
+    }
+
+    @Test
+    void 거절된_수정은_아무것도_바꾸지_않는다() {
+        // 검증을 대입보다 먼저 끝내는 이유다. 날짜만 바뀐 반쪽 상태가 남으면 사용자는 실패했다고
+        // 들었는데 화면의 날짜는 바뀌어 있다.
+        LeaveUsage usage = LeaveUsage.manual("guest-1", WHEN, 1.0, "개인 사유");
+
+        assertThrows(LeaveException.class, () -> usage.edit(WHEN.plusDays(3), 0.3, "바뀐 사유"));
+
+        assertEquals(WHEN, usage.getUsedOn());
+        assertEquals(1.0, usage.getDays());
+        assertEquals("개인 사유", usage.getReason());
     }
 
     @Test
@@ -133,7 +203,7 @@ class LeaveUsageTest {
         // 그 행은 차감량이자 확정 표식이다 — 지우면 코스는 확정인데 연차는 안 깎인 상태가 남는다.
         LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, StartDayLeave.FULL_DAY);
 
-        LeaveException thrown = assertThrows(LeaveException.class, usage::requireManuallyDeletable);
+        LeaveException thrown = assertThrows(LeaveException.class, usage::requireManuallyManaged);
 
         assertEquals(LeaveErrorCode.COURSE_LEAVE_USAGE_NOT_DELETABLE, thrown.errorCode());
         assertFalse(usage.isManual());

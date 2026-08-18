@@ -6,6 +6,7 @@ import com.offway.core.leave.controller.dto.AvailableTimeRequest;
 import com.offway.core.leave.controller.dto.AvailableTimeResponse;
 import com.offway.core.leave.controller.dto.MyLeaveResponse;
 import com.offway.core.leave.controller.dto.SandwichResponse;
+import com.offway.core.leave.controller.dto.UpdateLeaveUsageRequest;
 import com.offway.core.leave.controller.dto.UpdateMyLeaveRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -62,6 +63,39 @@ public interface LeaveApi {
     ApiResponseBody<MyLeaveResponse> addLeaveUsage(
             @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
             AddLeaveUsageRequest request);
+
+    @Operation(
+            summary = "연차 사용 내역 수정",
+            description = """
+                    사용 내역 한 건을 고치고 갱신된 내 연차 전체(총·쓴·남은 + 내역 목록)를 돌려준다 —
+                    삭제와 같은 응답이라 화면이 한 번의 왕복으로 다시 그린다.
+
+                    **보낸 필드만 바뀐다.** 안 보낸 필드는 그대로 둔다. 세 필드 모두 선택이고, 아무것도 안 보내면
+                    아무것도 바뀌지 않은 채 현재 상태가 나간다.
+
+                    **사유를 지우려면 빈 문자열(`""`)을 보낸다.** 필드를 빼거나 null 을 보내는 것은 "그대로 두라" 는
+                    뜻이라 지우는 신호로 쓸 수 없다. 날짜·일수는 지울 수 있는 값이 아니므로 이 구분이 필요 없다 —
+                    없애고 싶으면 내역 자체를 삭제한다.
+
+                    **값 규칙은 등록과 같다.** days 는 0.25 단위 양수이고, 음수는 상쇄 등록이라 따로 거절한다
+                    (되돌리려면 삭제 API 를 쓴다).
+
+                    코스 확정으로 기록된 내역(courseId 가 있는 것)은 여기서 고칠 수 없다(409). 삭제와 같은 이유이고,
+                    수정은 더 위험하다 — 일수를 고치면 코스가 아는 차감량과 조용히 어긋난다.
+
+                    없는 내역과 남의 내역을 같은 404 로 답한다.""")
+    @ApiResponse(responseCode = "200", description = "수정 성공")
+    @ApiResponse(
+            responseCode = "400",
+            description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usageId 가 숫자가 아님 · usedOn 날짜 형식 오류 · "
+                    + "days 가 0 이거나 0.25 단위가 아니거나 99 초과(LEAVE-010) · days 가 음수(LEAVE-013)")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "404", description = "그 내역이 없거나 다른 소유자의 것")
+    @ApiResponse(responseCode = "409", description = "코스 확정으로 기록된 내역이라 연차 화면에서 고칠 수 없음")
+    ApiResponseBody<MyLeaveResponse> updateLeaveUsage(
+            @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
+            @Parameter(description = "고칠 사용 내역 ID", example = "42") long usageId,
+            UpdateLeaveUsageRequest request);
 
     @Operation(
             summary = "연차 사용 내역 삭제",
