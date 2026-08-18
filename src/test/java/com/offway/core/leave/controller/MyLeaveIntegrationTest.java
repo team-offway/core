@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -25,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -46,6 +48,10 @@ class MyLeaveIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    /** 도메인이 막는 값을 옛 데이터로 심을 때만 쓴다 — 그 밖의 준비는 전부 API 로 한다. */
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private ResultActions addUsage(String guest, String body) throws Exception {
         return mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, guest)
@@ -150,16 +156,16 @@ class MyLeaveIntegrationTest {
     }
 
     @Test
-    void 음수_등록은_아직_받는다() throws Exception {
-        // 거절(400 LEAVE-013)은 #276 으로 미뤘다 — 앱이 삭제 API 로 갈아타기 전에 켜면 그 구간 동안
-        // 취소가 400 을 받아 사용자가 취소를 아예 못 한다. 지금 앱이 쓰는 경로라 열려 있어야 한다.
+    void 음수_등록은_400_LEAVE_013_으로_거절하고_삭제를_안내한다() throws Exception {
+        // 상쇄 등록이 잔여를 총보다 크게 만들던 자리다. 0.5 단위 위반(LEAVE-010)과 코드를 가른다.
         mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, "leave-reversal")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"usedOn\": \"2026-05-09\", \"days\": -1, \"reason\": \"하루 취소\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value(201))
-                .andExpect(jsonPath("$.code").value("OK"))
-                .andExpect(jsonPath("$.data.usages[0].days").value(-1.0));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("LEAVE-013"))
+                .andExpect(jsonPath("$.detail").value("연차 사용은 0.5일 단위의 양수여야 합니다. 되돌리려면 해당 내역을 삭제해 주세요."))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test
@@ -200,26 +206,25 @@ class MyLeaveIntegrationTest {
     }
 
     /**
-     * <b>#265 의 재현 시나리오 그 자체</b> — 지금 앱이 하는 그대로(상쇄 등록) 취소를 두 번 보낸 장부다.
+     * 이 PR 이 손대지 않기로 한 <b>이미 쌓인 음수 행</b>이 실제로 어떻게 보이고 어떻게 정리되는가(#265).
      *
-     * <p>넷을 한 번에 잠근다. ① 상쇄 등록은 아직 통과한다(#276 전이라 앱 경로가 열려 있어야 한다)
-     * ② 원장 합이 -2 로 내려가도 <b>잔여가 17 이 아니라 15</b> — clamp 가 단위 테스트가 아니라 실응답에서 돈다
-     * ③ 그래도 <b>음수 행은 목록에 그대로 보인다</b> — 마이그레이션으로 지우지 않기로 한 결정의 실제 모습이다
-     * ④ 사용자가 그 행을 지울 수 있고, 지우면 clamp 가 가리고 있던 값과 장부가 같아진다.
+     * <p>세 가지를 한 번에 잠근다. ① 원장 합이 음수여도 잔여가 총을 넘지 않는다(clamp 가 실데이터에서 돈다)
+     * ② 그래도 <b>목록에는 음수 행이 그대로 보인다</b> — 마이그레이션으로 지우지 않기로 했으므로 이건 사양이다
+     * ③ 그 행을 사용자가 직접 지울 수 있고, 지우면 장부가 실제로 맞아떨어진다.
      *
-     * <p>#276 이 음수 등록을 닫으면 이 시나리오의 준비 단계는 API 로 만들 수 없다 — 그때 남아 있는 옛 행을
-     * 재현하려면 도메인을 우회해 직접 적재해야 한다(하이드레이션은 생성자를 거치지 않는다).
+     * <p>API 로는 더 이상 음수를 넣을 수 없으므로 도메인을 우회해 직접 적재한다 — 그게 옛 데이터의 실제 모습이다
+     * (하이드레이션은 생성자를 거치지 않는다).
      */
     @Test
-    void 상쇄_등록이_쌓여도_잔여가_총을_넘지_않고_지워서_정리할_수_있다() throws Exception {
-        String guest = "leave-reversal-ledger";
+    void 이미_쌓인_음수_행은_목록에_보이고_사용자가_지워_정리할_수_있다() throws Exception {
+        String guest = "leave-legacy-negative";
         mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 15}"))
                 .andExpect(status().isOk());
         addUsage(guest, "{\"usedOn\": \"2026-05-08\", \"days\": 2}").andExpect(status().isCreated());
-        // 같은 취소가 두 번 — 재시도·중복 탭이면 실제로 이렇게 들어온다. 원장 합이 -2 가 된다.
-        addUsage(guest, "{\"usedOn\": \"2026-05-09\", \"days\": -2}").andExpect(status().isCreated());
-        addUsage(guest, "{\"usedOn\": \"2026-05-09\", \"days\": -2}").andExpect(status().isCreated());
+        // 삭제 API 가 없던 시절의 상쇄 등록 — 같은 취소가 두 번 들어와 원장 합이 -2 가 된 그 장부다.
+        insertLegacyReversal(guest, -2.0);
+        insertLegacyReversal(guest, -2.0);
 
         String found = mockMvc.perform(get(URL).header(GUEST_HEADER, guest))
                 .andExpect(status().isOk())
@@ -243,6 +248,13 @@ class MyLeaveIntegrationTest {
                 .andExpect(jsonPath("$.data.usedDays").value(2.0))
                 .andExpect(jsonPath("$.data.remainingDays").value(13.0))
                 .andExpect(jsonPath("$.data.usages.length()").value(1));
+    }
+
+    /** 도메인을 우회해 음수 행을 심는다 — 이제 팩토리가 막으므로 옛 데이터는 이 길로만 재현된다. */
+    private void insertLegacyReversal(String guest, double days) {
+        jdbcTemplate.update(
+                "INSERT INTO leave_usage (guest_id, used_on, days, reason) VALUES (?, ?, ?, ?)",
+                guest, LocalDate.of(2026, 5, 9), days, "하루 취소");
     }
 
     @Test
