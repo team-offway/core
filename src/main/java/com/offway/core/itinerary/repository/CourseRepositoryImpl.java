@@ -37,6 +37,11 @@ public class CourseRepositoryImpl implements CourseRepository {
     }
 
     @Override
+    public List<Course> findByTravelDate(LocalDate travelDate) {
+        return courseJpaRepository.findByTravelDateAndGuestIdIsNotNull(travelDate);
+    }
+
+    @Override
     public List<Course> findUpcoming(String guestId, LocalDate today) {
         return courseJpaRepository.findByGuestIdAndTravelDateGreaterThanEqualOrderByTravelDateAscIdDesc(guestId, today);
     }

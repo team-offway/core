@@ -15,6 +15,9 @@ import com.offway.core.itinerary.domain.CourseShare;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.domain.Slot;
+import com.offway.core.itinerary.domain.TripOutcome;
+import com.offway.core.itinerary.domain.VisitOutcome;
+import com.offway.core.itinerary.repository.TripOutcomeJpaRepository;
 import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.TimeOfDay;
@@ -48,6 +51,11 @@ import org.springframework.test.web.servlet.MockMvc;
  *
  * <p>개인정보처리방침이 약속한 동작이라 "대충 지워진다" 로는 부족하다. 남는 것(공유 링크)도 의도된
  * 선택이므로 함께 잠근다.
+ *
+ * <p><b>클래스 레벨 트랜잭션 롤백에 기대지 않는다</b>(빠뜨린 것이 아니다). 탈퇴는 이벤트 리스너가 발행자
+ * 트랜잭션에 참여해 한 덩어리로 커밋되는 것이 핵심인데, 테스트가 바깥에서 트랜잭션을 열어 롤백해 버리면
+ * 그 경계가 테스트 트랜잭션에 흡수돼 검증하려던 성질이 사라진다. 대신 시나리오마다 고유 UUID 로 격리한다
+ * — {@code AuthIntegrationTest} 도 같은 이유로 같은 방식이다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -92,6 +100,9 @@ class UserWithdrawalIntegrationTest {
 
     @Autowired
     private UserGuestLinkRepository userGuestLinkRepository;
+
+    @Autowired
+    private TripOutcomeJpaRepository tripOutcomeJpaRepository;
 
     // ── 계정 ──────────────────────────────────────────────────
 
@@ -158,16 +169,20 @@ class UserWithdrawalIntegrationTest {
     // ── 게스트 키로 묶인 데이터 ────────────────────────────────
 
     @Test
-    void 탈퇴하면_저장한_코스와_연차가_함께_지워진다() throws Exception {
+    void 탈퇴하면_저장한_코스와_연차와_후기가_함께_지워진다() throws Exception {
         Session session = login();
         Long courseId = saveCourse(session.guestId());
         seedLeave(session.guestId());
+        seedOutcome(session.guestId(), courseId);
 
         mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
 
         assertTrue(courseJpaRepository.findById(courseId).isEmpty(), "코스가 남았다");
         assertTrue(leaveBalanceJpaRepository.findByGuestId(session.guestId()).isEmpty(), "연차 설정이 남았다");
         assertTrue(leaveUsageJpaRepository.findByGuestIdOrderByUsedOnDescIdDesc(session.guestId()).isEmpty(), "연차 내역이 남았다");
+        // 후기는 리스너가 지우는 넷 중 하나인데 오래 검증에서 빠져 있었다. 코스와 다른 테이블이라
+        // 코스 삭제가 통과해도 이쪽만 조용히 남을 수 있다.
+        assertTrue(tripOutcomeJpaRepository.findAnsweredCourseIds(session.guestId()).isEmpty(), "여행 후기가 남았다");
     }
 
     @Test
@@ -204,12 +219,15 @@ class UserWithdrawalIntegrationTest {
         Session mine = login();
         Session other = login();
         Long otherCourse = saveCourse(other.guestId());
+        seedOutcome(other.guestId(), otherCourse);
 
         mockMvc.perform(withdraw(mine.accessToken()).header(GUEST_HEADER, other.guestId()))
                 .andExpect(status().isOk());
 
         assertTrue(courseJpaRepository.findById(otherCourse).isPresent(), "남의 코스가 지워졌다");
         assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
+        // 지우는 축만 후기를 확인하면 "남의 후기는 안 지워지는가" 가 빈다 — 개인정보 관점에서 더 아픈 쪽이다.
+        assertFalse(tripOutcomeJpaRepository.findAnsweredCourseIds(other.guestId()).isEmpty(), "남의 후기가 지워졌다");
     }
 
     /**
@@ -271,6 +289,18 @@ class UserWithdrawalIntegrationTest {
     }
 
     // ── 헬퍼 ──────────────────────────────────────────────────
+
+    @Test
+    void 탈퇴는_다른_사람의_데이터를_건드리지_않는다() throws Exception {
+        Session mine = login();
+        Session other = login();
+        Long otherCourse = saveCourse(other.guestId());
+
+        mockMvc.perform(withdraw(mine.accessToken())).andExpect(status().isOk());
+
+        assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
+        assertEquals(otherCourse, courseJpaRepository.findById(otherCourse).orElseThrow().getId());
+    }
 
     private record Session(UUID userId, String accessToken, String refreshToken, String guestId) {}
 
@@ -343,20 +373,13 @@ class UserWithdrawalIntegrationTest {
     }
 
     /** access 토큰(JWT) payload 의 sub 이 사용자 식별자다. */
+    /** 여행 후기 한 건 — 탈퇴가 지우는 넷째 데이터다. */
+    private void seedOutcome(String guestId, Long courseId) {
+        tripOutcomeJpaRepository.save(TripOutcome.of(guestId, courseId, VisitOutcome.VISITED, LocalDate.now()));
+    }
+
     private static UUID userIdOf(String accessToken) {
         String payload = new String(java.util.Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]));
         return UUID.fromString(JsonPath.read(payload, "$.sub"));
-    }
-
-    @Test
-    void 탈퇴는_다른_사람의_데이터를_건드리지_않는다() throws Exception {
-        Session mine = login();
-        Session other = login();
-        Long otherCourse = saveCourse(other.guestId());
-
-        mockMvc.perform(withdraw(mine.accessToken())).andExpect(status().isOk());
-
-        assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
-        assertEquals(otherCourse, courseJpaRepository.findById(otherCourse).orElseThrow().getId());
     }
 }
