@@ -9,12 +9,6 @@ import org.junit.jupiter.api.Test;
 class TransportModeTest {
 
     @Test
-    void 자차는_기준반경_그대로_대중교통은_0_7배로_적용한다() {
-        assertEquals(240, TransportMode.CAR.applyReach(240));
-        assertEquals(168, TransportMode.TRANSIT.applyReach(240)); // 240 × 0.7
-    }
-
-    @Test
     void 거리를_수단별_평균속도로_이동시간_분으로_환산한다() {
         assertEquals(60, TransportMode.CAR.travelMinutes(75.0)); // 75㎞ / 75㎞h
         assertEquals(120, TransportMode.CAR.travelMinutes(150.0));
@@ -27,9 +21,14 @@ class TransportModeTest {
         assertTrue(TransportMode.TRANSIT.travelMinutes(100) > TransportMode.CAR.travelMinutes(100));
     }
 
+    /**
+     * 이 enum 은 <b>거리 → 시간</b> 하나만 안다(#289).
+     *
+     * <p>예전에는 도달 한계 분(分)까지 0.7 로 깎는 {@code applyReach} 가 있었는데, 같은 감쇠를 평균속도와
+     * 두 번 걸어 대중교통 추천이 서울 기준 3곳까지 줄었다. 분 예산은 여행이 정하는 값이라 여기서 손대지 않는다.
+     */
     @Test
-    void 음수_반경이나_비유한_또는_음수_거리는_불변식_위반이다() {
-        assertThrows(IllegalArgumentException.class, () -> TransportMode.CAR.applyReach(-1));
+    void 비유한_또는_음수_거리는_불변식_위반이다() {
         assertThrows(IllegalArgumentException.class, () -> TransportMode.CAR.travelMinutes(-1));
         assertThrows(IllegalArgumentException.class, () -> TransportMode.CAR.travelMinutes(Double.NaN));
         assertThrows(

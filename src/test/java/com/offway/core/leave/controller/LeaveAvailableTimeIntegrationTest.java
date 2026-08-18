@@ -55,7 +55,7 @@ class LeaveAvailableTimeIntegrationTest {
     }
 
     @Test
-    void 평일_2박3일_자차면_소모연차3_도달420분을_내려준다() throws Exception {
+    void 평일_2박3일_자차면_소모연차3_도달240분을_내려준다() throws Exception {
         holidayClient.respond((year, month) -> Set.of()); // 공휴일 없음
 
         // 2026-05-06(수)~08(금) — 평일 3일
@@ -68,7 +68,7 @@ class LeaveAvailableTimeIntegrationTest {
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.travelDays").value(3))
                 .andExpect(jsonPath("$.data.consumedLeaveDays").value(3.0))
-                .andExpect(jsonPath("$.data.maxReachMinutes").value(420));
+                .andExpect(jsonPath("$.data.maxReachMinutes").value(240));
     }
 
     @Test
@@ -85,17 +85,49 @@ class LeaveAvailableTimeIntegrationTest {
                 .andExpect(jsonPath("$.data.consumedLeaveDays").value(2.0));
     }
 
+    /**
+     * 도달 한계는 <b>이동수단에 따라 달라지지 않는다</b>(#289).
+     *
+     * <p>분 예산은 여행이 정하는 값이고, 수단은 그 시간에 얼마나 멀리 가는지에만 관여한다. 예전에는 여기서도
+     * 0.7 을 곱해 대중교통이 <b>감쇠를 두 번</b> 받았고, 당일 추천이 서울 기준 89곳 중 3곳까지 줄었다.
+     */
     @Test
-    void 대중교통이면_도달한계가_배율만큼_준다() throws Exception {
+    void 도달한계는_이동수단에_따라_달라지지_않는다() throws Exception {
+        holidayClient.respond((year, month) -> Set.of());
+
+        String transit = """
+                { "startDate": "2026-05-06", "endDate": "2026-05-06", "transport": "TRANSIT" }""";
+        String car = """
+                { "startDate": "2026-05-06", "endDate": "2026-05-06", "transport": "CAR" }""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(transit))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.travelDays").value(1))
+                .andExpect(jsonPath("$.data.maxReachMinutes").value(120));
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(car))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.maxReachMinutes").value(120));
+    }
+
+    /**
+     * 첫날에 늦게 떠나면 도달 한계가 깎인다(#289).
+     *
+     * <p>여행일수 3일이지만 15시 출발이라 240분이 아니라 120분이다. 이 축이 없을 때 반반차로 떠나도
+     * 7시간 거리를 추천해 <b>밤 10시 도착</b>이 나왔다.
+     */
+    @Test
+    void 반반차로_떠나면_2박3일이어도_도달한계가_120분이다() throws Exception {
         holidayClient.respond((year, month) -> Set.of());
 
         String body = """
-                { "startDate": "2026-05-06", "endDate": "2026-05-06", "transport": "TRANSIT" }""";
+                { "startDate": "2026-05-06", "endDate": "2026-05-08", \
+                "transport": "CAR", "startDayLeave": "QUARTER_DAY" }""";
 
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.travelDays").value(1))
-                .andExpect(jsonPath("$.data.maxReachMinutes").value(84)); // 당일 자차 120 × 0.7
+                .andExpect(jsonPath("$.data.travelDays").value(3))
+                .andExpect(jsonPath("$.data.maxReachMinutes").value(120))
+                .andExpect(jsonPath("$.data.consumedLeaveDays").value(2.25));
     }
 
     @Test
@@ -222,7 +254,7 @@ class LeaveAvailableTimeIntegrationTest {
                 .andExpect(jsonPath("$.data.endDate").value("2026-05-10"))
                 .andExpect(jsonPath("$.data.travelDays").value(3))
                 .andExpect(jsonPath("$.data.consumedLeaveDays").value(1.0)) // 금요일만
-                .andExpect(jsonPath("$.data.maxReachMinutes").value(420));
+                .andExpect(jsonPath("$.data.maxReachMinutes").value(240));
     }
 
     @Test

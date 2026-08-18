@@ -65,4 +65,39 @@ class StartDayLeaveTest {
         assertTrue(StartDayLeave.FULL_DAY.isFullDay());
         assertTrue(!StartDayLeave.HALF_DAY.isFullDay() && !StartDayLeave.QUARTER_DAY.isFullDay());
     }
+
+    /**
+     * 늦게 떠날수록 첫날 도달 상한이 좁아진다(#289).
+     *
+     * <p>값 자체보다 <b>순서</b>가 계약이다. 뒤집히면 반반차가 반차보다 멀리 갈 수 있게 되는데,
+     * 화면은 멀쩡해 보여 아무도 모른다.
+     */
+    @Test
+    void 늦게_떠날수록_첫날_도달_상한이_좁다() {
+        assertTrue(
+                StartDayLeave.FULL_DAY.firstDayReachMinutes()
+                        > StartDayLeave.HALF_DAY.firstDayReachMinutes(),
+                "종일이 반차보다 넓어야 한다");
+        assertTrue(
+                StartDayLeave.HALF_DAY.firstDayReachMinutes()
+                        > StartDayLeave.QUARTER_DAY.firstDayReachMinutes(),
+                "반차가 반반차보다 넓어야 한다");
+    }
+
+    /**
+     * 종일은 상한을 두지 않는다 — 하루가 통째로 있어 여행일수 축이 답을 낸다.
+     *
+     * <p>여기가 유한한 값이 되면 종일 연차의 도달 한계가 조용히 깎인다.
+     */
+    @Test
+    void 종일은_첫날_상한을_두지_않는다() {
+        assertEquals(Integer.MAX_VALUE, StartDayLeave.FULL_DAY.firstDayReachMinutes());
+    }
+
+    @Test
+    void 반차와_반반차의_첫날_상한을_고정한다() {
+        // 12시 출발 + 2시간 30분 = 14시 30분 도착, 15시 출발 + 2시간 = 17시 도착.
+        assertEquals(150, StartDayLeave.HALF_DAY.firstDayReachMinutes());
+        assertEquals(120, StartDayLeave.QUARTER_DAY.firstDayReachMinutes());
+    }
 }
