@@ -117,7 +117,7 @@ class LeaveUsageTest {
                 assertThrows(LeaveException.class, () -> LeaveUsage.manual("guest-1", WHEN, days, "취소"));
 
         assertEquals(LeaveErrorCode.LEAVE_USAGE_REVERSAL_NOT_ALLOWED, thrown.errorCode(),
-                "0.5 단위 위반과 사유가 달라야 화면이 '삭제로 취소하세요' 를 안내한다");
+                "단위 위반과 사유가 달라야 화면이 '삭제로 취소하세요' 를 안내한다");
     }
 
     @Test

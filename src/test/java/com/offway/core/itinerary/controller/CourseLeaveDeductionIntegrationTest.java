@@ -220,6 +220,22 @@ class CourseLeaveDeductionIntegrationTest {
     }
 
     @Test
+    void 반반차로_시작하면_0_25일만_덜_차감된다() throws Exception {
+        // **이 경로가 실제로 깨져 있었다.** StartDayLeave.QUARTER_DAY 는 첫날 0.25 를 소모하는데(#284)
+        // 연차 격자가 0.5 여서, 차감량 1.25 가 자기 검증에 걸려 LEAVE-010 400 이 나갔다 — 앱이 이미
+        // 내주는 선택지를 서버가 거절한 것이다(#278).
+        holidays(Set.of());
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 15.0);
+        long courseId = saveCourse(guest, TWO_DAY_COURSE);
+
+        deduct(guest, courseId, "{\"startDayLeave\": \"QUARTER_DAY\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usedDays").value(1.25))
+                .andExpect(jsonPath("$.data.remainingDays").value(13.75));
+    }
+
+    @Test
     void 같은_코스를_다시_확정해도_내역이_늘지_않는다() throws Exception {
         holidays(Set.of());
         String guest = uniqueGuest();
