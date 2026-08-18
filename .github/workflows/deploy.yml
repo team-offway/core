@@ -419,6 +419,9 @@ jobs:
           esac
 
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # 포맷 문자열은 **반드시 작은따옴표**다. 백틱은 디스코드의 인라인 코드 표기라 리터럴이어야
+          # 하는데, 큰따옴표로 바꾸면 셸이 그것을 명령 치환으로 읽어 %s 를 실행하려 든다.
+          # shellcheck disable=SC2016
           TEXT=$(printf '**%s**\n%s\n`%s` %s\n실행: %s\n%s' \
             "$TITLE" "$DETAIL" "${GITHUB_SHA:0:7}" "$SUBJECT" "$GITHUB_ACTOR" "$RUN_URL")
 
