@@ -1,6 +1,7 @@
 package com.offway.core.user.service;
 
 import com.offway.core.user.domain.AuthProvider;
+import java.util.List;
 import java.util.Optional;
 import com.offway.core.user.infrastructure.apple.AppleAccountLink;
 import com.offway.core.common.logging.RootCause;
@@ -44,7 +45,7 @@ public class AuthService {
         SocialIdentity identity = socialIdentityResolver.resolve(command.provider(), command.credential());
         AuthenticatedUser user = findOrCreateUser(identity, command);
         linkDevice(user.userId(), command.guestId());
-        rememberProviderLink(user.userId(), identity.provider(), command.authorizationCode());
+        rememberProviderLink(user.userId(), identity, command.authorizationCode());
         return issueTokens(user);
     }
 
@@ -114,14 +115,23 @@ public class AuthService {
      * 막힌다 — 연결이 남는 것보다 훨씬 나쁘다. 못 받으면 흔적만 남기고 넘어가고, 그 사용자가 다시 로그인하면
      * 그때 채워진다.
      *
-     * <p>어느 클라이언트로 발급됐는지 몰라 후보를 순서대로 시도한다. 네이티브(Bundle ID)와 웹(Service ID)이
-     * 갈리는데 코드만 봐서는 알 수 없고, 틀린 쪽으로 서명하면 Apple 이 거절한다.
+     * <p><b>어느 클라이언트로 발급됐는지는 검증된 {@code aud} 가 안다.</b> 네이티브(Bundle ID)와 웹(Service ID)이
+     * 갈리는데, 그 값이 방금 서명을 확인한 ID 토큰에 들어 있다. 그걸로 <b>한 번만</b> 교환한다.
+     *
+     * <p>후보를 순서대로 시도하지 않는 이유는 {@code authorizationCode} 가 <b>1회용</b>이라는 것이다. 첫 시도가
+     * 틀린 클라이언트였을 때 Apple 이 코드를 살려 둔다는 보장이 없다 — 그러면 맞는 클라이언트로 다시 시도해도
+     * 이미 늦고, 갱신 토큰을 영영 못 받아 <b>탈퇴해도 Apple 연결이 남는다</b>. 이 PR 이 하려는 일이 정확히
+     * 그것이라 추측으로 한 번을 낭비할 수 없다.
+     *
+     * <p>{@code aud} 가 없으면(옛 토큰·검증 경로가 아닌 provider) 예전처럼 후보를 돈다. 아무것도 안 하는 것보다는
+     * 낫고, 그 경우에만 코드 소진 위험을 감수한다.
      */
-    private void rememberProviderLink(UUID userId, AuthProvider provider, String authorizationCode) {
+    private void rememberProviderLink(UUID userId, SocialIdentity identity, String authorizationCode) {
+        AuthProvider provider = identity.provider();
         if (provider != AuthProvider.APPLE || authorizationCode == null || authorizationCode.isBlank()) {
             return;
         }
-        for (String clientId : appleAccountLink.clientIds()) {
+        for (String clientId : candidateClientIds(identity)) {
             Optional<String> refreshToken = appleAccountLink.exchange(authorizationCode, clientId);
             if (refreshToken.isPresent()) {
                 try {
@@ -134,9 +144,22 @@ public class AuthService {
                 return;
             }
         }
-        // 코드는 1회용이라 첫 시도에서 소진됐을 수 있다. 그래도 사유를 남긴다 — 이 로그가 쌓이면
-        // 탈퇴해도 Apple 연결이 계속 남는다는 뜻이다.
+        // 사유를 남긴다 — 이 로그가 쌓이면 탈퇴해도 Apple 연결이 계속 남는다는 뜻이다.
         log.warn("Apple 갱신 토큰을 받지 못했습니다 — 탈퇴해도 Apple 연결이 남습니다 userId={}", userId);
+    }
+
+    /**
+     * 교환에 쓸 클라이언트 — <b>검증된 {@code aud} 가 있으면 그것 하나뿐</b>이다.
+     *
+     * <p>{@code aud} 를 우리가 설정한 후보 안에서만 받는다. 검증기가 이미 같은 확인을 하지만, 여기서 한 번 더
+     * 거르는 것은 이 값이 <b>서명 키를 고르는 데 쓰이기</b> 때문이다 — 설정에 없는 클라이언트로 서명할 이유가 없다.
+     */
+    private List<String> candidateClientIds(SocialIdentity identity) {
+        List<String> configured = appleAccountLink.clientIds();
+        return identity.audienceIfPresent()
+                .filter(configured::contains)
+                .map(List::of)
+                .orElse(configured);
     }
 
     private IssuedToken issueTokens(AuthenticatedUser user) {

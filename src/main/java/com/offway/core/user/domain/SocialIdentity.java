@@ -18,8 +18,21 @@ import java.util.Optional;
  * @param nickname provider 가 준 표시 이름. Apple 은 주지 않으므로 비어 있을 수 있다
  * @param email provider 가 준 이메일. Kakao 는 동의를 거부할 수 있고 Apple 은 Private Relay 익명 주소를 줄 수 있어
  *     비어 있거나 실제 주소가 아닐 수 있다. 계정 매칭에는 쓰지 않는다
+ * @param audience 이 토큰이 <b>어느 클라이언트로 발급됐는지</b>(검증된 {@code aud}). ID 토큰을 검증한 provider 만
+ *     채운다 — 프로필 API 로 확인하는 Kakao 는 없다
  */
-public record SocialIdentity(AuthProvider provider, String providerUserId, String nickname, String email) {
+public record SocialIdentity(
+        AuthProvider provider, String providerUserId, String nickname, String email, String audience) {
+
+    /**
+     * {@code aud} 를 모르는 provider 용 — Kakao 처럼 ID 토큰을 안 쓰는 쪽이다.
+     *
+     * <p>편의 생성자를 두는 이유는 {@code aud} 가 <b>있는 것이 예외</b>가 아니라 <b>없는 것이 정상</b>인
+     * provider 가 있기 때문이다. 모든 호출부에 {@code null} 을 적게 하면 그 의미가 흐려진다.
+     */
+    public SocialIdentity(AuthProvider provider, String providerUserId, String nickname, String email) {
+        this(provider, providerUserId, nickname, email, null);
+    }
 
     public SocialIdentity {
         Objects.requireNonNull(provider, "provider 는 필수입니다");
@@ -27,6 +40,11 @@ public record SocialIdentity(AuthProvider provider, String providerUserId, Strin
         if (providerUserId.isBlank()) {
             throw new IllegalArgumentException("provider 사용자 식별자는 비어 있을 수 없습니다");
         }
+    }
+
+    /** 이 토큰을 발급한 클라이언트 — 탈퇴 때 <b>같은 클라이언트로 서명</b>해야 provider 가 해제를 받아준다. */
+    public Optional<String> audienceIfPresent() {
+        return blankToEmpty(audience);
     }
 
     public Optional<String> nicknameIfPresent() {
