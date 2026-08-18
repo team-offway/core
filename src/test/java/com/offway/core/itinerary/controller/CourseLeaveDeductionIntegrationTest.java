@@ -394,4 +394,28 @@ class CourseLeaveDeductionIntegrationTest {
                 .andExpect(jsonPath("$.data.usedDays").value(2.0))
                 .andExpect(jsonPath("$.data.usages.length()").value(1));
     }
+
+    @Test
+    void 코스_확정_내역은_연차_화면에서_고칠_수도_없다() throws Exception {
+        // 삭제와 같은 관문이다(#267). 수정은 더 위험하다 — 일수를 고치면 코스가 아는 차감량과 조용히
+        // 어긋나고, 그 행이 확정 표식이라 되돌릴 근거까지 흐려진다.
+        holidays(Set.of());
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 15.0);
+        long courseId = saveCourse(guest, TWO_DAY_COURSE);
+        String deducted = answerVisited(guest, courseId)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long usageId = ((Number) JsonPath.read(deducted, "$.data.usages[0].id")).longValue();
+
+        mockMvc.perform(patch(LEAVES + "/usages/{id}", usageId).header("X-Guest-Id", guest)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"days\": 0.5}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("LEAVE-014"));
+
+        // 차감량은 손대지지 않는다.
+        mockMvc.perform(get(LEAVES).header("X-Guest-Id", guest))
+                .andExpect(jsonPath("$.data.usedDays").value(2.0));
+    }
 }

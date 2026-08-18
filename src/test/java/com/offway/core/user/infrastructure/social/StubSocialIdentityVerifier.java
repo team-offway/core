@@ -43,6 +43,18 @@ public class StubSocialIdentityVerifier implements SocialIdentityVerifier {
                 (requestedProvider, credential) -> new SocialIdentity(provider, providerUserId, nickname, email);
     }
 
+    /**
+     * 검증된 {@code aud} 까지 실어 성공시킨다 — 어느 클라이언트로 발급된 토큰인지를 서버가 아는 상황(#287).
+     *
+     * <p>Apple 은 네이티브와 웹에 서로 다른 클라이언트를 쓰고, 탈퇴 때 <b>같은 클라이언트로 서명</b>해야
+     * 연결이 끊긴다. 그 값이 로그인부터 해제까지 그대로 흐르는지 보려면 stub 이 이걸 채울 수 있어야 한다.
+     */
+    public void respondWithAudience(
+            AuthProvider provider, String providerUserId, String nickname, String email, String audience) {
+        this.behavior = (requestedProvider, credential) ->
+                new SocialIdentity(provider, providerUserId, nickname, email, audience);
+    }
+
     @Override
     public SocialIdentity verify(AuthProvider provider, String credential) {
         return behavior.apply(provider, credential);

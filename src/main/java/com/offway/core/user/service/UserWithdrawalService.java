@@ -1,31 +1,26 @@
 package com.offway.core.user.service;
 
 import com.offway.core.user.domain.UserException;
-import com.offway.core.user.event.UserWithdrawn;
-import com.offway.core.user.repository.RefreshTokenRepository;
-import com.offway.core.user.repository.UserIdentityRepository;
-import com.offway.core.user.repository.UserRepository;
-import com.offway.core.user.domain.UserGuestLink;
-import com.offway.core.user.repository.UserGuestLinkRepository;
-import java.util.List;
+import com.offway.core.user.infrastructure.apple.AppleAccountLink;
+import com.offway.core.user.service.UserWithdrawalPersistenceService.ProviderLink;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 회원 탈퇴 — 계정과 그 사람의 데이터를 지운다.
+ * 회원 탈퇴 — 계정과 그 사람의 데이터를 지우고, provider 연결을 끊는다.
  *
  * <p>App Store 심사 필수 항목이고(계정을 만들 수 있으면 앱 안에서 지울 수도 있어야 한다), 개인정보처리방침
  * 9항이 "앱 내 [마이 → 회원탈퇴]" 로 이미 약속한 경로다. 방침에 적힌 권리는 실제로 동작해야 한다.
  *
- * <p><b>전부 한 트랜잭션이다.</b> 도메인별 정리는 {@link UserWithdrawn} 리스너들이 하는데, 동기로 돌아 같은
- * 트랜잭션에 참여한다. 하나라도 실패하면 통째로 롤백되고 사용자는 실패를 본다 — 부분 성공하면 사용자 행만
- * 사라지고 코스·연차가 <b>소유자 없이 남아 다시는 지울 수 없는</b> 데이터가 된다.
+ * <p><b>Apple 은 우리 DB 를 지우는 것만으로 부족하다</b>(#287). 토큰 revoke 를 요구하며(심사 5.1.1(v)),
+ * 안 하면 Apple 의 '이 App으로 로그인' 목록에 그대로 남는다.
  *
- * <p>순서가 중요하다. 이벤트를 먼저 보내 도메인들이 자기 데이터를 치운 뒤에 계정을 지운다.
+ * <p><b>이 빈은 순서만 소유한다.</b> DB 작업은 {@link UserWithdrawalPersistenceService}, 외부 호출은
+ * {@link AppleAccountLink} 다. 한 빈에 두면 같은 객체 안의 {@code @Transactional} 호출이 proxy 를 안 거쳐
+ * 트랜잭션이 조용히 무력화된다(persistence-convention §self-invocation).
  *
  * <p><b>유예 기간을 두지 않았다(soft delete 아님).</b> 즉시 삭제다. 되돌리기를 지원하려면 "탈퇴했지만 아직
  * 살아 있는 계정" 이라는 상태가 생기고, 그 상태에서 로그인·조회·재가입이 각각 어떻게 되어야 하는지를 전부
@@ -36,45 +31,53 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class UserWithdrawalService {
 
-    private final UserRepository userRepository;
-    private final UserIdentityRepository userIdentityRepository;
-    private final RefreshTokenRepository refreshTokenRepository;
-    private final UserGuestLinkRepository userGuestLinkRepository;
-    private final ApplicationEventPublisher eventPublisher;
+    private final UserWithdrawalPersistenceService persistenceService;
+    private final AppleAccountLink appleAccountLink;
 
     /**
      * 탈퇴시킨다.
      *
-     * @param userId 인증으로 확인된 사용자 — 자기 계정만 지울 수 있다
      * <p><b>지울 대상은 서버가 안다.</b> 코스·연차는 아직 {@code guest_id} 로 묶여 있지만, 로그인할 때 그 기기를
      * 사용자에게 이어 뒀다({@code user_guest_link}). 그래서 요청이 헤더를 안 들고 와도 데이터를 찾을 수 있고,
      * 반대로 <b>헤더에 남의 값을 적어 보내도 남의 데이터는 지워지지 않는다</b> — 기록된 것만 대상이다.
      *
+     * <p>순서가 정해져 있다.
+     *
+     * <ol>
+     *   <li><b>읽기</b> — 신원이 사라지면 무엇으로 연결을 끊을지 알 수 없다.
+     *   <li><b>삭제</b>(트랜잭션) — 여기까지 성공하면 사용자에게는 탈퇴가 끝난 것이다.
+     *   <li><b>연결 해제</b>(트랜잭션 밖) — 실패해도 되돌리지 않는다.
+     * </ol>
+     *
+     * <p>해제를 마지막에 두는 이유: 먼저 끊고 삭제가 실패하면 <b>계정은 남았는데 Apple 로 다시 로그인할 수
+     * 없는</b> 상태가 된다. 반대 순서의 실패(계정은 지워졌고 Apple 목록에만 남음)는 사용자가 Apple 설정에서
+     * 직접 정리할 수 있다.
+     *
      * @param userId 인증으로 확인된 사용자 — 자기 계정만 지울 수 있다
      * @throws UserException 이미 탈퇴한 계정이면 {@code USER-006}
      */
-    @Transactional
     public void withdraw(UUID userId) {
-        // 토큰은 유효한데 계정이 없는 경우가 실제로 있다 — access 가 무상태라 탈퇴 후 만료까지 살아 있다.
-        // 없는 계정에 삭제를 또 태우면 200 이 나가 앱이 "탈퇴됐다" 고 오해한다.
-        if (userRepository.findById(userId).isEmpty()) {
-            throw UserException.withdrawnUser();
+        Optional<ProviderLink> appleLink = persistenceService.appleLinkOf(userId);
+
+        persistenceService.deleteAccount(userId);
+
+        appleLink.ifPresentOrElse(
+                link -> revokeQuietly(userId, link),
+                // 이 기능 이전에 로그인했거나 옛 앱이다. 소급해서 채울 수 없어(코드는 1회용·5분) 정상 경로다.
+                () -> log.debug("Apple 갱신 토큰이 없어 연결 해제를 건너뜁니다 userId={}", userId));
+    }
+
+    /**
+     * Apple 연결을 끊는다 — <b>실패해도 이미 끝난 탈퇴를 되돌리지 않는다</b>.
+     *
+     * <p>못 끊으면 사용자가 Apple 설정에서 직접 지워야 한다. Apple 이 문서화한 대안이고(TN3194), 우리 쪽
+     * 데이터는 이미 지워졌다. 다만 <b>왜 못 했는지는 남긴다</b> — 이 로그가 쌓이면 심사 항목이 사실상 빠진 것이다.
+     */
+    private void revokeQuietly(UUID userId, ProviderLink link) {
+        if (appleAccountLink.revoke(link.refreshToken(), link.clientId())) {
+            log.info("Apple 연결 해제 완료 userId={}", userId);
+            return;
         }
-        List<String> guestIds = userGuestLinkRepository.findByUserId(userId).stream()
-                .map(UserGuestLink::getGuestId)
-                .toList();
-        if (guestIds.isEmpty()) {
-            // 로그인할 때 헤더를 안 보낸 앱이다. 계정은 지우되 그 사용자의 코스·연차는 못 찾는다 —
-            // 조용히 넘어가면 개인정보가 주인 없이 남은 것을 아무도 모른다.
-            log.warn("탈퇴 대상 기기가 없습니다 — 코스·연차가 남을 수 있습니다 userId={}", userId);
-        }
-        guestIds.forEach(guestId -> eventPublisher.publishEvent(new UserWithdrawn(userId, guestId)));
-        int identities = userIdentityRepository.deleteByUserId(userId);
-        int tokens = refreshTokenRepository.deleteByUserId(userId);
-        int links = userGuestLinkRepository.deleteByUserId(userId);
-        userRepository.deleteById(userId);
-        // 식별자만 남긴다 — 닉네임·이메일은 지우는 마당에 로그로 옮겨 적을 이유가 없다.
-        log.info("회원 탈퇴 완료 userId={} 신원 {}건 · refresh {}건 · 기기 {}건 삭제",
-                userId, identities, tokens, links);
+        log.warn("Apple 연결을 끊지 못했습니다 — 계정은 지워졌고 Apple 목록에는 남습니다 userId={}", userId);
     }
 }

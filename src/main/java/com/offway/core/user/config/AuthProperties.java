@@ -15,13 +15,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 앱이 등록됐는지 판별할 <b>REST API 키</b>가 필요하다 — 확인 방식이 다르니 설정도 같을 수 없다.
  */
 @ConfigurationProperties(prefix = "offway.auth")
-public record AuthProperties(Jwt jwt, Map<AuthProvider, Oidc> oidc) {
+public record AuthProperties(Jwt jwt, Map<AuthProvider, Oidc> oidc, Apple apple) {
 
     public AuthProperties {
         if (jwt == null) {
             jwt = new Jwt(null, null, null);
         }
         oidc = oidc == null ? Map.of() : Map.copyOf(oidc);
+        if (apple == null) {
+            apple = new Apple(null, null, null);
+        }
     }
 
     /** provider 에 설정된 audience 목록. 비어 있으면 그 provider 는 사용 불가다. */
@@ -34,6 +37,32 @@ public record AuthProperties(Jwt jwt, Map<AuthProvider, Oidc> oidc) {
     public boolean kakaoConfigured() {
         Oidc config = oidc.get(AuthProvider.KAKAO);
         return config != null && config.restApiKey() != null && !config.restApiKey().isBlank();
+    }
+
+    /**
+     * Apple 서버와 <b>우리가 직접</b> 이야기하기 위한 자격(#287).
+     *
+     * <p>ID 토큰 검증({@code oidc})과 다르다. 그쪽은 Apple 의 공개키로 서명만 확인하면 되지만, 토큰 교환·해제는
+     * 우리가 <b>클라이언트임을 증명</b>해야 한다 — Apple 은 client secret 을 문자열이 아니라 {@code .p8} 로
+     * 서명한 ES256 JWT 로 받는다.
+     *
+     * <p><b>없으면 비활성이다.</b> 셋 중 하나만 비어도 연결 해제를 하지 않는다. 부팅을 막지 않는 이유는 로컬
+     * 실행성 불변식이다 — 키 없이도 뜨고 로그인도 돼야 한다(CLAUDE.md).
+     *
+     * @param teamId Apple Developer 팀 식별자. client secret 의 {@code iss}
+     * @param keyId {@code .p8} 키의 식별자. JWT 헤더의 {@code kid}
+     * @param privateKeyBase64 {@code .p8} 파일 전체를 base64 로. 개행이 환경변수에 섞이지 않게
+     */
+    public record Apple(String teamId, String keyId, String privateKeyBase64) {
+
+        /** 셋이 다 있어야 Apple 과 이야기할 수 있다. 하나라도 없으면 연결 해제를 건너뛴다. */
+        public boolean configured() {
+            return hasText(teamId) && hasText(keyId) && hasText(privateKeyBase64);
+        }
+
+        private static boolean hasText(String value) {
+            return value != null && !value.isBlank();
+        }
     }
 
     /**

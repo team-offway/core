@@ -168,6 +168,84 @@ class MyLeaveIntegrationTest {
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 
+    // ── 내역 수정(#267) ────────────────────────────────────────
+
+    @Test
+    void 내역을_고치면_잔여가_따라_바뀐다() throws Exception {
+        String guest = "leave-patch";
+        mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 10}"))
+                .andExpect(status().isOk());
+        long usageId = onlyUsageId(addUsage(guest, "{\"usedOn\": \"2026-05-08\", \"days\": 3, \"reason\": \"제주\"}")
+                .andExpect(jsonPath("$.data.remainingDays").value(7.0))
+                .andReturn().getResponse().getContentAsString());
+
+        // 응답은 삭제와 같은 모양이다 — 화면이 한 번의 왕복으로 다시 그린다.
+        mockMvc.perform(patchUsage(guest, usageId, "{\"days\": 1.25}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.usedDays").value(1.25))
+                .andExpect(jsonPath("$.data.remainingDays").value(8.75))
+                .andExpect(jsonPath("$.data.usages.length()").value(1))
+                // 안 보낸 필드는 그대로다.
+                .andExpect(jsonPath("$.data.usages[0].usedOn").value("2026-05-08"))
+                .andExpect(jsonPath("$.data.usages[0].reason").value("제주"));
+    }
+
+    @Test
+    void 빈_사유를_보내면_사유가_지워진다() throws Exception {
+        // 안 보냄·null 은 "그대로 두라" 라, 지우는 신호는 빈 문자열뿐이다.
+        String guest = "leave-patch-reason";
+        long usageId = onlyUsageId(addUsage(guest, "{\"usedOn\": \"2026-05-08\", \"days\": 1, \"reason\": \"제주\"}")
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString());
+
+        mockMvc.perform(patchUsage(guest, usageId, "{\"reason\": \"\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usages[0].reason").doesNotExist())
+                .andExpect(jsonPath("$.data.usages[0].days").value(1.0));
+    }
+
+    @Test
+    void 수정도_등록과_같은_400_을_준다() throws Exception {
+        String guest = "leave-patch-invalid";
+        long usageId = onlyUsageId(addUsage(guest, "{\"usedOn\": \"2026-05-08\", \"days\": 1}")
+                .andReturn().getResponse().getContentAsString());
+
+        mockMvc.perform(patchUsage(guest, usageId, "{\"days\": 0.3}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LEAVE-010"));
+        // 음수는 사유를 갈라 답한다 — 화면이 "삭제로 취소하세요" 를 안내해야 한다(#276).
+        mockMvc.perform(patchUsage(guest, usageId, "{\"days\": -1}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LEAVE-013"));
+    }
+
+    @Test
+    void 없는_내역을_고치면_404_LEAVE_012() throws Exception {
+        mockMvc.perform(patchUsage("leave-patch-missing", 987654321L, "{\"days\": 1}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LEAVE-012"));
+    }
+
+    @Test
+    void 남의_내역은_고칠_수_없고_없는_것과_같은_404다() throws Exception {
+        long usageId = onlyUsageId(addUsage("leave-patch-owner-x", "{\"usedOn\": \"2026-05-08\", \"days\": 1}")
+                .andReturn().getResponse().getContentAsString());
+
+        mockMvc.perform(patchUsage("leave-patch-owner-y", usageId, "{\"days\": 2}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LEAVE-012"));
+    }
+
+    private org.springframework.test.web.servlet.RequestBuilder patchUsage(
+            String guest, long usageId, String body) {
+        return patch(USAGES_URL + "/{id}", usageId).header(GUEST_HEADER, guest)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
+    }
+
     @Test
     void 없는_내역을_지우면_404_LEAVE_012() throws Exception {
         mockMvc.perform(delete(USAGES_URL + "/{id}", 987654321L).header(GUEST_HEADER, "leave-missing"))

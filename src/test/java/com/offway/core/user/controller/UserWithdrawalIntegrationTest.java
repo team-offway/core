@@ -31,6 +31,8 @@ import com.offway.core.leave.repository.LeaveUsageJpaRepository;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.user.domain.AuthProvider;
 import com.offway.core.user.repository.UserGuestLinkRepository;
+import com.offway.core.user.infrastructure.apple.StubAppleAccountLink;
+import org.springframework.context.annotation.Primary;
 import com.offway.core.user.infrastructure.social.StubSocialIdentityVerifier;
 import com.offway.core.user.repository.UserJpaRepository;
 import java.time.LocalDate;
@@ -76,6 +78,13 @@ class UserWithdrawalIntegrationTest {
         StubSocialIdentityVerifier stubSocialIdentityVerifier() {
             return new StubSocialIdentityVerifier();
         }
+
+        /** Apple 토큰 교환·해제 외부 경계 — appleid.apple.com 을 실제로 부르지 않는다(#287). */
+        @Bean
+        @Primary
+        StubAppleAccountLink stubAppleAccountLink() {
+            return new StubAppleAccountLink();
+        }
     }
 
     @Autowired
@@ -83,6 +92,9 @@ class UserWithdrawalIntegrationTest {
 
     @Autowired
     private StubSocialIdentityVerifier socialIdentityVerifier;
+
+    @Autowired
+    private StubAppleAccountLink appleAccountLink;
 
     @Autowired
     private UserJpaRepository userJpaRepository;
@@ -268,6 +280,167 @@ class UserWithdrawalIntegrationTest {
         assertFalse(
                 leaveBalanceJpaRepository.findByGuestId(victim.guestId()).isEmpty(), "피해자의 연차 설정이 지워졌다");
         assertTrue(userJpaRepository.findById(victim.userId()).isPresent(), "피해자의 계정이 지워졌다");
+    }
+
+    // ── Apple 연결 해제 (#287) ─────────────────────────────────
+
+    /** 실물과 같은 후보 순서 — 웹(Service ID)이 먼저, 네이티브(Bundle ID)가 다음이다. */
+    private static final String SERVICE_ID = "com.nth.offway.service";
+
+    private static final String BUNDLE_ID = "com.nth.offway";
+
+    /**
+     * <b>코드를 한 번만 쓴다.</b> {@code authorizationCode} 는 1회용이라, 틀린 클라이언트로 먼저 시도하면
+     * Apple 이 코드를 살려 둔다는 보장이 없다 — 그러면 맞는 쪽으로 다시 시도해도 늦고, 갱신 토큰을 영영 못 받아
+     * 탈퇴해도 Apple 연결이 남는다. 이 PR 이 하려는 일이 정확히 그것이라 추측으로 한 번을 낭비할 수 없다.
+     *
+     * <p>후보 목록의 <b>뒤쪽</b>을 {@code aud} 로 준다 — 앞쪽을 주면 순서대로 시도해도 우연히 통과해서
+     * 이 테스트가 아무것도 못 잡는다.
+     */
+    @Test
+    void 검증된_aud_가_있으면_그_클라이언트로만_교환한다() throws Exception {
+        appleAccountLink.reset();
+        appleAccountLink.exchangesTo("apple-refresh-token");
+
+        loginWithAppleFrom("apple-auth-code", BUNDLE_ID);
+
+        assertEquals(List.of(BUNDLE_ID), appleAccountLink.exchangedClientIds(), "코드를 한 번만 써야 한다");
+    }
+
+    /**
+     * 발급한 클라이언트가 해제까지 <b>그대로</b> 흘러야 한다.
+     *
+     * <p>Apple 은 발급 때와 다른 클라이언트로 서명하면 해제를 거절한다. 로그인에서 고른 값이 저장되지 않거나
+     * 탈퇴가 다른 후보를 집으면, 우리 데이터는 지워지고 Apple 목록에만 남는다 — 심사가 보는 그 상태다.
+     */
+    @Test
+    void 로그인에서_고른_클라이언트로_해제한다() throws Exception {
+        appleAccountLink.reset();
+        appleAccountLink.exchangesTo("apple-refresh-token");
+        appleAccountLink.revokeSucceeds();
+        Session session = loginWithAppleFrom("apple-auth-code", BUNDLE_ID);
+
+        mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
+
+        assertEquals(List.of(BUNDLE_ID), appleAccountLink.revokedClientIds(), "발급한 클라이언트로 끊어야 한다");
+    }
+
+    /**
+     * {@code aud} 를 모르면 예전처럼 후보를 돈다 — 아무것도 안 하는 것보다는 낫다.
+     *
+     * <p>{@code aud} 를 안 싣는 옛 경로가 남아 있어서다. 이 경우에만 코드 소진 위험을 감수한다.
+     */
+    @Test
+    void aud_를_모르면_후보를_순서대로_시도한다() throws Exception {
+        appleAccountLink.reset();
+        appleAccountLink.exchangeFails();
+
+        loginWithApple("apple-auth-code");
+
+        assertEquals(List.of(SERVICE_ID, BUNDLE_ID), appleAccountLink.exchangedClientIds());
+    }
+
+    /**
+     * Apple 로 로그인하며 {@code authorizationCode} 를 함께 보낸다.
+     *
+     * <p>이 코드는 <b>1회용·5분</b>이라 탈퇴 시점에는 이미 없다. 그래서 로그인 그 순간에 refresh 토큰으로
+     * 바꿔 두지 않으면 연결을 끊을 방법이 영영 사라진다.
+     */
+    private Session loginWithApple(String authorizationCode) throws Exception {
+        socialIdentityVerifier.respondWith(AuthProvider.APPLE, "sub-" + UUID.randomUUID(), "세빈", null);
+        return performAppleLogin(authorizationCode);
+    }
+
+    /** 검증된 {@code aud} 가 있는 로그인 — 어느 클라이언트로 발급된 토큰인지 서버가 아는 상황(#287). */
+    private Session loginWithAppleFrom(String authorizationCode, String audience) throws Exception {
+        socialIdentityVerifier.respondWithAudience(
+                AuthProvider.APPLE, "sub-" + UUID.randomUUID(), "세빈", null, audience);
+        return performAppleLogin(authorizationCode);
+    }
+
+    /** 신원 stub 은 호출자가 이미 정했다 — 여기서는 콜백만 친다. */
+    private Session performAppleLogin(String authorizationCode) throws Exception {
+        String body = authorizationCode == null
+                ? "{\"accessToken\": \"any-id-token\"}"
+                : "{\"accessToken\": \"any-id-token\", \"authorizationCode\": \"%s\"}".formatted(authorizationCode);
+        String guest = "guest-" + UUID.randomUUID();
+        String response = mockMvc.perform(post("/api/v1/auth/callback/apple")
+                        .header(GUEST_HEADER, guest)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String accessToken = JsonPath.read(response, "$.data.accessToken");
+        return new Session(
+                userIdOf(accessToken), accessToken, JsonPath.read(response, "$.data.refreshToken"), guest);
+    }
+
+    @Test
+    void 탈퇴하면_Apple_연결을_끊는다() throws Exception {
+        appleAccountLink.reset();
+        appleAccountLink.exchangesTo("apple-refresh-token");
+        appleAccountLink.revokeSucceeds();
+        Session session = loginWithApple("apple-auth-code");
+
+        mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
+
+        assertEquals(List.of("apple-refresh-token"), appleAccountLink.revokedTokens(), "로그인 때 받아 둔 토큰으로 끊어야 한다");
+    }
+
+    @Test
+    void 연결_해제가_실패해도_탈퇴는_끝난다() throws Exception {
+        // Apple 이 흔들린다고 계정을 못 지우면, 지울 권리가 외부 서비스 상태에 묶인다. 못 끊은 것은
+        // 사용자가 Apple 설정에서 직접 정리할 수 있고(TN3194), 서버는 사유를 로그로 남긴다.
+        appleAccountLink.reset();
+        appleAccountLink.exchangesTo("apple-refresh-token");
+        appleAccountLink.revokeFails();
+        Session session = loginWithApple("apple-auth-code");
+
+        mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
+
+        assertTrue(userJpaRepository.findById(session.userId()).isEmpty(), "계정은 지워져야 한다");
+        assertEquals(1, appleAccountLink.revokedTokens().size(), "시도는 했어야 한다");
+    }
+
+    @Test
+    void 자격이_없으면_로그인도_탈퇴도_그대로_된다() throws Exception {
+        // .p8 없이도 뜨고 로그인되는 것이 이 레포의 불변식이다(로컬 실행성). 교환이 실패하면
+        // 저장할 토큰이 없고, 탈퇴는 해제를 건너뛴다.
+        appleAccountLink.reset();
+        appleAccountLink.exchangeFails();
+        Session session = loginWithApple("apple-auth-code");
+
+        mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
+
+        assertTrue(userJpaRepository.findById(session.userId()).isEmpty(), "계정은 지워져야 한다");
+        assertTrue(appleAccountLink.revokedTokens().isEmpty(), "끊을 토큰이 없으면 부르지 않는다");
+    }
+
+    @Test
+    void authorizationCode_없이_로그인해도_지금과_같다() throws Exception {
+        // 옛 앱이다. 로그인은 그대로 되고 연결 해제만 못 한다 — 소급해서 채울 수 없어 정상 경로다.
+        appleAccountLink.reset();
+        appleAccountLink.exchangesTo("apple-refresh-token");
+        Session session = loginWithApple(null);
+
+        mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
+
+        assertTrue(appleAccountLink.revokedTokens().isEmpty(), "코드를 안 보냈으면 교환도 해제도 없다");
+    }
+
+    @Test
+    void 구글로_로그인하면_Apple_을_부르지_않는다() throws Exception {
+        // provider 를 안 가리면 카카오·구글 탈퇴마다 Apple 을 두드린다 — 쓸데없는 외부 호출이고,
+        // 그 실패 로그가 쌓이면 진짜 Apple 실패를 못 알아본다.
+        appleAccountLink.reset();
+        appleAccountLink.exchangesTo("apple-refresh-token");
+        Session session = login();
+
+        mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
+
+        assertTrue(appleAccountLink.revokedTokens().isEmpty(), "구글 사용자에게 Apple 해제를 시도했다");
     }
 
     // ── 공유 링크 ─────────────────────────────────────────────

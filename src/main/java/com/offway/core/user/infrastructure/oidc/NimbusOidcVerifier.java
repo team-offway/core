@@ -122,7 +122,30 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
             throw UserException.unsupportedProvider();
         }
         Jwt jwt = decode(provider, oidc, credential, audiences);
-        return new SocialIdentity(provider, jwt.getSubject(), nicknameOf(oidc, jwt), emailOf(jwt));
+        return new SocialIdentity(
+                provider, jwt.getSubject(), nicknameOf(oidc, jwt), emailOf(jwt), matchedAudience(jwt, audiences));
+    }
+
+    /**
+     * 이 토큰이 <b>어느 클라이언트로 발급됐는지</b> — 검증을 통과시킨 그 {@code aud} 다(#287).
+     *
+     * <p>Apple 은 네이티브(Bundle ID)와 웹(Service ID)에 서로 다른 클라이언트를 쓰는데, 탈퇴 때 연결을 끊으려면
+     * <b>발급 때와 같은 클라이언트로 서명</b>해야 한다. 이 값을 안 남기면 나중에 알 방법이 없어 후보를 순서대로
+     * 시도하게 되고, {@code authorizationCode} 는 1회용이라 <b>첫 시도가 틀리면 두 번째 기회가 없을 수 있다</b>.
+     *
+     * <p>여기서 고르는 것이 맞는 자리인 이유는 <b>서명·발급자·만료를 이미 확인한 뒤</b>라는 것이다. 클라이언트가
+     * 보낸 값이 아니라 우리가 검증한 값이다.
+     *
+     * <p>{@link #audienceValidator} 를 통과했으므로 교집합은 비지 않는다. 그래도 {@code orElse(null)} 을 두는 것은
+     * 검증기와 이 메서드가 <b>따로 바뀔 수 있기</b> 때문이다 — 어긋나면 여기서 터지는 대신 "모른다" 로 떨어져
+     * 후보를 순서대로 시도하는 예전 동작으로 되돌아간다.
+     */
+    private static String matchedAudience(Jwt jwt, List<String> audiences) {
+        List<String> tokenAudiences = jwt.getAudience();
+        if (tokenAudiences == null) {
+            return null;
+        }
+        return tokenAudiences.stream().filter(audiences::contains).findFirst().orElse(null);
     }
 
     private Jwt decode(AuthProvider provider, AuthProvider.Oidc oidc, String idToken, List<String> audiences) {
