@@ -11,9 +11,9 @@ import java.time.ZoneId;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 내일 떠나는 여행을 전날 알린다(#269).
@@ -53,7 +53,6 @@ public class TripTomorrowNotifier {
      * 반쯤 돌다 죽었을 때 남은 사람들이 영영 못 받는다 — 제약에 얹으면 다시 돌려도 안 만들어진 것만 채운다.
      */
     @Scheduled(cron = DAILY_AT_EVENING, zone = SERVICE_ZONE_ID)
-    @Transactional
     public void notifyTripsStartingTomorrow() {
         notifyTripsStartingTomorrow(LocalDate.now(SERVICE_ZONE));
     }
@@ -64,15 +63,14 @@ public class TripTomorrowNotifier {
      * <p>기준일을 인자로 받는 이유는 <b>"내일" 이 언제인지를 호출자가 정할 수 있어야</b> 하기 때문이다.
      * 스케줄러는 오늘을 넘기고, 테스트는 고정된 날짜를 넘긴다.
      *
-     * <p>외부 호출이 없어 전체를 한 트랜잭션으로 묶는다. 중간에 실패해 통째로 롤백돼도, 다음 실행이
-     * 유니크 제약 덕에 <b>아직 안 만들어진 것만</b> 채운다.
+     * <p><b>전체를 한 트랜잭션으로 묶지 않는다.</b> 알림은 코스마다 독립이라 한 건의 실패가 나머지를 물 이유가
+     * 없다. 묶어 두면 어느 한 건이 터질 때 그날 대상 <b>전원</b>이 알림을 못 받는데, 이 배치는 하루에 한 번이라
+     * 다음 실행은 여행이 이미 시작된 뒤다 — "다음 실행이 채운다" 가 여기서는 위로가 되지 않는다.
      *
-     * <p>스케줄러가 부르는 무인자 메서드에도 {@code @Transactional} 을 둔 것은 self-invocation 때문이다 —
-     * 같은 빈 안에서 직접 부르면 프록시를 거치지 않아 이 어노테이션이 무력해진다.
+     * <p>저장은 {@code saveIfAbsent} 가 건마다 자기 트랜잭션으로 처리하고, 여기서는 실패한 건만 세고 넘어간다.
      *
      * @return 이 실행으로 새로 만들어진 알림 수
      */
-    @Transactional
     public int notifyTripsStartingTomorrow(LocalDate today) {
         LocalDate tomorrow = today.plusDays(1);
         List<Course> departing = courseRepository.findByTravelDate(tomorrow);
@@ -83,20 +81,32 @@ public class TripTomorrowNotifier {
 
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
         int created = 0;
+        int failed = 0;
         for (Course course : departing) {
-            if (notificationRepository.saveIfAbsent(Notification.builder()
-                    .guestId(course.getGuestId())
-                    .type(NotificationType.TRIP_TOMORROW)
-                    .courseId(course.getId())
-                    .createdAt(now)
-                    .build())) {
-                created++;
+            try {
+                if (notificationRepository.saveIfAbsent(Notification.builder()
+                        .guestId(course.getGuestId())
+                        .type(NotificationType.TRIP_TOMORROW)
+                        .courseId(course.getId())
+                        .createdAt(now)
+                        .build())) {
+                    created++;
+                }
+            } catch (DataIntegrityViolationException e) {
+                // 조회와 삽입 사이에 다른 실행이 같은 것을 넣었다. 유니크 키가 막아 준 것이고 결과는
+                // "이미 있음" 과 같으므로 실패로 세지 않는다.
+                log.debug("여행 전날 알림이 이미 있어 건너뜁니다 courseId={}", course.getId());
+            } catch (RuntimeException e) {
+                // 한 건의 실패로 나머지를 버리지 않는다. 다만 조용히 넘기지도 않는다.
+                failed++;
+                log.warn("여행 전날 알림을 만들지 못했습니다 courseId={} cause={}",
+                        course.getId(), e.getClass().getSimpleName());
             }
         }
         // 조용히 0건인 상태를 아무도 모르면 안 된다. 이미 있어 건너뛴 수까지 함께 남겨,
         // "대상은 있는데 새로 만든 게 없다"(재실행)와 "대상이 없다"를 로그만으로 가른다.
-        log.info("여행 전날 알림 생성 travelDate={} 대상={}건 새로 만듦={}건 이미 있음={}건",
-                tomorrow, departing.size(), created, departing.size() - created);
+        log.info("여행 전날 알림 생성 travelDate={} 대상={}건 새로 만듦={}건 이미 있음={}건 실패={}건",
+                tomorrow, departing.size(), created, departing.size() - created - failed, failed);
         return created;
     }
 }

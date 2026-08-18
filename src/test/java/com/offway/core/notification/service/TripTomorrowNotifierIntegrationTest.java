@@ -102,6 +102,29 @@ class TripTomorrowNotifierIntegrationTest {
         assertEquals(2, ownedNotifications(owner).getTotalElements());
     }
 
+    /**
+     * 이미 만들어진 것이 섞인 배치에서도 <b>새 대상은 만들어진다</b>.
+     *
+     * <p>배치를 한 트랜잭션으로 묶으면 중간 한 건이 걸릴 때 그날 대상 전원이 알림을 못 받는다. 이 배치는
+     * 하루에 한 번이라 다음 실행은 여행이 이미 시작된 뒤다 — 한 건의 사정이 나머지에 번지면 안 된다.
+     */
+    @Test
+    void 이미_있는_알림이_섞여_있어도_새_대상은_만든다() {
+        LocalDate today = LocalDate.of(2099, 4, 2);
+        String owner = "guest-269-mixed";
+        saveCourse(owner, today.plusDays(1));
+        saveCourse(owner, today.plusDays(1));
+        assertEquals(2, notifier.notifyTripsStartingTomorrow(today));
+
+        // 앞선 실행 뒤에 코스가 하나 더 저장됐다 — 이제 배치 대상에 "이미 있음" 과 "새것" 이 섞인다.
+        saveCourse(owner, today.plusDays(1));
+
+        int created = notifier.notifyTripsStartingTomorrow(today);
+
+        assertEquals(1, created, "이미 있는 둘은 건너뛰고 새 하나만 만들어야 한다");
+        assertEquals(3, ownedNotifications(owner).getTotalElements());
+    }
+
     @Test
     void 대상이_없으면_아무것도_만들지_않는다() {
         assertTrue(notifier.notifyTripsStartingTomorrow(LocalDate.of(2099, 6, 1)) == 0);
