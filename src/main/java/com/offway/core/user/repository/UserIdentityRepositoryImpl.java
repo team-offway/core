@@ -25,6 +25,11 @@ public class UserIdentityRepositoryImpl implements UserIdentityRepository {
     }
 
     @Override
+    public Optional<UserIdentity> findFirstByUserId(UUID userId) {
+        return userIdentityJpaRepository.findFirstByUserIdOrderByCreatedAtAscIdAsc(userId);
+    }
+
+    @Override
     public int deleteByUserId(UUID userId) {
         return userIdentityJpaRepository.deleteByUserId(userId);
     }
