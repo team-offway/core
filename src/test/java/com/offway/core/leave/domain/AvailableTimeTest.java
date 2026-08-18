@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
@@ -128,35 +129,40 @@ class AvailableTimeTest {
         assertEquals(0.0, time.consumedLeaveDays(), 0.001);
     }
 
-    @Test
-    void 출발일_반차는_그날_연차를_절반만_소모한다() {
-        // 평일 당일치기 + 반차 → 1일이 아니라 0.5일
-        AvailableTime time = AvailableTime.of(MON, MON, NO_HOLIDAY, TransportMode.CAR, true);
+    @ParameterizedTest
+    @CsvSource({"FULL_DAY, 1.0", "HALF_DAY, 0.5", "QUARTER_DAY, 0.25"})
+    void 첫날은_쓴_단위만큼만_소모한다(StartDayLeave startDayLeave, double expected) {
+        // 평일 당일치기 — 첫날이 곧 전부라 단위가 그대로 소모량이 된다.
+        AvailableTime time = AvailableTime.of(MON, MON, NO_HOLIDAY, TransportMode.CAR, startDayLeave);
 
-        assertEquals(0.5, time.consumedLeaveDays(), 0.001);
+        assertEquals(expected, time.consumedLeaveDays(), 0.001);
     }
 
-    @Test
-    void 반차_출발_평일3일은_2점5일을_소모한다() {
-        // 월(반차 0.5) + 화·수(각 1) = 2.5
-        AvailableTime time = AvailableTime.of(MON, MON.plusDays(2), NO_HOLIDAY, TransportMode.CAR, true);
+    @ParameterizedTest
+    @CsvSource({"FULL_DAY, 3.0", "HALF_DAY, 2.5", "QUARTER_DAY, 2.25"})
+    void 첫날_단위는_첫날에만_적용된다(StartDayLeave startDayLeave, double expected) {
+        // 월(단위) + 화·수(각 1). 둘째 날부터 깎이면 하루를 두 번 아끼는 셈이 된다.
+        AvailableTime time = AvailableTime.of(MON, MON.plusDays(2), NO_HOLIDAY, TransportMode.CAR, startDayLeave);
 
-        assertEquals(2.5, time.consumedLeaveDays(), 0.001);
+        assertEquals(expected, time.consumedLeaveDays(), 0.001);
     }
 
-    @Test
-    void 출발일이_주말이면_반차여도_소모가_없다() {
-        // 토요일 당일치기 반차 → 반차는 평일에만 의미, 주말은 0
-        AvailableTime time = AvailableTime.of(MON.plusDays(5), MON.plusDays(5), NO_HOLIDAY, TransportMode.CAR, true);
+    @ParameterizedTest
+    @EnumSource(StartDayLeave.class)
+    void 출발일이_주말이면_어느_단위든_소모가_없다(StartDayLeave startDayLeave) {
+        // 주말은 애초에 연차를 안 쓴다 — 단위를 곱해 음수·소수가 되면 안 된다.
+        AvailableTime time =
+                AvailableTime.of(MON.plusDays(5), MON.plusDays(5), NO_HOLIDAY, TransportMode.CAR, startDayLeave);
 
         assertEquals(0.0, time.consumedLeaveDays(), 0.001);
     }
 
     @Test
-    void 반차_기본_오버로드는_반차없음과_같다() {
-        // of(4-arg) == of(5-arg, halfDayStart=false)
+    void 단위를_안_주면_종일과_같다() {
+        // 4-arg 오버로드가 기본값을 쓴다 — 안 보내던 호출부가 지금과 같은 결과를 받아야 한다.
         AvailableTime without = AvailableTime.of(MON, MON.plusDays(2), NO_HOLIDAY, TransportMode.CAR);
-        AvailableTime explicit = AvailableTime.of(MON, MON.plusDays(2), NO_HOLIDAY, TransportMode.CAR, false);
+        AvailableTime explicit =
+                AvailableTime.of(MON, MON.plusDays(2), NO_HOLIDAY, TransportMode.CAR, StartDayLeave.FULL_DAY);
 
         assertEquals(without.consumedLeaveDays(), explicit.consumedLeaveDays(), 0.001);
     }

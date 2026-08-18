@@ -3,7 +3,9 @@ package com.offway.core.leave.controller.dto;
 import com.offway.core.common.logging.LogSummary;
 import com.offway.core.leave.service.dto.AvailableTimeResult;
 import io.swagger.v3.oas.annotations.media.Schema;
+import com.offway.core.leave.domain.StartDayLeave;
 import java.time.LocalDate;
+import java.time.LocalTime;
 
 /**
  * 가용시간(LNT) 산출 응답 — API 계약.
@@ -17,19 +19,26 @@ import java.time.LocalDate;
  * @param startDate 확정된 여행 시작일
  * @param endDate 확정된 여행 종료일
  * @param travelDays 여행 일수 (당일치기 1 · 1박2일 2 · 2박3일 3)
- * @param consumedLeaveDays 소모 연차 (평일−공휴일, 반차는 0.5)
+ * @param consumedLeaveDays 소모 연차 (평일−공휴일, 첫날은 쓴 단위만큼 — 반차 0.5 · 반반차 0.25)
  * @param maxReachMinutes 편도 도달 한계(분)
+ * @param startDayLeave 첫날에 쓴 연차 — 요청에서 그대로 온다. 안 보냈으면 {@code FULL_DAY}
+ * @param departureTime 집을 나서는 시각. 첫날 일정이 언제부터인지의 기준이고, 화면에 그대로 쓸 수 있다
  */
 public record AvailableTimeResponse(
         @Schema(description = "확정된 여행 시작일", example = "2026-05-08") LocalDate startDate,
         @Schema(description = "확정된 여행 종료일", example = "2026-05-10") LocalDate endDate,
         @Schema(description = "여행 일수 (1=당일치기 · 2=1박2일 · 3=2박3일)", example = "3") int travelDays,
-        @Schema(description = "소모 연차 (평일−공휴일, 반차 0.5)", example = "1.0") double consumedLeaveDays,
-        @Schema(description = "편도 도달 한계(분)", example = "420") int maxReachMinutes)
+        @Schema(description = "소모 연차 (평일−공휴일, 반차 0.5 · 반반차 0.25)", example = "1.0")
+                double consumedLeaveDays,
+        @Schema(description = "편도 도달 한계(분)", example = "420") int maxReachMinutes,
+        @Schema(description = "첫날에 쓴 연차", example = "HALF_DAY") StartDayLeave startDayLeave,
+        @Schema(description = "집을 나서는 시각 (FULL_DAY 08시 · HALF_DAY 12시 · QUARTER_DAY 15시)",
+                        example = "12:00")
+                LocalTime departureTime)
         implements LogSummary {
 
     /** 날짜는 경로·쿼리에 이미 드러나므로 로그에는 계산 결과만 남긴다. */
-    private static final String LOG_FORMAT = "%d일 연차%.1f 도달%d분";
+    private static final String LOG_FORMAT = "%d일 연차%.2f 도달%d분 출발%s";
 
     public static AvailableTimeResponse from(AvailableTimeResult result) {
         return new AvailableTimeResponse(
@@ -37,11 +46,13 @@ public record AvailableTimeResponse(
                 result.period().endDate(),
                 result.availableTime().travelDays(),
                 result.availableTime().consumedLeaveDays(),
-                result.availableTime().maxReachMinutes());
+                result.availableTime().maxReachMinutes(),
+                result.startDayLeave(),
+                result.startDayLeave().departureTime());
     }
 
     @Override
     public String logSummary() {
-        return LOG_FORMAT.formatted(travelDays, consumedLeaveDays, maxReachMinutes);
+        return LOG_FORMAT.formatted(travelDays, consumedLeaveDays, maxReachMinutes, departureTime);
     }
 }

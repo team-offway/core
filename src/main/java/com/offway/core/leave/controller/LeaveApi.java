@@ -46,11 +46,10 @@ public interface LeaveApi {
     @Operation(
             summary = "연차 사용 내역 추가",
             description = """
-                    연차를 쓴(양수) 또는 되돌린(음수) 내역을 남긴다. days 는 0.5 단위다.
+                    연차를 쓴 내역을 남긴다. days 는 0.5 단위 양수다.
 
-                    **되돌릴 때는 음수 등록 대신 내역 삭제 API 를 쓴다.** 음수 등록은 같은 요청이 두 번 들어오면
-                    그만큼 더 상쇄돼 장부가 틀어진다 — 취소가 아니라 새 기록이기 때문이다. 지금은 아직 받지만
-                    거절할 예정이다(#276). 새로 붙이는 화면은 삭제 API 를 쓴다.
+                    되돌릴 때는 음수를 등록하지 않는다 — 내역 삭제 API 를 쓴다. 음수 등록은 같은 요청이 두 번
+                    들어오면 그만큼 더 상쇄돼 남은 연차가 총 연차를 넘었다(LEAVE-013 으로 거절한다).
 
                     남은 연차가 부족해도 서버는 막지 않는다 — 프론트가 경고하고 사용자가 확인하면 진행한다(결정 #38).
                     그래서 남은 연차는 음수가 될 수 있다.""")
@@ -58,7 +57,7 @@ public interface LeaveApi {
     @ApiResponse(
             responseCode = "400",
             description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usedOn·days 누락 또는 형식 오류 · "
-                    + "days 가 0 이거나 0.5 단위가 아니거나 절댓값이 99 초과(LEAVE-010)")
+                    + "days 가 0 이거나 0.5 단위가 아니거나 99 초과(LEAVE-010) · days 가 음수(LEAVE-013)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<MyLeaveResponse> addLeaveUsage(
             @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
@@ -98,7 +97,8 @@ public interface LeaveApi {
             responseCode = "400",
             description = "날짜 형식 오류 · 날짜와 기간스타일을 함께 보냄 또는 둘 다 없음 · 종료일이 시작일보다 앞섬 · "
                     + "여행 구간이 2박 3일 초과 · 기간스타일에 기준일 누락 · WEEKEND 인데 브릿지 요일 누락 · "
-                    + "CONNECTED 인데 연차 일수 누락 또는 2~3 범위 밖")
+                    + "CONNECTED 인데 연차 일수 누락 또는 2~3 범위 밖"
+                    + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "502", description = "공휴일 정보(특일정보) 조회 실패")
     ApiResponseBody<AvailableTimeResponse> availableTime(AvailableTimeRequest request);

@@ -45,7 +45,7 @@ public class LeaveService {
                 period.endDate(),
                 resolved.holidays(),
                 command.transport(),
-                command.halfDayStart());
+                command.startDayLeave());
         log.debug(
                 "가용시간 산출 {}~{} travelDays={} consumedLeave={} maxReachMin={}",
                 period.startDate(),
@@ -53,7 +53,7 @@ public class LeaveService {
                 availableTime.travelDays(),
                 availableTime.consumedLeaveDays(),
                 availableTime.maxReachMinutes());
-        return new AvailableTimeResult(period, availableTime);
+        return new AvailableTimeResult(period, availableTime, command.startDayLeave());
     }
 
     /**

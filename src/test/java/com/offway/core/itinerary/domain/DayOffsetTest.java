@@ -1,5 +1,6 @@
 package com.offway.core.itinerary.domain;
 
+import com.offway.core.leave.domain.StartDayLeave;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -39,7 +40,7 @@ class DayOffsetTest {
     @Test
     void 첫날이_빠지면_표시는_1부터_날짜는_이틀째부터다() {
         Course course = Course.of(76L, Density.RELAXED, TransportMode.TRANSIT,
-                List.of(day(1, 1), day(2, 2)), TRAVEL_START, 3);
+                List.of(day(1, 1), day(2, 2)), TRAVEL_START, 3, StartDayLeave.FULL_DAY);
 
         assertEquals(1, course.getDays().get(0).getDayNumber(), "표시 번호는 1부터");
         assertEquals(LocalDate.of(2026, 9, 12), course.dateOf(course.getDays().get(0)), "날짜는 이틀째");
@@ -49,7 +50,7 @@ class DayOffsetTest {
     @Test
     void 첫날부터_일정이_있으면_표시와_날짜가_같이_간다() {
         Course course = Course.of(76L, Density.RELAXED, TransportMode.CAR,
-                List.of(day(1, 0), day(2, 1)), TRAVEL_START, 2);
+                List.of(day(1, 0), day(2, 1)), TRAVEL_START, 2, StartDayLeave.FULL_DAY);
 
         assertEquals(TRAVEL_START, course.dateOf(course.getDays().get(0)));
         assertEquals(TRAVEL_START.plusDays(1), course.dateOf(course.getDays().get(1)));
@@ -58,7 +59,7 @@ class DayOffsetTest {
     /** 날짜 없이 저장된 코스(#111 이전)는 날짜를 알 수 없다 — 지어내지 않는다. */
     @Test
     void 여행_날짜가_없으면_날짜도_없다() {
-        Course course = Course.of(76L, Density.RELAXED, TransportMode.CAR, List.of(day(1, 0)), null, 1);
+        Course course = Course.of(76L, Density.RELAXED, TransportMode.CAR, List.of(day(1, 0)), null, 1, StartDayLeave.FULL_DAY);
 
         assertEquals(null, course.dateOf(course.getDays().get(0)));
     }
@@ -73,6 +74,6 @@ class DayOffsetTest {
     void 표시_번호는_여전히_1부터_연속이어야_한다() {
         assertThrows(IllegalArgumentException.class,
                 () -> Course.of(76L, Density.RELAXED, TransportMode.CAR,
-                        List.of(day(1, 0), day(3, 2)), TRAVEL_START, 3));
+                        List.of(day(1, 0), day(3, 2)), TRAVEL_START, 3, StartDayLeave.FULL_DAY));
     }
 }

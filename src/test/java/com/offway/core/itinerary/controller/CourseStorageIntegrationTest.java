@@ -396,9 +396,9 @@ class CourseStorageIntegrationTest {
 
     /** 정선(16) 근처로 도착하는 열차 — 저장 코스에서 다시 계산될 때 쓰인다. */
     private void trainArrives() {
-        trainInfoClient.respond(() -> new TrainAvailability.Available(TrainLeg.of("KTX",
+        trainInfoClient.respond(() -> new TrainAvailability.Available(List.of(TrainLeg.of("KTX",
                 LocalDateTime.of(2026, 9, 11, 6, 0),
-                LocalDateTime.of(2026, 9, 11, 8, 30))));
+                LocalDateTime.of(2026, 9, 11, 8, 30)))));
         trainRouteService.evictCache();
     }
 
@@ -642,7 +642,7 @@ class CourseStorageIntegrationTest {
 
     private void trainArrivesAt(LocalDateTime arriveAt) {
         trainInfoClient.respond(() -> new TrainAvailability.Available(
-                TrainLeg.of("KTX", arriveAt.minusHours(3), arriveAt)));
+                List.of(TrainLeg.of("KTX", arriveAt.minusHours(3), arriveAt))));
         trainRouteService.evictCache();
     }
 

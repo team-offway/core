@@ -1,6 +1,7 @@
 package com.offway.core.leave.service.dto;
 
 import com.offway.core.leave.domain.PeriodOptions;
+import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.leave.domain.PeriodStyle;
 import com.offway.core.transport.domain.TransportMode;
 import java.time.LocalDate;
@@ -16,7 +17,7 @@ public sealed interface AvailableTimeCommand {
 
     TransportMode transport();
 
-    boolean halfDayStart();
+    StartDayLeave startDayLeave();
 
     /**
      * 날짜를 직접 고른 경우 — 해석 없이 그 구간으로 계산한다.
@@ -24,7 +25,8 @@ public sealed interface AvailableTimeCommand {
      * @param startDate 여행 시작일
      * @param endDate 여행 종료일
      */
-    record FixedDates(LocalDate startDate, LocalDate endDate, TransportMode transport, boolean halfDayStart)
+    record FixedDates(
+            LocalDate startDate, LocalDate endDate, TransportMode transport, StartDayLeave startDayLeave)
             implements AvailableTimeCommand {}
 
     /**
@@ -39,6 +41,6 @@ public sealed interface AvailableTimeCommand {
             LocalDate baseDate,
             PeriodOptions options,
             TransportMode transport,
-            boolean halfDayStart)
+            StartDayLeave startDayLeave)
             implements AvailableTimeCommand {}
 }

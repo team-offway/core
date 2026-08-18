@@ -1,5 +1,7 @@
 package com.offway.core.transport.service;
 
+import java.time.LocalTime;
+import com.offway.core.leave.domain.StartDayLeave;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,6 +19,15 @@ import org.junit.jupiter.api.Test;
 
 /** TrainAccessService — 좌표 최근접 역해석 + 열차 조회를 조립한 4-way 결과. 역 마스터는 stub 리포지토리로, 열차는 stub 클라이언트로 격리. */
 class TrainAccessServiceTest {
+
+    /**
+     * 이 클래스가 쓰는 출발 시각 — <b>필터를 끈 값</b>이다.
+     *
+     * <p>여기서 보는 것은 조회 결과를 어떤 상태로 매핑하는가(역 없음·미운행·조회 실패)다. 출발 시각 필터까지
+     * 함께 걸면 픽스처 열차의 출발 시각을 바꿀 때마다 관계없는 테스트가 깨진다. 필터 자체는
+     * {@link #출발_시각_이후_편이_없으면_미운행으로_답한다()} 가 따로 본다.
+     */
+    private static final LocalTime DEPART_AT = LocalTime.MIN;
 
     private static final LocalDate DATE = LocalDate.of(2026, 5, 1);
     private static final double SEOUL_LAT = 37.5547;
@@ -46,7 +57,7 @@ class TrainAccessServiceTest {
         StubTrainInfoClient stub = new StubTrainInfoClient();
         stub.respond(TrainAvailability.NoServiceOnDate::new);
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(new Coordinate(JEONGSEON_LAT, JEONGSEON_LNG), access.arrivalPoint().orElseThrow());
         assertTrue(access.arrivalAt().isEmpty(), "운행을 못 찾았으면 도착 시각은 모른다");
@@ -57,7 +68,7 @@ class TrainAccessServiceTest {
         StubTrainInfoClient stub = new StubTrainInfoClient();
         stub.respond(TrainAvailability.Unavailable::new);
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(new Coordinate(JEONGSEON_LAT, JEONGSEON_LNG), access.arrivalPoint().orElseThrow());
     }
@@ -67,7 +78,7 @@ class TrainAccessServiceTest {
         // 태평양 한가운데 — 50㎞ 안에 역이 없다. 이때만 도착 지점이 비어 코스가 출발지 기준으로 돌아간다.
         StubTrainInfoClient stub = new StubTrainInfoClient();
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, 20.0, 150.0, DATE);
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, 20.0, 150.0, DATE, DEPART_AT);
 
         assertEquals(TrainAccess.Status.NO_STATION, access.status());
         assertTrue(access.arrivalPoint().isEmpty());
@@ -76,9 +87,9 @@ class TrainAccessServiceTest {
     @Test
     void 운행하면_도착_시각을_준다() {
         StubTrainInfoClient stub = new StubTrainInfoClient();
-        stub.respond(() -> new TrainAvailability.Available(ktx()));
+        stub.respond(() -> new TrainAvailability.Available(List.of(ktx())));
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(LocalDateTime.of(2026, 5, 1, 9, 30), access.arrivalAt().orElseThrow());
     }
@@ -86,9 +97,9 @@ class TrainAccessServiceTest {
     @Test
     void 출발_도착_모두_근교역이_있고_운행하면_AVAILABLE() {
         StubTrainInfoClient stub = new StubTrainInfoClient();
-        stub.respond(() -> new TrainAvailability.Available(ktx()));
+        stub.respond(() -> new TrainAvailability.Available(List.of(ktx())));
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(TrainAccess.Status.AVAILABLE, access.status());
         assertEquals("서울", access.fromStation());
@@ -104,7 +115,7 @@ class TrainAccessServiceTest {
         });
 
         // 제주 좌표 — 마스터의 어느 육지 역과도 50km 밖
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, 33.4996, 126.5312, DATE);
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, 33.4996, 126.5312, DATE, DEPART_AT);
 
         assertEquals(TrainAccess.Status.NO_STATION, access.status());
         assertEquals("서울", access.fromStation());
@@ -116,7 +127,7 @@ class TrainAccessServiceTest {
         StubTrainInfoClient stub = new StubTrainInfoClient();
         stub.respond(TrainAvailability.NoServiceOnDate::new);
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(TrainAccess.Status.NO_SERVICE_ON_DATE, access.status());
         assertEquals("정선", access.toStation());
@@ -127,10 +138,62 @@ class TrainAccessServiceTest {
         StubTrainInfoClient stub = new StubTrainInfoClient();
         stub.respond(TrainAvailability.Unavailable::new);
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE);
+        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(TrainAccess.Status.UNAVAILABLE, access.status());
         assertEquals("서울", access.fromStation());
         assertEquals("정선", access.toStation());
+    }
+
+    @Test
+    void 출발_시각_이후_편이_없으면_미운행으로_답한다() {
+        // 반반차로 15시에 나서는데 그 지역 막차가 이미 지났다. "가장 빠른 편"(아침 KTX)을 답하면 지킬 수 없는
+        // 코스가 된다 — 사용자에게는 그날 열차가 없는 것과 같은 결과라 같은 상태로 답한다.
+        StubTrainInfoClient stub = new StubTrainInfoClient();
+        stub.respond(() -> new TrainAvailability.Available(List.of(ktx()))); // 07:00 출발
+
+        TrainAccess access = service(stub)
+                .accessTo(
+                        SEOUL_LAT,
+                        SEOUL_LNG,
+                        JEONGSEON_LAT,
+                        JEONGSEON_LNG,
+                        DATE,
+                        StartDayLeave.QUARTER_DAY.departureTime());
+
+        assertEquals(TrainAccess.Status.NO_SERVICE_ON_DATE, access.status());
+        assertTrue(access.arrivalAt().isEmpty(), "탈 수 없는 편의 도착 시각을 주면 안 된다");
+    }
+
+    @Test
+    void 출발_시각_이후_편이_있으면_그_편을_준다() {
+        // 필터가 "전부 거절" 이 아님을 보인다 — 종일(08시)에는 09시 편이 잡혀야 한다.
+        StubTrainInfoClient stub = new StubTrainInfoClient();
+        stub.respond(() -> new TrainAvailability.Available(List.of(
+                ktx(), // 07:00 출발 — 종일 기준으로도 걸러진다
+                TrainLeg.of("KTX", LocalDateTime.of(2026, 5, 1, 9, 0), LocalDateTime.of(2026, 5, 1, 11, 30)))));
+
+        TrainAccess access = service(stub)
+                .accessTo(
+                        SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE,
+                        StartDayLeave.FULL_DAY.departureTime());
+
+        assertEquals(LocalDateTime.of(2026, 5, 1, 11, 30), access.arrivalAt().orElseThrow());
+    }
+
+    @Test
+    void 늦게_떠나도_빨리_닿는_편을_고른다() {
+        // 정렬 기준은 출발 시각이 아니라 소요시간이다 — 첫날을 더 남기는 쪽이 낫다.
+        StubTrainInfoClient stub = new StubTrainInfoClient();
+        stub.respond(() -> new TrainAvailability.Available(List.of(
+                TrainLeg.of("무궁화", LocalDateTime.of(2026, 5, 1, 9, 0), LocalDateTime.of(2026, 5, 1, 14, 0)),
+                TrainLeg.of("KTX", LocalDateTime.of(2026, 5, 1, 11, 0), LocalDateTime.of(2026, 5, 1, 13, 0)))));
+
+        TrainAccess access = service(stub)
+                .accessTo(
+                        SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE,
+                        StartDayLeave.FULL_DAY.departureTime());
+
+        assertEquals(LocalDateTime.of(2026, 5, 1, 13, 0), access.arrivalAt().orElseThrow());
     }
 }

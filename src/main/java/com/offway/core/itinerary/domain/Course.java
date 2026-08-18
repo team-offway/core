@@ -3,7 +3,9 @@ package com.offway.core.itinerary.domain;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import jakarta.persistence.CascadeType;
+import com.offway.core.leave.domain.StartDayLeave;
 import jakarta.persistence.Column;
+import jakarta.persistence.EnumType;
 import jakarta.persistence.ConstraintMode;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -105,6 +107,19 @@ public class Course {
     @Column(name = "guest_id", length = MAX_GUEST_ID_LENGTH)
     private String guestId;
 
+    /**
+     * 첫날에 쓴 연차 — <b>출발 시각의 근거</b>(#138).
+     *
+     * <p>상세 조회와 날짜 수정이 열차 접근을 다시 계산한다. 이 값이 없으면 생성은 반차(12시) 기준으로 짠 코스를
+     * 상세가 종일(08시) 기준으로 되짚어, 같은 코스가 두 근거를 갖는다. 날짜를 옮기면 첫날 일정이 조용히 다시
+     * 늘어난다 — 생성과 수정이 같은 규칙을 써야 한다는 #214 의 그 유형이다.
+     *
+     * <p>이 컬럼이 생기기 전 코스는 null 이고 {@link #startDayLeave()} 가 종일로 답한다 — 그때의 동작과 같다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "start_day_leave", length = 20)
+    private StartDayLeave startDayLeave;
+
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(
             name = "course_id",
@@ -122,7 +137,8 @@ public class Course {
             LocalDate travelDate,
             int travelDays,
             Double originLat,
-            Double originLng) {
+            Double originLng,
+            StartDayLeave startDayLeave) {
         if (days == null || days.isEmpty()) {
             throw new IllegalArgumentException("코스에는 하루 이상이 있어야 합니다");
         }
@@ -141,6 +157,16 @@ public class Course {
         this.travelDate = travelDate;
         this.originLat = originLat;
         this.originLng = originLng;
+        this.startDayLeave = startDayLeave;
+    }
+
+    /**
+     * 첫날에 쓴 연차. 이 컬럼이 생기기 전 코스는 null 이라 종일로 답한다.
+     *
+     * <p>지어내지 않고 그 시절 동작(가장 빠른 열차 = 아침 출발 전제)과 같은 값을 준다.
+     */
+    public StartDayLeave startDayLeave() {
+        return startDayLeave == null ? StartDayLeave.DEFAULT : startDayLeave;
     }
 
     /**
@@ -155,8 +181,10 @@ public class Course {
             TransportMode transport,
             List<DaySchedule> days,
             LocalDate travelDate,
-            int travelDays) {
-        return new Course(null, regionId, density, transport, days, travelDate, travelDays, null, null);
+            int travelDays,
+            StartDayLeave startDayLeave) {
+        return new Course(
+                null, regionId, density, transport, days, travelDate, travelDays, null, null, startDayLeave);
     }
 
     /**
@@ -172,7 +200,8 @@ public class Course {
             List<DaySchedule> days,
             LocalDate travelDate,
             int travelDays,
-            Coordinate origin) {
+            Coordinate origin,
+            StartDayLeave startDayLeave) {
         Objects.requireNonNull(guestId, "게스트 ID는 필수입니다");
         if (guestId.isBlank()) {
             throw new IllegalArgumentException("게스트 ID는 비어 있을 수 없습니다");
@@ -181,7 +210,7 @@ public class Course {
             throw new IllegalArgumentException("게스트 ID가 너무 깁니다: " + guestId.length());
         }
         return new Course(guestId, regionId, density, transport, days, travelDate, travelDays,
-                origin == null ? null : origin.lat(), origin == null ? null : origin.lng());
+                origin == null ? null : origin.lat(), origin == null ? null : origin.lng(), startDayLeave);
     }
 
     /**
@@ -204,9 +233,10 @@ public class Course {
             List<DaySchedule> days,
             LocalDate travelDate,
             int travelDays,
-            Coordinate origin) {
+            Coordinate origin,
+            StartDayLeave startDayLeave) {
         return new Course(null, regionId, density, transport, days, travelDate, travelDays,
-                origin == null ? null : origin.lat(), origin == null ? null : origin.lng());
+                origin == null ? null : origin.lat(), origin == null ? null : origin.lng(), startDayLeave);
     }
 
     /**

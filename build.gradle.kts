@@ -38,6 +38,9 @@ dependencies {
     // TourAPI 텍스트의 HTML 태그·엔티티 정제(#174). 정규식으로 하면 속성에 '>' 가 든 태그에서 텍스트가
     // 잘리는데, 깨진 문구가 사용자에게 나가면 되돌리기 어렵다.
     implementation("org.jsoup:jsoup:1.23.1")
+    // FCM 발송(#270). 서비스 계정 키가 없으면 초기화하지 않고 발송만 비활성으로 뜬다 — 키 없이도
+    // 부팅되어야 한다는 로컬 실행성 불변식(CLAUDE.md) 때문이다.
+    implementation("com.google.firebase:firebase-admin:9.9.0")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-webservices")

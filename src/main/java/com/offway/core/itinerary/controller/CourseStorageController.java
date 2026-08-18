@@ -103,7 +103,7 @@ public class CourseStorageController implements CourseStorageApi {
             @PathVariable long courseId,
             @Valid @RequestBody CourseLeaveDeductionRequest request) {
         return ApiResponseBody.ok(MyLeaveResponse.from(
-                courseLeaveDeductionService.deduct(guestId, courseId, request.halfDayStartOrFullDay())));
+                courseLeaveDeductionService.deduct(guestId, courseId, request.startDayLeaveOrFullDay())));
     }
 
     @Override

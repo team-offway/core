@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.controller.dto;
 
 import com.offway.core.itinerary.domain.Course;
+import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.domain.ItineraryException;
@@ -60,12 +61,19 @@ public record CourseSaveRequest(
                 Double originLat,
         @Schema(description = "출발지 경도. originLat 와 짝.", example = "126.9780", nullable = true)
                 Double originLng,
+        @Schema(
+                        description = "첫날에 쓴 연차 (생성 요청에 보낸 값을 그대로 돌려준다). 상세·날짜 수정이 "
+                                + "열차 접근을 다시 계산할 때 이 값이 근거가 된다. 생략하면 FULL_DAY",
+                        example = "HALF_DAY",
+                        nullable = true)
+                StartDayLeave startDayLeave,
         @NotEmpty List<@Valid Day> days) {
 
     /** 게스트 소유의 도메인 코스로 변환한다 — 예외 번역은 {@link #build} 가 소유한다. */
     public Course toCourse(String guestId) {
         return build(origin -> Course.ownedBy(
-                guestId, regionId, density, transport, schedules(), travelDate, span(), origin));
+                guestId, regionId, density, transport, schedules(), travelDate, span(), origin,
+                startDayLeaveOrFullDay()));
     }
 
     /**
@@ -75,8 +83,19 @@ public record CourseSaveRequest(
      * 두 경로의 규칙이 갈리면 같은 payload 가 한쪽에서만 통과한다.
      */
     public Course toSharedCourse() {
-        return build(origin ->
-                Course.sharedOnly(regionId, density, transport, schedules(), travelDate, span(), origin));
+        return build(origin -> Course.sharedOnly(
+                regionId, density, transport, schedules(), travelDate, span(), origin,
+                startDayLeaveOrFullDay()));
+    }
+
+    /**
+     * 생략된 값을 종일로 굳힌다 — 도메인이 null 을 다시 판단하지 않게 경계에서 정한다.
+     *
+     * <p>안 보내는 클라이언트가 지금과 같은 결과를 받아야 한다. 예전에는 저장 코스에 이 개념이 아예 없어
+     * 상세가 가장 빠른 열차(아침 출발)를 전제했고, 그것이 곧 종일이다.
+     */
+    private StartDayLeave startDayLeaveOrFullDay() {
+        return startDayLeave == null ? StartDayLeave.DEFAULT : startDayLeave;
     }
 
     /**

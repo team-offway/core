@@ -19,6 +19,14 @@ public interface CourseRepository {
     Page<Course> findByGuestId(String guestId, Pageable pageable);
 
     /** 소유자 범위 상세 조회 — 남의 코스를 ID 만으로 못 보게 게스트 소유로 제한한다. */
+    /**
+     * 그 날짜에 떠나는 <b>모든 소유자</b>의 저장 코스 — 알림 배치가 쓴다(#269).
+     *
+     * <p>다른 조회와 달리 소유자로 좁히지 않는다. 배치는 특정 사용자가 아니라 그 날짜에 해당하는 사람
+     * 전부를 찾아야 하기 때문이다. 소유자 없는 코스(공유 링크용, #261)는 알릴 상대가 없어 빠진다.
+     */
+    List<Course> findByTravelDate(LocalDate travelDate);
+
     /** 오늘 포함 이후 여행 — 가까운 것부터. 날짜 없는 코스는 분류 근거가 없어 빠진다. */
     List<Course> findUpcoming(String guestId, LocalDate today);
 

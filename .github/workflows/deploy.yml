@@ -120,6 +120,7 @@ jobs:
           APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}
           APPLE_KEY_ID=${{ secrets.APPLE_KEY_ID }}
           APPLE_PRIVATE_KEY_BASE64=${{ secrets.APPLE_PRIVATE_KEY_BASE64 }}
+          FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}
           ENVEOF
           scp -i ~/.ssh/deploy_key env.prod \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/offway/env.prod"
