@@ -342,6 +342,29 @@ jobs:
           echo "배포 성공 — 기동·스모크 모두 통과"
           REMOTE
 
+      # 지금 서비스가 실제로 떠 있는지 한 번 찔러 둔다(#295).
+      #
+      # **왜 필요한가.** 교체 단계는 기존 컨테이너를 지우고 새로 띄우는데, 그 사이가 실패하면 스모크
+      # 단계 자체가 건너뛰어져 그 안의 롤백이 돌지 않는다 — 컨테이너가 사라진 채 남는다. 그때 알림이
+      # "교체 실패" 만 말하면 서비스가 죽은 것인지 아닌지를 알 수 없다.
+      #
+      # 실패해도 배포 판정을 바꾸지 않는다. 상태를 못 읽으면 못 읽었다고 알리면 될 뿐이다.
+      #
+      # SSH 키와 22번 개방이 아직 살아 있는 이 자리에서만 가능하다 — 아래 두 스텝이 곧 회수한다.
+      - name: 서비스 상태 확인
+        id: probe
+        if: always() && steps.open-ssh.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          code=$(ssh -i ~/.ssh/deploy_key -o ConnectTimeout=10 \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://localhost:8080/api/v1/categories" \
+            2>/dev/null || echo "unreachable")
+          # 401 도 살아 있는 것이다 — 인증 게이트가 응답한 것이라 앱이 떠 있다는 뜻이다.
+          echo "http_code=$code" >> "$GITHUB_OUTPUT"
+          echo "서비스 상태 확인: $code"
+
       # 배포가 실패해도 규칙은 반드시 회수한다 — 남으면 22번이 조금씩 영구 개방된다.
       - name: 러너 IP 회수
         if: always() && steps.open-ssh.outputs.runner_ip != ''
@@ -373,6 +396,7 @@ jobs:
           TRANSFER_OUTCOME: ${{ steps.transfer.outcome }}
           SWAP_OUTCOME: ${{ steps.swap.outcome }}
           SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          SERVICE_CODE: ${{ steps.probe.outputs.http_code }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -uo pipefail
@@ -384,8 +408,10 @@ jobs:
           fi
 
           REMOTE_LOG="$RUNNER_TEMP/deploy-remote.log"
-          # 제목 첫 줄만 쓴다. 커밋 본문이 길면 알림이 통째로 그것에 밀린다.
-          SUBJECT=$(printf '%s' "${COMMIT_MESSAGE:-}" | head -1)
+          # 제목 첫 줄만, 그리고 **길이도 자른다**. 디스코드는 content 가 2,000자를 넘으면 400 으로
+          # 통째로 거절해 알림이 유실된다. 커밋 제목에는 길이 제한이 없어(commit-msg 훅도 안 막는다)
+          # 그대로 실으면 그 한도를 넘길 수 있다. 나머지 칸은 고정 문구라 200자면 충분하다.
+          SUBJECT=$(printf '%s' "${COMMIT_MESSAGE:-}" | head -1 | cut -c1-200)
 
           # 실패했으면 **어느 단계에서 왜** 죽었는지 가른다. "실패" 만 오면 결국 Actions 를 열어야 해서
           # 알림의 값어치가 절반이다.
@@ -399,7 +425,13 @@ jobs:
               elif [ "$TRANSFER_OUTCOME" = "failure" ]; then
                 DETAIL="산출물 전송 실패 — 서버는 이전 버전 그대로입니다"
               elif [ "$SWAP_OUTCOME" = "failure" ]; then
-                DETAIL="이미지 빌드·컨테이너 교체 실패"
+                # 교체 단계는 기존 컨테이너를 지운 뒤 새로 띄운다. 그 사이가 실패하면 스모크가
+                # 건너뛰어져 롤백도 안 돈다 — 서비스가 사라진 채 남을 수 있어 상태를 직접 확인한다.
+                case "$SERVICE_CODE" in
+                  200|401) DETAIL="이미지 빌드·컨테이너 교체 실패 (서비스는 응답 중)" ;;
+                  "") DETAIL="이미지 빌드·컨테이너 교체 실패 — **서비스 상태 미확인**" ;;
+                  *) DETAIL="이미지 빌드·컨테이너 교체 실패 — **서비스 중단(응답 $SERVICE_CODE) · 수동 개입 필요**" ;;
+                esac
               elif [ "$SMOKE_OUTCOME" = "failure" ]; then
                 # 원격 스크립트가 남긴 표식으로 **서비스가 지금 살아 있는지**를 가른다. 이게 이 알림의
                 # 핵심이다 — 롤백이 돌았으면 아침에 봐도 되고, 안 돌았으면 지금 붙어야 한다.
@@ -433,5 +465,13 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
             -H 'Content-Type: application/json' \
             -d "@$RUNNER_TEMP/discord.json" "$WEBHOOK" || echo "000")
-          echo "디스코드 알림 전송 결과: HTTP $code"
+
+          # **못 보냈으면 못 보냈다고 남긴다.** 상태코드만 찍고 넘어가면 알림 유실이 아무 흔적을 남기지
+          # 않는다 — 조용히 안 오는 알림은 없는 알림과 같고, 그 사실조차 아무도 모른다. 배포 자체는
+          # 성공했을 수 있으므로 실패로 만들지는 않고, 요약에 눈에 띄게 남긴다.
+          if [ "$code" = "204" ] || [ "$code" = "200" ]; then
+            echo "디스코드 알림 전송 완료 (HTTP $code)"
+          else
+            echo "::warning title=배포 알림 실패::디스코드가 HTTP $code 로 답해 알림이 전달되지 않았습니다 (웹훅 URL·권한을 확인하세요)"
+          fi
           exit 0
