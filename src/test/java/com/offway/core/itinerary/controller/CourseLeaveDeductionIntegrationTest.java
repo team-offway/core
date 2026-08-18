@@ -78,6 +78,10 @@ class CourseLeaveDeductionIntegrationTest {
               ]}
             ]}""";
 
+    /** 위와 같은 코스인데 <b>첫날을 반반차로 시작</b>한다(#278) — 첫날 소모가 0.25 라 차감이 1.25 다. */
+    private static final String TWO_DAY_QUARTER_DAY_COURSE =
+            TWO_DAY_HALF_DAY_COURSE.replace("\"HALF_DAY\"", "\"QUARTER_DAY\"");
+
     /**
      * 첫날이 이동뿐이라 일정에서 빠진 2박3일 코스 — 담긴 날은 둘인데 여행은 8/12~8/14 사흘이다(#159 · #164).
      *
@@ -244,6 +248,22 @@ class CourseLeaveDeductionIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(1.5))
                 .andExpect(jsonPath("$.data.remainingDays").value(13.5));
+    }
+
+    @Test
+    void 반반차로_만든_코스는_반반차만큼만_차감된다() throws Exception {
+        // **이 경로가 실제로 깨져 있었다.** 반반차의 첫날 소모는 0.25 인데(#284) 연차 격자가 0.5 여서,
+        // 차감량 1.25 가 자기 검증에 걸려 LEAVE-010 400 이 나갔다 — 앱이 이미 내주는 선택지를 서버가
+        // 거절한 것이다(#278). 반차(1.5)와 나란히 둬서 단위별 차감을 한눈에 대조한다.
+        holidays(Set.of());
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 15.0);
+        long courseId = saveCourse(guest, TWO_DAY_QUARTER_DAY_COURSE);
+
+        answerVisited(guest, courseId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usedDays").value(1.25))
+                .andExpect(jsonPath("$.data.remainingDays").value(13.75));
     }
 
     @Test

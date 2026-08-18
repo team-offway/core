@@ -11,14 +11,15 @@ import java.time.LocalDate;
  * 연차 사용 내역 추가 요청.
  *
  * @param usedOn 연차를 쓴 날 (필수)
- * @param days 쓴 일수 (필수, 0.5 단위 <b>양수</b>). 되돌리려면 등록이 아니라 삭제다(#265 의 삭제 API, #276)
+ * @param days 쓴 일수 (필수, 0.25 단위 <b>양수</b>). 되돌리려면 등록이 아니라 삭제다(#265 의 삭제 API, #276)
  * @param reason 사유 (선택)
  * @param courseId 이 내역을 만든 코스 (선택 — 수동 입력이면 생략)
  */
 public record AddLeaveUsageRequest(
         @Schema(description = "연차를 쓴 날", example = "2026-05-08", requiredMode = Schema.RequiredMode.REQUIRED)
                 @NotNull LocalDate usedOn,
-        @Schema(description = "쓴 일수 (0.5 단위 양수). 되돌리려면 내역 삭제 API 를 쓴다", example = "1.0",
+        @Schema(description = "쓴 일수 (0.25 단위 양수 — 반반차 0.25 · 반차 0.5). 되돌리려면 내역 삭제 API 를 쓴다",
+                        example = "1.0",
                         requiredMode = Schema.RequiredMode.REQUIRED)
                 @NotNull Double days,
         @Schema(description = "사유 (선택)", example = "제주 여행") String reason,

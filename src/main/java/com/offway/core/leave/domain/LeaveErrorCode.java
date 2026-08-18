@@ -40,13 +40,19 @@ public enum LeaveErrorCode implements ErrorCode {
     /** 기간스타일을 골랐는데 해석 기준일이 없음 — 서버 시계로 대체하지 않는다(클라이언트 로컬 날짜가 정본). */
     BASE_DATE_REQUIRED("LEAVE-008", ErrorCategory.BAD_REQUEST, "기준 날짜를 함께 보내주세요."),
 
-    /** 총 연차가 음수·상한 초과·0.5 단위가 아님. */
+    /**
+     * 총 연차가 음수·상한 초과·0.25 단위가 아님.
+     *
+     * <p>문구의 상한을 99 로 함께 고쳤다. #142 가 상한을 365 → 99 로 좁히면서 이 문구를 놓쳐, 서버는
+     * 99 에서 막는데 사용자에게는 "365일 이하" 라고 답하고 있었다 — 안내가 규칙과 어긋나면 사용자는
+     * 자기 입력이 왜 거절됐는지 알 수 없다.
+     */
     INVALID_TOTAL_LEAVE_DAYS(
-            "LEAVE-009", ErrorCategory.BAD_REQUEST, "연차 일수는 0.5일 단위로, 0일 이상 365일 이하여야 합니다."),
+            "LEAVE-009", ErrorCategory.BAD_REQUEST, "연차 일수는 0.25일 단위로, 0일 이상 99일 이하여야 합니다."),
 
-    /** 사용 내역 증감이 0 이거나 0.5 단위가 아님. 0 은 아무것도 바꾸지 않아 기록할 이유가 없다. */
+    /** 사용 내역 증감이 0 이거나 0.25 단위가 아님. 0 은 아무것도 바꾸지 않아 기록할 이유가 없다. */
     INVALID_LEAVE_USAGE_DAYS(
-            "LEAVE-010", ErrorCategory.BAD_REQUEST, "연차 증감은 0.5일 단위여야 하고 0일은 기록할 수 없습니다."),
+            "LEAVE-010", ErrorCategory.BAD_REQUEST, "연차 증감은 0.25일 단위여야 하고 0일은 기록할 수 없습니다."),
 
     /** 소유 키 헤더가 비었거나 너무 김 — 헤더 자체가 없으면 프레임워크가 먼저 COMMON-400 으로 막는다. */
     INVALID_OWNER_ID("LEAVE-011", ErrorCategory.BAD_REQUEST, "사용자 식별값이 올바르지 않습니다."),
@@ -61,7 +67,9 @@ public enum LeaveErrorCode implements ErrorCode {
      * 앱이 삭제 API 로 갈아타기 전에 켜면 그 구간 동안 취소가 끊기기 때문이다.
      */
     LEAVE_USAGE_REVERSAL_NOT_ALLOWED(
-            "LEAVE-013", ErrorCategory.BAD_REQUEST, "연차 사용은 0.5일 단위의 양수여야 합니다. 되돌리려면 해당 내역을 삭제해 주세요."),
+            "LEAVE-013",
+            ErrorCategory.BAD_REQUEST,
+            "연차 사용은 0.25일 단위의 양수여야 합니다. 되돌리려면 해당 내역을 삭제해 주세요."),
 
     /** 코스 확정으로 기록된 내역을 연차 화면에서 지우려 함 — 코스 쪽 차감 취소로만 되돌릴 수 있다. */
     COURSE_LEAVE_USAGE_NOT_DELETABLE(
