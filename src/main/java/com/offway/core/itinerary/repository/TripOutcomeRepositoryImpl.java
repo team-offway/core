@@ -21,4 +21,9 @@ public class TripOutcomeRepositoryImpl implements TripOutcomeRepository {
     public TripOutcome save(TripOutcome outcome) {
         return jpaRepository.save(outcome);
     }
+
+    @Override
+    public int deleteByGuestId(String guestId) {
+        return jpaRepository.deleteByGuestId(guestId);
+    }
 }

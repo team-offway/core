@@ -41,4 +41,18 @@ public interface CourseRepository {
 
     /** 애그리거트 통째 삭제. 하위(DaySchedule·Slot)는 cascade·orphanRemoval 로 함께 지워진다. */
     void delete(Course course);
+
+    /**
+     * 탈퇴 — 이 소유자의 코스를 전부 지운다.
+     *
+     * <p><b>벌크 JPQL 이 아니라 엔티티를 지운다.</b> {@code delete from Course where ...} 는 빠르지만
+     * {@code @OneToMany(cascade, orphanRemoval)} 를 건너뛰어 {@code day_schedule}·{@code slot} 이 고아로
+     * 남는다 — FK 제약이 없어 DB 도 막아주지 않는다.
+     *
+     * <p>{@code course_share} 는 함께 지우지 않는다. 남겨야 이미 뿌린 공유 링크가 410(게시자가 삭제함)으로
+     * 답한다.
+     *
+     * @return 지운 코스 수
+     */
+    int deleteByGuestId(String guestId);
 }

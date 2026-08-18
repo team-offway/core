@@ -38,4 +38,9 @@ public final class UserException extends BaseException {
     public static UserException oidcProviderUnavailable(Throwable cause) {
         return new UserException(UserErrorCode.OIDC_PROVIDER_UNAVAILABLE, cause);
     }
+
+    /** 토큰은 유효하지만 그 사용자가 없다 — 이미 탈퇴했다. */
+    public static UserException withdrawnUser() {
+        return new UserException(UserErrorCode.WITHDRAWN_USER);
+    }
 }

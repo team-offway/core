@@ -56,4 +56,11 @@ public interface LeaveUsageRepository {
     void delete(LeaveUsage usage);
 
     LeaveUsage save(LeaveUsage usage);
+
+    /**
+     * 탈퇴 — 이 소유자의 연차 사용 내역을 전부 지운다.
+     *
+     * @return 지운 행 수
+     */
+    int deleteByGuestId(String guestId);
 }
