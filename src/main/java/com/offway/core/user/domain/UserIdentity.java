@@ -52,6 +52,27 @@ public class UserIdentity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /**
+     * provider 가 준 갱신 토큰 — 탈퇴 시 연결 해제에 쓴다(#287).
+     *
+     * <p><b>우리 refresh 토큰이 아니다.</b> 그쪽은 우리가 발급하고 회전시키지만, 이건 Apple 이 발급한 남의
+     * 토큰이고 우리는 보관했다가 해제할 때 돌려줄 뿐이다.
+     *
+     * <p>null 이 정상이다 — Apple 이 아닌 provider 와, 이 컬럼이 생기기 전에 로그인한 사용자는 비어 있다.
+     * 소급해서 채울 수 없다({@code authorizationCode} 는 1회용·5분). 재로그인하면 채워진다.
+     */
+    @Column(name = "provider_refresh_token", length = 512)
+    private String providerRefreshToken;
+
+    /**
+     * 그 토큰을 발급받은 클라이언트.
+     *
+     * <p>해제할 때 <b>같은 클라이언트로 서명</b>해야 Apple 이 받아준다. 네이티브는 Bundle ID, 웹은 Service ID
+     * 라 값이 갈리는데, 어느 쪽이었는지는 발급 시점에만 알 수 있어 함께 남긴다.
+     */
+    @Column(name = "provider_client_id")
+    private String providerClientId;
+
     private UserIdentity(UUID userId, AuthProvider provider, String providerUserId) {
         this.userId = userId;
         this.provider = provider;
@@ -67,6 +88,25 @@ public class UserIdentity {
             throw new IllegalArgumentException("provider 사용자 ID는 비어 있을 수 없습니다");
         }
         return new UserIdentity(userId, provider, providerUserId);
+    }
+
+    /**
+     * 연결 해제에 쓸 토큰을 기억한다 — 로그인 그 순간에만 얻을 수 있다.
+     *
+     * <p>둘 중 하나라도 비면 아무것도 바꾸지 않는다. 반쪽만 남으면 해제할 때 클라이언트를 몰라 서명이
+     * 틀리고, 그건 토큰이 아예 없는 것과 결과가 같으면서 원인만 찾기 어렵다.
+     */
+    public void rememberProviderToken(String refreshToken, String clientId) {
+        if (refreshToken == null || refreshToken.isBlank() || clientId == null || clientId.isBlank()) {
+            return;
+        }
+        this.providerRefreshToken = refreshToken;
+        this.providerClientId = clientId;
+    }
+
+    /** 연결을 끊을 수 있는가 — 토큰과 클라이언트가 둘 다 있어야 한다. */
+    public boolean revocable() {
+        return providerRefreshToken != null && providerClientId != null;
     }
 
     @PrePersist

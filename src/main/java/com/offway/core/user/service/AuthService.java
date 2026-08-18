@@ -1,5 +1,8 @@
 package com.offway.core.user.service;
 
+import com.offway.core.user.domain.AuthProvider;
+import java.util.Optional;
+import com.offway.core.user.infrastructure.apple.AppleAccountLink;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.leave.domain.LeaveBalance;
 import com.offway.core.user.domain.SocialIdentity;
@@ -28,6 +31,7 @@ public class AuthService {
 
     private final SocialIdentityResolver socialIdentityResolver;
     private final UserPersistenceService userPersistenceService;
+    private final AppleAccountLink appleAccountLink;
     private final TokenIssuer tokenIssuer;
 
     /**
@@ -40,6 +44,7 @@ public class AuthService {
         SocialIdentity identity = socialIdentityResolver.resolve(command.provider(), command.credential());
         AuthenticatedUser user = findOrCreateUser(identity, command);
         linkDevice(user.userId(), command.guestId());
+        rememberProviderLink(user.userId(), identity.provider(), command.authorizationCode());
         return issueTokens(user);
     }
 
@@ -97,6 +102,41 @@ public class AuthService {
      */
     public IssuedToken devLogin(String nickname) {
         return issueTokens(new AuthenticatedUser(userPersistenceService.createUser(nickname), true));
+    }
+
+    /**
+     * 탈퇴 때 provider 연결을 끊을 수 있게 갱신 토큰을 받아 둔다(#287) — <b>실패해도 로그인을 막지 않는다</b>.
+     *
+     * <p><b>지금 해야만 한다.</b> {@code authorizationCode} 는 1회용·5분이라 탈퇴 시점에는 이미 없다.
+     * 로그인 그 순간이 유일한 기회다.
+     *
+     * <p>그런데도 <b>로그인의 조건은 아니다.</b> Apple 토큰 엔드포인트가 흔들릴 때 여기서 던지면 로그인 자체가
+     * 막힌다 — 연결이 남는 것보다 훨씬 나쁘다. 못 받으면 흔적만 남기고 넘어가고, 그 사용자가 다시 로그인하면
+     * 그때 채워진다.
+     *
+     * <p>어느 클라이언트로 발급됐는지 몰라 후보를 순서대로 시도한다. 네이티브(Bundle ID)와 웹(Service ID)이
+     * 갈리는데 코드만 봐서는 알 수 없고, 틀린 쪽으로 서명하면 Apple 이 거절한다.
+     */
+    private void rememberProviderLink(UUID userId, AuthProvider provider, String authorizationCode) {
+        if (provider != AuthProvider.APPLE || authorizationCode == null || authorizationCode.isBlank()) {
+            return;
+        }
+        for (String clientId : appleAccountLink.clientIds()) {
+            Optional<String> refreshToken = appleAccountLink.exchange(authorizationCode, clientId);
+            if (refreshToken.isPresent()) {
+                try {
+                    userPersistenceService.rememberProviderToken(
+                            userId, provider, refreshToken.get(), clientId);
+                } catch (RuntimeException e) {
+                    // 저장 실패가 로그인을 막지 않는다 — linkDevice 와 같은 판단이다.
+                    log.warn("Apple 갱신 토큰을 저장하지 못했습니다 userId={} cause={}", userId, RootCause.label(e));
+                }
+                return;
+            }
+        }
+        // 코드는 1회용이라 첫 시도에서 소진됐을 수 있다. 그래도 사유를 남긴다 — 이 로그가 쌓이면
+        // 탈퇴해도 Apple 연결이 계속 남는다는 뜻이다.
+        log.warn("Apple 갱신 토큰을 받지 못했습니다 — 탈퇴해도 Apple 연결이 남습니다 userId={}", userId);
     }
 
     private IssuedToken issueTokens(AuthenticatedUser user) {
