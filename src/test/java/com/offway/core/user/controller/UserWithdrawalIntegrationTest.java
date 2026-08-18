@@ -15,6 +15,9 @@ import com.offway.core.itinerary.domain.CourseShare;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.domain.Slot;
+import com.offway.core.itinerary.domain.TripOutcome;
+import com.offway.core.itinerary.domain.VisitOutcome;
+import com.offway.core.itinerary.repository.TripOutcomeJpaRepository;
 import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.TimeOfDay;
@@ -98,6 +101,9 @@ class UserWithdrawalIntegrationTest {
     @Autowired
     private UserGuestLinkRepository userGuestLinkRepository;
 
+    @Autowired
+    private TripOutcomeJpaRepository tripOutcomeJpaRepository;
+
     // ── 계정 ──────────────────────────────────────────────────
 
     @Test
@@ -163,16 +169,20 @@ class UserWithdrawalIntegrationTest {
     // ── 게스트 키로 묶인 데이터 ────────────────────────────────
 
     @Test
-    void 탈퇴하면_저장한_코스와_연차가_함께_지워진다() throws Exception {
+    void 탈퇴하면_저장한_코스와_연차와_후기가_함께_지워진다() throws Exception {
         Session session = login();
         Long courseId = saveCourse(session.guestId());
         seedLeave(session.guestId());
+        seedOutcome(session.guestId(), courseId);
 
         mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
 
         assertTrue(courseJpaRepository.findById(courseId).isEmpty(), "코스가 남았다");
         assertTrue(leaveBalanceJpaRepository.findByGuestId(session.guestId()).isEmpty(), "연차 설정이 남았다");
         assertTrue(leaveUsageJpaRepository.findByGuestIdOrderByUsedOnDescIdDesc(session.guestId()).isEmpty(), "연차 내역이 남았다");
+        // 후기는 리스너가 지우는 넷 중 하나인데 오래 검증에서 빠져 있었다. 코스와 다른 테이블이라
+        // 코스 삭제가 통과해도 이쪽만 조용히 남을 수 있다.
+        assertTrue(tripOutcomeJpaRepository.findAnsweredCourseIds(session.guestId()).isEmpty(), "여행 후기가 남았다");
     }
 
     @Test
@@ -209,12 +219,15 @@ class UserWithdrawalIntegrationTest {
         Session mine = login();
         Session other = login();
         Long otherCourse = saveCourse(other.guestId());
+        seedOutcome(other.guestId(), otherCourse);
 
         mockMvc.perform(withdraw(mine.accessToken()).header(GUEST_HEADER, other.guestId()))
                 .andExpect(status().isOk());
 
         assertTrue(courseJpaRepository.findById(otherCourse).isPresent(), "남의 코스가 지워졌다");
         assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
+        // 지우는 축만 후기를 확인하면 "남의 후기는 안 지워지는가" 가 빈다 — 개인정보 관점에서 더 아픈 쪽이다.
+        assertFalse(tripOutcomeJpaRepository.findAnsweredCourseIds(other.guestId()).isEmpty(), "남의 후기가 지워졌다");
     }
 
     /**
@@ -360,6 +373,11 @@ class UserWithdrawalIntegrationTest {
     }
 
     /** access 토큰(JWT) payload 의 sub 이 사용자 식별자다. */
+    /** 여행 후기 한 건 — 탈퇴가 지우는 넷째 데이터다. */
+    private void seedOutcome(String guestId, Long courseId) {
+        tripOutcomeJpaRepository.save(TripOutcome.of(guestId, courseId, VisitOutcome.VISITED, LocalDate.now()));
+    }
+
     private static UUID userIdOf(String accessToken) {
         String payload = new String(java.util.Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]));
         return UUID.fromString(JsonPath.read(payload, "$.sub"));
