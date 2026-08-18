@@ -536,6 +536,22 @@ class CoursePlanManagementIntegrationTest {
     }
 
     @Test
+    void 반반차로_확정하면_0점25만_깎인다() throws Exception {
+        // **이 경로가 실제로 깨져 있었다.** StartDayLeave.QUARTER_DAY 는 첫날 0.25 를 소모하는데(#284)
+        // 연차 격자가 0.5 여서, 평일 이틀 코스를 반반차로 확정하면 차감량 1.25 가 자기 검증에 걸려
+        // LEAVE-010 400 이 나갔다. 앱이 이미 내주는 선택지를 서버가 거절한 것이다(#278).
+        noHolidays();
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 15.0);
+        long courseId = saveTwoDayCourse(guest, weekdayRun(10, 2));
+
+        deduct(guest, courseId, "{\"startDayLeave\": \"QUARTER_DAY\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usedDays").value(1.25))
+                .andExpect(jsonPath("$.data.remainingDays").value(13.75));
+    }
+
+    @Test
     void 차감하지_않은_코스는_날짜만_바뀌고_연차는_그대로다() throws Exception {
         noHolidays();
         String guest = uniqueGuest();

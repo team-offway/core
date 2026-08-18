@@ -3,13 +3,26 @@ package com.offway.core.leave.domain;
 /**
  * 연차 일수 값 규칙. 총 연차·사용 내역이 같은 규칙을 쓰도록 한 곳에 모은다.
  *
- * <p>연차는 <b>0.5 단위</b>다 — 반차가 0.5 이고(결정 #38), 스테퍼에 1.5 같은 값을 직접 넣는다. 0.3 같은 값이 들어오면
- * 이후 계산이 조용히 이상해지므로 경계에서 막는다.
+ * <p>연차는 <b>0.25 단위</b>다 — 반반차가 0.25 이고(#278), 스테퍼에 1.25 같은 값을 직접 넣는다. 0.3 같은 값이
+ * 들어오면 이후 계산이 조용히 이상해지므로 경계에서 막는다.
+ *
+ * <p><b>0.5 단위였을 때 이미 깨져 있었다.</b> {@link StartDayLeave#QUARTER_DAY} 가 첫날 0.25 를 소모하는데
+ * (#284) 이 격자가 0.5 였다 — 평일에 반반차로 코스를 확정하면 차감량이 {@code 0.25}·{@code 1.25} 로 나와
+ * 자기 검증에 걸려 {@code LEAVE-010} 400 이 됐다. 화면이 이미 내주는 선택지를 서버가 거절한 것이라,
+ * 이 단위는 사용자 입력을 넓히는 문제이기 전에 <b>계산과 검증을 같은 격자에 두는</b> 문제다.
  */
 public final class LeaveDays {
 
-    /** 최소 단위 — 반차. */
-    public static final double UNIT = 0.5;
+    /** 최소 단위 — 반반차. */
+    public static final double UNIT = 0.25;
+
+    /**
+     * 격자 판정에 쓰는 배수 — {@code 1 / UNIT}.
+     *
+     * <p>{@link #UNIT} 에서 도출한다. 상수를 따로 박으면 단위를 바꿀 때 한쪽만 고쳐, 검증이 조용히
+     * 다른 격자를 쓴다 — 0.5 → 0.25 로 넓히던 이번이 정확히 그런 변경이었다.
+     */
+    private static final double UNITS_PER_DAY = 1 / UNIT;
 
     /**
      * 깎을 연차가 없음 — 구간이 주말·공휴일뿐일 때 계산 결과가 이 값이다.
@@ -40,13 +53,19 @@ public final class LeaveDays {
     private LeaveDays() {
     }
 
-    /** 0.5 의 배수인가. 부동소수 비교라 2배 해서 정수인지로 본다. */
+    /**
+     * {@link #UNIT} 의 배수인가. 부동소수 비교라 단위 수로 환산해 정수인지로 본다.
+     *
+     * <p>0.25 는 2의 거듭제곱의 역수라 double 로 정확히 표현된다 — {@code 0.1} 처럼 오차가 쌓이는 값이
+     * 아니어서 {@code 1.25 * 4 == 5.0} 이 정확히 성립한다. 단위를 이보다 잘게(1/3 등) 열면 이 전제가
+     * 깨지므로 그때는 판정 방식을 함께 바꿔야 한다.
+     */
     public static boolean isValidUnit(double days) {
-        double doubled = days * 2;
-        return Double.isFinite(days) && doubled == Math.rint(doubled);
+        double units = days * UNITS_PER_DAY;
+        return Double.isFinite(days) && units == Math.rint(units);
     }
 
-    /** 총 연차로 쓸 수 있는 값인가 — 음수 불가, 상한 이하, 0.5 단위. <b>0 과 상한은 허용</b>한다. */
+    /** 총 연차로 쓸 수 있는 값인가 — 음수 불가, 상한 이하, 0.25 단위. <b>0 과 상한은 허용</b>한다. */
     public static boolean isValidTotal(double days) {
         return isValidUnit(days) && days >= 0 && days <= MAX_TOTAL;
     }
@@ -70,7 +89,7 @@ public final class LeaveDays {
     }
 
     /**
-     * 되돌리려고 넣는 음수 등록인가 — 받지 않는 값이지만 <b>0.5 단위 위반과는 사유가 다르다</b>(#276).
+     * 되돌리려고 넣는 음수 등록인가 — 받지 않는 값이지만 <b>단위 위반과는 사유가 다르다</b>(#276).
      *
      * <p>사유를 갈라야 화면이 "삭제로 취소하세요" 를 안내할 수 있다. 같은 400 으로 뭉뚱그리면 사용자는
      * 자기가 숫자를 잘못 넣은 줄 안다.

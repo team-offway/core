@@ -157,14 +157,14 @@ class MyLeaveIntegrationTest {
 
     @Test
     void 음수_등록은_400_LEAVE_013_으로_거절하고_삭제를_안내한다() throws Exception {
-        // 상쇄 등록이 잔여를 총보다 크게 만들던 자리다. 0.5 단위 위반(LEAVE-010)과 코드를 가른다.
+        // 상쇄 등록이 잔여를 총보다 크게 만들던 자리다. 단위 위반(LEAVE-010)과 코드를 가른다.
         mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, "leave-reversal")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"usedOn\": \"2026-05-09\", \"days\": -1, \"reason\": \"하루 취소\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.code").value("LEAVE-013"))
-                .andExpect(jsonPath("$.detail").value("연차 사용은 0.5일 단위의 양수여야 합니다. 되돌리려면 해당 내역을 삭제해 주세요."))
+                .andExpect(jsonPath("$.detail").value("연차 사용은 0.25일 단위의 양수여야 합니다. 되돌리려면 해당 내역을 삭제해 주세요."))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 
@@ -298,7 +298,48 @@ class MyLeaveIntegrationTest {
     }
 
     @Test
-    void 총_연차가_0점5_단위가_아니면_400_LEAVE_009() throws Exception {
+    void 반반차는_0점25로_센다() throws Exception {
+        // 시안의 0.25 칩이 여기로 온다(#278). 앱은 이미 붙여뒀고, 서버가 막으면 그 칩을 고르는 순간
+        // 400 문구가 사용자에게 그대로 보인다.
+        String guest = "leave-quarter";
+        mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 5}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, guest)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"usedOn\": \"2026-05-07\", \"days\": 1.25}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.remainingDays").value(3.75));
+    }
+
+    @Test
+    void 반반차로_쌓은_잔여에_총량을_맞출_수_있다() throws Exception {
+        // **사용만 열면 잔여가 안 맞는다.** 0.25 씩 세 번 쓰면 잔여가 14.25 인데, 총량이 0.5 격자면
+        // 사용자가 그 값으로 장부를 정리할 수 없다 — 두 곳이 같은 격자를 써야 하는 이유다.
+        String guest = "leave-quarter-total";
+        mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 15}"))
+                .andExpect(status().isOk());
+        for (int day = 11; day <= 13; day++) {
+            mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, guest)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"usedOn\": \"2026-05-%d\", \"days\": 0.25}".formatted(day)))
+                    .andExpect(status().isCreated());
+        }
+
+        mockMvc.perform(get(URL).header(GUEST_HEADER, guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.remainingDays").value(14.25));
+
+        mockMvc.perform(patch(URL).header(GUEST_HEADER, guest)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 14.25}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalDays").value(14.25));
+    }
+
+    @Test
+    void 총_연차가_0점25_단위가_아니면_400_LEAVE_009() throws Exception {
         mockMvc.perform(patch(URL).header(GUEST_HEADER, "leave-bad")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 1.3}"))
                 .andExpect(status().isBadRequest())

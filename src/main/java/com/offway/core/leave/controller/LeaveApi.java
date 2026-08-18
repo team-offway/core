@@ -33,11 +33,11 @@ public interface LeaveApi {
 
     @Operation(
             summary = "내 연차 수정",
-            description = "총 연차를 고쳐 쓴다(와이어프레임 +/- 스테퍼). 0.5 단위로 반차 조합도 넣을 수 있다.")
+            description = "총 연차를 고쳐 쓴다(와이어프레임 +/- 스테퍼). 0.25 단위로 반차·반반차 조합도 넣을 수 있다.")
     @ApiResponse(responseCode = "200", description = "수정 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · totalDays 누락 · 0.5 단위가 아니거나 0~365 범위 밖")
+            description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · totalDays 누락 · 0.25 단위가 아니거나 0~99 범위 밖")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<MyLeaveResponse> updateMyLeave(
             @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
@@ -46,7 +46,7 @@ public interface LeaveApi {
     @Operation(
             summary = "연차 사용 내역 추가",
             description = """
-                    연차를 쓴 내역을 남긴다. days 는 0.5 단위 양수다.
+                    연차를 쓴 내역을 남긴다. days 는 0.25 단위 양수다.
 
                     되돌릴 때는 음수를 등록하지 않는다 — 내역 삭제 API 를 쓴다. 음수 등록은 같은 요청이 두 번
                     들어오면 그만큼 더 상쇄돼 남은 연차가 총 연차를 넘었다(LEAVE-013 으로 거절한다).
@@ -57,7 +57,7 @@ public interface LeaveApi {
     @ApiResponse(
             responseCode = "400",
             description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usedOn·days 누락 또는 형식 오류 · "
-                    + "days 가 0 이거나 0.5 단위가 아니거나 99 초과(LEAVE-010) · days 가 음수(LEAVE-013)")
+                    + "days 가 0 이거나 0.25 단위가 아니거나 99 초과(LEAVE-010) · days 가 음수(LEAVE-013)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<MyLeaveResponse> addLeaveUsage(
             @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,

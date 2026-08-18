@@ -34,7 +34,7 @@ public class LeaveBalance {
     @Column(name = "guest_id", nullable = false, unique = true, length = MAX_OWNER_ID_LENGTH)
     private String guestId;
 
-    /** 총 연차(0.5 단위). 사용 내역을 빼면 남은 연차가 된다. */
+    /** 총 연차(0.25 단위). 사용 내역을 빼면 남은 연차가 된다. */
     @Column(name = "total_days", nullable = false)
     private double totalDays;
 
@@ -54,7 +54,7 @@ public class LeaveBalance {
     }
 
     /**
-     * 불변식 — 여기 닿는 위반은 버그다. 계약 검증(0.5 단위·상한)은 요청 DTO 경계가 이미 400 으로 걸러야 한다.
+     * 불변식 — 여기 닿는 위반은 버그다. 계약 검증(0.25 단위·상한)은 요청 DTO 경계가 이미 400 으로 걸러야 한다.
      * 그래도 두는 이유는 누가 만들든 스스로 유효함을 보장하는 최후의 보루이기 때문이다.
      */
     private static double requireTotal(double totalDays) {

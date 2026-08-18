@@ -45,7 +45,7 @@ public class LeaveUsage {
     private LocalDate usedOn;
 
     /**
-     * 쓴 일수(0.5 단위 양수). 코스 차감만 0 을 허용한다(#212).
+     * 쓴 일수(0.25 단위 양수). 코스 차감만 0 을 허용한다(#212).
      *
      * <p><b>음수 행이 남아 있을 수 있다</b> — 삭제 API 가 없던 시절의 상쇄 등록이다(#265). 새로 들어오는 것은
      * {@link #requireDays} 가 막지만, 이미 적재된 행은 그대로 읽힌다(하이드레이션은 생성자를 거치지 않는다).
@@ -182,7 +182,7 @@ public class LeaveUsage {
      * 직접 부르면 DTO 를 거치지 않고 들어온다. 그때 불변식 예외를 던지면 클라이언트 계약 위반이 500 으로 나간다.
      */
     private static double requireDays(double days, Long courseId) {
-        // 음수 수동 등록은 사유를 갈라 답한다(#276) — "0.5 단위가 아님" 과 뭉뚱그리면 화면이 "삭제로
+        // 음수 수동 등록은 사유를 갈라 답한다(#276) — "단위가 아님" 과 뭉뚱그리면 화면이 "삭제로
         // 취소하세요" 를 안내할 수 없다. 코스 차감은 애초에 음수가 들어올 길이 없어 갈라도 소득이 없다.
         if (courseId == null && LeaveDays.isReversal(days)) {
             throw LeaveException.leaveUsageReversalNotAllowed();
