@@ -4,7 +4,6 @@ import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.itinerary.controller.dto.TripOutcomeRequest;
 import com.offway.core.itinerary.controller.dto.PendingTripsResponse;
 import com.offway.core.leave.controller.dto.MyLeaveResponse;
-import com.offway.core.itinerary.controller.dto.CourseLeaveDeductionRequest;
 import com.offway.core.itinerary.domain.CourseScope;
 import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.itinerary.controller.dto.CourseSaveRequest;
@@ -158,36 +157,20 @@ public interface CourseStorageApi {
             @Parameter(description = "코스 ID", example = "12") long courseId);
 
     @Operation(
-            summary = "코스 확정 — 연차 차감",
-            description = """
-                    저장한 코스의 여행 날짜만큼 연차를 차감한다. 와이어프레임의 "연차를 차감할까요?" 확인에 대응하는
-                    명시적 액션이라, 코스 저장만으로는 차감되지 않는다.
-
-                    차감 일수는 **서버가 다시 계산한다** — 저장된 여행 날짜 구간의 평일에서 공휴일을 뺀 값이고,
-                    반차로 시작하면 0.5 를 뺀다. 클라이언트가 일수나 날짜를 보내지 않는 이유는, 보낸 만큼
-                    차감량이 바뀌면 임의 차감이 되기 때문이다.
-
-                    **멱등하다** — 같은 코스로 다시 호출해도 내역이 늘지 않고 현재 상태를 그대로 준다.
-
-                    **잔여가 부족해도 막지 않는다** — 남은 연차는 음수가 될 수 있다. 경고와 확인은 프론트가 맡는다.""")
-    @ApiResponse(responseCode = "200", description = "차감 성공 (또는 이미 차감된 코스 — 상태를 그대로 준다)")
-    @ApiResponse(
-            responseCode = "400",
-            description = "X-Guest-Id 헤더 누락·형식 오류, 또는 저장 시 여행 날짜를 넣지 않은 코스"
-                    + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
-    @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
-    @ApiResponse(responseCode = "502", description = "공휴일 조회(특일정보) 실패로 차감 일수를 계산할 수 없음")
-    ApiResponseBody<MyLeaveResponse> deductLeave(
-            String guestId, long courseId, CourseLeaveDeductionRequest request);
-
-    @Operation(
             summary = "코스 확정 취소 — 연차 되돌리기",
             description = """
                     코스는 그대로 두고 차감한 연차만 되돌린다. 여행 계획을 접었을 때 쓴다.
 
                     **멱등하다** — 차감된 적이 없어도 200 이다. "취소했다" 와 "원래 없었다" 는 사용자에게 같은 결과다.
 
-                    코스 자체를 지우면(`DELETE /courses/{courseId}`) 차감도 함께 되돌아가므로 따로 부를 필요가 없다.""")
+                    코스 자체를 지우면(`DELETE /courses/{courseId}`) 차감도 함께 되돌아가므로 따로 부를 필요가 없다.
+
+                    **차감하는 API 는 이제 없다**(#288). 연차는 `POST /courses/{courseId}/trip-outcome` 에
+                    `VISITED` 로 답할 때만 깎인다 — 여행을 다녀왔다는 사실이 차감의 유일한 근거다. 예전에는
+                    `POST /courses/{courseId}/leave-deduction` 이 여행 **전에** 깎아서, 취소한 여행의 연차가
+                    묶인 채 남고 홈 모달도 뜨지 않았다.
+
+                    차감 단위(종일·반차·반반차)도 묻지 않는다. **코스가 만들어질 때 이미 답한 값**을 쓴다.""")
     @ApiResponse(responseCode = "200", description = "취소 성공 (차감된 적이 없어도 200 — 현재 상태를 준다)")
     @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·형식 오류")
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
@@ -220,12 +203,16 @@ public interface CourseStorageApi {
 
                     답한 뒤의 내 연차를 돌려주므로, 모달이 상단 "남은 연차" 를 바로 고쳐 그릴 수 있다.
 
-                    **`pending-trips` 가 물어봤을 법한 여행만 답을 받는다.** 아직 끝나지 않았거나(종료 당일 포함),
-                    이미 답했거나, 내 코스 카드에서 이미 차감한 여행은 409 다 — 조회 조건과 쓰기 조건이 어긋나면
-                    모달이 묻지 않은 것에도 답이 들어와 연차가 잘못 움직인다.
+                    **`pending-trips` 가 물어봤을 법한 여행만 답을 받는다.** 아직 끝나지 않았거나(종료 당일 포함)
+                    이미 답한 여행은 409 다 — 조회 조건과 쓰기 조건이 어긋나면 모달이 묻지 않은 것에도 답이
+                    들어와 연차가 잘못 움직인다.
 
-                    반차 여부는 묻지 않는다(종일 기준) — 반차가 필요하면
-                    내 코스 카드의 `POST /courses/{courseId}/leave-deduction` 을 쓴다.""")
+                    **여기가 연차를 깎는 유일한 자리다**(#288). 여행을 다녀왔다는 사실이 차감의 근거이므로,
+                    답하기 전에는 어떤 경로로도 깎이지 않는다.
+
+                    **차감 단위(종일·반차·반반차)는 묻지 않는다.** 모달에 넣을 질문이 아니어서가 아니라
+                    **물을 필요가 없어서**다 — 코스를 만들 때 이미 답한 값을 서버가 그대로 쓴다. 예전에는 이
+                    자리가 종일로 고정돼, 반차로 짠 코스도 하루치가 깎였다(사용자가 0.5 를 더 잃었다).""")
     @ApiResponse(responseCode = "200", description = "기록 성공 (VISITED 면 차감 반영된 연차)")
     @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·형식 오류, outcome 누락·잘못된 값, 또는 여행 날짜 없이 저장된 코스")
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")

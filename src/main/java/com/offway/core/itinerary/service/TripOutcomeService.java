@@ -9,7 +9,6 @@ import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.repository.TripOutcomeRepository;
 import com.offway.core.itinerary.service.dto.MyCourses;
 import com.offway.core.itinerary.service.dto.PendingTrips;
-import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.leave.service.LeaveService;
 import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.leave.service.dto.AvailableTimeCommand;
@@ -42,9 +41,6 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class TripOutcomeService {
-
-    /** 홈 모달은 반차를 묻지 않는다 — 버튼 두 개짜리 모달에 넣을 질문이 아니다. 반차가 필요하면 내 코스 카드에서 한다. */
-    private static final StartDayLeave MODAL_ASSUMES_FULL_DAY = StartDayLeave.FULL_DAY;
 
     private final CourseRepository courseRepository;
     private final CourseStorageService courseStorageService;
@@ -95,7 +91,9 @@ public class TripOutcomeService {
         requireAnswerable(guestId, course);
 
         if (outcome.deductsLeave()) {
-            leaveDeductionService.deduct(guestId, courseId, MODAL_ASSUMES_FULL_DAY);
+            // 단위를 여기서 정하지 않는다 — 코스가 만들어질 때 이미 답한 값이다(#284·#288).
+            // 모달이 반차를 안 묻는 것은 맞지만, 그게 "종일로 친다" 는 뜻은 아니었다. 물을 필요가 없을 뿐이다.
+            leaveDeductionService.deduct(guestId, courseId, course.startDayLeave());
         }
 
         try {
@@ -157,7 +155,9 @@ public class TripOutcomeService {
                             course.getTravelDate(),
                             course.travelEndDate(),
                             course.getTransport(),
-                            MODAL_ASSUMES_FULL_DAY))
+                            // 표시와 실제 차감이 같은 단위를 써야 한다. 여기만 종일로 두면 모달이
+                            // "1일 차감" 이라 적고 실제로는 0.5 를 깎아, 사용자가 본 숫자와 결과가 어긋난다.
+                            course.startDayLeave()))
                     .availableTime()
                     .consumedLeaveDays());
         }
