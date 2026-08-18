@@ -10,6 +10,7 @@ import com.offway.core.leave.repository.LeaveUsageRepository;
 import com.offway.core.leave.service.dto.AddLeaveUsage;
 import com.offway.core.leave.service.dto.CourseDeduction;
 import com.offway.core.leave.service.dto.MyLeave;
+import com.offway.core.leave.service.dto.UpdateLeaveUsage;
 import java.time.LocalDate;
 import java.util.Optional;
 import java.util.Set;
@@ -109,7 +110,7 @@ public class MyLeaveService {
      * <p>없는 id 와 <b>남의 id 를 같은 404 로</b> 답한다 — 코스 조회와 같은 규칙이다. 나눠 답하면 id 를 넣어보며
      * "이 번호는 있다" 를 알아낼 수 있다.
      *
-     * <p>코스 확정 내역은 지우지 못한다. 그 판단은 {@link LeaveUsage#requireManuallyDeletable()} 이 소유한다.
+     * <p>코스 확정 내역은 지우지 못한다. 그 판단은 {@link LeaveUsage#requireManuallyManaged()} 이 소유한다.
      */
     @Transactional
     public MyLeave deleteUsage(String guestId, long usageId) {
@@ -117,10 +118,35 @@ public class MyLeaveService {
         LeaveUsage usage = usageRepository
                 .findByIdAndGuestId(usageId, owner)
                 .orElseThrow(LeaveException::leaveUsageNotFound);
-        usage.requireManuallyDeletable();
+        usage.requireManuallyManaged();
         usageRepository.delete(usage);
         MyLeave after = myLeave(owner);
         log.info("연차 사용내역 삭제 usageId={} days={} 남은={}",
+                usageId, usage.getDays(), after.summary().remainingDays());
+        return after;
+    }
+
+    /**
+     * 사용 내역 한 건을 고친다(#267) — 화면의 내역 수정.
+     *
+     * <p>삭제와 <b>같은 관문</b>을 지난다. 없거나 남의 것이면 404 이고, 코스 확정 내역이면 409 다. 규칙이
+     * 갈리면 사용자는 "지우는 건 막히는데 고치는 건 되네" 라는 구멍을 만나게 된다.
+     *
+     * <p>고친 값이 잔여를 총 연차보다 크게 만들 걱정은 없다 — {@code LeaveSummary} 가 그 불변식을 이미
+     * 들고 있어 이 경로도 그대로 지나간다.
+     *
+     * <p>부분 수정의 의미(안 보낸 필드는 그대로, 빈 사유는 지우기)는 {@link LeaveUsage#edit} 가 소유한다.
+     */
+    @Transactional
+    public MyLeave updateUsage(String guestId, long usageId, UpdateLeaveUsage command) {
+        String owner = requireOwner(guestId);
+        LeaveUsage usage = usageRepository
+                .findByIdAndGuestId(usageId, owner)
+                .orElseThrow(LeaveException::leaveUsageNotFound);
+        usage.requireManuallyManaged();
+        usage.edit(command.usedOn(), command.days(), command.reason());
+        MyLeave after = myLeave(owner);
+        log.info("연차 사용내역 수정 usageId={} days={} 남은={}",
                 usageId, usage.getDays(), after.summary().remainingDays());
         return after;
     }
