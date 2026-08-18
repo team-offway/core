@@ -18,6 +18,13 @@ public interface CourseJpaRepository extends JpaRepository<Course, Long> {
     Page<Course> findByGuestIdOrderByIdDesc(String guestId, Pageable pageable);
 
     // travelDate 가 null 인 코스는 두 조건 모두에 걸리지 않아 자연히 빠진다 — DB 마다 다른 NULL 정렬에 기대지 않는다.
+    /**
+     * 그 날짜에 떠나는 코스 전부(소유자 무관) — 알림 배치용(#269).
+     *
+     * <p>{@code GuestIdIsNotNull} 로 소유자 없는 코스(공유 링크용, #261)를 뺀다. 알릴 상대가 없는 코스다.
+     */
+    List<Course> findByTravelDateAndGuestIdIsNotNull(LocalDate travelDate);
+
     List<Course> findByGuestIdAndTravelDateGreaterThanEqualOrderByTravelDateAscIdDesc(
             String guestId, LocalDate today);
 

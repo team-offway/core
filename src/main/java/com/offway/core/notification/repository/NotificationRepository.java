@@ -11,6 +11,17 @@ public interface NotificationRepository {
 
     Notification save(Notification notification);
 
+    /**
+     * 같은 소유자·종류·코스의 알림이 <b>없을 때만</b> 만든다.
+     *
+     * <p>배치가 재실행되거나 재배포로 주기가 다시 시작돼도 같은 알림이 겹치면 안 된다(#269). 판정을
+     * 애플리케이션이 하면(있는지 조회 → 없으면 저장) 두 실행이 동시에 "없다" 를 읽고 둘 다 넣는다.
+     * 유니크 제약에 얹어 DB 가 판정하게 한다.
+     *
+     * @return 이 호출로 실제 만들어졌으면 true. 이미 있었으면 false
+     */
+    boolean saveIfAbsent(Notification notification);
+
     /** 소유자의 알림 한 페이지 — 최근 것부터. */
     Page<Notification> findByOwner(String guestId, Pageable pageable);
 
