@@ -1,5 +1,6 @@
 package com.offway.core.itinerary.service;
 
+import com.offway.core.leave.domain.StartDayLeave;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -82,7 +83,7 @@ class CourseGenerationIntegrationTest {
 
     private static GenerateCourse command(int travelDays, Density density) {
         return GenerateCourse.first(SEEDED_REGION_ID, travelDays, density, TransportMode.CAR, 35.10, 129.03,
-                TRAVEL_DATE);
+                TRAVEL_DATE, StartDayLeave.FULL_DAY);
     }
 
     @Test

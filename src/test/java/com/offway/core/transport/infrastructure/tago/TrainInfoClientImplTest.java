@@ -1,5 +1,6 @@
 package com.offway.core.transport.infrastructure.tago;
 
+import java.time.LocalTime;
 import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -43,8 +44,8 @@ class TrainInfoClientImplTest {
         TrainAvailability result = client(body).fastestTrain("NAT010000", "NAT013271", DATE);
 
         TrainAvailability.Available available = assertInstanceOf(TrainAvailability.Available.class, result);
-        assertEquals("KTX", available.fastest().trainType()); // 100분 < 무궁화 210분
-        assertEquals(100, available.fastest().durationMinutes());
+        assertEquals("KTX", available.fastestDepartingFrom(LocalTime.MIN).orElseThrow().trainType()); // 100분 < 무궁화 210분
+        assertEquals(100, available.fastestDepartingFrom(LocalTime.MIN).orElseThrow().durationMinutes());
     }
 
     @Test
@@ -58,8 +59,8 @@ class TrainInfoClientImplTest {
         TrainAvailability result = client(body).fastestTrain("NAT010000", "NAT013271", DATE);
 
         TrainAvailability.Available available = assertInstanceOf(TrainAvailability.Available.class, result);
-        assertEquals("KTX", available.fastest().trainType());
-        assertEquals(100, available.fastest().durationMinutes());
+        assertEquals("KTX", available.fastestDepartingFrom(LocalTime.MIN).orElseThrow().trainType());
+        assertEquals(100, available.fastestDepartingFrom(LocalTime.MIN).orElseThrow().durationMinutes());
     }
 
     @Test

@@ -86,7 +86,7 @@ class TrainInfoClientImpl implements TrainInfoClient {
 
     private TrainAvailability parse(String body) throws Exception {
         return switch (TagoItems.parse(body, objectMapper)) {
-            case TagoItems.Items(List<JsonNode> nodes) -> fastest(nodes);
+            case TagoItems.Items(List<JsonNode> nodes) -> legsOf(nodes);
             case TagoItems.Empty ignored -> new TrainAvailability.NoServiceOnDate(); // 조회 정상, 그 날짜 운행 없음
             case TagoItems.Failed ignored -> {
                 // 예외가 아니라 정상 HTTP 응답이라 여기서 남기지 않으면 아무 흔적이 안 남는다. 제공기관 장애가
@@ -97,17 +97,24 @@ class TrainInfoClientImpl implements TrainInfoClient {
         };
     }
 
-    private static TrainAvailability fastest(List<JsonNode> trains) {
-        return trains.stream()
+    /**
+     * 그 날짜에 운행하는 편 전부를 담는다 — <b>여기서 한 편으로 좁히지 않는다</b>(#138).
+     *
+     * <p>탈 수 있는 편은 출발 시각(연차·반차·반반차)에 따라 달라지는데, 어댑터는 그 시각을 모른다. 하루치를
+     * 그대로 올려 보내면 캐시 한 엔트리가 세 단위를 모두 답한다 — 외부 호출이 단위 수만큼 늘지 않는다.
+     */
+    private static TrainAvailability legsOf(List<JsonNode> trains) {
+        List<TrainLeg> legs = trains.stream()
                 .map(TrainInfoClientImpl::toLeg)
                 .flatMap(Optional::stream)
-                .min(Comparator.comparingInt(TrainLeg::durationMinutes))
-                .<TrainAvailability>map(TrainAvailability.Available::new)
-                // items 에 편이 있는데 전부 파싱 실패면 미운행이 아니라 스키마 변경·결측 신호 → Unavailable(잘못된 "없음" 안내 방지).
-                .orElseGet(() -> {
-                    log.warn("TAGO 열차 {}편이 전부 파싱 실패했습니다 — 조회 불가 처리(스키마 변경 의심)", trains.size());
-                    return new TrainAvailability.Unavailable();
-                });
+                .toList();
+        if (legs.isEmpty()) {
+            // items 에 편이 있는데 전부 파싱 실패면 미운행이 아니라 스키마 변경·결측 신호
+            // → Unavailable(잘못된 "없음" 안내 방지).
+            log.warn("TAGO 열차 {}편이 전부 파싱 실패했습니다 — 조회 불가 처리(스키마 변경 의심)", trains.size());
+            return new TrainAvailability.Unavailable();
+        }
+        return new TrainAvailability.Available(legs);
     }
 
     private static Optional<TrainLeg> toLeg(JsonNode train) {

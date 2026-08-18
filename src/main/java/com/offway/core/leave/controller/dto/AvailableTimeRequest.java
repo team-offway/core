@@ -4,6 +4,7 @@ import com.offway.core.leave.domain.AvailableTime;
 import com.offway.core.leave.domain.LeaveException;
 import com.offway.core.leave.domain.PeriodOptions;
 import com.offway.core.leave.domain.PeriodStyle;
+import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.leave.domain.WeekendBridge;
 import com.offway.core.leave.service.dto.AvailableTimeCommand;
 import com.offway.core.transport.domain.TransportMode;
@@ -29,7 +30,8 @@ import java.time.LocalDate;
  * @param weekendBridge 주말에 붙일 평일 하루 ({@link PeriodStyle#WEEKEND} 에 필수)
  * @param leaveDays 이어서 쓸 연차 일수 2~3 ({@link PeriodStyle#CONNECTED} 에 필수)
  * @param transport 이동수단 (필수)
- * @param halfDayStart 출발일 반차 여부 (선택, 기본 false)
+ * @param startDayLeave 첫날에 쓴 연차 (선택, 기본 FULL_DAY). 출발 시각이 이 값에서 도출된다
+ * @param halfDayStart <b>예전 계약</b> (선택). {@code startDayLeave} 가 오면 무시된다
  */
 public record AvailableTimeRequest(
         @Schema(description = "여행 시작일 (날짜 직접 모드)", example = "2026-05-06") LocalDate startDate,
@@ -41,7 +43,18 @@ public record AvailableTimeRequest(
         @Schema(description = "이어서 쓸 연차 일수 2~3 (CONNECTED 에 필수)", example = "3") Integer leaveDays,
         @Schema(description = "이동수단", example = "CAR", requiredMode = Schema.RequiredMode.REQUIRED)
                 @NotNull TransportMode transport,
-        @Schema(description = "출발일 반차 여부 (선택, 기본 false)", example = "false") Boolean halfDayStart) {
+        @Schema(
+                        description = "첫날에 쓴 연차 (선택, 기본 FULL_DAY). 출발 시각이 여기서 도출된다 "
+                                + "— FULL_DAY 08시 · HALF_DAY 12시 · QUARTER_DAY 15시",
+                        example = "HALF_DAY",
+                        nullable = true)
+                StartDayLeave startDayLeave,
+        @Schema(
+                        description = "출발일 반차 여부 — 예전 계약. startDayLeave 를 쓰면 보내지 않는다",
+                        example = "false",
+                        nullable = true,
+                        deprecated = true)
+                Boolean halfDayStart) {
 
     /**
      * 커맨드로 변환하며 <b>모드 계약을 검증</b>한다. 스타일별 보조 파라미터 검증은 {@link PeriodOptions} 가 소유한다 —
@@ -64,21 +77,35 @@ public record AvailableTimeRequest(
         if (!datesMode && !styleMode) {
             throw LeaveException.ambiguousPeriodInput();
         }
-        boolean halfDay = Boolean.TRUE.equals(halfDayStart); // 선택 필드 — 부재/null 은 반차 아님
+        StartDayLeave leave = resolveStartDayLeave();
 
-        return styleMode ? fromStyle(halfDay) : fixedDates(halfDay);
+        return styleMode ? fromStyle(leave) : fixedDates(leave);
     }
 
-    private AvailableTimeCommand fromStyle(boolean halfDay) {
+    /**
+     * 두 계약을 합류시킨다 — <b>새 필드가 이긴다</b>.
+     *
+     * <p>앱이 갈아타는 동안 예전 {@code halfDayStart} 도 받는다. 그것만 끊으면 배포되는 순간 지금 앱의 반차
+     * 선택이 조용히 종일로 바뀌는데, 사용자는 반차를 골랐다고 믿는다.
+     *
+     * <p>둘 다 왔을 때 새 필드를 택하는 이유: 예전 필드는 반반차를 표현할 수 없어, 그쪽을 우선하면 새 값이
+     * 표현하려던 것을 잃는다. 어긋난 조합(예: {@code QUARTER_DAY} + {@code halfDayStart:true})을 거절하지는
+     * 않는다 — 전환기에 둘을 함께 보내는 클라이언트가 생기고, 그때 400 을 주면 로그인처럼 화면이 막힌다.
+     */
+    private StartDayLeave resolveStartDayLeave() {
+        return startDayLeave != null ? startDayLeave : StartDayLeave.fromHalfDayFlag(halfDayStart);
+    }
+
+    private AvailableTimeCommand fromStyle(StartDayLeave startDayLeave) {
         if (baseDate == null) {
             // 서버 시계로 대체하지 않는다 — 자정 근처에서 클라이언트가 보는 '오늘' 과 하루 어긋난다.
             throw LeaveException.baseDateRequired();
         }
         PeriodOptions options = new PeriodOptions(weekendBridge, leaveDays);
-        return new AvailableTimeCommand.FromStyle(periodStyle, baseDate, options, transport, halfDay);
+        return new AvailableTimeCommand.FromStyle(periodStyle, baseDate, options, transport, startDayLeave);
     }
 
-    private AvailableTimeCommand fixedDates(boolean halfDay) {
+    private AvailableTimeCommand fixedDates(StartDayLeave startDayLeave) {
         if (endDate.isBefore(startDate)) {
             throw LeaveException.invalidDateRange();
         }
@@ -86,6 +113,6 @@ public record AvailableTimeRequest(
         if (span > AvailableTime.MAX_TRIP_DAYS) {
             throw LeaveException.tripTooLong();
         }
-        return new AvailableTimeCommand.FixedDates(startDate, endDate, transport, halfDay);
+        return new AvailableTimeCommand.FixedDates(startDate, endDate, transport, startDayLeave);
     }
 }

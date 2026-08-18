@@ -5,6 +5,7 @@ import com.offway.core.transport.domain.Station;
 import com.offway.core.transport.domain.TrainAvailability;
 import com.offway.core.transport.service.dto.TrainAccess;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,8 +32,12 @@ public class TrainAccessService {
      *
      * <p><b>degrade 는 사유를 남긴다.</b> 열차 정보가 없어도 코스는 그대로 나가므로, 여기서 남기지 않으면 외부 장애와
      * "원래 열차가 없는 오지" 가 화면에서 똑같이 보인다. 레벨로 그 둘을 가른다.
+     *
+     * @param notBefore 집을 나서는 시각. 이 시각 이후에 떠나는 편만 고른다 — 반차를 내고 12시에 나서는 사용자에게
+     *     새벽 첫차를 잡아주면 첫날 일정이 지킬 수 없는 약속이 된다(#138)
      */
-    public TrainAccess accessTo(double originLat, double originLng, double destLat, double destLng, LocalDate date) {
+    public TrainAccess accessTo(
+            double originLat, double originLng, double destLat, double destLng, LocalDate date, LocalTime notBefore) {
         Optional<Station> from = stationResolver.nearest(originLat, originLng);
         Optional<Station> to = stationResolver.nearest(destLat, destLng);
         if (from.isEmpty() || to.isEmpty()) {
@@ -47,7 +52,14 @@ public class TrainAccessService {
         Coordinate toPoint = to.get().coordinate();
         TrainAvailability availability = trainRouteService.fastestTrain(from.get().id(), to.get().id(), date);
         return switch (availability) {
-            case TrainAvailability.Available a -> TrainAccess.available(fromName, toName, toPoint, a.fastest());
+            case TrainAvailability.Available a -> a.fastestDepartingFrom(notBefore)
+                    .map(leg -> TrainAccess.available(fromName, toName, toPoint, leg))
+                    .orElseGet(() -> {
+                        // 그날 운행은 있는데 이 시각 이후 편이 없다 — 막차가 지났다. 사용자에게는 "그날 열차가
+                        // 없음" 과 같은 결과라 같은 상태로 답한다. 다만 이유가 달라 로그로 가른다.
+                        log.debug("출발 시각 이후 열차 없음 — {}→{} date={} notBefore={}", fromName, toName, date, notBefore);
+                        return TrainAccess.noServiceOnDate(fromName, toName, toPoint);
+                    });
             case TrainAvailability.NoServiceOnDate n -> {
                 // 조회는 성공했고 그날 운행이 없을 뿐 — 정상 흐름이다.
                 log.debug("열차 미운행 — {}→{} date={}", fromName, toName, date);

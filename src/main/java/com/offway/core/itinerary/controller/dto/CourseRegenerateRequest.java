@@ -3,6 +3,7 @@ package com.offway.core.itinerary.controller.dto;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
+import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.transport.domain.TransportMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMax;
@@ -35,6 +36,12 @@ public record CourseRegenerateRequest(
         @Schema(example = "127.02", requiredMode = Schema.RequiredMode.REQUIRED)
                 @NotNull @DecimalMin("-180") @DecimalMax("180") Double originLng,
         @Schema(example = "2026-05-01", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull LocalDate travelDate,
+        @Schema(
+                        description = "첫날에 쓴 연차 (선택, 기본 FULL_DAY). 출발 시각이 여기서 나오고 그 시각이 "
+                                + "첫날 일정을 자른다 — FULL_DAY 08시 · HALF_DAY 12시 · QUARTER_DAY 15시",
+                        example = "HALF_DAY",
+                        nullable = true)
+                StartDayLeave startDayLeave,
         @Schema(description = "씨앗을 직접 고를 때. 같은 씨앗이면 같은 코스가 나온다", nullable = true) Long seed,
         @Schema(description = "지금 보고 있는 코스의 씨앗. 생략하면 첫 생성 코스로 본다", nullable = true)
                 Long previousSeed,
@@ -45,6 +52,6 @@ public record CourseRegenerateRequest(
     public GenerateCourse toCommand() {
         return new GenerateCourse(
                 regionId, travelDays, density, transport, originLat, originLng, travelDate,
-                GenerateCourse.FIRST_SEED, excludePoiContentIds);
+                startDayLeave, GenerateCourse.FIRST_SEED, excludePoiContentIds);
     }
 }

@@ -1,5 +1,6 @@
 package com.offway.core.itinerary.domain;
 
+import com.offway.core.leave.domain.StartDayLeave;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -27,7 +28,7 @@ class CourseTest {
 
     @Test
     void 유효한_코스는_기간을_받아_들고_전체슬롯을_센다() {
-        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3), day(2, 2)), null, 2);
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3), day(2, 2)), null, 2, StartDayLeave.FULL_DAY);
 
         assertEquals(42L, course.getRegionId());
         assertEquals(2, course.getTravelDays());
@@ -44,7 +45,7 @@ class CourseTest {
     @Test
     void 공유전용_코스는_주인이_없고_출발지는_받는다() {
         Course course = Course.sharedOnly(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 2)),
-                LocalDate.of(2026, 9, 12), 1, new Coordinate(37.55, 126.97));
+                LocalDate.of(2026, 9, 12), 1, new Coordinate(37.55, 126.97), StartDayLeave.FULL_DAY);
 
         assertNull(course.getGuestId());
         assertEquals(42L, course.getRegionId());
@@ -55,29 +56,29 @@ class CourseTest {
     @Test
     void 공유전용_코스도_구성_불변식을_그대로_지킨다() {
         assertThrows(IllegalArgumentException.class,
-                () -> Course.sharedOnly(42L, Density.RELAXED, TransportMode.CAR, List.of(), null, 1, null));
+                () -> Course.sharedOnly(42L, Density.RELAXED, TransportMode.CAR, List.of(), null, 1, null, StartDayLeave.FULL_DAY));
         assertThrows(IllegalArgumentException.class,
                 () -> Course.sharedOnly(42L, Density.RELAXED, TransportMode.CAR,
-                        List.of(day(1, 1), day(2, 1), day(3, 1), day(4, 1)), null, 3, null));
+                        List.of(day(1, 1), day(2, 1), day(3, 1), day(4, 1)), null, 3, null, StartDayLeave.FULL_DAY));
     }
 
     @Test
     void 하루도_없으면_거부한다() {
         assertThrows(IllegalArgumentException.class,
-                () -> Course.of(42L, Density.RELAXED, TransportMode.CAR, List.of(), null, 1));
+                () -> Course.of(42L, Density.RELAXED, TransportMode.CAR, List.of(), null, 1, StartDayLeave.FULL_DAY));
     }
 
     @Test
     void 최대_2박3일을_초과하면_거부한다() {
         assertThrows(IllegalArgumentException.class,
                 () -> Course.of(42L, Density.RELAXED, TransportMode.CAR,
-                        List.of(day(1, 1), day(2, 1), day(3, 1), day(4, 1)), null, 3));
+                        List.of(day(1, 1), day(2, 1), day(3, 1), day(4, 1)), null, 3, StartDayLeave.FULL_DAY));
     }
 
     @Test
     void 일차가_1부터_연속이_아니면_거부한다() {
         assertThrows(IllegalArgumentException.class,
-                () -> Course.of(42L, Density.RELAXED, TransportMode.CAR, List.of(day(1, 1), day(3, 1)), null, 2));
+                () -> Course.of(42L, Density.RELAXED, TransportMode.CAR, List.of(day(1, 1), day(3, 1)), null, 2, StartDayLeave.FULL_DAY));
     }
 
     @Test
@@ -85,7 +86,7 @@ class CourseTest {
         // 첫날이 이동뿐이면 그 날은 코스에서 빠진다(#159). 그래도 여행은 3일짜리다.
         Course course = Course.of(42L, Density.PACKED, TransportMode.TRANSIT,
                 List.of(DaySchedule.of(1, 1, List.of(slot(1))), DaySchedule.of(2, 2, List.of(slot(1)))),
-                LocalDate.of(2026, 9, 11), 3);
+                LocalDate.of(2026, 9, 11), 3, StartDayLeave.FULL_DAY);
 
         assertEquals(3, course.getTravelDays(), "표시 일수(2)가 아니라 달력 기간(3)");
         assertEquals(LocalDate.of(2026, 9, 13), course.travelEndDate(),
@@ -100,15 +101,15 @@ class CourseTest {
         assertThrows(IllegalArgumentException.class,
                 () -> Course.of(42L, Density.PACKED, TransportMode.CAR,
                         List.of(DaySchedule.of(1, 0, List.of(slot(1))), DaySchedule.of(2, 2, List.of(slot(1)))),
-                        LocalDate.of(2026, 9, 11), 2));
+                        LocalDate.of(2026, 9, 11), 2, StartDayLeave.FULL_DAY));
     }
 
     @Test
     void 기간이_범위를_벗어나면_거부한다() {
         assertThrows(IllegalArgumentException.class,
-                () -> Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 1)), null, 0));
+                () -> Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 1)), null, 0, StartDayLeave.FULL_DAY));
         assertThrows(IllegalArgumentException.class,
-                () -> Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 1)), null, 4));
+                () -> Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 1)), null, 4, StartDayLeave.FULL_DAY));
     }
 
     @Test
@@ -117,7 +118,7 @@ class CourseTest {
         assertThrows(IllegalArgumentException.class,
                 () -> Course.of(42L, Density.PACKED, TransportMode.CAR,
                         List.of(DaySchedule.of(1, 1, List.of(slot(1))), DaySchedule.of(2, 0, List.of(slot(1)))),
-                        LocalDate.of(2026, 9, 11), 3));
+                        LocalDate.of(2026, 9, 11), 3, StartDayLeave.FULL_DAY));
     }
 
     @Test
@@ -126,7 +127,7 @@ class CourseTest {
         assertThrows(IllegalArgumentException.class,
                 () -> Course.of(42L, Density.PACKED, TransportMode.CAR,
                         List.of(DaySchedule.of(1, 1, List.of(slot(1))), DaySchedule.of(2, 1, List.of(slot(1)))),
-                        LocalDate.of(2026, 9, 11), 3));
+                        LocalDate.of(2026, 9, 11), 3, StartDayLeave.FULL_DAY));
     }
 
     @Test
@@ -134,7 +135,7 @@ class CourseTest {
         // 엄격 증가면 충분하다 — 1씩 늘 것을 요구하면 중간이 빈 코스(#159)를 거부하게 된다.
         Course course = Course.of(42L, Density.RELAXED, TransportMode.CAR,
                 List.of(DaySchedule.of(1, 0, List.of(slot(1))), DaySchedule.of(2, 2, List.of(slot(1)))),
-                LocalDate.of(2026, 9, 11), 3);
+                LocalDate.of(2026, 9, 11), 3, StartDayLeave.FULL_DAY);
 
         assertEquals(LocalDate.of(2026, 9, 13), course.dateOf(course.getDays().get(1)));
     }
@@ -195,7 +196,7 @@ class CourseTest {
     @Test
     void 날짜_없이_저장된_코스도_날짜를_넣어_고칠_수_있다() {
         // 이 컬럼이 생기기 전에 저장된 코스다. 날짜를 넣어야 연차를 차감할 수 있다.
-        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3)), null, 1);
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3)), null, 1, StartDayLeave.FULL_DAY);
 
         course.changeTravelDate(LocalDate.of(2026, 9, 20), LocalDate.of(2026, 9, 1));
 
@@ -204,7 +205,7 @@ class CourseTest {
 
     private static Course threeDayCourse(LocalDate travelDate) {
         return Course.of(42L, Density.PACKED, TransportMode.CAR,
-                List.of(day(1, 3), day(2, 2), day(3, 2)), travelDate, 3);
+                List.of(day(1, 3), day(2, 2), day(3, 2)), travelDate, 3, StartDayLeave.FULL_DAY);
     }
 
     /**
@@ -213,7 +214,7 @@ class CourseTest {
     @Test
     void 여행일이_있으면_그것이_기준일이다() {
         Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3), day(2, 2)),
-                LocalDate.of(2026, 9, 11), 2);
+                LocalDate.of(2026, 9, 11), 2, StartDayLeave.FULL_DAY);
 
         assertEquals(LocalDate.of(2026, 9, 11), course.travelDateOr(LocalDate.of(2026, 8, 10)));
     }
@@ -221,7 +222,7 @@ class CourseTest {
     @Test
     void 날짜_없이_저장된_코스는_넘겨받은_기준으로_물러선다() {
         // 이 컬럼이 생기기 전에 저장된 코스가 있다. 아무것도 안 보여주는 쪽이 더 틀린다고 보고 오늘로 본다.
-        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3)), null, 1);
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3)), null, 1, StartDayLeave.FULL_DAY);
 
         assertEquals(LocalDate.of(2026, 8, 10), course.travelDateOr(LocalDate.of(2026, 8, 10)));
     }
@@ -235,7 +236,7 @@ class CourseTest {
                         slotAt(2, TimeOfDay.LUNCH, SlotKind.FOOD),
                         slotAt(3, TimeOfDay.DINNER, SlotKind.FOOD))),
                         day(2, 2)),
-                LocalDate.of(2026, 9, 11), 2);
+                LocalDate.of(2026, 9, 11), 2, StartDayLeave.FULL_DAY);
 
         int removed = course.trimFirstDayTo(new DayStart(java.util.Set.of(TimeOfDay.DINNER)));
 
@@ -255,7 +256,7 @@ class CourseTest {
                         slotAt(1, TimeOfDay.MORNING, SlotKind.SIGHT),
                         slotAt(2, TimeOfDay.DINNER, SlotKind.STAY))),
                         day(2, 2)),
-                LocalDate.of(2026, 9, 11), 2);
+                LocalDate.of(2026, 9, 11), 2, StartDayLeave.FULL_DAY);
 
         int removed = course.trimFirstDayTo(DayStart.none());
 
@@ -268,7 +269,7 @@ class CourseTest {
         Course course = Course.of(42L, Density.PACKED, TransportMode.CAR,
                 List.of(DaySchedule.of(1, List.of(slotAt(1, TimeOfDay.MORNING, SlotKind.SIGHT))),
                         day(2, 2), day(3, 2)),
-                LocalDate.of(2026, 9, 11), 3);
+                LocalDate.of(2026, 9, 11), 3, StartDayLeave.FULL_DAY);
 
         course.trimFirstDayTo(DayStart.none());
 
@@ -282,7 +283,7 @@ class CourseTest {
     @Test
     void 걷어낼_것이_없으면_그대로_둔다() {
         Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3), day(2, 2)),
-                LocalDate.of(2026, 9, 11), 2);
+                LocalDate.of(2026, 9, 11), 2, StartDayLeave.FULL_DAY);
 
         assertEquals(0, course.trimFirstDayTo(DayStart.fullDay()));
         assertEquals(3, course.getDays().getFirst().slotCount());
@@ -294,9 +295,9 @@ class CourseTest {
         Course emptied = Course.of(42L, Density.PACKED, TransportMode.CAR,
                 List.of(DaySchedule.of(1, 1, List.of(slotAt(1, TimeOfDay.MORNING, SlotKind.SIGHT))),
                         DaySchedule.of(2, 2, List.of(slotAt(1, TimeOfDay.MORNING, SlotKind.SIGHT)))),
-                LocalDate.of(2026, 9, 11), 3);
+                LocalDate.of(2026, 9, 11), 3, StartDayLeave.FULL_DAY);
         Course normal = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 3), day(2, 2)),
-                LocalDate.of(2026, 9, 11), 2);
+                LocalDate.of(2026, 9, 11), 2, StartDayLeave.FULL_DAY);
 
         assertTrue(emptied.firstDayEmptyOnCalendar());
         assertFalse(normal.firstDayEmptyOnCalendar());
@@ -315,7 +316,7 @@ class CourseTest {
     @Test
     void 첫날은_전날이_없어_거리도_없다() {
         Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(DaySchedule.of(1, 0, List.of(slotAt(1, 36.35, 127.38))),
-                        DaySchedule.of(2, 1, List.of(slotAt(1, 36.45, 127.48)))), null, 2);
+                        DaySchedule.of(2, 1, List.of(slotAt(1, 36.45, 127.48)))), null, 2, StartDayLeave.FULL_DAY);
 
         assertNull(course.distanceFromPrevDayMeters(0));
     }
@@ -326,7 +327,7 @@ class CourseTest {
         // 멀어도 화면에 아무 표시가 없었다.
         Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(
                         DaySchedule.of(1, 0, List.of(slotAt(1, 36.30, 127.30), slotAt(2, 36.40, 127.40))),
-                        DaySchedule.of(2, 1, List.of(slotAt(1, 36.60, 127.60)))), null, 2);
+                        DaySchedule.of(2, 1, List.of(slotAt(1, 36.60, 127.60)))), null, 2, StartDayLeave.FULL_DAY);
 
         Integer meters = course.distanceFromPrevDayMeters(1);
 
@@ -337,7 +338,7 @@ class CourseTest {
 
     @Test
     void 범위_밖_인덱스는_거리를_주지_않는다() {
-        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(DaySchedule.of(1, 0, List.of(slotAt(1, 36.35, 127.38)))), null, 1);
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(DaySchedule.of(1, 0, List.of(slotAt(1, 36.35, 127.38)))), null, 1, StartDayLeave.FULL_DAY);
 
         assertNull(course.distanceFromPrevDayMeters(1));
         assertNull(course.distanceFromPrevDayMeters(-1));

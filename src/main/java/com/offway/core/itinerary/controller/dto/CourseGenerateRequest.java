@@ -3,6 +3,7 @@ package com.offway.core.itinerary.controller.dto;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
+import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.transport.domain.TransportMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMax;
@@ -23,6 +24,7 @@ import java.time.LocalDate;
  * @param originLat 출발지 위도(동선 정렬 기준)
  * @param originLng 출발지 경도
  * @param travelDate 가는 날(정책 운영기간 매칭)
+ * @param startDayLeave 첫날에 쓴 연차 (선택, 기본 FULL_DAY). 출발 시각이 여기서 도출돼 첫날 일정을 자른다(#138)
  */
 public record CourseGenerateRequest(
         @Schema(example = "42", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull @Positive Long regionId,
@@ -34,9 +36,16 @@ public record CourseGenerateRequest(
                 @NotNull @DecimalMin("-90") @DecimalMax("90") Double originLat,
         @Schema(example = "127.02", requiredMode = Schema.RequiredMode.REQUIRED)
                 @NotNull @DecimalMin("-180") @DecimalMax("180") Double originLng,
-        @Schema(example = "2026-05-01", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull LocalDate travelDate) {
+        @Schema(example = "2026-05-01", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull LocalDate travelDate,
+        @Schema(
+                        description = "첫날에 쓴 연차 (선택, 기본 FULL_DAY). 출발 시각이 여기서 나오고 그 시각이 "
+                                + "첫날 일정을 자른다 — FULL_DAY 08시 · HALF_DAY 12시 · QUARTER_DAY 15시",
+                        example = "HALF_DAY",
+                        nullable = true)
+                StartDayLeave startDayLeave) {
 
     public GenerateCourse toCommand() {
-        return GenerateCourse.first(regionId, travelDays, density, transport, originLat, originLng, travelDate);
+        return GenerateCourse.first(
+                regionId, travelDays, density, transport, originLat, originLng, travelDate, startDayLeave);
     }
 }
