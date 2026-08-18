@@ -52,4 +52,9 @@ interface DevicePushTokenJpaRepository extends JpaRepository<DevicePushToken, Lo
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from DevicePushToken d where d.guestId = :guestId")
     int deleteByGuestId(@Param("guestId") String guestId);
+
+    /** 토큰으로 지운다(소유자 무관) — FCM 이 죽었다고 답한 토큰 정리(#270). */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from DevicePushToken d where d.token = :token")
+    int deleteByToken(@Param("token") String token);
 }
