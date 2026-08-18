@@ -18,6 +18,7 @@ public class QuotaController implements QuotaApi {
     @Override
     @GetMapping
     public ApiResponseBody<QuotaResponse> quotas() {
-        return ApiResponseBody.ok(QuotaResponse.of(callRecorder.today(), callRecorder.usageToday()));
+        return ApiResponseBody.ok(QuotaResponse.of(
+                callRecorder.today(), callRecorder.usageToday(), callRecorder.callerUsageToday()));
     }
 }

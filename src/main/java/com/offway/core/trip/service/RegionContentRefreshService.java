@@ -1,6 +1,8 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.repository.BatchRunRepository;
+import com.offway.core.common.external.Caller;
+import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.config.BatchBudgetProperties;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
@@ -50,6 +52,9 @@ public class RegionContentRefreshService {
     /** 배치 식별자 — {@code batch_run} 의 키다. 바꾸면 "한 번도 안 돈 것" 이 되어 그 주에 한 번 더 돈다. */
     static final String BATCH_NAME = "region-content-refresh";
 
+    /** 이 배치가 태운 외부 호출에 붙는 이름(#285). 알림에 그대로 실리므로 사람이 읽는 말로 둔다. */
+    private static final Caller CALLER = Caller.of("지역콘텐츠배치");
+
     /** 실행 간격 — 위 주기와 같은 값이어야 한다. 재부팅이 이 창 안이면 외부를 아예 안 부른다. */
     private static final Duration MIN_INTERVAL = Duration.ofDays(7);
 
@@ -75,14 +80,16 @@ public class RegionContentRefreshService {
      */
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = REFRESH_INTERVAL)
     public void refreshIfStale() {
-        LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
-        if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
-            log.info("지역 콘텐츠를 최근 {}에 이미 갱신해 건너뜁니다", MIN_INTERVAL);
-            return;
-        }
-        // 실패해도 남긴다 — 안 남기면 같은 주에 재부팅마다 130회를 다시 쏜다.
-        batchRunRepository.markStarted(BATCH_NAME, now);
-        refresh();
+        CallerContext.run(CALLER, () -> {
+            LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+            if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
+                log.info("지역 콘텐츠를 최근 {}에 이미 갱신해 건너뜁니다", MIN_INTERVAL);
+                return;
+            }
+            // 실패해도 남긴다 — 안 남기면 같은 주에 재부팅마다 130회를 다시 쏜다.
+            batchRunRepository.markStarted(BATCH_NAME, now);
+            refresh();
+        });
     }
 
     /**

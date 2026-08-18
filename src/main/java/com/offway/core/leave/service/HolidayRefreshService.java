@@ -1,5 +1,7 @@
 package com.offway.core.leave.service;
 
+import com.offway.core.common.external.Caller;
+import com.offway.core.common.external.CallerContext;
 import com.offway.core.leave.domain.HolidayException;
 import com.offway.core.leave.domain.HolidayRefreshWindow;
 import com.offway.core.leave.domain.StoredHolidayMonth;
@@ -50,11 +52,23 @@ public class HolidayRefreshService {
     /** 갱신 주기. 이미 오늘 채웠으면 외부를 아예 안 부르므로, 재배포가 잦아도 호출량이 늘지 않는다. */
     private static final String REFRESH_INTERVAL = "P1D";
 
+    /** 이 배치가 태운 외부 호출에 붙는 이름(#285). 알림에 그대로 실리므로 사람이 읽는 말로 둔다. */
+    private static final Caller CALLER = Caller.of("특일정보배치");
+
     private final HolidayClient holidayClient;
     private final HolidayMonthRepository holidayMonthRepository;
 
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = REFRESH_INTERVAL)
     public void refresh() {
+        CallerContext.run(CALLER, this::refreshDueMonths);
+    }
+
+    /**
+     * 갱신이 필요한 달만 다시 받는다.
+     *
+     * <p>본체를 따로 둔 것은 주체를 심기 위해서다(#285) — 본문이 길어 람다로 감싸면 들여쓰기만 한 단 깊어진다.
+     */
+    private void refreshDueMonths() {
         HolidayRefreshWindow window = HolidayRefreshWindow.of(LocalDate.now(SERVICE_ZONE));
         List<YearMonth> targets = window.targetMonths();
         Map<YearMonth, StoredHolidayMonth> stored = holidayMonthRepository.findByMonths(targets).stream()

@@ -1,6 +1,8 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.repository.BatchRunRepository;
+import com.offway.core.common.external.Caller;
+import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.config.BatchBudgetProperties;
 import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
@@ -41,6 +43,9 @@ public class PoiIntroRefreshService {
     private static final String REFRESH_INTERVAL = "P1D";
 
     static final String BATCH_NAME = "poi-intro-refresh";
+
+    /** 이 배치가 태운 외부 호출에 붙는 이름(#285). 알림에 그대로 실리므로 사람이 읽는 말로 둔다. */
+    private static final Caller CALLER = Caller.of("장소운영시간배치");
 
     /**
      * 하루에 쓸 호출 수 — 관광정보 한도(1,000)의 30%.
@@ -84,14 +89,16 @@ public class PoiIntroRefreshService {
      */
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = REFRESH_INTERVAL)
     public void refreshIfStale() {
-        LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
-        if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
-            log.info("장소 운영시간을 최근 {}에 이미 받아 건너뜁니다", MIN_INTERVAL);
-            return;
-        }
-        // 결과가 아니라 실행을 기록한다 — 전부 실패한 회차에 아무것도 안 써지면 재부팅마다 다시 쏜다.
-        batchRunRepository.markStarted(BATCH_NAME, now);
-        refresh();
+        CallerContext.run(CALLER, () -> {
+            LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+            if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
+                log.info("장소 운영시간을 최근 {}에 이미 받아 건너뜁니다", MIN_INTERVAL);
+                return;
+            }
+            // 결과가 아니라 실행을 기록한다 — 전부 실패한 회차에 아무것도 안 써지면 재부팅마다 다시 쏜다.
+            batchRunRepository.markStarted(BATCH_NAME, now);
+            refresh();
+        });
     }
 
     /**

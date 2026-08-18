@@ -47,6 +47,7 @@ public class ExternalApiCallRecorder {
         try {
             LocalDate today = today();
             long used = repository.recordAndCount(api, today);
+            repository.recordCaller(api, today, CallerContext.current());
             logUsage(api, used);
             notifyIfStepCrossed(api, today, used);
         } catch (RuntimeException e) {
@@ -57,6 +58,11 @@ public class ExternalApiCallRecorder {
     /** 오늘자 API 별 사용량·잔여. 한 번도 안 부른 API 도 0 으로 함께 낸다. */
     public Map<ExternalApi, Long> usageToday() {
         return repository.countsOn(today());
+    }
+
+    /** 오늘자 API 별 <b>주체 내역</b>(#285). 한 번도 안 부른 API 는 키가 없다. */
+    public Map<ExternalApi, Map<String, Long>> callerUsageToday() {
+        return repository.callerCountsOn(today());
     }
 
     /** 지금 기준 KST 날짜. 자정을 넘기면 새 행이 되어 자연히 리셋된다. */
@@ -75,15 +81,36 @@ public class ExternalApiCallRecorder {
         if (step <= 0 || !repository.claimNotifyStep(api, date, step)) {
             return;
         }
-        notifier.send(usageMessage(api, used, step));
+        notifier.send(usageMessage(api, date, used, step));
     }
 
-    /** 한 줄로 읽히게. 한도 초과는 지금 무엇이 깨지는지까지 말한다. */
-    private String usageMessage(ExternalApi api, long used, int step) {
+    /**
+     * 한 줄로 읽히게. 한도 초과는 지금 무엇이 깨지는지까지 말한다.
+     *
+     * <p><b>둘째 줄에 주체 내역을 싣는다(#285).</b> 전에는 초과 사실만 알려줘 그 알림을 받고도 할 수 있는
+     * 일이 없었다 — 배치가 태웠는지 코스 생성이 태웠는지 몰라 다음 행동이 안 정해졌다.
+     */
+    private String usageMessage(ExternalApi api, LocalDate date, long used, int step) {
         String usage = "%s %d/%d (%d%%)".formatted(api.label(), used, api.dailyLimit(), ExternalApi.percentOf(step));
-        return used >= api.dailyLimit()
+        String headline = used >= api.dailyLimit()
                 ? "🔴 " + usage + " — 한도 소진. 이후 호출은 실패합니다"
                 : "⚠️ " + usage;
+        return headline + callerLine(api, date);
+    }
+
+    /**
+     * 주체 내역 줄. 실을 것이 없으면 <b>줄 자체를 안 붙인다</b> — 빈 줄이 붙으면 메시지가 고장 난 것처럼 보인다.
+     *
+     * <p>내역 조회가 실패해도 알림은 나간다. 한도가 찼다는 사실이 내역보다 급하다.
+     */
+    private String callerLine(ExternalApi api, LocalDate date) {
+        try {
+            CallerBreakdown breakdown = CallerBreakdown.of(repository.callerCountsOn(api, date));
+            return breakdown.isEmpty() ? "" : "\n" + breakdown.describe();
+        } catch (RuntimeException e) {
+            log.warn("외부 API 주체 내역 조회 실패 api={} cause={}", api, e.getClass().getSimpleName());
+            return "";
+        }
     }
 
     private void logUsage(ExternalApi api, long used) {
