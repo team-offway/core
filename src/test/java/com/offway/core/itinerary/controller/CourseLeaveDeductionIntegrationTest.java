@@ -62,6 +62,27 @@ class CourseLeaveDeductionIntegrationTest {
             ]}""";
 
     /**
+     * 위와 같은 코스인데 <b>첫날을 반차로 시작</b>한다(#284).
+     *
+     * <p>단위를 차감 요청이 아니라 <b>코스 저장에</b> 싣는다 — 차감은 코스가 아는 값을 쓰지 다시 묻지
+     * 않는다(#288). 예전에는 {@code POST /leave-deduction} 본문에 {@code halfDayStart} 를 실었다.
+     */
+    private static final String TWO_DAY_HALF_DAY_COURSE = """
+            { "regionId": 16, "density": "PACKED", "transport": "CAR", "travelDate": "2026-08-12",
+              "startDayLeave": "HALF_DAY", "days": [
+              { "day": 1, "items": [
+                {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":0}
+              ]},
+              { "day": 2, "items": [
+                {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c2","title":"장소2","lat":37.51,"lng":128.61,"travelMinutes":0}
+              ]}
+            ]}""";
+
+    /** 위와 같은 코스인데 <b>첫날을 반반차로 시작</b>한다(#278) — 첫날 소모가 0.25 라 차감이 1.25 다. */
+    private static final String TWO_DAY_QUARTER_DAY_COURSE =
+            TWO_DAY_HALF_DAY_COURSE.replace("\"HALF_DAY\"", "\"QUARTER_DAY\"");
+
+    /**
      * 첫날이 이동뿐이라 일정에서 빠진 2박3일 코스 — 담긴 날은 둘인데 여행은 8/12~8/14 사흘이다(#159 · #164).
      *
      * <p>{@code travelDays} 로 달력 기간을 함께 보낸다. 이게 없으면 서버는 담긴 날 수(2)를 기간으로 보고
@@ -134,15 +155,23 @@ class CourseLeaveDeductionIntegrationTest {
         return ((Number) JsonPath.read(saved, "$.data.courseId")).longValue();
     }
 
-    private org.springframework.test.web.servlet.ResultActions deduct(String guest, long courseId, String body)
+    /**
+     * 여행을 다녀왔다고 답한다 — <b>차감의 유일한 입구</b>(#288).
+     *
+     * <p>예전에는 {@code POST /courses/{id}/leave-deduction} 이 따로 있었다. 여행 <b>전</b>에 깎을 수 있어
+     * 취소한 여행의 연차가 묶인 채 남고 홈 모달도 뜨지 않아, 입구를 이쪽 하나로 모았다.
+     *
+     * <p>차감 단위(종일·반차·반반차)는 보내지 않는다. 코스가 만들어질 때 이미 답한 값을 서버가 쓴다.
+     */
+    private org.springframework.test.web.servlet.ResultActions answerVisited(String guest, long courseId)
             throws Exception {
         // 요청 단위로 인증한다 — 동시성 테스트는 별도 스레드라 @WithMockUser(현재 스레드 전용)가 안 닿는다.
         // 실제 Basic 자격증명 대신 mock 인증을 쓴다: 운영 계정이 바뀌어도 이 테스트가 깨지지 않는다.
-        return mockMvc.perform(post(COURSES + "/{id}/leave-deduction", courseId)
+        return mockMvc.perform(post(COURSES + "/{id}/trip-outcome", courseId)
                 .header("X-Guest-Id", guest)
                 .with(user("test"))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(body));
+                .content("{\"outcome\": \"VISITED\"}"));
     }
 
     @Test
@@ -152,7 +181,7 @@ class CourseLeaveDeductionIntegrationTest {
         setTotalLeave(guest, 15.0);
         long courseId = saveCourse(guest, TWO_DAY_COURSE);
 
-        deduct(guest, courseId, "{}")
+        answerVisited(guest, courseId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.code").value("OK"))
@@ -172,7 +201,7 @@ class CourseLeaveDeductionIntegrationTest {
         setTotalLeave(guest, 15.0);
         long courseId = saveCourse(guest, FIRST_DAY_EMPTY_COURSE);
 
-        deduct(guest, courseId, "{}")
+        answerVisited(guest, courseId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(3.0))
                 .andExpect(jsonPath("$.data.remainingDays").value(12.0));
@@ -187,7 +216,7 @@ class CourseLeaveDeductionIntegrationTest {
         setTotalLeave(guest, 15.0);
         long courseId = saveCourse(guest, FIRST_DAY_EMPTY_COURSE_WITHOUT_SPAN);
 
-        deduct(guest, courseId, "{}")
+        answerVisited(guest, courseId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(2.0));
     }
@@ -200,53 +229,56 @@ class CourseLeaveDeductionIntegrationTest {
         setTotalLeave(guest, 15.0);
         long courseId = saveCourse(guest, TWO_DAY_COURSE);
 
-        deduct(guest, courseId, "{}")
+        answerVisited(guest, courseId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(1.0))
                 .andExpect(jsonPath("$.data.remainingDays").value(14.0));
     }
 
     @Test
-    void 반차로_시작하면_0_5일_덜_차감된다() throws Exception {
+    void 반차로_만든_코스는_반차만큼만_차감된다() throws Exception {
+        // 사용자가 손해 보던 현재 버그다(#288). 모달 경로가 단위를 종일로 고정해, 반차로 짠 코스도
+        // 1.0 이 깎였다 — 매번 0.5 를 더 잃는다. 코스가 아는 값을 쓰면 사라진다.
         holidays(Set.of());
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        long courseId = saveCourse(guest, TWO_DAY_COURSE);
+        long courseId = saveCourse(guest, TWO_DAY_HALF_DAY_COURSE);
 
-        deduct(guest, courseId, "{\"halfDayStart\": true}")
+        answerVisited(guest, courseId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(1.5))
                 .andExpect(jsonPath("$.data.remainingDays").value(13.5));
     }
 
     @Test
-    void 반반차로_시작하면_0_25일만_덜_차감된다() throws Exception {
-        // **이 경로가 실제로 깨져 있었다.** StartDayLeave.QUARTER_DAY 는 첫날 0.25 를 소모하는데(#284)
-        // 연차 격자가 0.5 여서, 차감량 1.25 가 자기 검증에 걸려 LEAVE-010 400 이 나갔다 — 앱이 이미
-        // 내주는 선택지를 서버가 거절한 것이다(#278).
+    void 반반차로_만든_코스는_반반차만큼만_차감된다() throws Exception {
+        // **이 경로가 실제로 깨져 있었다.** 반반차의 첫날 소모는 0.25 인데(#284) 연차 격자가 0.5 여서,
+        // 차감량 1.25 가 자기 검증에 걸려 LEAVE-010 400 이 나갔다 — 앱이 이미 내주는 선택지를 서버가
+        // 거절한 것이다(#278). 반차(1.5)와 나란히 둬서 단위별 차감을 한눈에 대조한다.
         holidays(Set.of());
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
-        long courseId = saveCourse(guest, TWO_DAY_COURSE);
+        long courseId = saveCourse(guest, TWO_DAY_QUARTER_DAY_COURSE);
 
-        deduct(guest, courseId, "{\"startDayLeave\": \"QUARTER_DAY\"}")
+        answerVisited(guest, courseId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(1.25))
                 .andExpect(jsonPath("$.data.remainingDays").value(13.75));
     }
 
     @Test
-    void 같은_코스를_다시_확정해도_내역이_늘지_않는다() throws Exception {
+    void 같은_여행에_두_번_답해도_차감은_한_번이다() throws Exception {
         holidays(Set.of());
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
         long courseId = saveCourse(guest, TWO_DAY_COURSE);
 
-        deduct(guest, courseId, "{}").andExpect(status().isOk());
-        deduct(guest, courseId, "{}")
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.usedDays").value(2.0))
-                .andExpect(jsonPath("$.data.usages.length()").value(1));
+        answerVisited(guest, courseId).andExpect(status().isOk());
+        // 두 번째 답은 409 다 — 차감이 멱등인 것과 별개로, 이미 답한 여행에 다시 답하는 것은 막는다.
+        // 예전 POST /leave-deduction 은 200 을 돌려줬다. 그쪽은 "답" 이 아니라 "차감 명령" 이었다.
+        answerVisited(guest, courseId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ITINERARY-005"));
 
         mockMvc.perform(get(LEAVES).header("X-Guest-Id", guest))
                 .andExpect(status().isOk())
@@ -262,7 +294,7 @@ class CourseLeaveDeductionIntegrationTest {
         setTotalLeave(guest, 1.0);
         long courseId = saveCourse(guest, TWO_DAY_COURSE);
 
-        deduct(guest, courseId, "{}")
+        answerVisited(guest, courseId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(2.0))
                 .andExpect(jsonPath("$.data.remainingDays").value(-1.0));
@@ -274,7 +306,7 @@ class CourseLeaveDeductionIntegrationTest {
         String guest = uniqueGuest();
         long courseId = saveCourse(guest, COURSE_WITHOUT_DATE);
 
-        deduct(guest, courseId, "{}")
+        answerVisited(guest, courseId)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.code").value("ITINERARY-004"))
@@ -287,13 +319,13 @@ class CourseLeaveDeductionIntegrationTest {
         String owner = uniqueGuest();
         long courseId = saveCourse(owner, TWO_DAY_COURSE);
 
-        deduct(uniqueGuest(), courseId, "{}")
+        answerVisited(uniqueGuest(), courseId)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-003"));
     }
 
     @Test
-    void 같은_코스를_동시에_확정해도_내역은_하나다() throws Exception {
+    void 같은_여행에_동시에_답해도_차감은_하나다() throws Exception {
         // 조회로만 거르면 두 요청이 둘 다 "아직 안 했다" 를 보고 두 번 차감한다 — 유니크 제약이 막는지 확인한다.
         holidays(Set.of());
         String guest = uniqueGuest();
@@ -310,7 +342,7 @@ class CourseLeaveDeductionIntegrationTest {
                 pool.submit(() -> {
                     try {
                         start.await();
-                        statuses.add(deduct(guest, courseId, "{}").andReturn().getResponse().getStatus());
+                        statuses.add(answerVisited(guest, courseId).andReturn().getResponse().getStatus());
                     } catch (Exception e) {
                         statuses.add(-1);
                     } finally {
@@ -324,8 +356,10 @@ class CourseLeaveDeductionIntegrationTest {
             pool.shutdownNow();
         }
 
-        Assertions.assertEquals(List.of(200, 200), statuses.stream().sorted().toList(),
-                "동시 확정은 경합일 뿐 실패가 아니다. 실제=" + statuses);
+        // 하나는 답을 기록하고, 다른 하나는 유니크 제약에 걸려 409 다. 둘 다 200 이면 답이 두 번
+        // 기록됐다는 뜻이고, 그러면 차감도 두 번 돌 수 있다.
+        Assertions.assertEquals(List.of(200, 409), statuses.stream().sorted().toList(),
+                "동시 답변은 하나만 기록돼야 한다. 실제=" + statuses);
         mockMvc.perform(get(LEAVES).header("X-Guest-Id", guest))
                 .andExpect(jsonPath("$.data.usedDays").value(2.0))
                 .andExpect(jsonPath("$.data.usages.length()").value(1));
@@ -343,7 +377,7 @@ class CourseLeaveDeductionIntegrationTest {
         String guest = uniqueGuest();
         setTotalLeave(guest, 15.0);
         long courseId = saveCourse(guest, TWO_DAY_COURSE);
-        String deducted = deduct(guest, courseId, "{}")
+        String deducted = answerVisited(guest, courseId)
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         long usageId = ((Number) JsonPath.read(deducted, "$.data.usages[0].id")).longValue();

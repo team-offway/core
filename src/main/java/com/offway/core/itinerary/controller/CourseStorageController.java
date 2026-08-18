@@ -7,7 +7,6 @@ import com.offway.core.itinerary.controller.dto.TripOutcomeRequest;
 import com.offway.core.itinerary.controller.dto.PendingTripsResponse;
 import com.offway.core.leave.controller.dto.MyLeaveResponse;
 import com.offway.core.itinerary.service.CourseLeaveDeductionService;
-import com.offway.core.itinerary.controller.dto.CourseLeaveDeductionRequest;
 import com.offway.core.itinerary.domain.CourseScope;
 import com.offway.core.itinerary.service.dto.MyCourses;
 import com.offway.core.itinerary.controller.dto.CourseResponse;
@@ -94,16 +93,6 @@ public class CourseStorageController implements CourseStorageApi {
         courseStorageService.delete(guestId, courseId);
         // 204 를 쓰지 않는다 — 응답 래퍼가 항상 body 를 만든다(exception-and-response).
         return ApiResponseBody.ok(null);
-    }
-
-    @Override
-    @PostMapping("/{courseId}/leave-deduction")
-    public ApiResponseBody<MyLeaveResponse> deductLeave(
-            @RequestHeader(GUEST_HEADER) String guestId,
-            @PathVariable long courseId,
-            @Valid @RequestBody CourseLeaveDeductionRequest request) {
-        return ApiResponseBody.ok(MyLeaveResponse.from(
-                courseLeaveDeductionService.deduct(guestId, courseId, request.startDayLeaveOrFullDay())));
     }
 
     @Override

@@ -236,17 +236,15 @@ class TripOutcomeIntegrationTest {
     }
 
     @Test
-    void 내_코스에서_이미_차감했으면_묻지_않는다() throws Exception {
-        // "연차 차감하기" 를 눌렀다는 건 곧 "다녀왔다" 는 답이다.
+    void 다녀왔다고_답한_여행은_다시_묻지_않는다() throws Exception {
+        // 예전에는 "내 코스에서 차감을 눌렀으면 묻지 않는다" 였다. 차감 입구가 trip-outcome 하나가 되면서
+        // (#288) 차감은 답 없이 존재할 수 없고, 그래서 "차감했다" 와 "답했다" 가 같은 사실이 됐다.
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 13.0);
-        // 차감을 부르므로 여행일이 평일이어야 한다 — minusDays 로 잡으면 실행 요일에 따라 주말이 걸리고,
-        // 그러면 차감할 평일이 0일이라 "0 은 차감하지 않는다"(LeaveDays) 규칙에 막혀 400 이 난다.
+        // 여행일이 평일이어야 한다 — 주말이면 차감할 평일이 0일이라 "0 은 차감하지 않는다"(LeaveDays)에 걸린다.
         long courseId = saveCourse(guest, weekdayRun(-3, 1));
-        mockMvc.perform(post(COURSES + "/{id}/leave-deduction", courseId).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isOk());
+        answer(guest, courseId, "VISITED").andExpect(status().isOk());
 
         pending(guest).andExpect(jsonPath("$.data.trips.length()").value(0));
     }
@@ -347,15 +345,13 @@ class TripOutcomeIntegrationTest {
     }
 
     @Test
-    void 이미_차감한_여행에_안_갔다고_답할_수_없다() throws Exception {
+    void 다녀왔다고_답한_뒤_안_갔다고_뒤집을_수_없다() throws Exception {
         // 통과시키면 차감은 남은 채 "안 갔다" 로 기록되고, 모달에도 안 떠서 화면에서 바로잡을 길이 사라진다.
         noHolidays();
         String guest = uniqueGuest();
         setTotalLeave(guest, 13.0);
         long courseId = saveCourse(guest, weekdayRun(-3, 2));
-        mockMvc.perform(post(COURSES + "/{id}/leave-deduction", courseId).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isOk());
+        answer(guest, courseId, "VISITED").andExpect(status().isOk());
 
         answer(guest, courseId, "NOT_VISITED")
                 .andExpect(status().isConflict())
