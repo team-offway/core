@@ -14,6 +14,14 @@ public interface UserIdentityRepository {
     Optional<UserIdentity> findByProviderAndSubject(AuthProvider provider, String subject);
 
     /**
+     * 이 사용자가 어느 provider 로 로그인했는지 — 내 정보 조회가 쓴다(#282).
+     *
+     * <p><b>없을 수 있다.</b> local 개발 로그인({@code /auth/dev-login})은 provider 연결 없이 사용자만
+     * 만든다. 그 경우를 예외로 다루면 로컬에서 이 조회가 통째로 깨진다.
+     */
+    Optional<UserIdentity> findFirstByUserId(UUID userId);
+
+    /**
      * 탈퇴 — 이 사용자의 provider 연결을 모두 끊는다.
      *
      * <p>지우지 않으면 {@code (provider, provider_user_id)} UNIQUE 가 남아, 같은 사람이 다시 가입할 때
