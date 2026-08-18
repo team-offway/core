@@ -27,21 +27,34 @@ class LeaveDaysTest {
     }
 
     @ParameterizedTest
-    @ValueSource(doubles = {0.5, 1, 3, 99, -0.5, -3, -99})
-    void 사용_증감은_음수도_허용하고_상한은_총_연차와_같다(double days) {
-        // 음수(상쇄 등록)를 아직 받는다 — 거절은 앱이 삭제 API 로 갈아탄 뒤로 미뤘다(#276).
-        // 먼저 켜면 앱의 취소가 400 을 받아 그 구간 동안 사용자가 취소를 못 한다.
-        // ±99 를 함께 둔 이유: 사용 증감도 MAX_TOTAL 을 쓰는데, 경계가 없으면 상한이 예전 365 로
+    @ValueSource(doubles = {0.5, 1, 3, 99})
+    void 사용_일수는_0점5_단위_양수다(double days) {
+        // 99 를 함께 둔 이유: 사용 일수도 MAX_TOTAL 을 쓰는데, 경계가 없으면 상한이 예전 365 로
         // 남아 있어도 이 테스트가 통과한다(#142 가 99 로 좁힌 계약을 못 지킨다).
         assertTrue(LeaveDays.isValidUsage(days));
     }
 
     @ParameterizedTest
-    @ValueSource(doubles = {0, 0.3, -0.2, 99.5, -99.5, 400})
-    void 사용_증감이_0이거나_0점5_단위가_아니거나_상한_밖이면_거부한다(double days) {
+    @ValueSource(doubles = {0, 0.3, -0.2, 99.5, -99.5, 400, -0.5, -1, -99})
+    void 사용_일수가_0이거나_음수거나_0점5_단위가_아니거나_상한_밖이면_거부한다(double days) {
         // 0 은 아무것도 바꾸지 않는 기록이라 소음이다.
+        // 음수는 예전엔 취소를 뜻해 받았는데, 같은 취소가 두 번 들어오면 잔여가 총을 넘었다(#265).
         // ±99.5 는 상한 바로 바깥 — 이게 없으면 상한이 365 여도 400 만 걸려 통과한다.
         assertFalse(LeaveDays.isValidUsage(days));
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = {-0.5, -1, -2, -99, -0.3})
+    void 음수는_상쇄_등록으로_가른다(double days) {
+        // 사유가 갈려야 화면이 "삭제로 취소하세요" 를 안내한다 — 0.5 단위 위반과 같은 코드로 답하면
+        // 사용자는 자기가 숫자를 잘못 넣은 줄 안다.
+        assertTrue(LeaveDays.isReversal(days));
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = {0, 0.5, 1, 99, 0.3})
+    void 영_이상은_상쇄_등록이_아니다(double days) {
+        assertFalse(LeaveDays.isReversal(days));
     }
 
     @ParameterizedTest

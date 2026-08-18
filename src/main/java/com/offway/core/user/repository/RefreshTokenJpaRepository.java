@@ -17,6 +17,7 @@ public interface RefreshTokenJpaRepository extends JpaRepository<RefreshToken, U
 
     List<RefreshToken> findByUserIdAndRevokedAtIsNull(UUID userId);
 
+    int deleteByUserId(UUID userId);
     /**
      * 조건부 UPDATE 로 회전 권리를 선점한다 — 살아 있고 만료되지 않은 토큰을 이번 호출이 폐기했을 때만 1을 돌려준다.
      *

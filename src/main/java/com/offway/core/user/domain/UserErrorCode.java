@@ -26,7 +26,15 @@ public enum UserErrorCode implements ErrorCode {
      * provider 의 공개키(JWKS) 조회 실패. "네 토큰이 틀렸다(401)"와 구분해 502 로 내린다 — 전자는 재로그인,
      * 후자는 재시도로 클라이언트가 취할 행동이 다르다.
      */
-    OIDC_PROVIDER_UNAVAILABLE("USER-005", ErrorCategory.EXTERNAL_API, "로그인 서비스에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주세요.");
+    OIDC_PROVIDER_UNAVAILABLE("USER-005", ErrorCategory.EXTERNAL_API, "로그인 서비스에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주세요."),
+
+    /**
+     * 토큰은 유효한데 그 사용자가 없다 — 이미 탈퇴한 계정이다.
+     *
+     * <p>access 토큰은 무상태라 탈퇴 후에도 만료(기본 1시간)까지 서명 검증을 통과한다. 그 창에 들어온 요청을
+     * 401 로 돌려보내야 앱이 로그인 화면으로 돌아간다.
+     */
+    WITHDRAWN_USER("USER-006", ErrorCategory.UNAUTHORIZED, "이미 탈퇴한 계정입니다. 다시 로그인해 주세요.");
 
     private final String code;
     private final ErrorCategory category;

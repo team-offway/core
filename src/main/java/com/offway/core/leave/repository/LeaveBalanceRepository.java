@@ -9,4 +9,11 @@ public interface LeaveBalanceRepository {
     Optional<LeaveBalance> findByGuestId(String guestId);
 
     LeaveBalance save(LeaveBalance balance);
+
+    /**
+     * 탈퇴 — 이 소유자의 연차 설정을 지운다.
+     *
+     * @return 지운 행 수 (설정한 적 없으면 0)
+     */
+    int deleteByGuestId(String guestId);
 }

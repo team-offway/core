@@ -111,13 +111,13 @@ class LeaveUsageTest {
 
     @ParameterizedTest
     @ValueSource(doubles = {-0.5, -1, -2, -99})
-    void 수동_내역은_아직_음수를_받는다(double days) {
-        // 되돌리기는 삭제가 맞지만, 거절을 지금 켜면 앱이 갈아타기 전 구간에서 취소가 끊긴다 —
-        // #276 으로 미뤘다. 미뤄도 잔여가 총을 넘는 증상은 LeaveSummary 의 clamp 가 막는다.
-        LeaveUsage usage = LeaveUsage.manual("guest-1", WHEN, days, "취소");
+    void 수동_내역도_음수를_받지_않는다(double days) {
+        // 상쇄 등록이 잔여를 총 연차보다 크게 만들던 자리다(#265). 되돌리기는 이제 삭제다.
+        LeaveException thrown =
+                assertThrows(LeaveException.class, () -> LeaveUsage.manual("guest-1", WHEN, days, "취소"));
 
-        assertEquals(days, usage.getDays());
-        assertTrue(usage.isManual(), "상쇄 등록도 수동 내역이라 사용자가 삭제로 정리할 수 있다");
+        assertEquals(LeaveErrorCode.LEAVE_USAGE_REVERSAL_NOT_ALLOWED, thrown.errorCode(),
+                "0.5 단위 위반과 사유가 달라야 화면이 '삭제로 취소하세요' 를 안내한다");
     }
 
     @Test
