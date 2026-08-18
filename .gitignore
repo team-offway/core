@@ -29,6 +29,9 @@ secret.properties
 *.jks
 *.keystore
 *.key
+# Apple 로그인 키 (AuthKey_XXXXXXXXXX.p8) — 레포가 public 이라 확장자로 먼저 막는다.
+# 재발급이 안 되는 키라 한 번 새면 콘솔에서 폐기하고 새로 만드는 수밖에 없다.
+*.p8
 credentials.json
 **/secrets/
 # Firebase — 서비스 계정 비공개 키(서버가 쓴다)와 앱 설정 파일(앱이 쓴다). 둘 다 레포에 두지 않는다.

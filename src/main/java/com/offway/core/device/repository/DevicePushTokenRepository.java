@@ -38,4 +38,5 @@ public interface DevicePushTokenRepository {
      * @return 지운 건수
      */
     int deleteByToken(String token);
+
 }

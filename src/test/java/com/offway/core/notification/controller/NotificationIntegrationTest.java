@@ -1,6 +1,7 @@
 package com.offway.core.notification.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,12 +16,21 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 알림 조회·읽음의 HTTP 계약(#263).
@@ -43,11 +53,26 @@ class NotificationIntegrationTest {
 
     private static final LocalDateTime BASE_TIME = LocalDateTime.of(2026, 8, 13, 9, 0);
 
+    /**
+     * 동시성 테스트가 기다릴 상한.
+     *
+     * <p>상한이 없으면 워커가 교착되거나 응답하지 않을 때 {@code barrier.await()}·{@code Future.get()} 이
+     * 무기한 매달린다 — {@code finally} 의 {@code shutdownNow()} 에도 닿지 못해 <b>실패가 보고되지 않고
+     * 빌드가 멎는다.</b> 매달림과 실패는 다른 신호여야 한다.
+     */
+    private static final long CONCURRENCY_TIMEOUT_SECONDS = 30;
+
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
     private NotificationRepository notificationRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private Notification given(String guestId, Long courseId, int minutesAfterBase) {
         return notificationRepository.save(Notification.builder()
@@ -246,5 +271,89 @@ class NotificationIntegrationTest {
     @Test
     void 게스트_헤더가_아예_없으면_400이다() throws Exception {
         mockMvc.perform(get(URL)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * 같은 알림을 동시에 읽어도 <b>둘 다 200 이다</b> — HTTP 계약 쪽.
+     *
+     * <p>목록에서 눌러 들어가며 같은 요청이 두 번 나가기 쉬운 자리다. 진 쪽이 실패하면 사용자는 아무 잘못도
+     * 하지 않았는데 오류를 본다.
+     *
+     * <p><b>"한 번만 기록됐는가" 는 여기서 확인하지 않는다.</b> 그 계약은 응답에 드러나지 않으므로
+     * {@link #동시에_읽으면_한_번만_기록된다()} 가 맡는다.
+     */
+    @Test
+    void 동시에_읽어도_둘_다_성공한다() throws Exception {
+        String guest = "noti-race-" + UUID.randomUUID();
+        Notification target = given(guest, null, 0);
+        int attempts = 2;
+        CyclicBarrier barrier = new CyclicBarrier(attempts);
+        ExecutorService executor = Executors.newFixedThreadPool(attempts);
+        try {
+            List<Future<Integer>> results = new ArrayList<>();
+            for (int i = 0; i < attempts; i++) {
+                results.add(executor.submit(() -> {
+                    barrier.await(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    // 클래스의 @WithMockUser 는 이 스레드에 안 따라온다 — 요청마다 인증을 싣는다.
+                    return mockMvc.perform(patch(READ_URL, target.getId())
+                                    .with(user("dev"))
+                                    .header(GUEST_HEADER, guest))
+                            .andReturn()
+                            .getResponse()
+                            .getStatus();
+                }));
+            }
+            for (Future<Integer> result : results) {
+                assertEquals(
+                        200, result.get(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS), "동시 읽음 중 하나가 실패했다");
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+
+        Long read = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM notification WHERE id = ? AND read_at IS NOT NULL", Long.class, target.getId());
+        assertEquals(1L, read, "읽음으로 바뀌지 않았다");
+    }
+
+    /**
+     * 동시에 읽으면 <b>실제로 기록한 호출은 하나뿐이다</b>.
+     *
+     * <p>{@code read_at} 이 채워졌는지 세는 것으로는 이 계약이 안 잡힌다 — 조건 없는 UPDATE 가 두 번 돌아
+     * 나중 쪽이 처음 읽은 시각을 덮어써도 "채워진 행 하나" 는 그대로다. 시각을 직접 비교하는 것도 못 쓴다:
+     * 두 호출이 같은 밀리초를 쓰면 덮어썼는지 아닌지 구별되지 않는다.
+     *
+     * <p><b>바꾼 행 수를 본다.</b> 조건부 UPDATE 면 이긴 쪽만 1 이고 진 쪽은 0 이다 — 판정이 DB 안에서
+     * 갈렸다는 직접 증거다. 이 값은 응답에 실리지 않으므로(둘 다 200 이 계약이다) port 를 직접 부른다.
+     * 내부 컴포넌트라 stub 이 아니라 실제 빈이고, {@code @Modifying} 이 트랜잭션을 요구하므로 호출마다
+     * 하나를 열어 준다.
+     */
+    @Test
+    void 동시에_읽으면_한_번만_기록된다() throws Exception {
+        String guest = "noti-claim-" + UUID.randomUUID();
+        Notification target = given(guest, null, 0);
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        int attempts = 2;
+        CyclicBarrier barrier = new CyclicBarrier(attempts);
+        ExecutorService executor = Executors.newFixedThreadPool(attempts);
+        List<Integer> changed = new ArrayList<>();
+        try {
+            List<Future<Integer>> results = new ArrayList<>();
+            for (int i = 0; i < attempts; i++) {
+                results.add(executor.submit(() -> {
+                    barrier.await(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    return transaction.execute(status ->
+                            notificationRepository.markRead(guest, target.getId(), BASE_TIME.plusHours(1)));
+                }));
+            }
+            for (Future<Integer> result : results) {
+                changed.add(result.get(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertEquals(1, Collections.frequency(changed, 1), "기록에 성공한 호출이 하나여야 한다 실제=" + changed);
+        assertEquals(1, Collections.frequency(changed, 0), "이미 읽음으로 갈린 호출이 하나여야 한다 실제=" + changed);
     }
 }

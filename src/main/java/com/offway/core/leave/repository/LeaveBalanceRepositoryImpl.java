@@ -21,4 +21,9 @@ public class LeaveBalanceRepositoryImpl implements LeaveBalanceRepository {
     public LeaveBalance save(LeaveBalance balance) {
         return jpaRepository.save(balance);
     }
+
+    @Override
+    public int deleteByGuestId(String guestId) {
+        return jpaRepository.deleteByGuestId(guestId);
+    }
 }

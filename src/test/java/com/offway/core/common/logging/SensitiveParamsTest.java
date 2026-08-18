@@ -118,6 +118,38 @@ class SensitiveParamsTest {
     }
 
     @Test
+    void 접두어가_붙은_토큰_이름도_가린다() {
+        // \btoken= 만으로는 못 잡는다 — accessToken 은 token 앞이 단어 문자라 경계가 없다(#34).
+        // 소셜 로그인부터 이 이름들이 실제로 흐르므로, 놓치면 provider 액세스 토큰이 그대로 로그에 박힌다.
+        String message = "401 from POST /auth?accessToken=aaa&idToken=bbb&refreshToken=ccc&client_secret=ddd";
+
+        String masked = SensitiveParams.maskSecretsInText(message);
+
+        assertFalse(masked.contains("aaa"), "실제=" + masked);
+        assertFalse(masked.contains("bbb"), "실제=" + masked);
+        assertFalse(masked.contains("ccc"), "실제=" + masked);
+        assertFalse(masked.contains("ddd"), "실제=" + masked);
+    }
+
+    @Test
+    void Bearer_토큰을_가린다() {
+        // 헤더 형태라 이름=값 규칙으로는 안 걸린다. 이 값은 그대로 카카오 프로필을 부를 수 있는 토큰이다(#34).
+        String message = "401 from GET https://kapi.kakao.com/v2/user/me [Authorization: Bearer aBc123.dEf-456_ghi]";
+
+        String masked = SensitiveParams.maskSecretsInText(message);
+
+        assertFalse(masked.contains("aBc123.dEf-456_ghi"), "실제=" + masked);
+        assertTrue(masked.contains("Bearer ***"), "실제=" + masked);
+        assertTrue(masked.contains("kapi.kakao.com"), "비밀이 아닌 주소는 남아야 한다. 실제=" + masked);
+    }
+
+    @Test
+    void 토큰_이름을_쿼리에서도_가린다() {
+        assertEquals("accessToken=***", SensitiveParams.readableParams("accessToken=abc123"));
+        assertEquals("refreshToken=***", SensitiveParams.readableParams("refreshToken=abc123"));
+    }
+
+    @Test
     void 디스코드_웹훅_토큰을_가린다() {
         // 이름=값 규칙으로는 안 걸린다 — 토큰이 경로 조각이라 이름이 없다. 그런데 이 URL 끝을 아는 사람은
         // 누구나 우리 채널에 글을 쓸 수 있다(#257).
@@ -167,5 +199,33 @@ class SensitiveParamsTest {
     @Test
     void 값이_null_이어도_깨지지_않는다() {
         assertEquals("", SensitiveParams.forLog(null));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"access_token", "id_token", "refresh_token", "identity_token"})
+    void OAuth_규격_이름의_토큰도_가린다(String name) {
+        // 우리 앱은 camelCase 로 보내지만 OAuth 규격(RFC 6749)이 쓰는 이름은 snake_case 다. 제공자 쪽 URL 이
+        // 예외 메시지에 실려 들어오는 경로가 있어, 한쪽만 적으면 그 경로로 토큰이 그대로 로그에 남는다.
+        assertEquals(name + "=***", SensitiveParams.readableParams(name + "=secret"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"access_token", "id_token", "refresh_token", "identity_token"})
+    void 자유_텍스트에_섞인_OAuth_토큰도_가린다(String name) {
+        // 두 경로는 서로 다른 규칙으로 가린다 — readableParams 는 이름 목록으로, maskSecretsInText 는
+        // 이름=값 패턴으로. 한쪽만 잠그면 다른 쪽에서 이름이 빠져도 테스트가 초록인 채 토큰이 로그에 남는다.
+        // 외부 응답이 예외 메시지에 실려 오는 경로가 타는 것은 이쪽이다.
+        assertEquals(
+                "502 from POST /oauth/token " + name + "=***",
+                SensitiveParams.maskSecretsInText("502 from POST /oauth/token " + name + "=secret"));
+    }
+
+    @Test
+    void 물결이_섞인_Bearer_토큰도_통째로_가린다() {
+        // base64url·RFC 6750 이 허용하는 문자다. 문자 집합에서 빠지면 거기서 끊겨 뒷부분이 로그에 남는다.
+        // 전체 문자열로 고정한다 — 일부만 보면 "Bearer ***.ghi" 처럼 꼬리가 남아도 통과한다.
+        assertEquals(
+                "401 from GET /me Authorization: Bearer ***",
+                SensitiveParams.maskSecretsInText("401 from GET /me Authorization: Bearer abc~def.ghi"));
     }
 }

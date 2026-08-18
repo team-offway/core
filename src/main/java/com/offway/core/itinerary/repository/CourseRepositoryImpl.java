@@ -72,4 +72,10 @@ public class CourseRepositoryImpl implements CourseRepository {
     public void delete(Course course) {
         courseJpaRepository.delete(course);
     }
+
+    /** 파생 delete 라 엔티티를 로드해 지운다 — cascade·orphanRemoval 이 그대로 적용돼 하위가 고아로 남지 않는다. */
+    @Override
+    public int deleteByGuestId(String guestId) {
+        return courseJpaRepository.deleteByGuestId(guestId);
+    }
 }

@@ -60,12 +60,13 @@ public class NotificationService {
     @Transactional
     public long markRead(String guestId, long notificationId) {
         String owner = Notification.requireOwner(guestId);
-        Notification notification = notificationRepository
+        // 조회는 남긴다 — 없는 id 와 남의 id 를 404 로 가르는 자리다. UPDATE 만으로는 "0행" 이
+        // "이미 읽음" 인지 "남의 것" 인지 구분되지 않는다.
+        notificationRepository
                 .findOwned(owner, notificationId)
                 .orElseThrow(NotificationException::notificationNotFound);
-        if (notification.markRead(LocalDateTime.now(SERVICE_ZONE))) {
-            notificationRepository.save(notification);
-        }
+        // 판정과 기록을 한 문장으로 — 읽고 검사하고 쓰면 동시 요청에서 나중 쪽이 처음 읽은 시각을 덮어쓴다.
+        notificationRepository.markRead(owner, notificationId, LocalDateTime.now(SERVICE_ZONE));
         return notificationRepository.countUnread(owner);
     }
 
