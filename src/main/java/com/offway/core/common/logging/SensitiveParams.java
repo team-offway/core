@@ -12,13 +12,41 @@ import java.util.stream.Collectors;
  * 로그에 남기기 전에 쿼리스트링의 민감한 값을 가린다.
  *
  * <p><b>화이트리스트가 아니라 거부 목록으로 간다.</b> 화이트리스트면 파라미터가 늘 때마다 등록을 빠뜨려
- * 조용히 안 찍힌다 — 로그에서 그 사실은 눈에 띄지 않는다. 지금 도메인은 여행 레퍼런스 데이터라 개인정보가
- * 없고 사용자 계정도 임시 Basic 하나뿐이다(#122). OAuth 로 실사용자가 들어오면 이 규칙을 다시 본다.
+ * 조용히 안 찍힌다 — 로그에서 그 사실은 눈에 띄지 않는다.
+ *
+ * <p><b>소셜 로그인이 붙으면서 규칙을 다시 봤다(#34).</b> 예전 주석이 "OAuth 로 실사용자가 들어오면 다시 본다"
+ * 고 남긴 그 시점이다. 이제 요청·예외 메시지에 provider 액세스 토큰·ID 토큰·우리 refresh 토큰이 흐른다.
+ * {@code token} 만으로는 <b>안 걸린다</b> — {@code accessToken=...} 은 {@code token} 앞이 단어 문자라 경계가
+ * 성립하지 않아 그대로 로그에 박힌다. 그래서 이름 목록과 정규식 양쪽에 {@code *token} 변형을 넣었다.
  */
 public final class SensitiveParams {
 
-    /** 이름이 이 중 하나면 값을 가린다. 비교는 소문자로 한다. */
-    private static final Set<String> MASKED_NAMES = Set.of("servicekey", "appkey", "password", "token");
+    /**
+     * 이름이 이 중 하나면 값을 가린다. 비교는 소문자로 한다.
+     *
+     * <p>토큰은 {@code token} 하나로 뭉뚱그릴 수 없다 — 실제로 오는 이름이 {@code accessToken}·{@code idToken}·
+     * {@code refreshToken}·{@code identityToken} 이라 각각 적어야 걸린다.
+     *
+     * <p><b>snake_case 도 함께 적는다.</b> 우리 앱은 camelCase 로 보내지만 OAuth 규격(RFC 6749)이 쓰는 이름은
+     * {@code access_token}·{@code id_token}·{@code refresh_token} 이다. 제공자 쪽 URL 이 예외 메시지에 실려
+     * 들어오는 경로가 있어, 한쪽만 적으면 그 경로로 토큰이 그대로 로그에 남는다.
+     */
+    private static final Set<String> MASKED_NAMES = Set.of(
+            "servicekey",
+            "appkey",
+            "password",
+            "token",
+            "accesstoken",
+            "access_token",
+            "id_token",
+            "refresh_token",
+            "identity_token",
+            "idtoken",
+            "identitytoken",
+            "refreshtoken",
+            "secret",
+            "client_secret",
+            "authorization");
 
     private static final String MASK = "***";
 
@@ -47,9 +75,12 @@ public final class SensitiveParams {
      * 자유 텍스트에서 {@code 민감이름=값} 을 찾는다 — 값은 {@code &}·공백·따옴표·닫는 괄호 앞까지.
      *
      * <p>쿼리스트링 파서를 쓰지 않는 이유는 입력이 쿼리가 아니라 <b>아무 문장</b>(예외 메시지)이기 때문이다.
+     *
+     * <p>{@code token} 앞에 {@code [\w-]*} 를 붙여 {@code accessToken}·{@code id_token} 같은 변형까지 잡는다.
+     * 이게 없으면 {@code \btoken=} 이 {@code accessToken=} 을 놓친다 — 앞 글자가 단어 문자라 경계가 없다.
      */
     private static final Pattern SECRET_ASSIGNMENT =
-            Pattern.compile("(?i)\\b(serviceKey|appKey|password|token)=[^&\\s\"')\\]]*");
+            Pattern.compile("(?i)\\b(serviceKey|appKey|password|[\\w-]*token|[\\w-]*secret)=[^&\\s\"')\\]]*");
 
     /**
      * 디스코드 웹훅 URL 의 token 조각 — {@code .../webhooks/{id}/{token}}(#257).
@@ -60,6 +91,15 @@ public final class SensitiveParams {
      */
     private static final Pattern DISCORD_WEBHOOK =
             Pattern.compile("(?i)(/api/webhooks/\\d+/)[\\w-]+");
+
+    /**
+     * {@code Bearer <토큰>} — 헤더 형태라 {@link #SECRET_ASSIGNMENT}({@code 이름=값})로는 안 걸린다(#34).
+     *
+     * <p>소셜 로그인부터 우리 요청에 {@code Authorization: Bearer} 가 실린다. 외부 호출 실패 예외 메시지에 요청
+     * 헤더가 섞여 오면 액세스 토큰이 통째로 로그에 남는데, 그 토큰은 <b>그대로 카카오 프로필을 부를 수 있는 값</b>
+     * 이다. JWT 는 점을 포함하므로 값 문자 집합에 {@code .} 을 넣는다.
+     */
+    private static final Pattern BEARER_TOKEN = Pattern.compile("(?i)\\b(Bearer)\\s+[\\w.~\\-+/=]+");
     private static final String PAIR_DELIMITER = "&";
     private static final String NAME_VALUE_DELIMITER = "=";
     private static final int NAME_VALUE_LIMIT = 2;
@@ -151,7 +191,8 @@ public final class SensitiveParams {
             return text;
         }
         String assignmentsMasked = SECRET_ASSIGNMENT.matcher(text).replaceAll(secretReplacement());
-        return DISCORD_WEBHOOK.matcher(assignmentsMasked).replaceAll("$1" + MASK);
+        String webhooksMasked = DISCORD_WEBHOOK.matcher(assignmentsMasked).replaceAll("$1" + MASK);
+        return BEARER_TOKEN.matcher(webhooksMasked).replaceAll("$1 " + MASK);
     }
 
     private static String secretReplacement() {

@@ -57,6 +57,7 @@ public class RegionContentRefreshService {
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
     private final RegionContentProvider regionContentProvider;
+    private final RegionCategoryCountProvider regionCategoryCountProvider;
     private final RegionContentRepository regionContentRepository;
     private final RegionRepository regionRepository;
     private final BatchRunRepository batchRunRepository;
@@ -135,6 +136,9 @@ public class RegionContentRefreshService {
             // 새 값도 이전 값도 없으면 그 지역은 저장하지 않는다 — 호출자가 빈 콘텐츠로 취급한다.
         }
         regionContentRepository.replaceAll(rows);
+        // 필터칩 개수는 이 콘텐츠에서 세는 값이라, 바뀐 그 순간에 버려야 한다(#266). 여기서 안 버리면
+        // 다음 재계산 주기까지 칩이 옛 개수를 들고 있고, 새 배포의 첫 적재 뒤에는 "전부 0" 인 칩이 나간다.
+        regionCategoryCountProvider.invalidate();
 
         int missing = regions.size() - rows.size();
         if (missing > 0 || kept > 0 || fetched.degraded() > 0) {

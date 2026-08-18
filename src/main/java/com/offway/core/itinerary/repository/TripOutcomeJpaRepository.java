@@ -12,4 +12,6 @@ public interface TripOutcomeJpaRepository extends JpaRepository<TripOutcome, Lon
     /** 코스 ID 만 뽑는다 — 대기 목록은 "답했는가" 만 알면 되므로 행 전체를 끌어올 이유가 없다. */
     @Query("SELECT o.courseId FROM TripOutcome o WHERE o.guestId = :guestId")
     Set<Long> findAnsweredCourseIds(@Param("guestId") String guestId);
+
+    int deleteByGuestId(String guestId);
 }

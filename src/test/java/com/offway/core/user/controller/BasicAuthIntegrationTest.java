@@ -3,6 +3,7 @@ package com.offway.core.user.controller;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -10,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -74,5 +76,21 @@ class BasicAuthIntegrationTest {
         mockMvc.perform(get("/api/v1/categories").with(httpBasic(USERNAME, PASSWORD)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"));
+    }
+
+    /**
+     * Basic 으로는 <b>읽기만</b> 된다 — 브라우저가 자동으로 붙이는 자격증명으로 상태를 바꾸지 못하게 한다.
+     *
+     * <p>브라우저는 캐시된 Basic 자격증명을 교차 출처 쓰기 요청에도 보내고, 공개 GET 경로의 CORS 제한은 그
+     * 전송을 막지 못한다. 이 서비스는 CSRF 토큰을 쓰지 않는 무상태 API 라, 막는 자리가 여기다.
+     */
+    @Test
+    void Basic_으로는_쓰기를_못_한다() throws Exception {
+        mockMvc.perform(post("/api/v1/courses")
+                        .with(httpBasic(USERNAME, PASSWORD))
+                        .header("X-Guest-Id", "basic-write-attempt")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden());
     }
 }
