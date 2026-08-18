@@ -4,10 +4,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
 import com.offway.core.user.domain.AuthProvider;
+import com.offway.core.user.domain.User;
+import com.offway.core.user.repository.UserJpaRepository;
+import com.offway.core.user.service.TokenIssuer;
 import com.offway.core.user.infrastructure.social.StubSocialIdentityVerifier;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -50,6 +54,12 @@ class MyUserIntegrationTest {
     @Autowired
     private StubSocialIdentityVerifier socialIdentityVerifier;
 
+    @Autowired
+    private UserJpaRepository userJpaRepository;
+
+    @Autowired
+    private TokenIssuer tokenIssuer;
+
     @Test
     void 로그인한_사용자의_정보를_공통_래퍼로_내려준다() throws Exception {
         String accessToken = login(AuthProvider.GOOGLE, "세빈", "sevin@example.com");
@@ -74,15 +84,35 @@ class MyUserIntegrationTest {
     }
 
     @Test
-    void 이메일이_없으면_필드가_아예_안_내려간다() throws Exception {
+    void 이메일이_없으면_필드는_실리고_값이_null_이다() throws Exception {
         // 빈 문자열로 채우면 앱이 "없다" 와 "빈 값" 을 구분할 수 없어 마이페이지에 빈 줄을 그린다.
         // 카카오는 동의를 안 하면, Apple 은 최초 로그인에서 앱이 안 넘겼으면 이 상태가 된다.
         String accessToken = login(AuthProvider.GOOGLE, "세빈", null);
 
         mockMvc.perform(me(accessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.email").doesNotExist())
+                // doesNotExist() 를 쓰지 않는다. 그건 "non-null 값이 없다" 만 보므로 필드가 null 로 실린 것과
+                // 아예 빠진 것을 구분하지 못한다. 이 응답은 null 로 나가는 것이 계약이고(MyUserResponse·UserApi
+                // 둘 다 그렇게 적는다), 나중에 필드가 사라져도 doesNotExist() 는 그대로 통과한다.
+                .andExpect(jsonPath("$.data.email").value(nullValue()))
                 .andExpect(jsonPath("$.data.nickname").value("세빈"));
+    }
+
+    /**
+     * 소셜 연결이 없는 계정은 {@code provider} 가 <b>null 로 실린다</b>.
+     *
+     * <p>local 개발 로그인(`/auth/dev-login`)이 만드는 상태다. 그 컨트롤러는 {@code @Profile("local")} 이라
+     * 통합 테스트에서 부를 수 없어, 같은 상태(신원 없는 사용자)를 직접 만들어 확인한다.
+     */
+    @Test
+    void 소셜_연결이_없는_계정은_provider가_null_로_실린다() throws Exception {
+        User withoutIdentity = userJpaRepository.save(User.withNickname("연결없는사용자"));
+        String accessToken = tokenIssuer.issueAccessToken(withoutIdentity.getId());
+
+        mockMvc.perform(me(accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nickname").value("연결없는사용자"))
+                .andExpect(jsonPath("$.data.provider").value(nullValue()));
     }
 
     @Test
