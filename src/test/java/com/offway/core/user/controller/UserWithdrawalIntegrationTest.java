@@ -48,6 +48,11 @@ import org.springframework.test.web.servlet.MockMvc;
  *
  * <p>개인정보처리방침이 약속한 동작이라 "대충 지워진다" 로는 부족하다. 남는 것(공유 링크)도 의도된
  * 선택이므로 함께 잠근다.
+ *
+ * <p><b>클래스 레벨 트랜잭션 롤백에 기대지 않는다</b>(빠뜨린 것이 아니다). 탈퇴는 이벤트 리스너가 발행자
+ * 트랜잭션에 참여해 한 덩어리로 커밋되는 것이 핵심인데, 테스트가 바깥에서 트랜잭션을 열어 롤백해 버리면
+ * 그 경계가 테스트 트랜잭션에 흡수돼 검증하려던 성질이 사라진다. 대신 시나리오마다 고유 UUID 로 격리한다
+ * — {@code AuthIntegrationTest} 도 같은 이유로 같은 방식이다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -272,6 +277,18 @@ class UserWithdrawalIntegrationTest {
 
     // ── 헬퍼 ──────────────────────────────────────────────────
 
+    @Test
+    void 탈퇴는_다른_사람의_데이터를_건드리지_않는다() throws Exception {
+        Session mine = login();
+        Session other = login();
+        Long otherCourse = saveCourse(other.guestId());
+
+        mockMvc.perform(withdraw(mine.accessToken())).andExpect(status().isOk());
+
+        assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
+        assertEquals(otherCourse, courseJpaRepository.findById(otherCourse).orElseThrow().getId());
+    }
+
     private record Session(UUID userId, String accessToken, String refreshToken, String guestId) {}
 
     private Session login() throws Exception {
@@ -346,17 +363,5 @@ class UserWithdrawalIntegrationTest {
     private static UUID userIdOf(String accessToken) {
         String payload = new String(java.util.Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]));
         return UUID.fromString(JsonPath.read(payload, "$.sub"));
-    }
-
-    @Test
-    void 탈퇴는_다른_사람의_데이터를_건드리지_않는다() throws Exception {
-        Session mine = login();
-        Session other = login();
-        Long otherCourse = saveCourse(other.guestId());
-
-        mockMvc.perform(withdraw(mine.accessToken())).andExpect(status().isOk());
-
-        assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
-        assertEquals(otherCourse, courseJpaRepository.findById(otherCourse).orElseThrow().getId());
     }
 }
