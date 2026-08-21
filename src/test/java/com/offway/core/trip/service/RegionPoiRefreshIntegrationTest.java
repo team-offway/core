@@ -53,6 +53,9 @@ class RegionPoiRefreshIntegrationTest {
     @Autowired
     private StubTourApiClient tourApiClient;
 
+    @Autowired
+    private com.offway.core.trip.repository.HeritagePlaceRepository heritagePlaceRepository;
+
     @Test
     void 사진과_분류를_담아_지역에_적재한다() {
         YearMonth baseYm = YearMonth.of(2099, 3);
@@ -174,6 +177,38 @@ class RegionPoiRefreshIntegrationTest {
         List<RegionPoi> shown = regionPoiRepository.findShowable(regionId, 10);
         assertTrue(shown.stream().noneMatch(p -> "C-9".equals(p.getContentId())), "대분류 없는 장소가 담겼다");
         assertTrue(shown.stream().noneMatch(p -> "C-10".equals(p.getContentId())), "모르는 대분류가 담겼다");
+    }
+
+    /**
+     * <b>사진 있는 장소가 모자라면 국가유산으로 메운다 — 외부 호출 없이.</b>
+     *
+     * <p>인구감소지역은 TourAPI 등록 수 자체가 적고 사진이 없는 경우도 많아, 그것만으로는 시안의 최소
+     * (2개)가 안 채워지는 지역이 있다. 국가유산 3,437건은 이미 DB 에 있고 사진 96% 를 들고 있다.
+     */
+    @Test
+    void 사진_있는_장소가_모자라면_국가유산으로_메운다() {
+        YearMonth baseYm = YearMonth.of(2099, 12);
+        long regionId = regionWithHeritage();
+        // TourAPI 는 사진 있는 장소를 하나만 준다 — 최소(2)에 못 미친다.
+        tourApiClient.respond(() -> result(poi("C-400", "NA", "하나뿐인 곳", "http://img/400.jpg")));
+
+        refreshService.refresh(baseYm);
+
+        List<RegionPoi> shown = regionPoiRepository.findShowable(regionId, 10);
+        assertTrue(shown.size() > 1, "보충이 안 돼 매력 포인트가 한 개뿐이다");
+        assertTrue(
+                shown.stream().anyMatch(p -> p.getContentId().startsWith("HER-")),
+                "국가유산으로 보충되지 않았다");
+        assertTrue(shown.stream().allMatch(RegionPoi::showable), "사진 없는 국가유산이 섞였다");
+    }
+
+    /** 국가유산이 실제로 있는 지역을 고른다 — 없는 지역을 고르면 이 테스트가 성립하지 않는다. */
+    private long regionWithHeritage() {
+        return regionRepository.findAll().stream()
+                .map(Region::getId)
+                .filter(id -> !heritagePlaceRepository.findVisitableCandidates(id, 1).isEmpty())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("국가유산이 적재된 지역이 없어 이 테스트가 성립하지 않는다"));
     }
 
     @TestConfiguration
