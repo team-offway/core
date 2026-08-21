@@ -54,8 +54,24 @@ class CourseGenerationIntegrationTest {
         }
     }
 
+    /**
+     * 콘텐츠 타입에 <b>맞는 대분류</b>를 함께 준다.
+     *
+     * <p>예전에는 대분류를 {@code "NA"} 로 고정했다. 풀을 콘텐츠 타입으로 가르던 시절엔 문제가 없었지만,
+     * 이제 대분류가 기준이라 <b>타입 39(음식점)인데 대분류가 자연</b>인 후보가 볼거리로 들어간다 —
+     * 실제 응답에는 없는 조합이다(전수 6,821건 확인, 어긋난 건 0건).
+     */
     private static TourPoi poi(String id, int contentTypeId, double lat, double lng) {
-        return new TourPoi(id, contentTypeId, "NA", "장소" + id, "부산 동구", lat, lng, "http://img/" + id + ".jpg", null);
+        return new TourPoi(id, contentTypeId, lclsOf(contentTypeId), "장소" + id, "부산 동구", lat, lng,
+                "http://img/" + id + ".jpg", null, null);
+    }
+
+    private static String lclsOf(int contentTypeId) {
+        return switch (contentTypeId) {
+            case 39 -> "FD";
+            case 32 -> "AC";
+            default -> "NA";
+        };
     }
 
     /** 볼거리·맛집·숙박이 넉넉한 지역 콘텐츠(부산 인근 좌표). */
@@ -118,7 +134,7 @@ class CourseGenerationIntegrationTest {
     void 코스_슬롯에_이미지_주소_카테고리_추천문구가_실린다() {
         // 126508 은 구석구석 캐치프레이즈 CSV 에 있는 실제 contentId(경복궁) — 추천 한 줄이 실려야 한다.
         tourApiClient.respond(() -> new TourPoiResult(List.of(
-                new TourPoi("126508", 12, "NA", "경복궁", "서울 종로구", 35.10, 129.03, "http://img/g.jpg", null),
+                new TourPoi("126508", 12, "NA", "경복궁", "서울 종로구", 35.10, 129.03, "http://img/g.jpg", null, null),
                 poi("s1", 12, 35.11, 129.04),
                 poi("f0", 39, 35.12, 129.05)), 3));
 

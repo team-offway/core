@@ -91,7 +91,7 @@ class RegionListIntegrationTest {
 
     /** 볼거리가 충분한 지역 콘텐츠 — 대표 이미지·categories(NA → 관광지). 89곳이 전부 같은 값을 받는다. */
     private static TourPoiResult content() {
-        TourPoi poi = new TourPoi("126508", 12, "NA", "가사동백숲해변", "전남 완도군", 34.36, 126.92, "http://img/1.jpg", null);
+        TourPoi poi = new TourPoi("126508", 12, "NA", "가사동백숲해변", "전남 완도군", 34.36, 126.92, "http://img/1.jpg", null, null);
         return new TourPoiResult(List.of(poi), 38);
     }
 

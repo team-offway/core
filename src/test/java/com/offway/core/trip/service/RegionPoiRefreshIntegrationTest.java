@@ -197,6 +197,6 @@ class RegionPoiRefreshIntegrationTest {
     }
 
     private static TourPoi poi(String contentId, String lclsSystm1, String title, String image) {
-        return new TourPoi(contentId, 12, lclsSystm1, title, "주소", 37.5, 127.0, image, "051-000-0000");
+        return new TourPoi(contentId, 12, lclsSystm1, title, "주소", 37.5, 127.0, image, "051-000-0000", null);
     }
 }

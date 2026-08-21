@@ -86,7 +86,7 @@ class RegionRecommendIntegrationTest {
 
     /** 볼거리가 충분한(확장 안 하는) 지역 콘텐츠 한 건 — 대표 이미지·categories(NA→관광지) 포함. */
     private static TourPoiResult sufficientContent() {
-        TourPoi poi = new TourPoi("126508", 12, "NA", "가사동백숲해변", "전남 완도군", 34.36, 126.92, "http://img/1.jpg", null);
+        TourPoi poi = new TourPoi("126508", 12, "NA", "가사동백숲해변", "전남 완도군", 34.36, 126.92, "http://img/1.jpg", null, null);
         return new TourPoiResult(List.of(poi), 38);
     }
 
@@ -262,7 +262,7 @@ class RegionRecommendIntegrationTest {
     void 무드칩을_지정하면_그_볼거리가_있는_지역만_통과해도_결과가_내려온다() throws Exception {
         dataLabClient.respond(TourVisitorResult::empty);
         // 모든 지역이 맛집(FD) 볼거리를 가진 것으로 stub → mood=FOOD 로 필터해도 결과가 유지된다
-        TourPoi food = new TourPoi("200", 39, "FD", "완도 전복집", "전남 완도군", 34.3, 126.7, null, null);
+        TourPoi food = new TourPoi("200", 39, "FD", "완도 전복집", "전남 완도군", 34.3, 126.7, null, null, null);
         tourApiClient.respond(() -> new TourPoiResult(List.of(food), 20));
         // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
         regionContentRefreshService.refresh();
@@ -281,7 +281,7 @@ class RegionRecommendIntegrationTest {
     void 볼거리가_부족하면_인접_50km_지역을_묶어_확장한다() throws Exception {
         dataLabClient.respond(TourVisitorResult::empty);
         // 모든 지역 볼거리 2개(충분 기준 9 미만) → 인접 50km 지역 콘텐츠로 확장(neighborIncluded)
-        TourPoi few = new TourPoi("1", 12, "NA", "작은 볼거리", "강원", 37.4, 128.8, "http://img/n.jpg", null);
+        TourPoi few = new TourPoi("1", 12, "NA", "작은 볼거리", "강원", 37.4, 128.8, "http://img/n.jpg", null, null);
         tourApiClient.respond(() -> new TourPoiResult(List.of(few), 2));
         // 요청 경로는 저장된 콘텐츠만 읽는다(#193) — stub 을 세팅한 뒤 적재를 거친다.
         regionContentRefreshService.refresh();
