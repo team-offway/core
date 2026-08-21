@@ -7,12 +7,10 @@ import com.offway.core.common.external.CallerContext;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.Category;
-import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.RegionPoi;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
-import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.RegionPoiRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -88,23 +86,11 @@ public class RegionPoiRefreshService {
      */
     private static final List<Integer> CONTENT_TYPES = new ArrayList<>(List.of(39, 32));
 
-    /**
-     * 사진 있는 장소가 이 수에 못 미치면 <b>국가유산으로 보충한다</b>.
-     *
-     * <p>시안이 매력 포인트 장소를 "최소 2개" 로 잡았다. TourAPI 만으로는 그 최소가 안 채워지는 지역이
-     * 있다 — 인구감소지역은 등록 수 자체가 적고, 등록돼 있어도 사진이 없는 경우가 많다.
-     */
-    private static final int MIN_SHOWABLE = 2;
-
-    /** 보충으로 더할 국가유산 수 상한 — 화면이 쓰는 10개를 넘겨 담을 이유가 없다. */
-    private static final int HERITAGE_SUPPLEMENT_ROWS = 10;
-
     private final RegionRepository regionRepository;
     private final RegionPoiRepository regionPoiRepository;
     private final TourApiClient tourApiClient;
     private final BatchRunRepository batchRunRepository;
     private final BatchBudgetProperties batchBudget;
-    private final HeritagePlaceRepository heritagePlaceRepository;
 
     @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID)
     public void refreshIfStale() {
@@ -197,11 +183,6 @@ public class RegionPoiRefreshService {
             }
         }
 
-        int fromTour = (int) byContentId.values().stream().filter(RegionPoi::showable).count();
-        if (fromTour < MIN_SHOWABLE) {
-            supplementWithHeritage(region.getId(), baseYm, now, byContentId);
-        }
-
         if (byContentId.isEmpty()) {
             log.warn("지역 장소 풀 — 받아온 장소가 0건이라 이전 값을 그대로 둡니다 regionId={}", region.getId());
             return false;
@@ -212,46 +193,6 @@ public class RegionPoiRefreshService {
         log.debug("지역 장소 풀 적재 regionId={} {}건 (사진 있음 {}건)",
                 region.getId(), pois.size(), pois.stream().filter(RegionPoi::showable).count());
         return true;
-    }
-
-    /**
-     * 사진 있는 장소가 모자란 지역을 <b>국가유산으로 메운다</b>(#304) — <b>외부 호출이 없다</b>.
-     *
-     * <p>국가유산 3,437건은 이미 DB 에 있고 <b>사진 96%·설명 98%</b> 를 들고 있다. TourAPI 를 더 부르면
-     * 한도를 태우지만 이쪽은 한 번의 DB 조회다. 코스 생성이 같은 이유로 같은 보충을 이미 쓴다(#144·#160).
-     *
-     * <p><b>모자랄 때만 쓴다.</b> 넉넉한 지역까지 섞으면 관광지 쪽이 국가유산으로 밀린다 — TourAPI 장소가
-     * 사진·소개가 더 두껍고 상세({@code GET /pois/{contentId}})도 풍부하다.
-     *
-     * <p>분류는 {@link Category#SIGHT} 다. 국가유산은 그 자체가 볼거리이고 숙박·맛집일 수 없다.
-     */
-    private void supplementWithHeritage(
-            long regionId, YearMonth baseYm, LocalDateTime now, Map<String, RegionPoi> byContentId) {
-        List<HeritagePlace> heritages =
-                heritagePlaceRepository.findVisitableCandidates(regionId, HERITAGE_SUPPLEMENT_ROWS);
-        int added = 0;
-        for (HeritagePlace heritage : heritages) {
-            // 사진 없는 국가유산으로 메우면 회색 판이 늘 뿐이다 — 보충의 목적이 사진이다.
-            if (heritage.getImageUrl() == null || heritage.getImageUrl().isBlank()) {
-                continue;
-            }
-            RegionPoi poi = RegionPoi.builder()
-                    .regionId(regionId)
-                    .contentId(heritage.publicId())
-                    .contentTypeId(0) // TourAPI 콘텐츠가 아니다
-                    .category(Category.SIGHT)
-                    .title(heritage.getName())
-                    .imageUrl(heritage.getImageUrl())
-                    .address(heritage.getAddress())
-                    .baseYm(baseYm)
-                    .fetchedAt(now)
-                    .build();
-            if (byContentId.putIfAbsent(poi.getContentId(), poi) == null) {
-                added++;
-            }
-        }
-        // degrade 한 사실을 남긴다 — 보충이 조용히 일어나면 TourAPI 쪽 공백을 아무도 모른다.
-        log.info("지역 장소 풀 — 국가유산으로 보충 regionId={} {}건 추가", regionId, added);
     }
 
     /**
