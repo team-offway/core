@@ -14,4 +14,8 @@ public final class TripException extends BaseException {
     public static TripException categoryKindMismatch() {
         return new TripException(TripErrorCode.CATEGORY_KIND_MISMATCH);
     }
+
+    public static TripException regionNotFound() {
+        return new TripException(TripErrorCode.REGION_NOT_FOUND);
+    }
 }
