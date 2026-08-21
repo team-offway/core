@@ -43,11 +43,24 @@ start_and_wait() {
   # **stdout 을 로그 쪽으로 돌린다.** 이 함수는 응답 코드를 stdout 으로 돌려주는데, `docker run -d` 도
   # 컨테이너 ID 를 stdout 에 찍는다. 그대로 두면 호출부의 `code=$(start_and_wait ...)` 가 둘을 함께
   # 받아 "HTTP 3f9a…401" 같은 문구가 나간다. stderr 도 로그로 합쳐지므로 ID 가 사라지지는 않는다.
-  docker run -d --name "$CONTAINER" --network offway-net --restart unless-stopped \
-    --env-file "$APP/env.prod" -p 8080:8080 "$image" >&2
+  # **띄우지 못했으면 거기서 끝낸다.** 이 스크립트는 `set -e` 가 없어(한 단계 실패로 복구 전체를
+  # 포기하면 안 된다) 실패가 저절로 멈추지 않는다. 그대로 두면 아래 응답 확인으로 흘러가는데,
+  # `docker run` 이 실패하는 가장 흔한 이유가 **8080 이 이미 물려 있는 것**이라 그때는 십중팔구
+  # 무언가가 응답한다 — 우리 컨테이너는 없는데 "롤백 완료" 가 찍힌다.
+  if ! docker run -d --name "$CONTAINER" --network offway-net --restart unless-stopped \
+    --env-file "$APP/env.prod" -p 8080:8080 "$image" >&2; then
+    echo "컨테이너를 띄우지 못했습니다 — 이미지=$image" >&2
+    return 1
+  fi
   for _ in $(seq 1 "$TRIES"); do
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$HEALTH_URL" || true)
     if [ "$code" = "401" ] || [ "$code" = "200" ]; then
+      # **8080 이 답한다고 우리 것이 산 것은 아니다.** 같은 포트를 남이 물고 있으면 그 응답을 우리
+      # 성공으로 읽는다. 응답과 컨테이너를 함께 봐야 "서비스가 살아 있다" 가 참이 된다.
+      if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+        echo "8080 이 HTTP $code 로 답하지만 $CONTAINER 가 떠 있지 않습니다 — 우리 응답이 아닙니다" >&2
+        return 1
+      fi
       echo "$code"
       return 0
     fi
