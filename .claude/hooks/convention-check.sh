@@ -112,8 +112,11 @@ case "$REL" in
 esac
 
 # ---------------------------------------------------------------- controller 레이어
+# src/main 에 한정한다. 테스트는 컨트롤러와 같은 패키지에 놓이지만 반대 규칙을 따른다 —
+# 테스트 규약이 "DB 격리는 클래스 레벨 @Transactional 자동 롤백" 을 요구하므로,
+# src/test 까지 잡으면 규약끼리 맞부딪혀 훅이 옳은 코드를 막는다.
 case "$REL" in
-*/controller/*.java)
+src/main/*/controller/*.java)
     deny "$FILE" '@Transactional' \
         "컨트롤러에 @Transactional" \
         "트랜잭션 경계는 서비스 메서드 레벨입니다."
