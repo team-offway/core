@@ -16,12 +16,14 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import com.offway.core.trip.repository.RegionPoiRepository;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 지역 장소 풀을 채우는 월 1회 배치(#304).
@@ -32,12 +34,17 @@ import org.springframework.context.annotation.Primary;
  * <p>"DB 상태 + 결정" 을 보는 테스트다 — 이미 최신인 지역을 건너뛰는가, 빈 응답으로 덮지 않는가,
  * 갱신이 통째로 갈아 끼우는가. 단위로는 확인할 수 없다.
  *
- * <p><b>기준월을 시나리오마다 다르게 쓴다.</b> 이 클래스는 DB 를 롤백하지 않는데(컨텍스트를 공유하는 다른
- * 통합 테스트와 같다), <b>이 배치의 건너뛰기 판정이 기준월</b>이다. 같은 달을 쓰면 앞 테스트가 채워 둔
- * 탓에 뒤 테스트가 통째로 건너뛰어져 <b>아무것도 저장되지 않는다</b> — 실제로 그렇게 한 번 깨졌다.
- * 다른 어떤 테스트도 쓰지 않을 먼 미래 달을 시나리오마다 따로 쓴다.
+ * <p><b>기준월을 시나리오마다 다르게 쓴다.</b> <b>이 배치의 건너뛰기 판정이 기준월</b>이라, 같은 달을
+ * 쓰면 앞 테스트가 채워 둔 탓에 뒤 테스트가 통째로 건너뛰어져 <b>아무것도 저장되지 않는다</b> — 실제로
+ * 그렇게 한 번 깨졌다. 다른 어떤 테스트도 쓰지 않을 먼 미래 달을 시나리오마다 따로 쓴다.
+ *
+ * <p><b>롤백은 클래스 레벨 {@code @Transactional} 이 한다</b>(테스트 규약). 이 클래스가 심는 장소와
+ * 배치 실행 표식이 남으면, 같은 컨텍스트를 쓰는 뒤 테스트가 <b>실행 순서에 따라</b> 그것을 전제로 돌거나
+ * 깨진다. 기준월을 나누는 것과는 다른 층의 방어다 — 그건 이 클래스 안의 충돌을, 이건 클래스 밖으로
+ * 새는 것을 막는다.
  */
 @SpringBootTest
+@Transactional
 class RegionPoiRefreshIntegrationTest {
 
 
@@ -141,7 +148,10 @@ class RegionPoiRefreshIntegrationTest {
         tourApiClient.respond(() -> new TourPoiResult(List.of(), 0));
         refreshService.refresh(baseYm.plusMonths(1));
 
-        assertEquals(before, regionPoiRepository.findShowable(regionId, 10).size(), "빈 응답이 이전 값을 지웠다");
+        // 개수만 보면 C-8 이 지워지고 다른 장소가 같은 수로 들어와도 통과한다 — 그 장소가 그대로인지 본다.
+        List<RegionPoi> after = regionPoiRepository.findShowable(regionId, 10);
+        assertEquals(before, after.size(), "빈 응답이 이전 값을 지웠다");
+        assertTrue(after.stream().anyMatch(p -> "C-8".equals(p.getContentId())), "이전 장소가 다른 것으로 바뀌었다");
     }
 
     /**
@@ -149,15 +159,25 @@ class RegionPoiRefreshIntegrationTest {
      *
      * <p>배치가 89곳을 도는데 한 곳의 실패로 전체를 버리면 그달 전부가 빈 채로 남는다 — 다음 실행은
      * 한 달 뒤다.
+     *
+     * <p><b>첫 호출만 실패시킨다.</b> 모든 호출을 실패시키면 "실패해도 계속 돈다" 와 "첫 실패에서 멈춘다"
+     * 가 같은 결과(0곳)를 내 구분되지 않는다. 뒤 지역이 실제로 채워졌는지까지 봐야 격리가 검증된다.
      */
     @Test
-    void 외부가_실패해도_배치가_통째로_죽지_않는다() {
+    void 한_지역이_실패해도_나머지_지역은_채운다() {
+        YearMonth baseYm = YearMonth.of(2099, 10);
+        AtomicInteger calls = new AtomicInteger();
         tourApiClient.respond(() -> {
-            throw TourApiException.serviceUnavailable();
+            if (calls.getAndIncrement() == 0) {
+                throw TourApiException.serviceUnavailable();
+            }
+            return result(poi("C-11", "NA", "뒤 지역의 장소", "http://img/11.jpg"));
         });
 
         // 예외가 밖으로 새면 이 호출 자체가 터진다.
-        assertEquals(0, refreshService.refresh(YearMonth.of(2099, 10)));
+        int filled = refreshService.refresh(baseYm);
+
+        assertTrue(filled > 0, "첫 지역이 실패하자 뒤 지역까지 안 채웠다");
     }
 
     /** 분류가 안 서는 장소는 담지 않는다 — 어느 칩을 눌러도 나오는 장소가 생기면 안 된다. */

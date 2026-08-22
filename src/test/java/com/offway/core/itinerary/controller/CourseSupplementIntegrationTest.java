@@ -45,6 +45,14 @@ class CourseSupplementIntegrationTest {
     /** 테스트 풀이 채운 지역 — 경상북도 의성군. */
     private static final String UISEONG = "76";
 
+    /**
+     * stub 후보의 주소도 그 지역으로 맞춘다.
+     *
+     * <p>요청 지역과 후보 주소가 어긋나 있으면, 주소를 읽는 후속 로직이 깨져도 이 테스트는 통과한다 —
+     * fixture 가 시나리오를 벗어난 만큼 회귀를 못 잡는다.
+     */
+    private static final String UISEONG_ADDRESS = "경상북도 의성군";
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -94,7 +102,7 @@ class CourseSupplementIntegrationTest {
      * 실제 응답에는 없는 조합이다(전수 6,821건 확인, 어긋난 건 0건).
      */
     private static TourPoi poi(String id, int contentTypeId, double lat, double lng) {
-        return new TourPoi(id, contentTypeId, lclsOf(contentTypeId), "장소" + id, "부산 동구", lat, lng,
+        return new TourPoi(id, contentTypeId, lclsOf(contentTypeId), "장소" + id, UISEONG_ADDRESS, lat, lng,
                 "http://img/" + id + ".jpg", null, null);
     }
 
