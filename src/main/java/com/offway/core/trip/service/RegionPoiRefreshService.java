@@ -79,12 +79,21 @@ public class RegionPoiRefreshService {
     private static final int ROWS_PER_CALL = 100;
 
     /**
+     * 외부가 콘텐츠 타입을 안 줬을 때 넣는 값.
+     *
+     * <p>TourAPI 의 유효한 타입은 12·14·15·25·28·32·38·39 라 {@code 0} 은 그중 어느 것도 아니다. 즉
+     * 이 값은 타입이 아니라 <b>"모른다"</b> 는 뜻이다. 리터럴로 두면 이 컬럼을 읽는 쪽이 실제 타입 코드로
+     * 오해한다.
+     */
+    private static final int UNKNOWN_CONTENT_TYPE = 0;
+
+    /**
      * 타입별로 나눠 부른다 — 전체타입 한 번으로는 <b>맛집·숙박이 과소표집된다</b>.
      *
      * <p>등록 수가 적은 지역에서 볼거리에 밀려 끼니와 잠자리가 목록에서 빠진다. {@code RegionPoiService} 가
      * 같은 이유로 같은 방식을 쓴다. {@code null} 은 전체타입이고, 체험(EX)은 그 안에 섞여 온다.
      */
-    private static final List<Integer> CONTENT_TYPES = new ArrayList<>(List.of(39, 32));
+    private static final List<Integer> CONTENT_TYPES = List.of(39, 32);
 
     private final RegionRepository regionRepository;
     private final RegionPoiRepository regionPoiRepository;
@@ -202,14 +211,14 @@ public class RegionPoiRefreshService {
      * {@code ALL} 로 떨어뜨려 담으면 어느 칩을 눌러도 나오는 장소가 생긴다.
      */
     private static RegionPoi toRegionPoi(long regionId, TourPoi poi, YearMonth baseYm, LocalDateTime now) {
-        Category category = categoryOf(poi.lclsSystm1());
+        Category category = Category.fromLclsSystm1(poi.lclsSystm1()).orElse(null);
         if (category == null || poi.contentId() == null || poi.title() == null || poi.title().isBlank()) {
             return null;
         }
         return RegionPoi.builder()
                 .regionId(regionId)
                 .contentId(poi.contentId())
-                .contentTypeId(poi.contentTypeId() == null ? 0 : poi.contentTypeId())
+                .contentTypeId(poi.contentTypeId() == null ? UNKNOWN_CONTENT_TYPE : poi.contentTypeId())
                 .category(category)
                 .title(poi.title())
                 .imageUrl(poi.firstImage())
@@ -222,16 +231,4 @@ public class RegionPoiRefreshService {
                 .build();
     }
 
-    /** 필터칩과 같은 규칙으로 가른다({@link Category}) — 판정이 둘로 갈리면 칩 개수와 목록이 어긋난다. */
-    private static Category categoryOf(String lclsSystm1) {
-        if (lclsSystm1 == null || lclsSystm1.isBlank()) {
-            return null;
-        }
-        for (Category candidate : Category.values()) {
-            if (candidate != Category.ALL && candidate.includes(lclsSystm1)) {
-                return candidate;
-            }
-        }
-        return null;
-    }
 }

@@ -2,6 +2,7 @@ package com.offway.core.trip.service.dto;
 
 import com.offway.core.trip.domain.RegionPoi;
 import java.util.List;
+import lombok.Builder;
 
 /**
  * 지역 상세 화면이 한 번에 필요한 것(#304) — 지역 소개 + 대표 사진 + 매력 포인트 장소.
@@ -15,6 +16,7 @@ import java.util.List;
  * @param benefit 이 지역에 걸리는 혜택. 없으면 null
  * @param highlightSpots 매력 포인트 장소 — <b>사진 있는 것만</b> 담긴다
  */
+@Builder
 public record RegionDetail(
         long regionId,
         String sido,

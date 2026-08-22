@@ -69,15 +69,16 @@ public class RegionDetailService {
             log.info("지역 상세 — 매력 포인트 장소가 없습니다 regionId={}", regionId);
         }
 
-        return new RegionDetail(
-                region.getId(),
-                region.getSido(),
-                region.getSigungu(),
+        return RegionDetail.builder()
+                .regionId(region.getId())
+                .sido(region.getSido())
+                .sigungu(region.getSigungu())
                 // 재료가 없으면 텍스트가 null 이고, 응답에서 그 필드가 사라진다(#140).
-                regionIntroProvider.of(regionId).text(),
-                photosOf(regionId),
-                benefitOf(regionId),
-                toSpots(spots));
+                .overview(regionIntroProvider.of(regionId).text())
+                .photos(photosOf(regionId))
+                .benefit(benefitOf(regionId))
+                .highlightSpots(toSpots(spots))
+                .build();
     }
 
     /**
