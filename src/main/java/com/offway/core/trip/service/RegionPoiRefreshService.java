@@ -210,9 +210,20 @@ public class RegionPoiRefreshService {
      * <p>{@code lclsSystm1} 이 비었거나 우리 네 칩 어디에도 안 걸리는 값이면 화면에 걸 자리가 없다.
      * {@code ALL} 로 떨어뜨려 담으면 어느 칩을 눌러도 나오는 장소가 생긴다.
      */
+    /**
+     * {@code RegionPoi} 가 필수로 요구하는 값인지 — 없으면 이 장소를 담지 않는다.
+     *
+     * <p><b>{@code null} 만 걸러선 부족하다.</b> 엔티티가 {@code contentId}·{@code title} 을 공백까지
+     * 막으므로(불변식), 빈 문자열이 여기를 통과하면 조립에서 예외가 난다. 그 예외는 지역 단위 catch 에
+     * 걸려 <b>그 지역이 통째로 안 채워진다</b> — 장소 하나 때문에 지역 하나가 빈다.
+     */
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
     private static RegionPoi toRegionPoi(long regionId, TourPoi poi, YearMonth baseYm, LocalDateTime now) {
         Category category = Category.fromLclsSystm1(poi.lclsSystm1()).orElse(null);
-        if (category == null || poi.contentId() == null || poi.title() == null || poi.title().isBlank()) {
+        if (category == null || isBlank(poi.contentId()) || isBlank(poi.title())) {
             return null;
         }
         return RegionPoi.builder()
