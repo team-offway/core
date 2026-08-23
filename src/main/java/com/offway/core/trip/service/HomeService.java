@@ -16,6 +16,8 @@ import com.offway.core.trip.domain.RegionPoi;
 import com.offway.core.trip.repository.PoiIntroRepository;
 import com.offway.core.trip.repository.RegionPoiRepository;
 import java.util.stream.Collectors;
+import java.util.Comparator;
+import java.util.stream.IntStream;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -125,7 +127,20 @@ public class HomeService {
         Map<Long, Region> regionById = topRegions.stream()
                 .collect(Collectors.toMap(Region::getId, region -> region));
 
-        return pois.stream().map(poi -> toPlaceCard(poi, regionById, intros, policiesByRegion)).toList();
+        // 조회는 지역 id 순으로 돌려준다(안정적 순서). 그대로 내리면 <b>랭킹이 무너진다</b> —
+        // 지역 카드는 방문자 랭킹 순인데 장소만 id 순이면 두 섹션이 어긋난다. 여기서 랭킹 순으로 세운다.
+        Map<Long, Integer> rankByRegion = IntStream.range(0, regionIds.size())
+                .boxed()
+                .collect(Collectors.toMap(regionIds::get, index -> index));
+        return pois.stream()
+                .sorted(Comparator
+                        .comparingInt((RegionPoi poi) -> rankByRegion.getOrDefault(poi.getRegionId(), Integer.MAX_VALUE))
+                        // 칩은 선언 순(관광지 → 숙박 → 체험 → 맛집)이다. 문자열 정렬로 두면
+                        // EXPERIENCE·FOOD·SIGHT·STAY 가 되어 화면에 아무 뜻 없는 차례가 된다.
+                        .thenComparing(RegionPoi::getCategory)
+                        .thenComparing(RegionPoi::getId))
+                .map(poi -> toPlaceCard(poi, regionById, intros, policiesByRegion))
+                .toList();
     }
 
     private HomeResult.PlaceCard toPlaceCard(
