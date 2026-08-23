@@ -137,8 +137,13 @@ jobs:
           P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
           # stderr 를 버리지 않는다. 버리면 "결과가 0행" 과 "질의가 실패" 가 겉보기에 같아진다.
           # (경고 한 줄만 걸러낸다 — 비밀번호를 명령줄로 넘길 때 mysql 이 매번 찍는다.)
+          #
+          # **`docker exec` 에 `-i` 를 주지 않는다.** 이 스크립트는 `ssh 'bash -s' <<REMOTE` 로
+          # stdin 을 타고 들어오는데, `-i` 를 주면 첫 질의가 남은 스크립트를 통째로 삼켜 그 뒤
+          # 명령이 사라진다. 실제로 그렇게 뒷부분이 조용히 실행되지 않았다 — 종료코드는 0 이라
+          # 성공처럼 보였다. 질의는 `-e` 로 넘기므로 stdin 이 필요 없다.
           q() {
-            docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
+            docker exec offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
               | grep -v 'Using a password on the command line'
             echo "[위 질의 종료코드=${PIPESTATUS[0]}]"
           }
@@ -163,8 +168,13 @@ jobs:
           P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
           # stderr 를 버리지 않는다. 버리면 "결과가 0행" 과 "질의가 실패" 가 겉보기에 같아진다.
           # (경고 한 줄만 걸러낸다 — 비밀번호를 명령줄로 넘길 때 mysql 이 매번 찍는다.)
+          #
+          # **`docker exec` 에 `-i` 를 주지 않는다.** 이 스크립트는 `ssh 'bash -s' <<REMOTE` 로
+          # stdin 을 타고 들어오는데, `-i` 를 주면 첫 질의가 남은 스크립트를 통째로 삼켜 그 뒤
+          # 명령이 사라진다. 실제로 그렇게 뒷부분이 조용히 실행되지 않았다 — 종료코드는 0 이라
+          # 성공처럼 보였다. 질의는 `-e` 로 넘기므로 stdin 이 필요 없다.
           q() {
-            docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
+            docker exec offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
               | grep -v 'Using a password on the command line'
             echo "[위 질의 종료코드=${PIPESTATUS[0]}]"
           }
@@ -215,8 +225,13 @@ jobs:
           P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
           # stderr 를 버리지 않는다. 버리면 "결과가 0행" 과 "질의가 실패" 가 겉보기에 같아진다.
           # (경고 한 줄만 걸러낸다 — 비밀번호를 명령줄로 넘길 때 mysql 이 매번 찍는다.)
+          #
+          # **`docker exec` 에 `-i` 를 주지 않는다.** 이 스크립트는 `ssh 'bash -s' <<REMOTE` 로
+          # stdin 을 타고 들어오는데, `-i` 를 주면 첫 질의가 남은 스크립트를 통째로 삼켜 그 뒤
+          # 명령이 사라진다. 실제로 그렇게 뒷부분이 조용히 실행되지 않았다 — 종료코드는 0 이라
+          # 성공처럼 보였다. 질의는 `-e` 로 넘기므로 stdin 이 필요 없다.
           q() {
-            docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
+            docker exec offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
               | grep -v 'Using a password on the command line'
             echo "[위 질의 종료코드=${PIPESTATUS[0]}]"
           }
