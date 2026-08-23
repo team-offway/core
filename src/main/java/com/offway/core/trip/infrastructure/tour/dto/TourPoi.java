@@ -11,7 +11,9 @@ package com.offway.core.trip.infrastructure.tour.dto;
  * @param lat 위도 (mapy)
  * @param lng 경도 (mapx)
  * @param firstImage 대표 이미지 URL (없으면 null)
- * @param tel 전화 (없으면 null)
+ * @param tel 전화 (없으면 null). 목록 응답에는 거의 안 온다 — 실측 0.7%(44/5,928)
+ * @param lclsSystm2 분류체계 중분류 코드 (AC05 캠핑·VE05 복합관광시설 등). <b>대분류만으로 안 갈리는 것</b>이
+ *     있어 함께 든다 — 실측(89곳 전수)에서 리조트가 대분류 {@code VE}(문화관광)로 오는데 실제로는 잘 곳이다
  */
 public record TourPoi(
         String contentId,
@@ -22,5 +24,6 @@ public record TourPoi(
         Double lat,
         Double lng,
         String firstImage,
-        String tel) {
+        String tel,
+        String lclsSystm2) {
 }

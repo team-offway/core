@@ -82,7 +82,7 @@ class RegionContentRefreshIntegrationTest {
     /** 볼거리 수만 다르게 주는 TourAPI 응답 — 대분류 NA 라 카테고리는 관광지로 잡힌다. */
     private static TourPoiResult poiResult(int totalCount) {
         TourPoi poi = new TourPoi(
-                "126508", 12, "NA", "가사동백숲해변", "전남 완도군", 34.36, 126.92, "http://img/a.jpg", null);
+                "126508", 12, "NA", "가사동백숲해변", "전남 완도군", 34.36, 126.92, "http://img/a.jpg", null, null);
         return new TourPoiResult(List.of(poi), totalCount);
     }
 

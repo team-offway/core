@@ -61,8 +61,24 @@ class CourseRegenerateIntegrationTest {
         }
     }
 
+    /**
+     * 콘텐츠 타입에 <b>맞는 대분류</b>를 함께 준다.
+     *
+     * <p>예전에는 대분류를 {@code "NA"} 로 고정했다. 풀을 콘텐츠 타입으로 가르던 시절엔 문제가 없었지만,
+     * 이제 대분류가 기준이라 <b>타입 39(음식점)인데 대분류가 자연</b>인 후보가 볼거리로 들어간다 —
+     * 실제 응답에는 없는 조합이다(전수 6,821건 확인, 어긋난 건 0건).
+     */
     private static TourPoi poi(String id, int contentTypeId, double lat, double lng) {
-        return new TourPoi(id, contentTypeId, "NA", "장소" + id, "부산 동구", lat, lng, "http://img/" + id + ".jpg", null);
+        return new TourPoi(id, contentTypeId, lclsOf(contentTypeId), "장소" + id, "부산 동구", lat, lng,
+                "http://img/" + id + ".jpg", null, null);
+    }
+
+    private static String lclsOf(int contentTypeId) {
+        return switch (contentTypeId) {
+            case 39 -> "FD";
+            case 32 -> "AC";
+            default -> "NA";
+        };
     }
 
     /** 볼거리를 서로 떨어진 곳에 흩어 둔다 — 씨앗이 다르면 다른 군집이 잡히도록. */

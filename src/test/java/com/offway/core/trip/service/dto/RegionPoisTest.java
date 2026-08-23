@@ -10,12 +10,12 @@ import org.junit.jupiter.api.Test;
 class RegionPoisTest {
 
     private static PoiCandidate poi(String name) {
-        return new PoiCandidate(name, 12, name, 36.3, 128.6, null, null, null, null);
+        return new PoiCandidate(name, 12, name, 36.3, 128.6, null, null, null, null, null, null);
     }
 
     /** 좌표가 겹치지 않게 흩어 둔다 — 같은 자리로 보면 중복 제거에 걸린다. */
     private static PoiCandidate poiAt(String name, double lat, double lng) {
-        return new PoiCandidate(name, 12, name, lat, lng, null, null, null, null);
+        return new PoiCandidate(name, 12, name, lat, lng, null, null, null, null, null, null);
     }
 
     private static List<PoiCandidate> pois(String prefix, int count) {
@@ -71,7 +71,7 @@ class RegionPoisTest {
     /** 같은 장소가 두 소스에 다 있으면 코스에 두 번 뜬다. 상호·좌표가 같으면 하나로 본다. */
     @Test
     void 이미_있는_장소는_보충에서_제외한다() {
-        PoiCandidate duplicate = new PoiCandidate("LIC-1", 0, "올인모텔", 36.3, 128.6, null, null, null, null);
+        PoiCandidate duplicate = new PoiCandidate("LIC-1", 0, "올인모텔", 36.3, 128.6, null, null, null, null, null, null);
         RegionPois pois = new RegionPois(List.of(), List.of(), List.of(poi("올인모텔")));
 
         RegionPois result = pois.supplementedWith(List.of(), List.of(), List.of(duplicate));
@@ -82,7 +82,7 @@ class RegionPoisTest {
     /** 소스마다 좌표 정밀도가 달라 같은 건물도 소수점이 어긋난다. 100m 안쪽이면 같은 곳으로 본다. */
     @Test
     void 좌표가_조금_달라도_같은_상호면_같은_곳으로_본다() {
-        PoiCandidate nearlySame = new PoiCandidate("LIC-1", 0, "올 인 모텔", 36.30004, 128.60003, null, null, null, null);
+        PoiCandidate nearlySame = new PoiCandidate("LIC-1", 0, "올 인 모텔", 36.30004, 128.60003, null, null, null, null, null, null);
         RegionPois pois = new RegionPois(List.of(), List.of(), List.of(poi("올인모텔")));
 
         RegionPois result = pois.supplementedWith(List.of(), List.of(), List.of(nearlySame));
@@ -96,7 +96,7 @@ class RegionPoisTest {
      */
     @Test
     void 상호가_같아도_위치가_다르면_둘_다_남긴다() {
-        PoiCandidate branch = new PoiCandidate("LIC-2", 0, "대박집", 36.42, 128.78, null, null, null, null);
+        PoiCandidate branch = new PoiCandidate("LIC-2", 0, "대박집", 36.42, 128.78, null, null, null, null, null, null);
         RegionPois pois = new RegionPois(List.of(), List.of(poi("대박집")), List.of());
 
         RegionPois result = pois.supplementedWith(List.of(), List.of(branch), List.of());

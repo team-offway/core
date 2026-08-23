@@ -20,7 +20,7 @@ class TourPoiResultTest {
     }
 
     private static TourPoi typed(int contentTypeId, String lclsSystm1, String firstImage) {
-        return new TourPoi("id", contentTypeId, lclsSystm1, "제목", "주소", 34.3, 126.7, firstImage, null);
+        return new TourPoi("id", contentTypeId, lclsSystm1, "제목", "주소", 34.3, 126.7, firstImage, null, null);
     }
 
     @Test
