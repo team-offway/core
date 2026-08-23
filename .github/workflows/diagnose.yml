@@ -7,8 +7,21 @@ name: Diagnose
 # 그대로 따르되 배포는 하지 않는다(읽기만).
 #
 # 시크릿 값 자체는 절대 찍지 않는다 — 길이와 앞뒤 몇 글자로 "무엇이 들어있는지" 만 확인한다.
+#
+# DB 조회도 여기서 한다(#309). MySQL 은 EC2 도커 안에 있고 3306 을 호스트로 노출하지 않아 밖에서
+# 붙을 수 없다. **SELECT 만 돌리고 질의를 이 파일에 박아 둔다** — 임의 SQL 을 입력으로 받을 수 있으면
+# 그건 더 이상 진단 도구가 아니다. 개인 식별 정보는 찍지 않고, 소유 키는 앞 8자만 남겨 동일성만 본다.
+#
+# scope 를 나눈 이유는 **외부 API 한도**다. 코스 생성 재현과 TourAPI 호출은 실제 한도를 태우므로,
+# DB 만 보면 되는 경우에 함께 돌면 그만큼 그날 사용자 몫이 준다.
 on:
   workflow_dispatch:
+    inputs:
+      scope:
+        description: "무엇을 볼까 — db(운영 DB 읽기) · external(외부 API 도달성) · all"
+        type: choice
+        default: db
+        options: [db, external, all]
 
 concurrency:
   group: deploy-prod
@@ -49,6 +62,7 @@ jobs:
       # 러너에서 본 값과 서버에서 본 값을 나란히 찍어, secret 이 서버까지 갔는지 가른다.
       # 값은 마스킹한다 — 길이와 지문만으로 동일성 판정에 충분하다.
       - name: 키 지문 대조 (러너 · 서버)
+        if: inputs.scope != 'db'
         run: |
           RUNNER_KEY='${{ secrets.DATA_GO_KR_SERVICE_KEY }}'
           echo "러너가 들고 있는 secret: 길이=${#RUNNER_KEY} 앞4=${RUNNER_KEY:0:4} 뒤4=${RUNNER_KEY: -4}"
@@ -66,6 +80,7 @@ jobs:
 
       # 서버에서 직접 외부를 부른다. 우리 앱을 거치지 않으므로 "코드 문제 vs 망/키 문제" 가 갈린다.
       - name: 서버에서 TourAPI 직접 호출
+        if: inputs.scope != 'db'
         run: |
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
           set -uo pipefail
@@ -82,6 +97,7 @@ jobs:
           REMOTE
 
       - name: 앱 로그에서 외부 호출 실패 흔적
+        if: inputs.scope != 'db'
         run: |
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
           set -uo pipefail
@@ -96,6 +112,7 @@ jobs:
 
       # 서버 안에서 우리 API 를 직접 불러 재현시킨다. 재현되면 그 직후 로그에 원인이 찍힌다.
       - name: 코스 생성 재현 + 직후 로그
+        if: inputs.scope != 'db'
         run: |
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
           set -uo pipefail
@@ -109,6 +126,102 @@ jobs:
           echo
           echo "--- 그 직후 로그 60줄 ---"
           docker logs --tail 60 offway-core 2>&1
+          REMOTE
+
+      - name: 배치 실행 기록 · 컨테이너 기동 시각
+        if: inputs.scope != 'external'
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -uo pipefail
+          U=$(grep '^DB_USERNAME=' ~/offway/env.prod | cut -d= -f2-)
+          P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
+          q() { docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>/dev/null; }
+
+          echo "=== 컨테이너 기동 시각 (이 시각 이후 로그만 남아 있다) ==="
+          docker inspect -f 'offway-core  started={{.State.StartedAt}}' offway-core
+          docker inspect -f 'offway-mysql started={{.State.StartedAt}}' offway-mysql
+
+          echo
+          echo "=== batch_run — 다른 배치들의 마지막 실행 ==="
+          q "SELECT name, last_run_at FROM batch_run ORDER BY last_run_at DESC;"
+          REMOTE
+
+      # 제보된 여행(8/19 출발 · 2일 · 8/20 종료)이 DB 에 어떤 모양으로 있는지.
+      # 소유 키는 앞 8자만 — 코스와 알림이 같은 키를 쓰는지만 보면 되고, 값 자체는 알 필요가 없다.
+      - name: 그 코스의 실제 모양
+        if: inputs.scope != 'external'
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -uo pipefail
+          U=$(grep '^DB_USERNAME=' ~/offway/env.prod | cut -d= -f2-)
+          P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
+          q() { docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>/dev/null; }
+
+          echo "=== 8/17~8/22 사이 출발하는 코스 (종료일 계산 포함) ==="
+          q "SELECT id,
+                    LEFT(guest_id, 8)                       AS owner8,
+                    guest_id IS NULL                        AS no_owner,
+                    region_id, travel_date, travel_days,
+                    DATE_ADD(travel_date, INTERVAL travel_days - 1 DAY) AS ended_on
+               FROM course
+              WHERE travel_date BETWEEN '2026-08-17' AND '2026-08-22'
+              ORDER BY travel_date, id;"
+
+          echo
+          echo "=== 그 코스들에 붙은 알림 ==="
+          q "SELECT n.id, n.type, n.course_id,
+                    LEFT(n.guest_id, 8) AS owner8, n.created_at
+               FROM notification n
+               JOIN course c ON c.id = n.course_id
+              WHERE c.travel_date BETWEEN '2026-08-17' AND '2026-08-22'
+              ORDER BY n.created_at;"
+
+          echo
+          echo "=== 답했나 · 차감했나 (대상에서 빠지는 두 조건) ==="
+          q "SELECT t.course_id, t.outcome, t.answered_on
+               FROM trip_outcome t
+               JOIN course c ON c.id = t.course_id
+              WHERE c.travel_date BETWEEN '2026-08-17' AND '2026-08-22';"
+          q "SELECT l.course_id, l.used_on, l.days
+               FROM leave_usage l
+               JOIN course c ON c.id = l.course_id
+              WHERE c.travel_date BETWEEN '2026-08-17' AND '2026-08-22';"
+          REMOTE
+
+      # 알림이 아예 안 만들어지는 것인지, 만들어지는데 그 코스만 빠지는 것인지.
+      - name: 알림 전체 분포
+        if: inputs.scope != 'external'
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -uo pipefail
+          U=$(grep '^DB_USERNAME=' ~/offway/env.prod | cut -d= -f2-)
+          P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
+          q() { docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>/dev/null; }
+
+          echo "=== 타입별 · 날짜별 알림 건수 (최근 14일) ==="
+          q "SELECT DATE(created_at) AS day, type, COUNT(*) AS cnt
+               FROM notification
+              WHERE created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+              GROUP BY day, type
+              ORDER BY day, type;"
+
+          echo
+          echo "=== TRIP_AFTER 가 한 번이라도 만들어진 적 있나 ==="
+          q "SELECT COUNT(*) AS trip_after_total, MIN(created_at) AS first_at, MAX(created_at) AS last_at
+               FROM notification WHERE type = 'TRIP_AFTER';"
+          REMOTE
+
+      - name: 남아 있는 로그에서 배치 흔적
+        if: inputs.scope != 'external'
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -uo pipefail
+          echo "=== 알림 배치 로그 (남아 있는 만큼) ==="
+          docker logs offway-core 2>&1 | grep -iE '여행 후기 알림|여행 전날 알림|여행 종료 대상' | tail -30 \
+            || echo "(해당 로그 없음 — 컨테이너 기동 이후로는 배치가 안 돌았거나 로그가 잘렸다)"
+          echo
+          echo "=== 스케줄러가 살아 있나 (최근 배치 로그 전반) ==="
+          docker logs --tail 5000 offway-core 2>&1 | grep -iE '배치|갱신|adaptor|Scheduled' | tail -20 || echo "(없음)"
           REMOTE
 
       - name: 러너 IP 회수
