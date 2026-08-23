@@ -1,15 +1,24 @@
 package com.offway.core.trip.controller.dto;
 
 import com.offway.core.policy.domain.PolicyType;
+import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.service.dto.HomeResult;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
- * 홈 응답 — API 계약. 남은 연차 + 필터칩 + 이번주 추천 지역(랭킹 top-N, 대표 이미지·categories·한산도·대표 혜택).
+ * 홈 응답 — API 계약.
+ *
+ * <p><b>섹션이 둘이다.</b> 시안의 위쪽은 장소 카드({@code recommendedPlaces}), 아래쪽은 지역 카드
+ * ({@code recommendedRegions})다. 이름만으로 어느 섹션 것인지 드러나지 않아 여기 적어 둔다 —
+ * 아래 것을 위 섹션에 쓰다가 제목에 지역명이 두 번 나온 적이 있다(#305).
  */
-public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<RegionCard> recommendedRegions) {
+public record HomeResponse(
+        User user,
+        List<CategoryResponse.Item> filters,
+        List<PlaceCard> recommendedPlaces,
+        List<RegionCard> recommendedRegions) {
 
     private static final String GUEST_NAME = "게스트";
 
@@ -17,7 +26,41 @@ public record HomeResponse(User user, List<CategoryResponse.Item> filters, List<
         return new HomeResponse(
                 new User(GUEST_NAME, result.remainingLeaveDays()),
                 CategoryResponse.of(result.categoryCounts()).categories(),
+                result.places().stream().map(PlaceCard::from).toList(),
                 result.regions().stream().map(RegionCard::from).toList());
+    }
+
+    /**
+     * <b>이번달 추천 여행지</b> 섹션의 카드 — 지역이 아니라 장소다(#305).
+     *
+     * @param poiContentId 장소 상세({@code GET /api/v1/pois/{poiId}})로 가는 키
+     * @param name 장소명. 시안의 제목이 이것이다
+     * @param imageUrl 대표 이미지 (없는 장소는 애초에 안 실린다)
+     * @param kind 이 장소가 걸린 칩 — 앱이 이 값으로 필터를 건다
+     * @param regionName 시군구명. 카드가 장소라 지역을 따로 싣는다
+     * @param subtitle 장소명 아래 한 줄. <b>없으면 null</b> — 앱이 그 줄을 접는다. 재료가 없는 장소가
+     *     실제로 있다(캠핑장·레포츠)
+     * @param benefit 그 지역의 대표 혜택 (없으면 null)
+     */
+    public record PlaceCard(
+            @Schema(example = "126508") String poiContentId,
+            @Schema(example = "삼탄아트마인") String name,
+            @Schema(example = "http://tong.visitkorea.or.kr/cms/resource/…") String imageUrl,
+            @Schema(example = "SIGHT") Category kind,
+            @Schema(example = "정선군") String regionName,
+            @Schema(example = "폐광촌에서 다시 태어난 마을", nullable = true) String subtitle,
+            @Schema(nullable = true) Benefit benefit) {
+
+        public static PlaceCard from(HomeResult.PlaceCard card) {
+            return new PlaceCard(
+                    card.poiContentId(),
+                    card.name(),
+                    card.imageUrl(),
+                    card.kind(),
+                    card.regionName(),
+                    card.subtitle(),
+                    card.benefit() == null ? null : Benefit.from(card.benefit()));
+        }
     }
 
     /**

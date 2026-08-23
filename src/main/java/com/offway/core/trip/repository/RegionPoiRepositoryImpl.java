@@ -23,6 +23,15 @@ public class RegionPoiRepositoryImpl implements RegionPoiRepository {
 
     @Override
     @Transactional(readOnly = true)
+    public List<RegionPoi> findForCards(List<Long> regionIds, int perCategory) {
+        if (regionIds.isEmpty()) {
+            return List.of();
+        }
+        return jpaRepository.findForCards(regionIds, perCategory);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public boolean hasFresh(long regionId, YearMonth baseYm) {
         return jpaRepository.existsFresh(regionId, RegionPoi.format(baseYm));
     }

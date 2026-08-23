@@ -10,9 +10,16 @@ import com.offway.core.trip.domain.RegionScore;
 import com.offway.core.trip.service.dto.HomeResult;
 import java.time.LocalDate;
 import java.util.HashMap;
+import com.offway.core.trip.domain.Category;
+import com.offway.core.trip.domain.PoiIntro;
+import com.offway.core.trip.domain.RegionPoi;
+import com.offway.core.trip.repository.PoiIntroRepository;
+import com.offway.core.trip.repository.RegionPoiRepository;
+import java.util.stream.Collectors;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
@@ -22,12 +29,24 @@ import org.springframework.stereotype.Service;
  * <p>TourAPI 콘텐츠 호출은 read-timeout 이 길어 트랜잭션으로 묶지 않는다(persistence-convention). 랭킹·리포지토리가 각자 짧은
  * 트랜잭션을 갖고, 콘텐츠 부착은 tx 밖에서 한다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class HomeService {
 
     /** 홈에 노출하는 추천 지역 수. */
     private static final int HOME_REGION_LIMIT = 6;
+
+    /**
+     * 장소 카드를 지역·칩마다 몇 건씩 고를지(#305).
+     *
+     * <p>배치가 받아 둔 수({@code PoiIntroRefreshService.CARDS_PER_CATEGORY})와 <b>같아야 한다</b> —
+     * 더 고르면 부제 없는 카드가 섞이고, 덜 고르면 받아 둔 값이 화면에 안 나온다.
+     *
+     * <p>칩마다 고르는 이유는 필터다. 지역당 상위 N 으로 자르면 등록 수가 많은 칩이 자리를 다 차지해,
+     * "숙박" 을 눌렀을 때 빈 목록이 뜬다.
+     */
+    private static final int PLACES_PER_CATEGORY = 2;
 
     private final RegionMaster regionMaster;
     private final RegionRankingService regionRankingService;
@@ -36,6 +55,9 @@ public class HomeService {
     private final RegionCategoryCountProvider regionCategoryCountProvider;
     private final PolicyService policyService;
     private final MyLeaveService myLeaveService;
+    private final RegionPoiRepository regionPoiRepository;
+    private final PoiIntroRepository poiIntroRepository;
+    private final CatchphraseProvider catchphraseProvider;
 
     /**
      * 홈 화면. 남은 연차는 <b>저장값에서 읽는다</b> — 예전엔 클라이언트가 보낸 값을 그대로 되돌려줬다(#89).
@@ -75,7 +97,56 @@ public class HomeService {
                         regionById.get(score.regionId()), score, contents, heroPhotos, policiesByRegion))
                 .toList();
         // 필터칩 개수는 미리 세어 둔 값을 읽기만 한다(#266) — 요청마다 89곳을 다시 세지 않는다.
-        return new HomeResult(remainingLeaveDays, cards, regionCategoryCountProvider.counts());
+        return new HomeResult(remainingLeaveDays, cards, regionCategoryCountProvider.counts(),
+                placeCards(topRegions, policiesByRegion));
+    }
+
+    /**
+     * 이번달 추천 여행지 — <b>장소</b> 카드(#305).
+     *
+     * <p><b>외부를 부르지 않는다.</b> 장소 풀도(#304) 부제 재료도(`poi_intro`) 배치가 미리 채워 둔 값이라
+     * DB 만 읽는다. 카드마다 상세를 부르면 홈 한 번에 열 콜이고, 사용자 백 명이면 하루 한도가 마른다.
+     *
+     * <p><b>부제 재료를 한 번에 가져온다.</b> 카드마다 물으면 그게 곧 N+1 이다.
+     *
+     * <p>혜택은 지역 카드가 이미 구해 둔 것을 함께 쓴다 — 같은 지역이라 다시 물을 이유가 없다.
+     */
+    private List<HomeResult.PlaceCard> placeCards(
+            List<Region> topRegions, Map<Long, List<Policy>> policiesByRegion) {
+        List<Long> regionIds = topRegions.stream().map(Region::getId).toList();
+        List<RegionPoi> pois = regionPoiRepository.findForCards(regionIds, PLACES_PER_CATEGORY);
+        if (pois.isEmpty()) {
+            // 조용히 빈 목록을 내리면 "적재가 안 됐다" 와 "원래 없다" 가 구분되지 않는다.
+            log.info("홈 장소 카드 — 지역 {}곳에 내릴 장소가 없습니다", regionIds.size());
+            return List.of();
+        }
+        Map<String, PoiIntro> intros =
+                poiIntroRepository.findIntros(pois.stream().map(RegionPoi::getContentId).toList());
+        Map<Long, Region> regionById = topRegions.stream()
+                .collect(Collectors.toMap(Region::getId, region -> region));
+
+        return pois.stream().map(poi -> toPlaceCard(poi, regionById, intros, policiesByRegion)).toList();
+    }
+
+    private HomeResult.PlaceCard toPlaceCard(
+            RegionPoi poi,
+            Map<Long, Region> regionById,
+            Map<String, PoiIntro> intros,
+            Map<Long, List<Policy>> policiesByRegion) {
+        Category kind = poi.getCategory();
+        String catchphrase = catchphraseProvider.forContentId(poi.getContentId()).orElse(null);
+        // 부제는 칩이 스스로 조합한다 — 카테고리마다 다른 필드를 쓰므로 여기서 분기하면 그 지식이 둘이 된다.
+        String subtitle = kind.subtitle(intros.get(poi.getContentId()), catchphrase).orElse(null);
+        Region region = regionById.get(poi.getRegionId());
+        List<Policy> matched = policiesByRegion.getOrDefault(poi.getRegionId(), List.of());
+        return new HomeResult.PlaceCard(
+                poi.getContentId(),
+                poi.getTitle(),
+                poi.getImageUrl(),
+                kind,
+                region == null ? null : region.getSigungu(),
+                subtitle,
+                matched.isEmpty() ? null : toBenefit(matched.get(0)));
     }
 
     private HomeResult.RegionCard toCard(
