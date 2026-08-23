@@ -95,11 +95,12 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
                 LEFT JOIN poi_intro p ON p.content_id = s.poi_content_id
                 WHERE s.poi_content_type_id IS NOT NULL
                   AND (p.content_id IS NULL
-                       OR (p.use_time IS NULL AND p.rest_date IS NULL AND p.fetched_at < ?))
+                       OR (p.fetched_at < ? AND %s))
                 GROUP BY s.poi_content_id
                 ORDER BY never_fetched DESC, newest_slot_id DESC
                 LIMIT ?
-                """, (rs, rowNum) -> ContentRef.of(rs.getString(1), rs.getInt(2)), emptyRetryBefore, limit);
+                """.formatted(allColumnsNull()),
+                (rs, rowNum) -> ContentRef.of(rs.getString(1), rs.getInt(2)), emptyRetryBefore, limit);
     }
 
     /**
@@ -108,8 +109,11 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
      * <p><b>순위를 {@code region_poi.id} 로 매긴다.</b> 적재가 통째 교체라 그 순서가 곧 외부가 준 순서이고,
      * 홈이 카드를 고르는 순서와 같아야 <b>받아 둔 것과 보여주는 것이 어긋나지 않는다.</b>
      *
-     * <p>사진 없는 장소와 상세를 못 받는 타입은 애초에 빼고 순위를 매긴다. 순위를 매긴 뒤 걸러내면
-     * 앞자리를 그들이 차지해 실제로 받는 건수가 줄어든다.
+     * <p><b>순위는 홈이 고르는 집합과 같은 기준으로 매긴다.</b> 사진 없는 장소는 양쪽 다 빼지만,
+     * 상세를 못 받는 타입(캠핑장·레포츠)은 <b>홈 카드에는 실린다</b> — 이름·사진은 멀쩡하고, 빼면
+     * 숙박·체험 칩이 얇아진다(AC 977건 중 625건이 이 타입이다). 그래서 그 타입은 순위를 매긴
+     * <b>뒤</b>에 일감에서만 덜어낸다. 매기기 전에 빼면 두 집합의 순위가 갈려, 받아 둔 장소가 화면에
+     * 안 나오고 화면에 나올 장소는 안 받는다.
      */
     @Override
     public List<ContentRef> findMissingForCards(int limit, int perCategory, LocalDateTime emptyRetryBefore) {
@@ -124,10 +128,11 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
                     FROM region_poi rp
                     LEFT JOIN poi_intro p ON p.content_id = rp.content_id
                     WHERE rp.image_url IS NOT NULL AND rp.image_url <> ''
-                      AND rp.content_type_id <> ?
                       AND (p.content_id IS NULL OR (p.fetched_at < ? AND %s))
                 ) ranked
-                WHERE rank_in_chip <= ?
+                -- 순위를 매긴 **뒤** 상세 없는 타입을 뺀다. 매기기 전에 빼면 홈이 고르는 집합과
+                -- 순위가 갈려, 받아 둔 장소가 화면에 안 나오고 화면에 나올 장소는 안 받는다.
+                WHERE rank_in_chip <= ? AND content_type_id <> ?
                 ORDER BY never_fetched DESC, content_id
                 LIMIT ?
                 """.formatted(allColumnsNull()),
@@ -137,7 +142,7 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
                         // 모르는 이름이면 null 이다. 칩은 로그·집계에만 쓰이므로 그 한 건 때문에
                         // 배치를 세울 이유가 없다 — valueOf 였다면 예외로 전부 멈춘다.
                         Category.byName(rs.getString("category")).orElse(null)),
-                TYPE_WITHOUT_INTRO, emptyRetryBefore, perCategory, limit);
+                emptyRetryBefore, perCategory, TYPE_WITHOUT_INTRO, limit);
     }
 
     @Override
