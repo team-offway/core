@@ -135,7 +135,13 @@ jobs:
           set -uo pipefail
           U=$(grep '^DB_USERNAME=' ~/offway/env.prod | cut -d= -f2-)
           P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
-          q() { docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>/dev/null; }
+          # stderr 를 버리지 않는다. 버리면 "결과가 0행" 과 "질의가 실패" 가 겉보기에 같아진다.
+          # (경고 한 줄만 걸러낸다 — 비밀번호를 명령줄로 넘길 때 mysql 이 매번 찍는다.)
+          q() {
+            docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
+              | grep -v 'Using a password on the command line'
+            echo "[위 질의 종료코드=${PIPESTATUS[0]}]"
+          }
 
           echo "=== 컨테이너 기동 시각 (이 시각 이후 로그만 남아 있다) ==="
           docker inspect -f 'offway-core  started={{.State.StartedAt}}' offway-core
@@ -155,7 +161,13 @@ jobs:
           set -uo pipefail
           U=$(grep '^DB_USERNAME=' ~/offway/env.prod | cut -d= -f2-)
           P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
-          q() { docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>/dev/null; }
+          # stderr 를 버리지 않는다. 버리면 "결과가 0행" 과 "질의가 실패" 가 겉보기에 같아진다.
+          # (경고 한 줄만 걸러낸다 — 비밀번호를 명령줄로 넘길 때 mysql 이 매번 찍는다.)
+          q() {
+            docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
+              | grep -v 'Using a password on the command line'
+            echo "[위 질의 종료코드=${PIPESTATUS[0]}]"
+          }
 
           echo "=== 8/17~8/22 사이 출발하는 코스 (종료일 계산 포함) ==="
           q "SELECT id,
@@ -166,6 +178,11 @@ jobs:
                FROM course
               WHERE travel_date BETWEEN '2026-08-17' AND '2026-08-22'
               ORDER BY travel_date, id;"
+
+          echo
+          echo "=== TRIP_AFTER 전부 (JOIN 없이) — 어느 코스에 붙었나 ==="
+          q "SELECT id, course_id, LEFT(guest_id, 8) AS owner8, created_at
+               FROM notification WHERE type = 'TRIP_AFTER' ORDER BY created_at;"
 
           echo
           echo "=== 그 코스들에 붙은 알림 ==="
@@ -196,7 +213,13 @@ jobs:
           set -uo pipefail
           U=$(grep '^DB_USERNAME=' ~/offway/env.prod | cut -d= -f2-)
           P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
-          q() { docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>/dev/null; }
+          # stderr 를 버리지 않는다. 버리면 "결과가 0행" 과 "질의가 실패" 가 겉보기에 같아진다.
+          # (경고 한 줄만 걸러낸다 — 비밀번호를 명령줄로 넘길 때 mysql 이 매번 찍는다.)
+          q() {
+            docker exec -i offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
+              | grep -v 'Using a password on the command line'
+            echo "[위 질의 종료코드=${PIPESTATUS[0]}]"
+          }
 
           echo "=== 타입별 · 날짜별 알림 건수 (최근 14일) ==="
           q "SELECT DATE(created_at) AS day, type, COUNT(*) AS cnt
