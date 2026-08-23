@@ -154,14 +154,15 @@ public class HomeService {
         String subtitle = kind.subtitle(intros.get(poi.getContentId()), catchphrase).orElse(null);
         Region region = regionById.get(poi.getRegionId());
         List<Policy> matched = policiesByRegion.getOrDefault(poi.getRegionId(), List.of());
-        return new HomeResult.PlaceCard(
-                poi.getContentId(),
-                poi.getTitle(),
-                poi.getImageUrl(),
-                kind,
-                region == null ? null : region.getSigungu(),
-                subtitle,
-                matched.isEmpty() ? null : toBenefit(matched.get(0)));
+        return HomeResult.PlaceCard.builder()
+                .poiContentId(poi.getContentId())
+                .name(poi.getTitle())
+                .imageUrl(poi.getImageUrl())
+                .kind(kind)
+                .regionName(region == null ? null : region.getSigungu())
+                .subtitle(subtitle)
+                .benefit(matched.isEmpty() ? null : toBenefit(matched.get(0)))
+                .build();
     }
 
     private HomeResult.RegionCard toCard(

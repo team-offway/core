@@ -6,6 +6,7 @@ import com.offway.core.trip.domain.CategoryCounts;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
 import java.util.List;
+import lombok.Builder;
 
 /**
  * 홈 화면 데이터 — 서비스 내부 result. 남은 연차 + 이번주 추천 지역(랭킹 top-N).
@@ -36,6 +37,7 @@ public record HomeResult(
      * @param subtitle 장소명 아래 한 줄. <b>없을 수 있다</b> — 재료가 없으면 앱이 그 줄을 접는다
      * @param benefit 그 지역에 걸리는 대표 혜택(없으면 null)
      */
+    @Builder
     public record PlaceCard(
             String poiContentId,
             String name,
