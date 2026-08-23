@@ -76,13 +76,23 @@ public enum Category {
         /**
          * 이용요금이 앞이고 없으면 캐치프레이즈다.
          *
-         * <p>요금이 더 구체적이지만 <b>얇다</b> — 실측(2026-08-24, EX 20건)에서 체험은 문의·휴무일·이용시간이
-         * 95~100% 인 데 비해 요금은 그에 못 미쳤다. 게다가 이 칩에 함께 묶인 레포츠(LS)는 상세 자체가
-         * 빈 응답으로 온다(20건 중 19건). 사슬이 그 빈자리를 캐치프레이즈로 메운다.
+         * <p><b>요금으로 짰다가 바꿨다.</b> 실측(2026-08-24)에서 체험 칩 37건 중 요금이 있는 것이
+         * <b>0건</b>이었다 — 체험은 콘텐츠 타입 12(관광지)로 와서 요금 칸이 아예 없다. 첫 가지가
+         * 죽어 있던 셈이다.
+         *
+         * <p>체험안내는 60% 채워지고 내용도 구체적이다 —
+         * {@code 차조강정 체험 / 사과 향기청 체험 / 목공예 체험 등}. 요금은 뒤로 물리되 남겨 둔다:
+         * 이 칩에 문화시설·레포츠가 섞여 오면 그때는 걸린다.
+         *
+         * <p>이 칩에 함께 묶인 레포츠(LS)는 상세 자체가 빈 응답으로 온다(20건 중 19건).
+         * 사슬이 그 빈자리를 캐치프레이즈로 메운다.
          */
         @Override
         public Optional<String> subtitle(PoiIntro intro, String catchphrase) {
-            return firstPresent(intro == null ? null : intro.fee(), catchphrase);
+            if (intro == null) {
+                return firstPresent(catchphrase);
+            }
+            return firstPresent(intro.experienceGuide(), intro.fee(), catchphrase);
         }
     },
 

@@ -33,7 +33,8 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
 
     /** 부제가 읽는 칸 전부. 컬럼이 늘 때 이 한 줄만 고치면 조회·매핑이 함께 따라온다. */
     private static final String INTRO_COLUMNS =
-            "use_time, rest_date, parking, fee, signature_menu, menus, check_in, check_out, room_count, reservation";
+            "use_time, rest_date, parking, fee, signature_menu, menus, check_in, check_out, room_count, "
+                    + "reservation, experience_guide";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -149,13 +150,14 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
             int[] result = jdbcTemplate.batchUpdate("""
                     INSERT INTO poi_intro (content_id, content_type_id, use_time, rest_date, parking, fee,
                                            signature_menu, menus, check_in, check_out, room_count, reservation,
-                                           fetched_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                           experience_guide, fetched_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON DUPLICATE KEY UPDATE use_time = VALUES(use_time), rest_date = VALUES(rest_date),
                                             parking = VALUES(parking), fee = VALUES(fee),
                                             signature_menu = VALUES(signature_menu), menus = VALUES(menus),
                                             check_in = VALUES(check_in), check_out = VALUES(check_out),
                                             room_count = VALUES(room_count), reservation = VALUES(reservation),
+                                            experience_guide = VALUES(experience_guide),
                                             fetched_at = VALUES(fetched_at)
                     """, chunk, chunk.size(), (ps, entry) -> {
                 PoiIntro intro = entry.getValue();
@@ -171,7 +173,8 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
                 ps.setString(10, intro.checkOut());
                 ps.setString(11, intro.roomCount());
                 ps.setString(12, intro.reservation());
-                ps.setObject(13, fetchedAt);
+                ps.setString(13, intro.experienceGuide());
+                ps.setObject(14, fetchedAt);
             })[0];
             for (int count : result) {
                 saved += count < 0 ? 1 : count;
@@ -214,6 +217,7 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
                 .checkOut(rs.getString("check_out"))
                 .roomCount(rs.getString("room_count"))
                 .reservation(rs.getString("reservation"))
+                .experienceGuide(rs.getString("experience_guide"))
                 .build();
     }
 }

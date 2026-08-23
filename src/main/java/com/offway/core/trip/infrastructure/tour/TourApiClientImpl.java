@@ -96,6 +96,9 @@ class TourApiClientImpl implements TourApiClient {
     private static final String[] ROOM_COUNT_FIELDS = {"roomcount"};
     private static final String[] RESERVATION_FIELDS = {"reservationlodging", "reservationfood"};
 
+    /** 체험안내 — 체험 카드의 부제(#305). 요금은 체험 응답에 아예 없어 이 칸이 실질 재료다. */
+    private static final String[] EXPERIENCE_GUIDE_FIELDS = {"expguide"};
+
     private final WebClient webClient;
     private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
@@ -290,6 +293,7 @@ class TourApiClientImpl implements TourApiClient {
                 .checkOut(TourText.clean(firstText(node, CHECK_OUT_FIELDS)))
                 .roomCount(TourText.clean(firstText(node, ROOM_COUNT_FIELDS)))
                 .reservation(TourText.clean(firstText(node, RESERVATION_FIELDS)))
+                .experienceGuide(TourText.clean(firstText(node, EXPERIENCE_GUIDE_FIELDS)))
                 .build());
     }
 
