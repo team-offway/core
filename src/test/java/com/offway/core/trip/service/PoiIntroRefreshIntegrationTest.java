@@ -301,6 +301,54 @@ class PoiIntroRefreshIntegrationTest {
         assertTrue(cardWorkListContentIds(5).contains("wl-empty"), "재시도 기간이 지난 빈 행을 다시 물어야 한다");
     }
 
+
+    /**
+     * <b>대표메뉴만 받은 장소는 코스 일감으로 돌아오지 않는다.</b>
+     *
+     * <p>배치가 전체 칸을 저장하게 되면서 빈 판정이 둘로 갈릴 뻔했다 — 저장은 열한 칸을 채우는데
+     * 일감 질의는 운영시간 둘만 보고 "빈 행" 이라 판정하면, 대표메뉴만 온 음식점이 7일마다 다시
+     * 불린다. 콜과 코스 우선 예산을 되풀이해 쓴다.
+     */
+    @Test
+    void 대표메뉴만_받은_장소는_코스_일감으로_돌아오지_않는다() {
+        String contentId = persistSlotNeedingHours(39);
+        poiIntroRepository.upsertAll(
+                Map.of(PoiIntroRepository.ContentRef.of(contentId, 39),
+                        PoiIntro.builder().signatureMenu("갈치조림정식").build()),
+                LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL).minusDays(1));
+
+        assertFalse(workListContentIds().contains(contentId),
+                "운영시간이 없어도 다른 값을 받았으면 다시 물으면 안 된다");
+    }
+
+    /**
+     * <b>홈 일감의 순위는 홈이 고르는 집합과 같아야 한다.</b>
+     *
+     * <p>상세를 못 받는 타입(캠핑장)은 홈 카드에 실린다 — 이름·사진은 멀쩡하고, 빼면 숙박 칩이
+     * 얇아진다. 그래서 그 타입을 <b>순위를 매긴 뒤</b>에만 덜어낸다. 매기기 전에 빼면 두 집합의
+     * 순위가 갈려, 받아 둔 장소가 화면에 안 나오고 화면에 나올 장소는 안 받는다.
+     */
+    @Test
+    void 홈_일감의_순위는_카드_조회와_같은_집합에서_매긴다() {
+        long regionId = anyRegionId();
+        // 숙박 칩 앞자리 둘이 캠핑장(28)이고 셋째가 호텔이다.
+        regionPoiRepository.replaceRegion(regionId, List.of(
+                cardPoi(regionId, "rk-camp-1", Category.STAY, "http://img/c1.jpg", 28),
+                cardPoi(regionId, "rk-camp-2", Category.STAY, "http://img/c2.jpg", 28),
+                cardPoi(regionId, "rk-hotel", Category.STAY, "http://img/h.jpg", 32)));
+
+        List<String> work = cardWorkListContentIds(2);
+        List<String> cards = regionPoiRepository.findForCards(List.of(regionId), 2).stream()
+                .map(RegionPoi::getContentId)
+                .toList();
+
+        // 카드에는 앞자리 둘(캠핑장)이 실린다.
+        assertTrue(cards.contains("rk-camp-1") && cards.contains("rk-camp-2"), "카드가 앞자리를 안 골랐다");
+        // 일감은 그 둘을 부르지 않고, 순위 밖인 호텔도 부르지 않는다 — 화면에 안 나올 것이다.
+        assertFalse(work.contains("rk-camp-1"), "상세를 못 받는 타입을 불렀다");
+        assertFalse(work.contains("rk-hotel"), "순위 밖 장소를 불렀다 — 순위 기준이 갈렸다");
+    }
+
     private List<String> cardWorkListContentIds(int perCategory) {
         return poiIntroRepository
                 .findMissingForCards(500, perCategory,
