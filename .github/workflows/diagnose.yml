@@ -7,8 +7,27 @@ name: Diagnose
 # 그대로 따르되 배포는 하지 않는다(읽기만).
 #
 # 시크릿 값 자체는 절대 찍지 않는다 — 길이와 앞뒤 몇 글자로 "무엇이 들어있는지" 만 확인한다.
+#
+# DB 조회도 여기서 한다(#309). MySQL 은 EC2 도커 안에 있고 3306 을 호스트로 노출하지 않아 밖에서
+# 붙을 수 없다. **SELECT 만 돌리고 질의를 이 파일에 박아 둔다** — 임의 SQL 을 입력으로 받을 수 있으면
+# 그건 더 이상 진단 도구가 아니다. 개인 식별 정보는 찍지 않고, 소유 키는 앞 8자만 남겨 동일성만 본다.
+#
+# scope 를 나눈 이유는 **외부 API 한도**다. 코스 생성 재현과 TourAPI 호출은 실제 한도를 태우므로,
+# DB 만 보면 되는 경우에 함께 돌면 그만큼 그날 사용자 몫이 준다.
 on:
   workflow_dispatch:
+    inputs:
+      scope:
+        description: "무엇을 볼까 — db(운영 DB 읽기) · external(외부 API 도달성) · all"
+        type: choice
+        default: db
+        options: [db, external, all]
+      since:
+        description: "조사 시작일 YYYY-MM-DD (비우면 7일 전)"
+        default: ""
+      until:
+        description: "조사 종료일 YYYY-MM-DD (비우면 오늘)"
+        default: ""
 
 concurrency:
   group: deploy-prod
@@ -49,6 +68,7 @@ jobs:
       # 러너에서 본 값과 서버에서 본 값을 나란히 찍어, secret 이 서버까지 갔는지 가른다.
       # 값은 마스킹한다 — 길이와 지문만으로 동일성 판정에 충분하다.
       - name: 키 지문 대조 (러너 · 서버)
+        if: inputs.scope != 'db'
         run: |
           RUNNER_KEY='${{ secrets.DATA_GO_KR_SERVICE_KEY }}'
           echo "러너가 들고 있는 secret: 길이=${#RUNNER_KEY} 앞4=${RUNNER_KEY:0:4} 뒤4=${RUNNER_KEY: -4}"
@@ -66,6 +86,7 @@ jobs:
 
       # 서버에서 직접 외부를 부른다. 우리 앱을 거치지 않으므로 "코드 문제 vs 망/키 문제" 가 갈린다.
       - name: 서버에서 TourAPI 직접 호출
+        if: inputs.scope != 'db'
         run: |
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
           set -uo pipefail
@@ -82,6 +103,7 @@ jobs:
           REMOTE
 
       - name: 앱 로그에서 외부 호출 실패 흔적
+        if: inputs.scope != 'db'
         run: |
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
           set -uo pipefail
@@ -96,6 +118,7 @@ jobs:
 
       # 서버 안에서 우리 API 를 직접 불러 재현시킨다. 재현되면 그 직후 로그에 원인이 찍힌다.
       - name: 코스 생성 재현 + 직후 로그
+        if: inputs.scope != 'db'
         run: |
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
           set -uo pipefail
@@ -109,6 +132,259 @@ jobs:
           echo
           echo "--- 그 직후 로그 60줄 ---"
           docker logs --tail 60 offway-core 2>&1
+          REMOTE
+
+      # 조사 기간을 여기서 한 번만 정해 세 단계가 나눠 쓴다. 형식을 검증하는 이유는 이 값이
+      # SQL 문자열에 들어가기 때문이다 — 날짜 말고는 아무것도 통과시키지 않는다.
+      - name: 조사 기간 확정
+        id: window
+        if: inputs.scope != 'external'
+        run: |
+          ok() { printf '%s' "$1" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; }
+          SINCE='${{ inputs.since }}'; UNTIL='${{ inputs.until }}'
+          [ -n "$SINCE" ] || SINCE=$(date -u -d '7 days ago' +%F)
+          [ -n "$UNTIL" ] || UNTIL=$(date -u +%F)
+          ok "$SINCE" && ok "$UNTIL" || { echo "날짜는 YYYY-MM-DD 여야 합니다: since=$SINCE until=$UNTIL"; exit 1; }
+          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+          echo "until=$UNTIL" >> "$GITHUB_OUTPUT"
+          echo "조사 기간 $SINCE ~ $UNTIL"
+
+      - name: 배치 실행 기록 · 컨테이너 기동 시각
+        if: inputs.scope != 'external'
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'bash -s' -- '${{ steps.window.outputs.since }}' '${{ steps.window.outputs.until }}' <<'REMOTE'
+          set -uo pipefail
+          SINCE=$1; UNTIL=$2
+          U=$(grep '^DB_USERNAME=' ~/offway/env.prod | cut -d= -f2-)
+          P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
+          # stderr 를 버리지 않는다. 버리면 "결과가 0행" 과 "질의가 실패" 가 겉보기에 같아진다.
+          # (경고 한 줄만 걸러낸다 — 비밀번호를 명령줄로 넘길 때 mysql 이 매번 찍는다.)
+          #
+          # **`docker exec` 에 `-i` 를 주지 않는다.** 이 스크립트는 `ssh 'bash -s' <<REMOTE` 로
+          # stdin 을 타고 들어오는데, `-i` 를 주면 첫 질의가 남은 스크립트를 통째로 삼켜 그 뒤
+          # 명령이 사라진다. 실제로 그렇게 뒷부분이 조용히 실행되지 않았다 — 종료코드는 0 이라
+          # 성공처럼 보였다. 질의는 `-e` 로 넘기므로 stdin 이 필요 없다.
+          q() {
+            docker exec offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
+              | grep -v 'Using a password on the command line'
+            echo "[위 질의 종료코드=${PIPESTATUS[0]}]"
+          }
+
+          echo "=== 컨테이너 기동 시각 (이 시각 이후 로그만 남아 있다) ==="
+          docker inspect -f 'offway-core  started={{.State.StartedAt}}' offway-core
+          docker inspect -f 'offway-mysql started={{.State.StartedAt}}' offway-mysql
+
+          echo
+          echo "=== #280 backfill 사각지대 — 링크에 없는 소유 키가 얼마나 되나 ==="
+          # 건수만 센다(개인 데이터가 아니라 집계다). user_guest_link 에 없는 guest_id 는
+          # user_id 로 옮길 때 주인을 못 찾는다 — 그 규모가 전환 가능 여부를 가른다.
+          q "SELECT 'course' AS tbl, COUNT(*) AS total,
+                    SUM(guest_id IS NULL) AS no_owner,
+                    SUM(guest_id IS NOT NULL
+                        AND guest_id NOT IN (SELECT guest_id FROM user_guest_link)) AS unlinked
+               FROM course
+              UNION ALL
+             SELECT 'leave_balance', COUNT(*), 0,
+                    SUM(guest_id NOT IN (SELECT guest_id FROM user_guest_link)) FROM leave_balance
+              UNION ALL
+             SELECT 'leave_usage', COUNT(*), 0,
+                    SUM(guest_id NOT IN (SELECT guest_id FROM user_guest_link)) FROM leave_usage
+              UNION ALL
+             SELECT 'notification', COUNT(*), 0,
+                    SUM(guest_id NOT IN (SELECT guest_id FROM user_guest_link)) FROM notification
+              UNION ALL
+             SELECT 'trip_outcome', COUNT(*), 0,
+                    SUM(guest_id NOT IN (SELECT guest_id FROM user_guest_link)) FROM trip_outcome
+              UNION ALL
+             SELECT 'device_push_token', COUNT(*), 0,
+                    SUM(guest_id NOT IN (SELECT guest_id FROM user_guest_link)) FROM device_push_token;"
+
+          echo
+          echo "=== 사용자당 게스트 키 몇 개인가 (합칠 규모) ==="
+          q "SELECT cnt AS keys_per_user, COUNT(*) AS users FROM (
+               SELECT user_id, COUNT(*) AS cnt FROM user_guest_link GROUP BY user_id) t
+             GROUP BY cnt ORDER BY cnt;"
+
+          echo
+          echo "=== 어느 키들이 같은 사용자인가 (UUID 대신 익명 번호) ==="
+          # LEFT(uuid, 8) 로는 못 가른다. UUID v1 은 시간 기반이라 비슷한 시각에 만들어지면
+          # 앞부분이 같아, 서로 다른 사용자가 같아 보인다 — 실제로 그렇게 한 번 오판했다.
+          q "SELECT DENSE_RANK() OVER (ORDER BY l.user_id) AS user_no,
+                    LEFT(l.guest_id, 8) AS guest8,
+                    l.linked_at
+               FROM user_guest_link l ORDER BY user_no, l.linked_at;"
+          echo
+          echo "=== batch_run — 다른 배치들의 마지막 실행 ==="
+          q "SELECT name, last_run_at FROM batch_run ORDER BY last_run_at DESC;"
+          REMOTE
+
+      # 제보된 여행(8/19 출발 · 2일 · 8/20 종료)이 DB 에 어떤 모양으로 있는지.
+      # 소유 키는 앞 8자만 — 코스와 알림이 같은 키를 쓰는지만 보면 되고, 값 자체는 알 필요가 없다.
+      - name: 그 코스의 실제 모양
+        if: inputs.scope != 'external'
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'bash -s' -- '${{ steps.window.outputs.since }}' '${{ steps.window.outputs.until }}' <<'REMOTE'
+          set -uo pipefail
+          SINCE=$1; UNTIL=$2
+          U=$(grep '^DB_USERNAME=' ~/offway/env.prod | cut -d= -f2-)
+          P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
+          # stderr 를 버리지 않는다. 버리면 "결과가 0행" 과 "질의가 실패" 가 겉보기에 같아진다.
+          # (경고 한 줄만 걸러낸다 — 비밀번호를 명령줄로 넘길 때 mysql 이 매번 찍는다.)
+          #
+          # **`docker exec` 에 `-i` 를 주지 않는다.** 이 스크립트는 `ssh 'bash -s' <<REMOTE` 로
+          # stdin 을 타고 들어오는데, `-i` 를 주면 첫 질의가 남은 스크립트를 통째로 삼켜 그 뒤
+          # 명령이 사라진다. 실제로 그렇게 뒷부분이 조용히 실행되지 않았다 — 종료코드는 0 이라
+          # 성공처럼 보였다. 질의는 `-e` 로 넘기므로 stdin 이 필요 없다.
+          q() {
+            docker exec offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
+              | grep -v 'Using a password on the command line'
+            echo "[위 질의 종료코드=${PIPESTATUS[0]}]"
+          }
+
+          echo "=== 8/17~8/22 사이 출발하는 코스 (종료일 계산 포함) ==="
+          q "SELECT id,
+                    LEFT(guest_id, 8)                       AS owner8,
+                    guest_id IS NULL                        AS no_owner,
+                    region_id, travel_date, travel_days,
+                    DATE_ADD(travel_date, INTERVAL travel_days - 1 DAY) AS ended_on
+               FROM course
+              WHERE travel_date BETWEEN '2026-08-17' AND '2026-08-22'
+              ORDER BY travel_date, id;"
+
+          echo
+          echo "=== 이 기간 코스의 TRIP_AFTER — 어느 코스에 붙었나 ==="
+          q "SELECT n.id, n.course_id, LEFT(n.guest_id, 8) AS owner8, n.created_at
+               FROM notification n
+              WHERE n.type = 'TRIP_AFTER'
+                AND n.guest_id IN (SELECT guest_id FROM course
+                                    WHERE travel_date BETWEEN '$SINCE' AND '$UNTIL'
+                                      AND guest_id IS NOT NULL)
+              ORDER BY n.created_at;"
+
+          echo
+          echo "=== 그 코스들에 붙은 알림 ==="
+          q "SELECT n.id, n.type, n.course_id,
+                    LEFT(n.guest_id, 8) AS owner8, n.created_at
+               FROM notification n
+               JOIN course c ON c.id = n.course_id
+              WHERE c.travel_date BETWEEN '2026-08-17' AND '2026-08-22'
+              ORDER BY n.created_at;"
+
+          echo
+          echo "=== 답했나 · 차감했나 (대상에서 빠지는 두 조건) ==="
+          q "SELECT t.course_id, t.outcome, t.answered_on
+               FROM trip_outcome t
+               JOIN course c ON c.id = t.course_id
+              WHERE c.travel_date BETWEEN '2026-08-17' AND '2026-08-22';"
+          q "SELECT l.course_id, l.used_on, l.days
+               FROM leave_usage l
+               JOIN course c ON c.id = l.course_id
+              WHERE c.travel_date BETWEEN '2026-08-17' AND '2026-08-22';"
+          REMOTE
+
+      # 알림이 아예 안 만들어지는 것인지, 만들어지는데 그 코스만 빠지는 것인지.
+      - name: 알림 전체 분포
+        if: inputs.scope != 'external'
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'bash -s' -- '${{ steps.window.outputs.since }}' '${{ steps.window.outputs.until }}' <<'REMOTE'
+          set -uo pipefail
+          SINCE=$1; UNTIL=$2
+          U=$(grep '^DB_USERNAME=' ~/offway/env.prod | cut -d= -f2-)
+          P=$(grep '^DB_PASSWORD=' ~/offway/env.prod | cut -d= -f2-)
+          # stderr 를 버리지 않는다. 버리면 "결과가 0행" 과 "질의가 실패" 가 겉보기에 같아진다.
+          # (경고 한 줄만 걸러낸다 — 비밀번호를 명령줄로 넘길 때 mysql 이 매번 찍는다.)
+          #
+          # **`docker exec` 에 `-i` 를 주지 않는다.** 이 스크립트는 `ssh 'bash -s' <<REMOTE` 로
+          # stdin 을 타고 들어오는데, `-i` 를 주면 첫 질의가 남은 스크립트를 통째로 삼켜 그 뒤
+          # 명령이 사라진다. 실제로 그렇게 뒷부분이 조용히 실행되지 않았다 — 종료코드는 0 이라
+          # 성공처럼 보였다. 질의는 `-e` 로 넘기므로 stdin 이 필요 없다.
+          q() {
+            docker exec offway-mysql mysql -u"$U" -p"$P" offway -t -e "$1" 2>&1 \
+              | grep -v 'Using a password on the command line'
+            echo "[위 질의 종료코드=${PIPESTATUS[0]}]"
+          }
+
+          echo "=== 타입별 · 날짜별 알림 건수 (최근 14일) ==="
+          q "SELECT DATE(created_at) AS day, type, COUNT(*) AS cnt
+               FROM notification
+              WHERE created_at BETWEEN '$SINCE' AND DATE_ADD('$UNTIL', INTERVAL 3 DAY)
+              GROUP BY day, type
+              ORDER BY day, type;"
+
+          echo
+          echo "=== 로그인 사용자 ↔ 게스트 ID 매핑 (#280 이 풀려는 그 어긋남) ==="
+          # 이 기간 코스의 소유자와 **같은 사용자**에 묶인 링크만 본다. 한 사람이 키를 몇 개
+          # 갖고 있는지가 요지라, 그 사람 것만 보면 충분하고 남의 것은 볼 이유가 없다.
+          q "SELECT LEFT(BIN_TO_UUID(l.user_id), 8) AS user8,
+                    LEFT(l.guest_id, 8)             AS guest8,
+                    l.linked_at
+               FROM user_guest_link l
+              WHERE l.user_id IN (SELECT user_id FROM user_guest_link
+                                   WHERE guest_id IN (SELECT guest_id FROM course
+                                                       WHERE travel_date BETWEEN '$SINCE' AND '$UNTIL'
+                                                         AND guest_id IS NOT NULL))
+              ORDER BY l.user_id, l.linked_at;"
+
+          echo
+          echo "=== 잔여 연차 — 소유자당 하나라 #280 에서 합칠 규칙이 필요한 자리다 ==="
+          q "SELECT LEFT(guest_id, 8) AS owner8, total_days
+               FROM leave_balance
+              WHERE guest_id IN (SELECT guest_id FROM user_guest_link
+                                  WHERE user_id IN (SELECT user_id FROM user_guest_link
+                                                     WHERE guest_id IN (SELECT guest_id FROM course
+                                                                         WHERE travel_date BETWEEN '$SINCE' AND '$UNTIL'
+                                                                           AND guest_id IS NOT NULL)));"
+
+          echo
+          echo "=== 알림 소유자별 건수 — 앱이 보내는 키로 조회하면 몇 건이 나오나 ==="
+          q "SELECT LEFT(guest_id, 8) AS owner8, COUNT(*) AS cnt,
+                    SUM(type = 'TRIP_AFTER') AS trip_after
+               FROM notification
+              WHERE guest_id IN (SELECT guest_id FROM user_guest_link
+                                  WHERE user_id IN (SELECT user_id FROM user_guest_link
+                                                     WHERE guest_id IN (SELECT guest_id FROM course
+                                                                         WHERE travel_date BETWEEN '$SINCE' AND '$UNTIL'
+                                                                           AND guest_id IS NOT NULL)))
+              GROUP BY owner8 ORDER BY cnt DESC;"
+          echo
+          echo "=== 앱이 실제로 보내는 키 — FCM 토큰 등록도 같은 X-Guest-Id 를 쓴다 ==="
+          q "SELECT LEFT(guest_id, 8) AS owner8, platform, created_at, updated_at
+               FROM device_push_token
+              WHERE guest_id IN (SELECT guest_id FROM user_guest_link
+                                  WHERE user_id IN (SELECT user_id FROM user_guest_link
+                                                     WHERE guest_id IN (SELECT guest_id FROM course
+                                                                         WHERE travel_date BETWEEN '$SINCE' AND '$UNTIL'
+                                                                           AND guest_id IS NOT NULL)))
+              ORDER BY updated_at DESC LIMIT 20;"
+
+          echo
+          echo "=== 읽은 알림 — read_at 이 찍혔다면 그 키로 앱을 쓰고 있었다는 증거다 ==="
+          q "SELECT n.id, LEFT(n.guest_id, 8) AS owner8, n.type, n.course_id, n.created_at, n.read_at
+               FROM notification n
+               JOIN course c ON c.id = n.course_id
+              WHERE c.travel_date BETWEEN '$SINCE' AND '$UNTIL'
+              ORDER BY n.created_at LIMIT 50;"
+          echo
+          echo "=== TRIP_AFTER 가 한 번이라도 만들어진 적 있나 ==="
+          q "SELECT COUNT(*) AS trip_after_total, MIN(created_at) AS first_at, MAX(created_at) AS last_at
+               FROM notification WHERE type = 'TRIP_AFTER'
+                AND created_at >= DATE_SUB('$SINCE', INTERVAL 1 DAY);"
+          REMOTE
+
+      - name: 남아 있는 로그에서 배치 흔적
+        if: inputs.scope != 'external'
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -uo pipefail
+          echo "=== 알림 배치 로그 (남아 있는 만큼) ==="
+          docker logs offway-core 2>&1 | grep -iE '여행 후기 알림|여행 전날 알림|여행 종료 대상' | tail -30 \
+            || echo "(해당 로그 없음 — 컨테이너 기동 이후로는 배치가 안 돌았거나 로그가 잘렸다)"
+          echo
+          echo "=== 스케줄러가 살아 있나 (최근 배치 로그 전반) ==="
+          docker logs --tail 5000 offway-core 2>&1 | grep -iE '배치|갱신|adaptor|Scheduled' | tail -20 || echo "(없음)"
           REMOTE
 
       - name: 러너 IP 회수

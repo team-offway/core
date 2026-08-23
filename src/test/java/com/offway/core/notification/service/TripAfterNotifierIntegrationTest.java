@@ -3,6 +3,7 @@ package com.offway.core.notification.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
@@ -21,6 +22,7 @@ import com.offway.core.notification.domain.NotificationType;
 import com.offway.core.notification.repository.NotificationRepository;
 import com.offway.core.transport.domain.TransportMode;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
@@ -58,6 +60,9 @@ class TripAfterNotifierIntegrationTest {
     @Autowired
     private NotificationRepository notificationRepository;
 
+    @Autowired
+    private BatchRunRepository batchRunRepository;
+
     @Test
     void 어제_끝난_여행의_주인에게_알림을_만든다() {
         String owner = "guest-302-basic";
@@ -88,6 +93,49 @@ class TripAfterNotifierIntegrationTest {
 
         assertEquals(1, notifier.notifyTripsEndedYesterday(today));
         assertEquals(1, ownedNotifications(owner).getTotalElements());
+    }
+
+    /**
+     * <b>1박 2일 — 운영에서 알림이 안 온 그 모양이다(#309).</b>
+     *
+     * <p>TestFlight 사용자의 횡성 여행이 8/19 출발 1박 2일(종료 8/20)이었는데 8/21 20:00 배치 뒤에도 알림함이
+     * 비어 있었다. 홈 모달은 떠 있었으므로 "답하지 않았고 차감도 안 했다" 는 조건은 만족한 상태였다.
+     *
+     * <p>기간별로는 1일과 3일만 잠겨 있었다. <b>2일이 비어 있었다</b> — 범위 질의가
+     * {@code endedOn - (MAX_TRAVEL_DAYS - 1)} 부터 훑으므로 2일짜리는 그 안쪽에 놓이는데, 안쪽이라고 해서
+     * 자동으로 맞는 것은 아니다. 그 자리를 실제 날짜로 잠근다.
+     */
+    @Test
+    void 일박이일_여행도_종료_다음_날_알린다() {
+        String owner = "guest-309-two-days";
+        // 운영 사례와 같은 날짜 모양: 8/19 출발 · 2일 · 8/20 종료 · 8/21 배치
+        LocalDate today = LocalDate.of(2099, 8, 21);
+        Course course = saveCourse(owner, LocalDate.of(2099, 8, 19), 2);
+
+        int created = notifier.notifyTripsEndedYesterday(today);
+
+        assertEquals(1, created, "1박 2일 여행이 대상에서 빠졌다");
+        Page<Notification> mine = ownedNotifications(owner);
+        assertEquals(1, mine.getTotalElements());
+        assertEquals(course.getId(), mine.getContent().get(0).course().orElseThrow());
+    }
+
+    /**
+     * 범위 질의의 <b>양 끝</b>이 열려 있는지 — 하루 어긋나면 그 기간의 여행만 조용히 빠진다.
+     *
+     * <p>후보를 {@code travel_date BETWEEN endedOn - 2 AND endedOn} 으로 좁혀 오므로, 상단은 종료일 당일에
+     * 시작한 1일 여행이고 하단은 사흘 전에 시작한 3일 여행이다. 둘 다 경계 위에 정확히 놓인다.
+     */
+    @Test
+    void 범위의_양_끝에_걸친_여행도_빠지지_않는다() {
+        String owner = "guest-309-edges";
+        LocalDate today = LocalDate.of(2099, 8, 28);
+        LocalDate endedOn = today.minusDays(1);
+        saveCourse(owner, endedOn, 1);                  // 상단 — 종료일에 시작해 그날 끝난다
+        saveCourse(owner, endedOn.minusDays(2), 3);     // 하단 — 가장 이른 시작일
+
+        assertEquals(2, notifier.notifyTripsEndedYesterday(today), "경계에 놓인 여행이 빠졌다");
+        assertEquals(2, ownedNotifications(owner).getTotalElements());
     }
 
     /**
@@ -195,6 +243,28 @@ class TripAfterNotifierIntegrationTest {
     @Test
     void 대상이_없으면_아무것도_만들지_않는다() {
         assertEquals(0, notifier.notifyTripsEndedYesterday(LocalDate.of(2099, 11, 1)));
+    }
+
+    /**
+     * <b>대상이 0건이어도 "돌았다" 는 남는다(#309).</b>
+     *
+     * <p>이 기록이 없어서 알림이 안 왔다는 제보에 답하지 못했다 — 배치가 안 돈 것인지, 돌았는데 대상이
+     * 없었던 것인지 가를 근거가 로그뿐이었고 그 로그는 재배포로 사라진 뒤였다.
+     *
+     * <p><b>0건일 때를 고른 이유가 요지다.</b> 알림이 만들어진 날은 알림 자체가 증거지만, 0건인 날은 이
+     * 기록 말고는 아무 흔적이 없다. 그날이 바로 답해야 하는 날이다.
+     *
+     * <p>스케줄러가 부르는 <b>인자 없는</b> 메서드를 부른다. 기록은 그 진입점에만 있어서, 날짜를 받는
+     * 오버로드로는 이 경로가 검증되지 않는다.
+     */
+    @Test
+    void 대상이_없어도_배치가_돌았다는_기록을_남긴다() {
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+
+        notifier.notifyTripsEndedYesterday();
+
+        assertTrue(batchRunRepository.hasRunOn("trip-after-notify", today),
+                "배치가 돌았는데 실행 기록이 없다 — 안 돈 날과 구분되지 않는다");
     }
 
     /** 코스는 하루 이상이어야 성립하므로 최소 형태(하루 1슬롯)로 만든다. 이 테스트가 보는 것은 날짜뿐이다. */
