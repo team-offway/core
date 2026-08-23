@@ -24,6 +24,9 @@ import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.repository.PoiIntroRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import com.offway.core.trip.domain.Category;
+import com.offway.core.trip.domain.RegionPoi;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -52,6 +55,12 @@ class PoiIntroRefreshIntegrationTest {
 
     @Autowired
     private PoiIntroRepository poiIntroRepository;
+
+    @Autowired
+    private com.offway.core.trip.repository.RegionPoiRepository regionPoiRepository;
+
+    @Autowired
+    private com.offway.core.region.repository.RegionRepository regionRepository;
 
     @Autowired
     private CourseRepository courseRepository;
@@ -196,5 +205,136 @@ class PoiIntroRefreshIntegrationTest {
                 .stream()
                 .map(PoiIntroRepository.ContentRef::contentId)
                 .toList();
+    }
+
+    // ── 홈 카드 일감(#305) — 네이티브 SQL·윈도우 함수라 실제 MySQL 로만 검증된다
+
+    /**
+     * <b>칩마다 앞의 몇 건씩만</b> 일감이 된다 — 홈이 그만큼만 보여주기 때문이다.
+     *
+     * <p>지역당 상위 N 으로 자르면 등록 수가 많은 칩이 자리를 다 차지해, 사용자가 "숙박" 을 눌렀을 때
+     * 빈 목록이 뜬다. 그래서 지역이 아니라 <b>지역·칩</b> 단위로 자른다.
+     */
+    @Test
+    void 홈_일감은_칩마다_앞의_몇_건씩만_고른다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(
+                cardPoi(regionId, "wl-food-1", Category.FOOD),
+                cardPoi(regionId, "wl-food-2", Category.FOOD),
+                cardPoi(regionId, "wl-food-3", Category.FOOD),
+                cardPoi(regionId, "wl-sight-1", Category.SIGHT),
+                cardPoi(regionId, "wl-sight-2", Category.SIGHT)));
+
+        List<String> work = cardWorkListContentIds(2);
+
+        assertEquals(2, work.stream().filter(id -> id.startsWith("wl-food")).count(), "맛집이 2건을 넘었다");
+        assertEquals(2, work.stream().filter(id -> id.startsWith("wl-sight")).count(), "관광지가 2건을 넘었다");
+        assertFalse(work.contains("wl-food-3"), "칩 상한을 넘은 장소가 일감에 들었다");
+    }
+
+    /**
+     * <b>사진 없는 장소는 일감이 아니다.</b>
+     *
+     * <p>카드가 회색 판이 되므로 어차피 안 내린다 — 부제를 받아 둘 이유가 없다. 받으면 콜만 쓴다.
+     */
+    @Test
+    void 사진_없는_장소는_홈_일감에서_빠진다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(
+                cardPoi(regionId, "wl-nophoto", Category.SIGHT, null),
+                cardPoi(regionId, "wl-photo", Category.SIGHT)));
+
+        List<String> work = cardWorkListContentIds(5);
+
+        assertTrue(work.contains("wl-photo"), "사진 있는 장소가 일감에서 빠졌다");
+        assertFalse(work.contains("wl-nophoto"), "사진 없는 장소가 일감에 들었다");
+    }
+
+    /**
+     * <b>상세를 못 받는 타입은 부르지 않는다.</b>
+     *
+     * <p>실측(2026-08-24)에서 타입 28(레포츠·야영장)은 표본 20건 중 19건이 빈 응답이었다.
+     * {@code resultCode} 는 성공인데 {@code items} 가 비어 오고, 타입을 바꿔 불러도 같았다 —
+     * 일감에 두면 콜만 쓰고 아무것도 안 담긴다.
+     */
+    @Test
+    void 상세가_없는_타입은_홈_일감에서_빠진다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(
+                cardPoi(regionId, "wl-camp", Category.STAY, "http://img/camp.jpg", 28),
+                cardPoi(regionId, "wl-hotel", Category.STAY, "http://img/hotel.jpg", 32)));
+
+        List<String> work = cardWorkListContentIds(5);
+
+        assertTrue(work.contains("wl-hotel"), "숙박이 일감에서 빠졌다");
+        assertFalse(work.contains("wl-camp"), "상세를 못 받는 타입이 일감에 들었다");
+    }
+
+    /**
+     * <b>이미 받아 둔 장소는 다시 일감이 되지 않는다.</b>
+     *
+     * <p>값이 하나라도 있으면 받은 것이다. 매 회차 다시 물으면 예산을 태운다.
+     */
+    @Test
+    void 이미_받아_둔_장소는_홈_일감에서_빠진다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(cardPoi(regionId, "wl-filled", Category.FOOD)));
+        poiIntroRepository.upsertAll(
+                Map.of(PoiIntroRepository.ContentRef.of("wl-filled", 39),
+                        PoiIntro.builder().signatureMenu("갈치조림정식").build()),
+                LocalDateTime.now());
+
+        assertFalse(cardWorkListContentIds(5).contains("wl-filled"), "이미 받은 장소를 다시 물었다");
+    }
+
+    /**
+     * 빈 채로 오래된 행은 <b>다시 일감이 된다</b> — 외부가 나중에 채우면 따라 채워지라고 두는 문이다.
+     */
+    @Test
+    void 빈_채로_오래된_장소는_홈_일감으로_돌아온다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(cardPoi(regionId, "wl-empty", Category.FOOD)));
+        poiIntroRepository.upsertAll(
+                Map.of(PoiIntroRepository.ContentRef.of("wl-empty", 39), PoiIntro.builder().build()),
+                LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL).minusDays(1));
+
+        assertTrue(cardWorkListContentIds(5).contains("wl-empty"), "재시도 기간이 지난 빈 행을 다시 물어야 한다");
+    }
+
+    private List<String> cardWorkListContentIds(int perCategory) {
+        return poiIntroRepository
+                .findMissingForCards(500, perCategory,
+                        LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL))
+                .stream()
+                .map(PoiIntroRepository.ContentRef::contentId)
+                .toList();
+    }
+
+    private long anyRegionId() {
+        List<com.offway.core.region.domain.Region> regions = regionRepository.findAll();
+        assertFalse(regions.isEmpty(), "지역 마스터가 비어 이 테스트가 성립하지 않는다");
+        return regions.get(0).getId();
+    }
+
+    private static RegionPoi cardPoi(long regionId, String contentId, Category category) {
+        return cardPoi(regionId, contentId, category, "http://img/" + contentId + ".jpg");
+    }
+
+    private static RegionPoi cardPoi(long regionId, String contentId, Category category, String imageUrl) {
+        return cardPoi(regionId, contentId, category, imageUrl, category == Category.FOOD ? 39 : 12);
+    }
+
+    private static RegionPoi cardPoi(
+            long regionId, String contentId, Category category, String imageUrl, int contentTypeId) {
+        return RegionPoi.builder()
+                .regionId(regionId)
+                .contentId(contentId)
+                .contentTypeId(contentTypeId)
+                .category(category)
+                .title("장소 " + contentId)
+                .imageUrl(imageUrl)
+                .baseYm(YearMonth.now())
+                .fetchedAt(LocalDateTime.now())
+                .build();
     }
 }
