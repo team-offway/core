@@ -36,5 +36,32 @@ public record PoiIntro(
         /** 객실 수(숙박). `5` 처럼 숫자만 오기도 하고 `5실` 로 오기도 해 문자열로 둔다. */
         String roomCount,
         /** 예약 안내(숙박). */
-        String reservation) {
+        String reservation,
+        /**
+         * 체험안내(체험관광) — <b>체험 카드의 부제가 이것이다.</b>
+         *
+         * <p>이용요금으로 짰다가 바꿨다. 체험은 콘텐츠 타입 12(관광지)로 와서 요금 칸이 아예 없고,
+         * 실측 37건 중 요금이 있는 것이 0건이었다. 이 칸은 60% 채워지고 내용도 구체적이다 —
+         * {@code 차조강정 체험 / 사과 향기청 체험 / 목공예 체험 등}.
+         */
+        String experienceGuide) {
+
+    /**
+     * 쓸 값이 하나도 없는가 — <b>빈 응답과 같은 뜻</b>이다.
+     *
+     * <p>외부가 {@code resultCode} 는 성공인데 내용을 안 주는 경우가 흔하다. 실측(2026-08-24)에서
+     * 레포츠는 20건 중 19건, 캠핑장은 39% 가 그랬다. 그런 행도 <b>남겨 둔다</b> — 지우면 매 회차 다시
+     * 물어 예산을 태운다. 대신 배치가 {@code fetched_at} 을 보고 일정 시간 뒤 다시 일감으로 삼는다.
+     *
+     * <p>그래서 이 판정은 "캐시할 값이 있나" 가 아니라 <b>"재시도 대기로 둘 것인가"</b> 다.
+     */
+    public boolean isEmpty() {
+        return blank(useTime) && blank(restDate) && blank(parking) && blank(fee)
+                && blank(signatureMenu) && blank(menus) && blank(checkIn) && blank(checkOut)
+                && blank(roomCount) && blank(reservation) && blank(experienceGuide);
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
 }

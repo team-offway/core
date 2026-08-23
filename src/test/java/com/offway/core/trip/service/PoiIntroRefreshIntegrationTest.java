@@ -17,12 +17,16 @@ import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.trip.domain.OpeningHours;
+import com.offway.core.trip.domain.PoiIntro;
 import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.repository.PoiIntroRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import com.offway.core.trip.domain.Category;
+import com.offway.core.trip.domain.RegionPoi;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -53,6 +57,12 @@ class PoiIntroRefreshIntegrationTest {
     private PoiIntroRepository poiIntroRepository;
 
     @Autowired
+    private com.offway.core.trip.repository.RegionPoiRepository regionPoiRepository;
+
+    @Autowired
+    private com.offway.core.region.repository.RegionRepository regionRepository;
+
+    @Autowired
     private CourseRepository courseRepository;
 
     @Autowired
@@ -70,10 +80,10 @@ class PoiIntroRefreshIntegrationTest {
 
     @Test
     void 받은_운영시간을_콘텐츠_id_로_찾는다() {
-        PoiIntroRepository.ContentRef ref = new PoiIntroRepository.ContentRef("126508", 12);
+        PoiIntroRepository.ContentRef ref = PoiIntroRepository.ContentRef.of("126508", 12);
 
         poiIntroRepository.upsertAll(
-                Map.of(ref, new OpeningHours("09:00~18:00", "연중무휴")), LocalDateTime.now());
+                Map.of(ref, PoiIntro.builder().useTime("09:00~18:00").restDate("연중무휴").build()), LocalDateTime.now());
 
         OpeningHours found = poiIntroRepository.findByContentIds(List.of("126508")).get("126508");
         assertNotNull(found);
@@ -84,10 +94,10 @@ class PoiIntroRefreshIntegrationTest {
     @Test
     void 같은_콘텐츠를_다시_받으면_덮어쓴다() {
         // 원본이 바뀌면 갱신돼야 한다. 행이 늘면 어느 값이 최신인지 알 수 없다.
-        PoiIntroRepository.ContentRef ref = new PoiIntroRepository.ContentRef("999001", 12);
-        poiIntroRepository.upsertAll(Map.of(ref, new OpeningHours("09:00~18:00", null)), LocalDateTime.now());
+        PoiIntroRepository.ContentRef ref = PoiIntroRepository.ContentRef.of("999001", 12);
+        poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().useTime("09:00~18:00").restDate(null).build()), LocalDateTime.now());
 
-        poiIntroRepository.upsertAll(Map.of(ref, new OpeningHours("10:00~17:00", "매주 월요일")), LocalDateTime.now());
+        poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().useTime("10:00~17:00").restDate("매주 월요일").build()), LocalDateTime.now());
 
         OpeningHours found = poiIntroRepository.findByContentIds(List.of("999001")).get("999001");
         assertEquals("10:00~17:00", found.useTime());
@@ -119,14 +129,14 @@ class PoiIntroRefreshIntegrationTest {
     void 빈_행은_재시도_기간이_지나면_다시_일감이_된다() {
         // 빈 값을 영구 캐시로 굳히면 원본이 나중에 운영시간을 채워도 우리는 영영 모른다.
         String contentId = persistSlotNeedingHours(12);
-        PoiIntroRepository.ContentRef ref = new PoiIntroRepository.ContentRef(contentId, 12);
-        poiIntroRepository.upsertAll(Map.of(ref, new OpeningHours(null, null)),
+        PoiIntroRepository.ContentRef ref = PoiIntroRepository.ContentRef.of(contentId, 12);
+        poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().build()),
                 LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL).minusDays(1));
 
         assertTrue(workListContentIds().contains(contentId), "재시도 기간이 지난 빈 행은 다시 물어야 한다");
 
         // 값이 채워지면 그때부터는 다시 묻지 않는다 — 재시도 대상은 어디까지나 "빈 행" 이다.
-        poiIntroRepository.upsertAll(Map.of(ref, new OpeningHours("09:00~18:00", "연중무휴")),
+        poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().useTime("09:00~18:00").restDate("연중무휴").build()),
                 LocalDateTime.now().minusYears(1));
 
         assertFalse(workListContentIds().contains(contentId), "채워진 행은 오래돼도 다시 묻지 않는다");
@@ -195,5 +205,184 @@ class PoiIntroRefreshIntegrationTest {
                 .stream()
                 .map(PoiIntroRepository.ContentRef::contentId)
                 .toList();
+    }
+
+    // ── 홈 카드 일감(#305) — 네이티브 SQL·윈도우 함수라 실제 MySQL 로만 검증된다
+
+    /**
+     * <b>칩마다 앞의 몇 건씩만</b> 일감이 된다 — 홈이 그만큼만 보여주기 때문이다.
+     *
+     * <p>지역당 상위 N 으로 자르면 등록 수가 많은 칩이 자리를 다 차지해, 사용자가 "숙박" 을 눌렀을 때
+     * 빈 목록이 뜬다. 그래서 지역이 아니라 <b>지역·칩</b> 단위로 자른다.
+     */
+    @Test
+    void 홈_일감은_칩마다_앞의_몇_건씩만_고른다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(
+                cardPoi(regionId, "wl-food-1", Category.FOOD),
+                cardPoi(regionId, "wl-food-2", Category.FOOD),
+                cardPoi(regionId, "wl-food-3", Category.FOOD),
+                cardPoi(regionId, "wl-sight-1", Category.SIGHT),
+                cardPoi(regionId, "wl-sight-2", Category.SIGHT)));
+
+        List<String> work = cardWorkListContentIds(2);
+
+        assertEquals(2, work.stream().filter(id -> id.startsWith("wl-food")).count(), "맛집이 2건을 넘었다");
+        assertEquals(2, work.stream().filter(id -> id.startsWith("wl-sight")).count(), "관광지가 2건을 넘었다");
+        assertFalse(work.contains("wl-food-3"), "칩 상한을 넘은 장소가 일감에 들었다");
+    }
+
+    /**
+     * <b>사진 없는 장소는 일감이 아니다.</b>
+     *
+     * <p>카드가 회색 판이 되므로 어차피 안 내린다 — 부제를 받아 둘 이유가 없다. 받으면 콜만 쓴다.
+     */
+    @Test
+    void 사진_없는_장소는_홈_일감에서_빠진다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(
+                cardPoi(regionId, "wl-nophoto", Category.SIGHT, null),
+                cardPoi(regionId, "wl-photo", Category.SIGHT)));
+
+        List<String> work = cardWorkListContentIds(5);
+
+        assertTrue(work.contains("wl-photo"), "사진 있는 장소가 일감에서 빠졌다");
+        assertFalse(work.contains("wl-nophoto"), "사진 없는 장소가 일감에 들었다");
+    }
+
+    /**
+     * <b>상세를 못 받는 타입은 부르지 않는다.</b>
+     *
+     * <p>실측(2026-08-24)에서 타입 28(레포츠·야영장)은 표본 20건 중 19건이 빈 응답이었다.
+     * {@code resultCode} 는 성공인데 {@code items} 가 비어 오고, 타입을 바꿔 불러도 같았다 —
+     * 일감에 두면 콜만 쓰고 아무것도 안 담긴다.
+     */
+    @Test
+    void 상세가_없는_타입은_홈_일감에서_빠진다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(
+                cardPoi(regionId, "wl-camp", Category.STAY, "http://img/camp.jpg", 28),
+                cardPoi(regionId, "wl-hotel", Category.STAY, "http://img/hotel.jpg", 32)));
+
+        List<String> work = cardWorkListContentIds(5);
+
+        assertTrue(work.contains("wl-hotel"), "숙박이 일감에서 빠졌다");
+        assertFalse(work.contains("wl-camp"), "상세를 못 받는 타입이 일감에 들었다");
+    }
+
+    /**
+     * <b>이미 받아 둔 장소는 다시 일감이 되지 않는다.</b>
+     *
+     * <p>값이 하나라도 있으면 받은 것이다. 매 회차 다시 물으면 예산을 태운다.
+     */
+    @Test
+    void 이미_받아_둔_장소는_홈_일감에서_빠진다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(cardPoi(regionId, "wl-filled", Category.FOOD)));
+        poiIntroRepository.upsertAll(
+                Map.of(PoiIntroRepository.ContentRef.of("wl-filled", 39),
+                        PoiIntro.builder().signatureMenu("갈치조림정식").build()),
+                LocalDateTime.now());
+
+        assertFalse(cardWorkListContentIds(5).contains("wl-filled"), "이미 받은 장소를 다시 물었다");
+    }
+
+    /**
+     * 빈 채로 오래된 행은 <b>다시 일감이 된다</b> — 외부가 나중에 채우면 따라 채워지라고 두는 문이다.
+     */
+    @Test
+    void 빈_채로_오래된_장소는_홈_일감으로_돌아온다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(cardPoi(regionId, "wl-empty", Category.FOOD)));
+        poiIntroRepository.upsertAll(
+                Map.of(PoiIntroRepository.ContentRef.of("wl-empty", 39), PoiIntro.builder().build()),
+                LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL).minusDays(1));
+
+        assertTrue(cardWorkListContentIds(5).contains("wl-empty"), "재시도 기간이 지난 빈 행을 다시 물어야 한다");
+    }
+
+
+    /**
+     * <b>대표메뉴만 받은 장소는 코스 일감으로 돌아오지 않는다.</b>
+     *
+     * <p>배치가 전체 칸을 저장하게 되면서 빈 판정이 둘로 갈릴 뻔했다 — 저장은 열한 칸을 채우는데
+     * 일감 질의는 운영시간 둘만 보고 "빈 행" 이라 판정하면, 대표메뉴만 온 음식점이 7일마다 다시
+     * 불린다. 콜과 코스 우선 예산을 되풀이해 쓴다.
+     */
+    @Test
+    void 대표메뉴만_받은_장소는_코스_일감으로_돌아오지_않는다() {
+        String contentId = persistSlotNeedingHours(39);
+        poiIntroRepository.upsertAll(
+                Map.of(PoiIntroRepository.ContentRef.of(contentId, 39),
+                        PoiIntro.builder().signatureMenu("갈치조림정식").build()),
+                LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL).minusDays(1));
+
+        assertFalse(workListContentIds().contains(contentId),
+                "운영시간이 없어도 다른 값을 받았으면 다시 물으면 안 된다");
+    }
+
+    /**
+     * <b>홈 일감의 순위는 홈이 고르는 집합과 같아야 한다.</b>
+     *
+     * <p>상세를 못 받는 타입(캠핑장)은 홈 카드에 실린다 — 이름·사진은 멀쩡하고, 빼면 숙박 칩이
+     * 얇아진다. 그래서 그 타입을 <b>순위를 매긴 뒤</b>에만 덜어낸다. 매기기 전에 빼면 두 집합의
+     * 순위가 갈려, 받아 둔 장소가 화면에 안 나오고 화면에 나올 장소는 안 받는다.
+     */
+    @Test
+    void 홈_일감의_순위는_카드_조회와_같은_집합에서_매긴다() {
+        long regionId = anyRegionId();
+        // 숙박 칩 앞자리 둘이 캠핑장(28)이고 셋째가 호텔이다.
+        regionPoiRepository.replaceRegion(regionId, List.of(
+                cardPoi(regionId, "rk-camp-1", Category.STAY, "http://img/c1.jpg", 28),
+                cardPoi(regionId, "rk-camp-2", Category.STAY, "http://img/c2.jpg", 28),
+                cardPoi(regionId, "rk-hotel", Category.STAY, "http://img/h.jpg", 32)));
+
+        List<String> work = cardWorkListContentIds(2);
+        List<String> cards = regionPoiRepository.findForCards(List.of(regionId), 2).stream()
+                .map(RegionPoi::getContentId)
+                .toList();
+
+        // 카드에는 앞자리 둘(캠핑장)이 실린다.
+        assertTrue(cards.contains("rk-camp-1") && cards.contains("rk-camp-2"), "카드가 앞자리를 안 골랐다");
+        // 일감은 그 둘을 부르지 않고, 순위 밖인 호텔도 부르지 않는다 — 화면에 안 나올 것이다.
+        assertFalse(work.contains("rk-camp-1"), "상세를 못 받는 타입을 불렀다");
+        assertFalse(work.contains("rk-hotel"), "순위 밖 장소를 불렀다 — 순위 기준이 갈렸다");
+    }
+
+    private List<String> cardWorkListContentIds(int perCategory) {
+        return poiIntroRepository
+                .findMissingForCards(500, perCategory,
+                        LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL))
+                .stream()
+                .map(PoiIntroRepository.ContentRef::contentId)
+                .toList();
+    }
+
+    private long anyRegionId() {
+        List<com.offway.core.region.domain.Region> regions = regionRepository.findAll();
+        assertFalse(regions.isEmpty(), "지역 마스터가 비어 이 테스트가 성립하지 않는다");
+        return regions.get(0).getId();
+    }
+
+    private static RegionPoi cardPoi(long regionId, String contentId, Category category) {
+        return cardPoi(regionId, contentId, category, "http://img/" + contentId + ".jpg");
+    }
+
+    private static RegionPoi cardPoi(long regionId, String contentId, Category category, String imageUrl) {
+        return cardPoi(regionId, contentId, category, imageUrl, category == Category.FOOD ? 39 : 12);
+    }
+
+    private static RegionPoi cardPoi(
+            long regionId, String contentId, Category category, String imageUrl, int contentTypeId) {
+        return RegionPoi.builder()
+                .regionId(regionId)
+                .contentId(contentId)
+                .contentTypeId(contentTypeId)
+                .category(category)
+                .title("장소 " + contentId)
+                .imageUrl(imageUrl)
+                .baseYm(YearMonth.now())
+                .fetchedAt(LocalDateTime.now())
+                .build();
     }
 }

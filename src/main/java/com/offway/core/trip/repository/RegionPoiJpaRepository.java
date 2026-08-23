@@ -24,6 +24,33 @@ interface RegionPoiJpaRepository extends JpaRepository<RegionPoi, Long> {
             """)
     List<RegionPoi> findShowable(@Param("regionId") long regionId, Limit limit);
 
+    /**
+     * 여러 지역에서 칩마다 앞의 몇 건씩 — 홈 장소 카드(#305).
+     *
+     * <p><b>네이티브 쿼리다.</b> 칩별 상위 N 은 윈도우 함수({@code ROW_NUMBER}) 없이는 표현할 수 없고
+     * JPQL 은 그것을 모른다. 지역마다 따로 부르면 지역 수만큼 왕복이 생긴다.
+     *
+     * <p><b>컬럼을 명시한다.</b> {@code rp.*} 로 두면 바깥 SELECT 에 순번 컬럼이 섞여 엔티티 매핑이
+     * 무엇을 읽을지 애매해진다. 컬럼이 늘면 여기도 함께 고쳐야 하는 대가는 있지만, 조용히 어긋나는
+     * 것보다 컴파일·실행에서 바로 드러나는 편이 낫다.
+     */
+    @Query(value = """
+            SELECT id, region_id, content_id, content_type_id, category, title, image_url,
+                   address, lat, lng, tel, base_ym, fetched_at
+            FROM (
+                SELECT rp.id, rp.region_id, rp.content_id, rp.content_type_id, rp.category, rp.title,
+                       rp.image_url, rp.address, rp.lat, rp.lng, rp.tel, rp.base_ym, rp.fetched_at,
+                       ROW_NUMBER() OVER (PARTITION BY rp.region_id, rp.category ORDER BY rp.id) AS rank_in_chip
+                FROM region_poi rp
+                WHERE rp.region_id IN (:regionIds)
+                  AND rp.image_url IS NOT NULL AND rp.image_url <> ''
+            ) ranked
+            WHERE rank_in_chip <= :perCategory
+            ORDER BY region_id, category, id
+            """, nativeQuery = true)
+    List<RegionPoi> findForCards(@Param("regionIds") List<Long> regionIds,
+            @Param("perCategory") int perCategory);
+
     /** 그 달치가 이미 적재된 지역인지 — 있으면 외부를 아예 안 부른다. */
     @Query("SELECT COUNT(p) > 0 FROM RegionPoi p WHERE p.regionId = :regionId AND p.baseYm = :baseYm")
     boolean existsFresh(@Param("regionId") long regionId, @Param("baseYm") String baseYm);

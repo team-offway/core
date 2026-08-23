@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,6 +12,8 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.service.dto.RegionPois;
+import com.offway.core.trip.domain.Category;
+import com.offway.core.trip.domain.RegionPoi;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +45,9 @@ class RegionPoiPoolIntegrationTest {
 
     @Autowired
     private RegionRepository regionRepository;
+
+    @Autowired
+    private com.offway.core.trip.repository.RegionPoiRepository regionPoiRepository;
 
     /**
      * 대분류가 숙박이면 타입이 레포츠여도 <b>숙박 풀</b>이다.
@@ -168,5 +174,71 @@ class RegionPoiPoolIntegrationTest {
         TourApiClient stubTourApiClient() {
             return new StubTourApiClient();
         }
+    }
+
+    // ── 홈 카드용 조회(#305) — 네이티브 SQL·윈도우 함수라 실제 MySQL 로만 검증된다
+
+    /**
+     * <b>칩마다 앞의 몇 건씩</b> 고른다.
+     *
+     * <p>지역당 상위 N 으로 자르면 등록 수가 많은 칩이 자리를 다 차지해, "숙박" 을 눌렀을 때 빈 목록이
+     * 뜬다. 칩이 뜻을 가지려면 칩마다 후보가 있어야 한다.
+     */
+    @Test
+    void 카드_조회는_칩마다_앞의_몇_건씩_고른다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(
+                cardPoi(regionId, "fc-food-1", Category.FOOD),
+                cardPoi(regionId, "fc-food-2", Category.FOOD),
+                cardPoi(regionId, "fc-food-3", Category.FOOD),
+                cardPoi(regionId, "fc-stay-1", Category.STAY)));
+
+        List<String> found = regionPoiRepository.findForCards(List.of(regionId), 2).stream()
+                .map(RegionPoi::getContentId)
+                .toList();
+
+        assertEquals(2, found.stream().filter(id -> id.startsWith("fc-food")).count(), "맛집이 2건을 넘었다");
+        assertTrue(found.contains("fc-stay-1"), "숙박이 빠졌다 — 칩마다 고르지 않았다");
+    }
+
+    /** 사진 없는 장소는 빠진다 — 섞이면 가로 목록에 회색 판이 낀다. */
+    @Test
+    void 카드_조회는_사진_없는_장소를_뺀다() {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(
+                cardPoi(regionId, "fc-photo", Category.SIGHT, "http://img/a.jpg"),
+                cardPoi(regionId, "fc-nophoto", Category.SIGHT, null),
+                cardPoi(regionId, "fc-blank", Category.SIGHT, "")));
+
+        List<String> found = regionPoiRepository.findForCards(List.of(regionId), 5).stream()
+                .map(RegionPoi::getContentId)
+                .toList();
+
+        assertTrue(found.contains("fc-photo"));
+        assertFalse(found.contains("fc-nophoto"), "사진 없는 장소가 카드에 들었다");
+        assertFalse(found.contains("fc-blank"), "사진이 빈 문자열인 장소가 카드에 들었다");
+    }
+
+    /** 지역이 없으면 빈 목록 — 질의를 부르지 않는다. */
+    @Test
+    void 지역이_없으면_카드도_없다() {
+        assertTrue(regionPoiRepository.findForCards(List.of(), 2).isEmpty());
+    }
+
+    private static RegionPoi cardPoi(long regionId, String contentId, Category category) {
+        return cardPoi(regionId, contentId, category, "http://img/" + contentId + ".jpg");
+    }
+
+    private static RegionPoi cardPoi(long regionId, String contentId, Category category, String imageUrl) {
+        return RegionPoi.builder()
+                .regionId(regionId)
+                .contentId(contentId)
+                .contentTypeId(category == Category.FOOD ? 39 : 12)
+                .category(category)
+                .title("장소 " + contentId)
+                .imageUrl(imageUrl)
+                .baseYm(java.time.YearMonth.now())
+                .fetchedAt(java.time.LocalDateTime.now())
+                .build();
     }
 }

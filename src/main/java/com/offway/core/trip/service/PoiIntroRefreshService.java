@@ -5,6 +5,8 @@ import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.config.BatchBudgetProperties;
 import com.offway.core.trip.domain.OpeningHours;
+import com.offway.core.trip.domain.PoiIntro;
+import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.repository.PoiIntroRepository;
 import java.time.Duration;
@@ -76,6 +78,17 @@ public class PoiIntroRefreshService {
      */
     static final Duration EMPTY_RETRY_INTERVAL = Duration.ofDays(7);
 
+    /**
+     * 홈 카드용으로 지역·칩마다 받아 둘 건수(#305).
+     *
+     * <p>홈이 칩마다 그만큼만 보여주므로 더 받아도 화면에 안 나온다. 이 값이 곧 회차당 콜 수를 정한다 —
+     * {@code 89곳 × 칩 4개 × 2건 = 712콜} 이고, 하루 예산({@value #DAILY_BUDGET})으로는 세 회차쯤 걸린다.
+     *
+     * <p><b>전량을 받지 않는 이유.</b> 지역당 등록 건수가 중앙값 57건이라 전부면 5,000콜이고 일일 한도로는
+     * 닷새치다. 화면에 안 나올 것까지 받으면서 코스 생성 몫을 밀어낼 이유가 없다.
+     */
+    private static final int CARDS_PER_CATEGORY = 2;
+
     private final TourApiClient tourApiClient;
     private final PoiIntroRepository poiIntroRepository;
     private final BatchRunRepository batchRunRepository;
@@ -111,45 +124,70 @@ public class PoiIntroRefreshService {
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
         // 로컬은 한 회차에 몇 건만 채운다(#254) — 자세한 이유는 BatchBudgetProperties.
         int budget = batchBudget.limits(DAILY_BUDGET) ? batchBudget.regionsPerRun() : DAILY_BUDGET;
-        List<PoiIntroRepository.ContentRef> missing =
-                poiIntroRepository.findMissing(budget, now.minus(EMPTY_RETRY_INTERVAL));
-        if (missing.isEmpty()) {
-            log.info("장소 운영시간 — 받을 것이 없습니다(저장={}건)", poiIntroRepository.count());
+        LocalDateTime retryBefore = now.minus(EMPTY_RETRY_INTERVAL);
+
+        // 코스 슬롯이 먼저다 — 사용자가 방금 만들어 지금 보고 있는 장소다. 홈 카드는 그 뒤 순서로도
+        // 며칠 안에 찬다. 반대로 두면 새 코스의 운영시간이 홈 뒤에 밀린다.
+        int used = fill(poiIntroRepository.findMissing(budget, retryBefore), now, "코스 장소");
+
+        int left = budget - used;
+        if (left <= 0) {
+            log.info("홈 카드 부제 — 이번 회차 예산을 코스 장소가 다 썼습니다(예산 {}건)", budget);
             return;
         }
+        fill(poiIntroRepository.findMissingForCards(left, CARDS_PER_CATEGORY, retryBefore), now, "홈 카드 부제");
+    }
 
-        Map<PoiIntroRepository.ContentRef, OpeningHours> fetched = new HashMap<>();
+    /**
+     * 일감을 예산만큼 받아 저장한다 — <b>건너뛰기 없이</b>.
+     *
+     * <p>순차로 부른다. 병렬로 밀어붙이면 429 를 맞고(실측: 200ms 안에 18건이면 제공기관이 던진다),
+     * 그건 사용자 요청까지 함께 막는다. 배치라 사용자를 기다리게 하지 않으므로 느려도 된다.
+     *
+     * @param label 로그에 남길 일감 이름 — 두 일감이 같은 문장을 쓰므로 어느 쪽인지 갈려야 한다
+     * @return 실제로 부른 외부 호출 수. 남은 예산 계산에 쓰인다
+     */
+    private int fill(List<PoiIntroRepository.ContentRef> missing, LocalDateTime now, String label) {
+        if (missing.isEmpty()) {
+            log.info("{} — 받을 것이 없습니다(저장 누계 {}건)", label, poiIntroRepository.count());
+            return 0;
+        }
+        Map<PoiIntroRepository.ContentRef, PoiIntro> fetched = new HashMap<>();
         int failed = 0;
         int empty = 0;
         for (PoiIntroRepository.ContentRef ref : missing) {
-            OpeningHours hours;
+            PoiIntro intro;
             try {
-                hours = tourApiClient.findIntro(ref.contentId(), ref.contentTypeId())
-                        .map(intro -> new OpeningHours(intro.useTime(), intro.restDate()))
+                // 받은 것을 좁히지 않는다 — 예전에는 운영시간 둘만 남기고 나머지를 버렸는데,
+                // 그 나머지가 홈 카드 부제의 재료다(#305). 같은 콜로 이미 오는 값이다.
+                intro = tourApiClient.findIntro(ref.contentId(), ref.contentTypeId())
+                        .map(TourIntro::toPoiIntro)
                         .orElse(null);
             } catch (RuntimeException e) {
                 failed++;
                 continue; // 다음 회차에 다시 시도한다 — 저장하지 않으면 여전히 "안 받은 것" 이다
             }
-            if (hours == null || hours.isEmpty()) {
+            if (intro == null || intro.isEmpty()) {
                 // 빈 행으로 남긴다 — 매 회차 다시 물으면 예산을 태우기 때문이다. 다만 캐시가 아니라
                 // 재시도 대기다: fetched_at 이 EMPTY_RETRY_INTERVAL 을 넘기면 다시 일감이 된다.
                 empty++;
-                fetched.put(ref, new OpeningHours(null, null));
+                fetched.put(ref, PoiIntro.builder().build());
                 continue;
             }
-            fetched.put(ref, hours);
+            fetched.put(ref, intro);
         }
 
         int saved = poiIntroRepository.upsertAll(fetched, now);
         if (failed > 0 || empty > 0) {
-            // 빈 응답도 warn 이다. info 로 묻으면 "적재 성공" 처럼 보여, 화면의 운영시간이 왜 비는지
-            // 아무도 모른 채 굳는다.
-            log.warn("장소 운영시간 적재 {}건(대상 {}) — 실패 {}건·값없음 {}건({} 뒤 재시도), 저장 누계 {}건",
-                    saved, missing.size(), failed, empty, EMPTY_RETRY_INTERVAL, poiIntroRepository.count());
-            return;
+            // 빈 응답도 warn 이다. info 로 묻으면 "적재 성공" 처럼 보여, 화면이 왜 비는지 아무도 모른 채 굳는다.
+            log.warn("{} 적재 {}건(대상 {}) — 실패 {}건·값없음 {}건({} 뒤 재시도), 저장 누계 {}건",
+                    label, saved, missing.size(), failed, empty, EMPTY_RETRY_INTERVAL, poiIntroRepository.count());
+        } else {
+            log.info("{} 적재 {}건(대상 {}) — 저장 누계 {}건",
+                    label, saved, missing.size(), poiIntroRepository.count());
         }
-        log.info("장소 운영시간 적재 {}건(대상 {}) — 저장 누계 {}건",
-                saved, missing.size(), poiIntroRepository.count());
+        // 부른 만큼이 예산 소비다. 빈 응답도 콜을 썼으므로 저장 건수가 아니라 대상 수를 돌려준다 —
+        // saved 를 돌려주면 빈 응답이 많은 회차에 남은 예산을 실제보다 크게 본다.
+        return missing.size();
     }
 }
