@@ -17,6 +17,7 @@ import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.trip.domain.OpeningHours;
+import com.offway.core.trip.domain.PoiIntro;
 import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
@@ -70,10 +71,10 @@ class PoiIntroRefreshIntegrationTest {
 
     @Test
     void 받은_운영시간을_콘텐츠_id_로_찾는다() {
-        PoiIntroRepository.ContentRef ref = new PoiIntroRepository.ContentRef("126508", 12);
+        PoiIntroRepository.ContentRef ref = PoiIntroRepository.ContentRef.of("126508", 12);
 
         poiIntroRepository.upsertAll(
-                Map.of(ref, new OpeningHours("09:00~18:00", "연중무휴")), LocalDateTime.now());
+                Map.of(ref, PoiIntro.builder().useTime("09:00~18:00").restDate("연중무휴").build()), LocalDateTime.now());
 
         OpeningHours found = poiIntroRepository.findByContentIds(List.of("126508")).get("126508");
         assertNotNull(found);
@@ -84,10 +85,10 @@ class PoiIntroRefreshIntegrationTest {
     @Test
     void 같은_콘텐츠를_다시_받으면_덮어쓴다() {
         // 원본이 바뀌면 갱신돼야 한다. 행이 늘면 어느 값이 최신인지 알 수 없다.
-        PoiIntroRepository.ContentRef ref = new PoiIntroRepository.ContentRef("999001", 12);
-        poiIntroRepository.upsertAll(Map.of(ref, new OpeningHours("09:00~18:00", null)), LocalDateTime.now());
+        PoiIntroRepository.ContentRef ref = PoiIntroRepository.ContentRef.of("999001", 12);
+        poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().useTime("09:00~18:00").restDate(null).build()), LocalDateTime.now());
 
-        poiIntroRepository.upsertAll(Map.of(ref, new OpeningHours("10:00~17:00", "매주 월요일")), LocalDateTime.now());
+        poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().useTime("10:00~17:00").restDate("매주 월요일").build()), LocalDateTime.now());
 
         OpeningHours found = poiIntroRepository.findByContentIds(List.of("999001")).get("999001");
         assertEquals("10:00~17:00", found.useTime());
@@ -119,14 +120,14 @@ class PoiIntroRefreshIntegrationTest {
     void 빈_행은_재시도_기간이_지나면_다시_일감이_된다() {
         // 빈 값을 영구 캐시로 굳히면 원본이 나중에 운영시간을 채워도 우리는 영영 모른다.
         String contentId = persistSlotNeedingHours(12);
-        PoiIntroRepository.ContentRef ref = new PoiIntroRepository.ContentRef(contentId, 12);
-        poiIntroRepository.upsertAll(Map.of(ref, new OpeningHours(null, null)),
+        PoiIntroRepository.ContentRef ref = PoiIntroRepository.ContentRef.of(contentId, 12);
+        poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().build()),
                 LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL).minusDays(1));
 
         assertTrue(workListContentIds().contains(contentId), "재시도 기간이 지난 빈 행은 다시 물어야 한다");
 
         // 값이 채워지면 그때부터는 다시 묻지 않는다 — 재시도 대상은 어디까지나 "빈 행" 이다.
-        poiIntroRepository.upsertAll(Map.of(ref, new OpeningHours("09:00~18:00", "연중무휴")),
+        poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().useTime("09:00~18:00").restDate("연중무휴").build()),
                 LocalDateTime.now().minusYears(1));
 
         assertFalse(workListContentIds().contains(contentId), "채워진 행은 오래돼도 다시 묻지 않는다");
