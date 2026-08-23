@@ -103,16 +103,23 @@ public class TripOutcomeService {
     public List<Course> unansweredTripsEndedOn(LocalDate endedOn) {
         List<Course> ended = courseRepository.findEndedOn(endedOn);
         if (ended.isEmpty()) {
+            // 0건이 "그날 끝난 여행이 없다" 인지 "있는데 못 잡았다" 인지는 이 로그가 유일한 단서다.
+            // 알림이 안 왔다는 제보를 받고도 세 갈래(안 돌았다·못 잡았다·걸러졌다)를 못 갈랐다(#309).
+            log.info("여행 종료 대상 — 그 날 끝난 코스가 없습니다 endedOn={}", endedOn);
             return List.of();
         }
         List<Long> courseIds = ended.stream().map(Course::getId).toList();
         Set<Long> answered = tripOutcomeRepository.findAnsweredCourseIdsIn(courseIds);
         Set<Long> deducted = myLeaveService.deductedCourseIdsIn(courseIds);
 
-        return ended.stream()
+        List<Course> waiting = ended.stream()
                 .filter(course -> !answered.contains(course.getId()))
                 .filter(course -> !deducted.contains(course.getId()))
                 .toList();
+        // 넷을 함께 남겨야 "후보가 없었다" 와 "후보는 있었는데 전부 걸러졌다" 가 로그만으로 갈린다.
+        log.info("여행 종료 대상 endedOn={} 끝난 코스={}건 이미 답함={}건 이미 차감={}건 남은 대상={}건",
+                endedOn, ended.size(), answered.size(), deducted.size(), waiting.size());
+        return waiting;
     }
 
     /**
