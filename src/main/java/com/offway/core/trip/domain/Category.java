@@ -169,6 +169,20 @@ public enum Category {
         return Optional.empty();
     }
 
+    /**
+     * 저장된 이름을 칩으로 되돌린다 — <b>모르는 이름이면 빈 값</b>이다.
+     *
+     * <p>{@code valueOf} 를 직접 쓰지 않는 이유는 그것이 예외를 던지기 때문이다. 칩 이름은 DB 에 문자열로
+     * 남아 있어(예: {@code region_poi.category}) 상수명을 바꾸거나 지우면 기존 행과 어긋나는데, 그때
+     * 예외가 나면 그 행 하나 때문에 <b>배치가 통째로 죽는다.</b> 모르는 값은 건너뛰고 나머지를 잇는 편이 낫다.
+     */
+    public static Optional<Category> byName(String name) {
+        if (name == null) {
+            return Optional.empty();
+        }
+        return Arrays.stream(values()).filter(category -> category.name().equals(name)).findFirst();
+    }
+
     /** 사슬 — 앞의 것부터 값이 있는 첫 번째. 공백만 있는 값은 없는 것으로 본다. */
     private static Optional<String> firstPresent(String... candidates) {
         return Arrays.stream(candidates).map(Category::blankToNull).filter(Objects::nonNull).findFirst();
