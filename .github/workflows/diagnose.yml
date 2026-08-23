@@ -256,6 +256,15 @@ jobs:
                     SUM(type = 'TRIP_AFTER') AS trip_after
                FROM notification GROUP BY owner8 ORDER BY cnt DESC;"
           echo
+          echo "=== 앱이 실제로 보내는 키 — FCM 토큰 등록도 같은 X-Guest-Id 를 쓴다 ==="
+          q "SELECT LEFT(guest_id, 8) AS owner8, platform, created_at, updated_at
+               FROM device_push_token ORDER BY updated_at DESC;"
+
+          echo
+          echo "=== 읽은 알림 — read_at 이 찍혔다면 그 키로 앱을 쓰고 있었다는 증거다 ==="
+          q "SELECT id, LEFT(guest_id, 8) AS owner8, type, course_id, created_at, read_at
+               FROM notification ORDER BY created_at;"
+          echo
           echo "=== TRIP_AFTER 가 한 번이라도 만들어진 적 있나 ==="
           q "SELECT COUNT(*) AS trip_after_total, MIN(created_at) AS first_at, MAX(created_at) AS last_at
                FROM notification WHERE type = 'TRIP_AFTER';"
