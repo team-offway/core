@@ -176,6 +176,36 @@ jobs:
           docker inspect -f 'offway-mysql started={{.State.StartedAt}}' offway-mysql
 
           echo
+          echo "=== #280 backfill 사각지대 — 링크에 없는 소유 키가 얼마나 되나 ==="
+          # 건수만 센다(개인 데이터가 아니라 집계다). user_guest_link 에 없는 guest_id 는
+          # user_id 로 옮길 때 주인을 못 찾는다 — 그 규모가 전환 가능 여부를 가른다.
+          q "SELECT 'course' AS tbl, COUNT(*) AS total,
+                    SUM(guest_id IS NULL) AS no_owner,
+                    SUM(guest_id IS NOT NULL
+                        AND guest_id NOT IN (SELECT guest_id FROM user_guest_link)) AS unlinked
+               FROM course
+              UNION ALL
+             SELECT 'leave_balance', COUNT(*), 0,
+                    SUM(guest_id NOT IN (SELECT guest_id FROM user_guest_link)) FROM leave_balance
+              UNION ALL
+             SELECT 'leave_usage', COUNT(*), 0,
+                    SUM(guest_id NOT IN (SELECT guest_id FROM user_guest_link)) FROM leave_usage
+              UNION ALL
+             SELECT 'notification', COUNT(*), 0,
+                    SUM(guest_id NOT IN (SELECT guest_id FROM user_guest_link)) FROM notification
+              UNION ALL
+             SELECT 'trip_outcome', COUNT(*), 0,
+                    SUM(guest_id NOT IN (SELECT guest_id FROM user_guest_link)) FROM trip_outcome
+              UNION ALL
+             SELECT 'device_push_token', COUNT(*), 0,
+                    SUM(guest_id NOT IN (SELECT guest_id FROM user_guest_link)) FROM device_push_token;"
+
+          echo
+          echo "=== 사용자당 게스트 키 몇 개인가 (합칠 규모) ==="
+          q "SELECT cnt AS keys_per_user, COUNT(*) AS users FROM (
+               SELECT user_id, COUNT(*) AS cnt FROM user_guest_link GROUP BY user_id) t
+             GROUP BY cnt ORDER BY cnt;"
+          echo
           echo "=== batch_run — 다른 배치들의 마지막 실행 ==="
           q "SELECT name, last_run_at FROM batch_run ORDER BY last_run_at DESC;"
           REMOTE
