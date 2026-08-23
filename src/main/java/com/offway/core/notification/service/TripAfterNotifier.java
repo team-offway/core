@@ -1,7 +1,9 @@
 package com.offway.core.notification.service;
 
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.notification.service.dto.PushTarget;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -39,13 +41,33 @@ public class TripAfterNotifier {
 
     private static final ZoneId SERVICE_ZONE = ZoneId.of(SERVICE_ZONE_ID);
 
+    /**
+     * 실행 기록의 배치 이름 — {@code batch_run} 의 키다.
+     *
+     * <p><b>건너뛰기 판정에 쓰지 않는다.</b> 다른 배치들은 이 기록으로 "오늘 이미 돌았나" 를 물어 외부 API
+     * 한도를 아끼는데(#226), 여기는 외부를 부르지 않고 유니크 키 {@code (소유자, type, course_id)} 가
+     * 이미 재실행을 막는다. 가드로 쓰면 오히려 배치가 반쯤 돌다 죽은 날 나머지 사람이 영영 못 받는다.
+     */
+    private static final String BATCH_NAME = "trip-after-notify";
+
     private final TripAfterNotificationCreator creator;
     private final PushDispatcher pushDispatcher;
+    private final BatchRunRepository batchRunRepository;
 
-    /** 매일 저녁, 어제 여행이 끝났는데 아직 답하지 않은 사람에게 알림을 만들고 푸시로 보낸다. */
+    /**
+     * 매일 저녁, 어제 여행이 끝났는데 아직 답하지 않은 사람에게 알림을 만들고 푸시로 보낸다.
+     *
+     * <p><b>돌았다는 사실을 남긴다.</b> 알림이 안 왔다는 제보를 받고도 "배치가 안 돈 것" 과 "돌았는데 대상이
+     * 0건이었던 것" 을 가르지 못한 적이 있다(#309). 로그에는 남지만 재배포로 컨테이너가 바뀌면 사라져,
+     * 며칠 지난 일은 답할 방법이 없었다. 실패해도 남긴다 — 안 남기면 터진 날이 안 돈 날과 구분되지 않는다.
+     */
     @Scheduled(cron = DAILY_AT_EVENING, zone = SERVICE_ZONE_ID)
     public void notifyTripsEndedYesterday() {
-        notifyTripsEndedYesterday(LocalDate.now(SERVICE_ZONE));
+        try {
+            notifyTripsEndedYesterday(LocalDate.now(SERVICE_ZONE));
+        } finally {
+            batchRunRepository.markStarted(BATCH_NAME, LocalDateTime.now(SERVICE_ZONE));
+        }
     }
 
     /**
