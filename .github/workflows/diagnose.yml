@@ -205,6 +205,15 @@ jobs:
           q "SELECT cnt AS keys_per_user, COUNT(*) AS users FROM (
                SELECT user_id, COUNT(*) AS cnt FROM user_guest_link GROUP BY user_id) t
              GROUP BY cnt ORDER BY cnt;"
+
+          echo
+          echo "=== 어느 키들이 같은 사용자인가 (UUID 대신 익명 번호) ==="
+          # LEFT(uuid, 8) 로는 못 가른다. UUID v1 은 시간 기반이라 비슷한 시각에 만들어지면
+          # 앞부분이 같아, 서로 다른 사용자가 같아 보인다 — 실제로 그렇게 한 번 오판했다.
+          q "SELECT DENSE_RANK() OVER (ORDER BY l.user_id) AS user_no,
+                    LEFT(l.guest_id, 8) AS guest8,
+                    l.linked_at
+               FROM user_guest_link l ORDER BY user_no, l.linked_at;"
           echo
           echo "=== batch_run — 다른 배치들의 마지막 실행 ==="
           q "SELECT name, last_run_at FROM batch_run ORDER BY last_run_at DESC;"
