@@ -37,6 +37,12 @@ class PoiIntroTest {
         assertFalse(PoiIntro.builder().roomCount("13실").build().isEmpty());
     }
 
+    /** 체험은 이 칸만 오는 경우가 흔하다 — 운영시간만 보면 빈 응답으로 오판한다. */
+    @Test
+    void 체험안내만_있어도_비어_있지_않다() {
+        assertFalse(PoiIntro.builder().experienceGuide("목공예 체험 / 도자기 체험").build().isEmpty());
+    }
+
     @Test
     void 운영시간만_있어도_비어_있지_않다() {
         assertFalse(PoiIntro.builder().useTime("09:00~18:00").build().isEmpty());

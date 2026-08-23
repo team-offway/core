@@ -155,8 +155,26 @@ class CategoryTest {
                 Category.EXPERIENCE.subtitle(null, "래프팅으로 여는 여름"));
     }
 
+    /**
+     * <b>체험은 체험안내가 앞이다.</b>
+     *
+     * <p>요금으로 짰다가 바꿨다 — 실측 37건 중 요금이 있는 것이 0건이었다. 체험은 콘텐츠 타입
+     * 12(관광지)로 와서 요금 칸이 아예 없다.
+     */
     @Test
-    void 체험_부제는_요금이_앞이다() {
+    void 체험_부제는_체험안내가_앞이다() {
+        PoiIntro intro = PoiIntro.builder()
+                .experienceGuide("차조강정 체험 / 사과 향기청 체험 / 목공예 체험 등")
+                .fee("성인 12,000원")
+                .build();
+
+        assertEquals(Optional.of("차조강정 체험 / 사과 향기청 체험 / 목공예 체험 등"),
+                Category.EXPERIENCE.subtitle(intro, "래프팅으로 여는 여름"));
+    }
+
+    /** 요금은 뒤로 물렸을 뿐 살아 있다 — 문화시설·레포츠가 이 칩에 섞여 오면 그때 걸린다. */
+    @Test
+    void 체험은_체험안내가_없으면_요금을_쓴다() {
         PoiIntro intro = PoiIntro.builder().fee("성인 12,000원").build();
 
         assertEquals(Optional.of("성인 12,000원"), Category.EXPERIENCE.subtitle(intro, "래프팅으로 여는 여름"));
