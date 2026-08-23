@@ -244,6 +244,18 @@ jobs:
               ORDER BY day, type;"
 
           echo
+          echo "=== 로그인 사용자 ↔ 게스트 ID 매핑 (#280 이 풀려는 그 어긋남) ==="
+          q "SELECT LEFT(BIN_TO_UUID(user_id), 8) AS user8,
+                    LEFT(guest_id, 8)             AS guest8,
+                    linked_at
+               FROM user_guest_link ORDER BY linked_at;"
+
+          echo
+          echo "=== 알림 소유자별 건수 — 앱이 보내는 키로 조회하면 몇 건이 나오나 ==="
+          q "SELECT LEFT(guest_id, 8) AS owner8, COUNT(*) AS cnt,
+                    SUM(type = 'TRIP_AFTER') AS trip_after
+               FROM notification GROUP BY owner8 ORDER BY cnt DESC;"
+          echo
           echo "=== TRIP_AFTER 가 한 번이라도 만들어진 적 있나 ==="
           q "SELECT COUNT(*) AS trip_after_total, MIN(created_at) AS first_at, MAX(created_at) AS last_at
                FROM notification WHERE type = 'TRIP_AFTER';"
