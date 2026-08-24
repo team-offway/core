@@ -223,6 +223,41 @@ class MyLeaveIntegrationTest {
     }
 
     @Test
+    void 사유와_메모를_함께_저장하고_따로_고친다() throws Exception {
+        // 화면에 사유·상세 메모 입력이 따로 있다(#319). 한 칸에 몰면 둘 중 하나는 담을 자리가 없다.
+        String guest = "leave-memo";
+        long usageId = onlyUsageId(addUsage(guest,
+                "{\"usedOn\": \"2026-05-08\", \"days\": 1, \"reason\": \"제주 여행\", \"memo\": \"숙소 체크인 15시\"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.usages[0].reason").value("제주 여행"))
+                .andExpect(jsonPath("$.data.usages[0].memo").value("숙소 체크인 15시"))
+                .andReturn().getResponse().getContentAsString());
+
+        // 메모만 고쳐도 사유는 그대로여야 한다 — 두 칸이 서로를 덮으면 나눈 의미가 없다.
+        mockMvc.perform(patchUsage(guest, usageId, "{\"memo\": \"숙소 변경됨\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usages[0].memo").value("숙소 변경됨"))
+                .andExpect(jsonPath("$.data.usages[0].reason").value("제주 여행"));
+
+        // 지우는 신호도 사유와 같다 — 빈 문자열.
+        mockMvc.perform(patchUsage(guest, usageId, "{\"memo\": \"\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usages[0].memo").doesNotExist())
+                .andExpect(jsonPath("$.data.usages[0].reason").value("제주 여행"));
+    }
+
+    @Test
+    void 메모를_안_보내도_등록된다() throws Exception {
+        // 선택 필드다. Jackson 3 은 primitive 자리에 값이 없으면 요청 전체를 400 으로 되돌리는데,
+        // 문자열이라 그 함정은 없다 — 그래도 계약으로 못박는다.
+        mockMvc.perform(post(USAGES_URL).header(GUEST_HEADER, "leave-memo-absent")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"usedOn\": \"2026-05-08\", \"days\": 1}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.usages[0].memo").doesNotExist());
+    }
+
+    @Test
     void 없는_내역을_고치면_404_LEAVE_012() throws Exception {
         mockMvc.perform(patchUsage("leave-patch-missing", 987654321L, "{\"days\": 1}"))
                 .andExpect(status().isNotFound())
