@@ -97,6 +97,7 @@ public interface LeaveApi {
             description = "usageId 가 숫자가 아님 · usedOn 날짜 형식 오류 · "
                     + "days 가 0 이거나 0.25 단위가 아니거나 99 초과(LEAVE-010) · days 가 음수(LEAVE-013)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "그 내역이 없거나 다른 소유자의 것")
     @ApiResponse(responseCode = "409", description = "코스 확정으로 기록된 내역이라 연차 화면에서 고칠 수 없음")
     ApiResponseBody<MyLeaveResponse> updateLeaveUsage(
@@ -141,6 +142,8 @@ public interface LeaveApi {
                     + "CONNECTED 인데 연차 일수 누락 또는 2~3 범위 밖"
                     + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
+    // 소유 데이터는 아니지만 쓰기(POST)라 역할을 요구한다 — Basic 은 여기서 403 이다.
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 쓰기에는 역할이 필요")
     @ApiResponse(responseCode = "502", description = "공휴일 정보(특일정보) 조회 실패")
     ApiResponseBody<AvailableTimeResponse> availableTime(AvailableTimeRequest request);
 

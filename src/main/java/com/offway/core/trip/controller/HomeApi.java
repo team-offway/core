@@ -29,8 +29,14 @@ public interface HomeApi {
                     **소유자는 access 토큰이 정한다**(#280). 예전에는 `X-Guest-Id` 헤더가 그 자리였는데,
                     서버가 검증할 수 없는 값이라 남의 연차를 볼 수 있었다. `remainingLeaveDays` 는
                     그 토큰이 가리키는 사용자의 값이다.
+
+                    **access 토큰이 아닌 자격증명으로도 200 이다.** 홈은 소유 데이터 전용 경로가 아니라
+                    403 으로 끊지 않는다 — 대신 주인을 못 정하므로 `remainingLeaveDays` 만 `null` 로 나가고
+                    카드는 그대로 채워진다. 로그인 앞 화면이 통째로 비지 않게 하려는 것이다.
                     """)
-    @ApiResponse(responseCode = "200", description = "조회 성공 (적재 전이면 카드가 빌 수 있다 — 502 아님)")
-    @ApiResponse(responseCode = "401", description = "자격증명 없음 — 소유 데이터를 주려면 누구인지 알아야 한다")
+    @ApiResponse(
+            responseCode = "200",
+            description = "조회 성공 (적재 전이면 카드가 빌 수 있다 — 502 아님. 주인을 못 정하면 remainingLeaveDays 만 null)")
+    @ApiResponse(responseCode = "401", description = "자격증명이 아예 없음 — 모든 GET 이 인증 뒤에 있다(#122)")
     ApiResponseBody<HomeResponse> home(UUID userId);
 }

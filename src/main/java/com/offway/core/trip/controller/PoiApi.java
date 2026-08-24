@@ -30,6 +30,7 @@ public interface PoiApi {
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "404", description = "요청한 장소를 관광정보에서 찾을 수 없음")
     @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<PoiDetailResponse> detail(@Parameter(description = "TourAPI 콘텐츠 ID", example = "126508") String contentId);
 
     @Operation(
@@ -37,6 +38,7 @@ public interface PoiApi {
             description = "이용약자 편의(주차·휠체어·점자·수어·수유실 등)를 분류별로 내린다. 등록 정보가 없으면 빈 배열로 200.")
     @ApiResponse(responseCode = "200", description = "조회 성공(등록 정보 없으면 빈 배열)")
     @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<AccessibilityResponse> accessibility(
             @Parameter(description = "TourAPI 콘텐츠 ID", example = "126508") String contentId);
 }

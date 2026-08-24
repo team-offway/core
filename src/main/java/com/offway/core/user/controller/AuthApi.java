@@ -63,5 +63,6 @@ public interface AuthApi {
             description = "이 사용자의 refresh 토큰을 모두 폐기한다. 이미 발급된 access 토큰은 만료(기본 1시간)까지 유효하다.")
     @ApiResponse(responseCode = "200", description = "로그아웃 성공")
     @ApiResponse(responseCode = "401", description = "access 토큰이 없거나 무효·만료(USER-004) · 자격증명 없음(COMMON-401)")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<Void> logout(UUID userId);
 }

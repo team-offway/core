@@ -43,6 +43,7 @@ public interface NotificationApi {
     @ApiResponse(responseCode = "200", description = "조회 성공(없으면 빈 목록). 페이지 정보는 pageResponse")
     @ApiResponse(responseCode = "400", description = "page·size 가 정수가 아님")
     @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<NotificationsResponse> notifications(
             UUID userId,
             @Parameter(description = "0부터 시작하는 페이지 번호. 없으면 0, 음수는 0 으로 자른다", example = "0") Integer page,
@@ -64,6 +65,7 @@ public interface NotificationApi {
     @ApiResponse(responseCode = "200", description = "읽음 처리 성공(이미 읽었어도 성공)")
     @ApiResponse(responseCode = "400", description = "알림 ID 가 정수가 아님")
     @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "요청한 알림이 없거나 소유자가 아님")
     ApiResponseBody<UnreadCountResponse> read(
             UUID userId, @Parameter(description = "알림 ID", example = "1") long notificationId);
@@ -81,5 +83,6 @@ public interface NotificationApi {
                     """)
     @ApiResponse(responseCode = "200", description = "전체 읽음 처리 성공(읽을 것이 없어도 성공)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<UnreadCountResponse> readAll(UUID userId);
 }

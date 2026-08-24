@@ -45,6 +45,7 @@ public interface UserApi {
             responseCode = "401",
             description =
                     "access 토큰이 없거나 무효·만료(USER-004) · 자격증명 없음(COMMON-401) · 이미 탈퇴한 계정(USER-006)")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<MyUserResponse> me(UUID userId);
 
     @Operation(
@@ -90,5 +91,6 @@ public interface UserApi {
             responseCode = "401",
             description =
                     "access 토큰이 없거나 무효·만료(USER-004) · 자격증명 없음(COMMON-401) · 이미 탈퇴한 계정(USER-006)")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<Void> withdraw(UUID userId);
 }
