@@ -4,6 +4,7 @@ import com.offway.core.itinerary.domain.Course;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,18 +28,18 @@ public class CourseRepositoryImpl implements CourseRepository {
     }
 
     @Override
-    public List<Course> findByGuestId(String guestId) {
-        return courseJpaRepository.findByGuestIdOrderByIdDesc(guestId);
+    public List<Course> findByUserId(UUID userId) {
+        return courseJpaRepository.findByUserIdOrderByIdDesc(userId);
     }
 
     @Override
-    public Page<Course> findByGuestId(String guestId, Pageable pageable) {
-        return courseJpaRepository.findByGuestIdOrderByIdDesc(guestId, pageable);
+    public Page<Course> findByUserId(UUID userId, Pageable pageable) {
+        return courseJpaRepository.findByUserIdOrderByIdDesc(userId, pageable);
     }
 
     @Override
     public List<Course> findByTravelDate(LocalDate travelDate) {
-        return courseJpaRepository.findByTravelDateAndGuestIdIsNotNull(travelDate);
+        return courseJpaRepository.findByTravelDateAndUserIdIsNotNull(travelDate);
     }
 
     /**
@@ -54,34 +55,34 @@ public class CourseRepositoryImpl implements CourseRepository {
     @Override
     public List<Course> findEndedOn(LocalDate endedOn) {
         LocalDate earliestStart = endedOn.minusDays(Course.MAX_TRAVEL_DAYS - 1L);
-        return courseJpaRepository.findByTravelDateBetweenAndGuestIdIsNotNull(earliestStart, endedOn).stream()
+        return courseJpaRepository.findByTravelDateBetweenAndUserIdIsNotNull(earliestStart, endedOn).stream()
                 .filter(course -> endedOn.equals(course.travelEndDate()))
                 .toList();
     }
 
     @Override
-    public List<Course> findUpcoming(String guestId, LocalDate today) {
-        return courseJpaRepository.findUpcomingByEndDate(guestId, today);
+    public List<Course> findUpcoming(UUID userId, LocalDate today) {
+        return courseJpaRepository.findUpcomingByEndDate(userId, today);
     }
 
     @Override
-    public Page<Course> findUpcoming(String guestId, LocalDate today, Pageable pageable) {
-        return courseJpaRepository.findUpcomingByEndDate(guestId, today, pageable);
+    public Page<Course> findUpcoming(UUID userId, LocalDate today, Pageable pageable) {
+        return courseJpaRepository.findUpcomingByEndDate(userId, today, pageable);
     }
 
     @Override
-    public List<Course> findPast(String guestId, LocalDate today) {
-        return courseJpaRepository.findPastByEndDate(guestId, today);
+    public List<Course> findPast(UUID userId, LocalDate today) {
+        return courseJpaRepository.findPastByEndDate(userId, today);
     }
 
     @Override
-    public Page<Course> findPast(String guestId, LocalDate today, Pageable pageable) {
-        return courseJpaRepository.findPastByEndDate(guestId, today, pageable);
+    public Page<Course> findPast(UUID userId, LocalDate today, Pageable pageable) {
+        return courseJpaRepository.findPastByEndDate(userId, today, pageable);
     }
 
     @Override
-    public Optional<Course> findByIdAndGuestId(Long id, String guestId) {
-        return courseJpaRepository.findByIdAndGuestId(id, guestId);
+    public Optional<Course> findByIdAndUserId(Long id, UUID userId) {
+        return courseJpaRepository.findByIdAndUserId(id, userId);
     }
 
     @Override
@@ -91,7 +92,7 @@ public class CourseRepositoryImpl implements CourseRepository {
 
     /** 파생 delete 라 엔티티를 로드해 지운다 — cascade·orphanRemoval 이 그대로 적용돼 하위가 고아로 남지 않는다. */
     @Override
-    public int deleteByGuestId(String guestId) {
-        return courseJpaRepository.deleteByGuestId(guestId);
+    public int deleteByUserId(UUID userId) {
+        return courseJpaRepository.deleteByUserId(userId);
     }
 }

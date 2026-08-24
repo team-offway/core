@@ -22,19 +22,14 @@ public class LeavePurgeOnUserWithdrawn {
     private final LeaveBalanceRepository leaveBalanceRepository;
     private final LeaveUsageRepository leaveUsageRepository;
 
+    /**
+     * <b>건너뛰는 길이 없다</b>(#280). 예전에는 연차가 게스트 키로 묶여 있어, 로그인 때 기기를 이어 두지
+     * 못했으면 지울 대상을 못 찾고 warn 만 남겼다. 이제 소유 키가 탈퇴한 사용자 본인이라 항상 닿는다.
+     */
     @EventListener
     public void on(UserWithdrawn event) {
-        event.guestIdIfPresent().ifPresentOrElse(this::purge, () -> logSkipped(event));
-    }
-
-    private void purge(String guestId) {
-        int usages = leaveUsageRepository.deleteByGuestId(guestId);
-        int balances = leaveBalanceRepository.deleteByGuestId(guestId);
+        int usages = leaveUsageRepository.deleteByUserId(event.userId());
+        int balances = leaveBalanceRepository.deleteByUserId(event.userId());
         log.info("탈퇴 정리 — 연차 내역 {}건 · 연차 설정 {}건 삭제", usages, balances);
-    }
-
-    /** 지우지 못하고 넘어간 것을 반드시 남긴다 — 개인정보 삭제에서 조용한 실패는 그대로 사고다. */
-    private void logSkipped(UserWithdrawn event) {
-        log.warn("탈퇴 정리 건너뜀 — 게스트 식별자가 없어 연차 데이터에 닿지 못했다 userId={}", event.userId());
     }
 }

@@ -13,8 +13,10 @@ import com.offway.core.leave.service.dto.MyLeave;
 import com.offway.core.leave.service.dto.UpdateLeaveUsage;
 import java.time.LocalDate;
 import java.util.Collection;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -45,9 +47,9 @@ public class MyLeaveService {
 
     /** 내 연차 현황 + 사용 내역. 아직 아무것도 없으면 총 0·내역 없음으로 답한다(404 가 아니다). */
     @Transactional(readOnly = true)
-    public MyLeave myLeave(String guestId) {
-        String owner = requireOwner(guestId);
-        return new MyLeave(summaryOf(owner), usageRepository.findByGuestId(owner));
+    public MyLeave myLeave(UUID userId) {
+        UUID owner = requireOwner(userId);
+        return new MyLeave(summaryOf(owner), usageRepository.findByUserId(owner));
     }
 
     /**
@@ -58,8 +60,8 @@ public class MyLeaveService {
      * 각 시도를 {@link MyLeavePersistenceService} 의 <b>독립 트랜잭션</b>으로 두면 실패한 삽입은 깔끔히
      * 롤백되고 재시도는 새 트랜잭션에서 돈다.
      */
-    public MyLeave changeTotalDays(String guestId, double totalDays) {
-        String owner = requireOwner(guestId);
+    public MyLeave changeTotalDays(UUID userId, double totalDays) {
+        UUID owner = requireOwner(userId);
         if (!persistenceService.updateTotalIfPresent(owner, totalDays)) {
             try {
                 persistenceService.create(owner, totalDays);
@@ -67,7 +69,8 @@ public class MyLeaveService {
                 // 경쟁에서 졌다 — '먼저 넣은 쪽이 이겼다' 는 뜻일 뿐이라 실패가 아니다.
                 // 이긴 행에 내 변경을 다시 적용한다. 그냥 무시하면 사용자가 누른 값이 사라진다.
                 if (!persistenceService.updateTotalIfPresent(owner, totalDays)) {
-                    throw new IllegalStateException("유니크 제약에 걸렸는데 행이 없습니다: " + owner, e);
+                    // 소유자 식별자는 개인 식별값이라 메시지에 싣지 않는다 — 이 예외의 detail 은 로그로 나간다.
+                    throw new IllegalStateException("유니크 제약에 걸렸는데 연차 잔액 행이 없습니다.", e);
                 }
                 log.info("연차 잔액 동시 생성 — 먼저 만들어진 행에 이어서 적용했습니다");
             }
@@ -85,8 +88,8 @@ public class MyLeaveService {
      * <p><b>남은 연차가 부족해도 막지 않는다</b>(결정 #38). 프론트가 경고하고 사용자가 확인하면 진행한다.
      */
     @Transactional
-    public MyLeave addUsage(String guestId, AddLeaveUsage command) {
-        String owner = requireOwner(guestId);
+    public MyLeave addUsage(UUID userId, AddLeaveUsage command) {
+        UUID owner = requireOwner(userId);
         LeaveUsage usage = command.courseId() == null
                 ? LeaveUsage.manual(owner, command.usedOn(), command.days(), command.reason(), command.memo())
                 : LeaveUsage.forCourse(
@@ -114,10 +117,10 @@ public class MyLeaveService {
      * <p>코스 확정 내역은 지우지 못한다. 그 판단은 {@link LeaveUsage#requireManuallyManaged()} 이 소유한다.
      */
     @Transactional
-    public MyLeave deleteUsage(String guestId, long usageId) {
-        String owner = requireOwner(guestId);
+    public MyLeave deleteUsage(UUID userId, long usageId) {
+        UUID owner = requireOwner(userId);
         LeaveUsage usage = usageRepository
-                .findByIdAndGuestId(usageId, owner)
+                .findByIdAndUserId(usageId, owner)
                 .orElseThrow(LeaveException::leaveUsageNotFound);
         usage.requireManuallyManaged();
         usageRepository.delete(usage);
@@ -139,10 +142,10 @@ public class MyLeaveService {
      * <p>부분 수정의 의미(안 보낸 필드는 그대로, 빈 사유는 지우기)는 {@link LeaveUsage#edit} 가 소유한다.
      */
     @Transactional
-    public MyLeave updateUsage(String guestId, long usageId, UpdateLeaveUsage command) {
-        String owner = requireOwner(guestId);
+    public MyLeave updateUsage(UUID userId, long usageId, UpdateLeaveUsage command) {
+        UUID owner = requireOwner(userId);
         LeaveUsage usage = usageRepository
-                .findByIdAndGuestId(usageId, owner)
+                .findByIdAndUserId(usageId, owner)
                 .orElseThrow(LeaveException::leaveUsageNotFound);
         usage.requireManuallyManaged();
         usage.edit(command.usedOn(), command.days(), command.reason(), command.memo());
@@ -154,12 +157,12 @@ public class MyLeaveService {
 
     /** 홈 배지가 쓰는 남은 연차. 설정한 적이 없으면 {@code null} — 0 과 구분해야 화면이 "미설정" 을 보여줄 수 있다. */
     @Transactional(readOnly = true)
-    public Double remainingDaysOrNull(String guestId) {
-        if (guestId == null || guestId.isBlank()) {
+    public Double remainingDaysOrNull(UUID userId) {
+        if (userId == null) {
             return null;
         }
-        return balanceRepository.findByGuestId(guestId)
-                .map(balance -> summaryOf(guestId, balance.getTotalDays()).remainingDays())
+        return balanceRepository.findByUserId(userId)
+                .map(balance -> summaryOf(userId, balance.getTotalDays()).remainingDays())
                 .orElse(null);
     }
 
@@ -168,7 +171,7 @@ public class MyLeaveService {
      *
      * <p><b>멱등하다</b> — 차감된 적이 없어도 조용히 넘어간다. "취소했다" 와 "원래 없었다" 는 사용자에게 같은 결과다.
      *
-     * <p>취소는 음수 행을 덧붙이지 않고 <b>그 행을 지운다</b>. {@code uk_leave_usage_guest_course} 가 코스당 한 행을
+     * <p>취소는 음수 행을 덧붙이지 않고 <b>그 행을 지운다</b>. {@code uk_leave_usage_user_course} 가 코스당 한 행을
      * 강제하므로(#91) 음수 누적은 수동 내역 전용이다.
      *
      * <p>기본 전파라 <b>호출자의 트랜잭션에 합류한다</b> — 코스 삭제와 한 덩어리로 묶여야 "코스만 사라지고 연차는
@@ -177,9 +180,9 @@ public class MyLeaveService {
      * @return 되돌린 내역이 있었으면 {@code true}
      */
     @Transactional
-    public boolean cancelCourseDeduction(String guestId, long courseId) {
-        String owner = requireOwner(guestId);
-        int removed = usageRepository.deleteByGuestIdAndCourseId(owner, courseId);
+    public boolean cancelCourseDeduction(UUID userId, long courseId) {
+        UUID owner = requireOwner(userId);
+        int removed = usageRepository.deleteByUserIdAndCourseId(owner, courseId);
         if (removed > 0) {
             log.info("코스 연차 차감 취소 courseId={} 되돌린내역={}", courseId, removed);
         }
@@ -192,8 +195,8 @@ public class MyLeaveService {
      * <p>코스마다 {@link #alreadyDeducted} 를 부르면 코스 수만큼 쿼리가 늘어난다(N+1). 한 번에 모아온다.
      */
     @Transactional(readOnly = true)
-    public Set<Long> deductedCourseIds(String guestId) {
-        return usageRepository.findDeductedCourseIds(requireOwner(guestId));
+    public Set<Long> deductedCourseIds(UUID userId) {
+        return usageRepository.findDeductedCourseIds(requireOwner(userId));
     }
 
     /**
@@ -209,8 +212,8 @@ public class MyLeaveService {
 
     /** 코스로 이미 차감했는지 — 중복 차감 방지(#91). */
     @Transactional(readOnly = true)
-    public boolean alreadyDeducted(String guestId, long courseId) {
-        return usageRepository.existsByGuestIdAndCourseId(guestId, courseId);
+    public boolean alreadyDeducted(UUID userId, long courseId) {
+        return usageRepository.existsByUserIdAndCourseId(requireOwner(userId), courseId);
     }
 
     /**
@@ -222,16 +225,16 @@ public class MyLeaveService {
      * @return 차감 내역. 차감한 적이 없으면 empty
      */
     @Transactional(readOnly = true)
-    public Optional<CourseDeduction> courseDeduction(String guestId, long courseId) {
+    public Optional<CourseDeduction> courseDeduction(UUID userId, long courseId) {
         return usageRepository
-                .findByGuestIdAndCourseId(requireOwner(guestId), courseId)
+                .findByUserIdAndCourseId(requireOwner(userId), courseId)
                 .map(usage -> new CourseDeduction(usage.getDays(), usage.startDayLeave()));
     }
 
     /**
      * 코스의 여행 날짜가 바뀌어 차감을 다시 잡는다(#170).
      *
-     * <p><b>새 내역을 쌓지 않고 기존 행을 옮긴다.</b> {@code uk_leave_usage_guest_course} 가 코스당 한 행을
+     * <p><b>새 내역을 쌓지 않고 기존 행을 옮긴다.</b> {@code uk_leave_usage_user_course} 가 코스당 한 행을
      * 강제하고(#91), 취소도 음수 누적이 아니라 삭제로 하고 있어 같은 규칙을 따른다.
      *
      * <p><b>다시 계산한 값이 0 이어도 행을 남긴다</b>(#212). 주말·공휴일로만 이뤄진 구간으로 옮기면 깎을
@@ -245,9 +248,9 @@ public class MyLeaveService {
      * @return 옮길 내역이 있었으면 {@code true} (차감한 적 없는 코스면 아무것도 하지 않고 {@code false})
      */
     @Transactional
-    public boolean rescheduleCourseDeduction(String guestId, long courseId, LocalDate usedOn, double days) {
-        String owner = requireOwner(guestId);
-        Optional<LeaveUsage> found = usageRepository.findByGuestIdAndCourseId(owner, courseId);
+    public boolean rescheduleCourseDeduction(UUID userId, long courseId, LocalDate usedOn, double days) {
+        UUID owner = requireOwner(userId);
+        Optional<LeaveUsage> found = usageRepository.findByUserIdAndCourseId(owner, courseId);
         if (found.isEmpty()) {
             return false;
         }
@@ -258,11 +261,11 @@ public class MyLeaveService {
         return true;
     }
 
-    private LeaveSummary summaryOf(String guestId) {
-        double total = balanceRepository.findByGuestId(guestId)
+    private LeaveSummary summaryOf(UUID userId) {
+        double total = balanceRepository.findByUserId(userId)
                 .map(LeaveBalance::getTotalDays)
                 .orElse(UNSET_TOTAL_DAYS);
-        return summaryOf(guestId, total);
+        return summaryOf(userId, total);
     }
 
     /**
@@ -272,11 +275,11 @@ public class MyLeaveService {
      * 같은 clamp 가 로그 없이 일어나, 화면 하나는 경고를 남기고 다른 하나는 조용히 넘어간다 — 그리고 홈 배지가
      * 더 자주 불린다.
      */
-    private LeaveSummary summaryOf(String guestId, double totalDays) {
-        LeaveSummary summary = LeaveSummary.of(totalDays, usageRepository.sumDaysByGuestId(guestId));
+    private LeaveSummary summaryOf(UUID userId, double totalDays) {
+        LeaveSummary summary = LeaveSummary.of(totalDays, usageRepository.sumDaysByUserId(userId));
         if (summary.isLedgerNegative()) {
             // 잘라서 내려주고 끝내면 아무도 모른다 — 이 소유자의 내역에 상쇄 등록(음수 days)이 남아 있다는
-            // 뜻이다(#265). 소유 키는 사용자 입력이라 로그에 싣지 않는다.
+            // 뜻이다(#265). 소유자 식별자는 개인 식별값이라 로그에 싣지 않는다.
             log.warn("사용 내역 합이 음수라 0 으로 봅니다 ledger={} — 옛 상쇄 등록이 남아 있습니다", summary.ledgerDays());
         }
         return summary;
@@ -284,15 +287,11 @@ public class MyLeaveService {
 
 
     /**
-     * 소유 키 계약 검증. 빈 헤더({@code X-Guest-Id: " "})는 {@code @RequestHeader} 를 통과하므로 <b>멀쩡한
-     * 클라이언트가 정상 요청으로 닿을 수 있다</b> — 도메인까지 흘려보내면 500 이 나간다.
-     *
-     * <p>조회에도 건다. 조회만 실패하지 않는다고 통과시키면 같은 요청이 메서드에 따라 200 과 400 으로 갈린다.
+     * 소유자 불변식. 예전에는 계약 검증(400)이었다 — 소유 키가 요청 헤더라 빈 값·초과 길이가 멀쩡한
+     * 클라이언트에게서도 들어왔기 때문이다. 이제 소유자는 인증이 확인한 UUID 라, 여기가 비어 있다는 것은
+     * 인증을 지나온 요청에 주체가 없다는 뜻뿐이다 — 버그이므로 500 이 맞다(#280).
      */
-    private static String requireOwner(String guestId) {
-        if (guestId == null || guestId.isBlank() || guestId.length() > LeaveBalance.MAX_OWNER_ID_LENGTH) {
-            throw LeaveException.invalidOwnerId();
-        }
-        return guestId;
+    private static UUID requireOwner(UUID userId) {
+        return Objects.requireNonNull(userId, "userId 는 null 일 수 없습니다.");
     }
 }

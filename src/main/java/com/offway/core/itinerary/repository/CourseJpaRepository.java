@@ -4,6 +4,7 @@ import com.offway.core.itinerary.domain.Course;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -13,19 +14,19 @@ import org.springframework.data.repository.query.Param;
 /** Spring Data JPA — 어댑터가 위임하는 실제 구현. */
 public interface CourseJpaRepository extends JpaRepository<Course, Long> {
 
-    List<Course> findByGuestIdOrderByIdDesc(String guestId);
+    List<Course> findByUserIdOrderByIdDesc(UUID userId);
 
     // 페이지 변형. 애그리거트(days·slots)는 fetch join 하지 않는다 — 컬렉션을 조인하면 페이징이
     // 메모리에서 일어난다(HHH000104). 지연 로딩은 default_batch_fetch_size 가 묶어 준다.
-    Page<Course> findByGuestIdOrderByIdDesc(String guestId, Pageable pageable);
+    Page<Course> findByUserIdOrderByIdDesc(UUID userId, Pageable pageable);
 
     // travelDate 가 null 인 코스는 두 조건 모두에 걸리지 않아 자연히 빠진다 — DB 마다 다른 NULL 정렬에 기대지 않는다.
     /**
      * 그 날짜에 떠나는 코스 전부(소유자 무관) — 알림 배치용(#269).
      *
-     * <p>{@code GuestIdIsNotNull} 로 소유자 없는 코스(공유 링크용, #261)를 뺀다. 알릴 상대가 없는 코스다.
+     * <p>{@code UserIdIsNotNull} 로 소유자 없는 코스(공유 링크용, #261)를 뺀다. 알릴 상대가 없는 코스다.
      */
-    List<Course> findByTravelDateAndGuestIdIsNotNull(LocalDate travelDate);
+    List<Course> findByTravelDateAndUserIdIsNotNull(LocalDate travelDate);
 
     /**
      * 시작일이 이 구간에 든 코스 전부(소유자 무관) — 종료일 기준 알림 배치용(#302).
@@ -37,7 +38,7 @@ public interface CourseJpaRepository extends JpaRepository<Course, Long> {
      *
      * <p>범위 폭은 코스 최대 기간({@code Course.MAX_TRAVEL_DAYS})이라 후보가 며칠치를 넘지 않는다.
      */
-    List<Course> findByTravelDateBetweenAndGuestIdIsNotNull(LocalDate from, LocalDate to);
+    List<Course> findByTravelDateBetweenAndUserIdIsNotNull(LocalDate from, LocalDate to);
 
     /**
      * 다가오는 여행 — <b>종료일이 오늘 포함 이후</b>(#325).
@@ -51,37 +52,37 @@ public interface CourseJpaRepository extends JpaRepository<Course, Long> {
      * (로컬·테스트·운영이 전부 MySQL)을 따라 native 로 쓴다.
      *
      * <p><b>인덱스를 타지 못한다.</b> 조건이 컬럼 연산이라 travel_date 인덱스로 범위를 좁힐 수 없다.
-     * 다만 앞선 {@code guest_id} 조건이 이미 한 사람의 코스로 줄여 주고, 한 사람이 담는 코스는 수십 건
+     * 다만 앞선 {@code user_id} 조건이 이미 한 사람의 코스로 줄여 주고, 한 사람이 담는 코스는 수십 건
      * 규모다. 그 전제가 깨질 만큼 쌓이면 종료일을 컬럼으로 저장하는 편이 낫다.
      */
     @Query(value = """
                     SELECT * FROM course
-                     WHERE guest_id = :guestId
+                     WHERE user_id = :userId
                        AND travel_date IS NOT NULL
                        AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) >= :today
                      ORDER BY travel_date ASC, id DESC
                     """, countQuery = """
                     SELECT COUNT(*) FROM course
-                     WHERE guest_id = :guestId
+                     WHERE user_id = :userId
                        AND travel_date IS NOT NULL
                        AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) >= :today
                     """, nativeQuery = true)
-    List<Course> findUpcomingByEndDate(@Param("guestId") String guestId, @Param("today") LocalDate today);
+    List<Course> findUpcomingByEndDate(@Param("userId") UUID userId, @Param("today") LocalDate today);
 
     @Query(value = """
                     SELECT * FROM course
-                     WHERE guest_id = :guestId
+                     WHERE user_id = :userId
                        AND travel_date IS NOT NULL
                        AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) >= :today
                      ORDER BY travel_date ASC, id DESC
                     """, countQuery = """
                     SELECT COUNT(*) FROM course
-                     WHERE guest_id = :guestId
+                     WHERE user_id = :userId
                        AND travel_date IS NOT NULL
                        AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) >= :today
                     """, nativeQuery = true)
     Page<Course> findUpcomingByEndDate(
-            @Param("guestId") String guestId, @Param("today") LocalDate today, Pageable pageable);
+            @Param("userId") UUID userId, @Param("today") LocalDate today, Pageable pageable);
 
     /**
      * 지난 여행 — <b>종료일이 오늘보다 앞</b>(#325). 여행 중인 코스는 여기 오지 않는다.
@@ -96,34 +97,34 @@ public interface CourseJpaRepository extends JpaRepository<Course, Long> {
      */
     @Query(value = """
                     SELECT * FROM course
-                     WHERE guest_id = :guestId
+                     WHERE user_id = :userId
                        AND travel_date IS NOT NULL
                        AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) < :today
                      ORDER BY DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) DESC, id DESC
                     """, countQuery = """
                     SELECT COUNT(*) FROM course
-                     WHERE guest_id = :guestId
+                     WHERE user_id = :userId
                        AND travel_date IS NOT NULL
                        AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) < :today
                     """, nativeQuery = true)
-    List<Course> findPastByEndDate(@Param("guestId") String guestId, @Param("today") LocalDate today);
+    List<Course> findPastByEndDate(@Param("userId") UUID userId, @Param("today") LocalDate today);
 
     @Query(value = """
                     SELECT * FROM course
-                     WHERE guest_id = :guestId
+                     WHERE user_id = :userId
                        AND travel_date IS NOT NULL
                        AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) < :today
                      ORDER BY DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) DESC, id DESC
                     """, countQuery = """
                     SELECT COUNT(*) FROM course
-                     WHERE guest_id = :guestId
+                     WHERE user_id = :userId
                        AND travel_date IS NOT NULL
                        AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) < :today
                     """, nativeQuery = true)
     Page<Course> findPastByEndDate(
-            @Param("guestId") String guestId, @Param("today") LocalDate today, Pageable pageable);
+            @Param("userId") UUID userId, @Param("today") LocalDate today, Pageable pageable);
 
-    Optional<Course> findByIdAndGuestId(Long id, String guestId);
+    Optional<Course> findByIdAndUserId(Long id, UUID userId);
 
-    int deleteByGuestId(String guestId);
+    int deleteByUserId(UUID userId);
 }

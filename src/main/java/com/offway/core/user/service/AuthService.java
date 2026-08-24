@@ -1,11 +1,10 @@
 package com.offway.core.user.service;
 
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.user.domain.AuthProvider;
+import com.offway.core.user.infrastructure.apple.AppleAccountLink;
 import java.util.List;
 import java.util.Optional;
-import com.offway.core.user.infrastructure.apple.AppleAccountLink;
-import com.offway.core.common.logging.RootCause;
-import com.offway.core.leave.domain.LeaveBalance;
 import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.UserException;
 import com.offway.core.user.infrastructure.social.SocialIdentityResolver;
@@ -40,11 +39,15 @@ public class AuthService {
      *
      * <p>확인(외부 호출일 수 있다)을 먼저 끝내고 DB 작업만 위임하는 순서를 지킨다. Kakao 는 프로필 조회가 끼는데,
      * 그것이 트랜잭션 안에 들어가면 read-timeout 동안 DB 커넥션을 잡아 풀이 마른다.
+     *
+     * <p><b>로그인은 더 이상 기기를 잇지 않는다(#280).</b> 코스·연차의 소유 키가 {@code user_id} 로 옮겨가,
+     * 로그인 시점에 게스트 키를 이어 둘 이유가 사라졌다. 그 연결은 검증 불가능한 헤더 값으로 만들어져
+     * 오히려 남의 데이터를 자기 계정에 붙일 수 있는 통로였다.
      */
     public IssuedToken login(SocialLoginCommand command) {
         SocialIdentity identity = socialIdentityResolver.resolve(command.provider(), command.credential());
         AuthenticatedUser user = findOrCreateUser(identity, command);
-        linkDevice(user.userId(), command.guestId());
+        // 기기를 잇던 단계(linkDevice)는 사라졌다(#280) — 소유가 이 사용자라 이어 둘 것이 없다.
         rememberProviderLink(user.userId(), identity, command.authorizationCode());
         return issueTokens(user);
     }
@@ -138,7 +141,8 @@ public class AuthService {
                     userPersistenceService.rememberProviderToken(
                             userId, provider, refreshToken.get(), clientId);
                 } catch (RuntimeException e) {
-                    // 저장 실패가 로그인을 막지 않는다 — linkDevice 와 같은 판단이다.
+                    // 저장 실패가 로그인을 막지 않는다. 이 값이 없으면 탈퇴 때 Apple 연결만 못 끊고,
+                    // 그건 아래 경고로 드러난다 — 로그인 자체를 500 으로 만드는 편이 훨씬 나쁘다.
                     log.warn("Apple 갱신 토큰을 저장하지 못했습니다 userId={} cause={}", userId, RootCause.label(e));
                 }
                 return;
@@ -172,44 +176,6 @@ public class AuthService {
                 refreshToken,
                 tokenIssuer.accessTokenSeconds(),
                 user.newUser());
-    }
-
-    /**
-     * 이 기기를 사용자에게 이어 둔다(#34) — <b>실패해도 로그인을 막지 않는다</b>.
-     *
-     * <p>코스·연차가 아직 {@code guest_id} 로 묶여 있어, 서버가 "이 사용자의 데이터가 무엇인가" 를 알 수 있는
-     * 유일한 근거다. 탈퇴가 이것으로 대상을 찾는다. 다만 <b>기록은 나중을 위한 것이지 로그인의 조건이 아니다</b> —
-     * 여기서 터지면 계정은 만들어졌는데 토큰을 못 받아, 재시도해도 같은 자리에서 계속 실패하는 락아웃이 된다.
-     *
-     * <p>그래서 두 가지를 트랜잭션 <b>밖</b>에서 처리한다.
-     *
-     * <ul>
-     *   <li><b>형식</b> — 헤더는 아무나 아무 값이나 보낼 수 있다. 길이를 넘기면 DB 가 잘라내며 터지는데,
-     *       그 값으로는 코스·연차도 저장되지 않으므로 이어 둘 이유 자체가 없다. 넘어가고 흔적만 남긴다.
-     *   <li><b>경합</b> — 유니크 제약 위반은 그 트랜잭션을 rollback-only 로 만들어 <b>안에서 삼켜도 소용없다</b>.
-     *       커밋에서 {@code UnexpectedRollbackException} 으로 끝난다. 밖에서 잡아야 한다.
-     * </ul>
-     */
-    private void linkDevice(UUID userId, String guestId) {
-        if (guestId == null || guestId.isBlank()) {
-            log.info("기기 식별자 없이 로그인했습니다 — 이 사용자의 코스·연차는 이어지지 않습니다 userId={}", userId);
-            return;
-        }
-        if (guestId.length() > LeaveBalance.MAX_OWNER_ID_LENGTH) {
-            log.warn("기기 식별자가 너무 깁니다 — 이어 두지 않습니다 userId={} length={}", userId, guestId.length());
-            return;
-        }
-        try {
-            userPersistenceService.linkGuest(userId, guestId, Instant.now());
-        } catch (RuntimeException e) {
-            // **좁게 잡지 않는다.** 제약 위반은 그 트랜잭션을 rollback-only 로 만들어, 커밋 시점에
-            // DataIntegrityViolationException 이 아니라 UnexpectedRollbackException 으로 올라온다.
-            // 타입을 골라 잡으면 그중 하나가 새어 나가 로그인 전체가 500 이 되고, 계정은 만들어졌는데
-            // 토큰을 못 받아 재시도해도 같은 자리에서 실패하는 락아웃이 된다.
-            //
-            // 무엇으로 실패했는지는 남긴다 — 경합이면 정상이고(먼저 넣은 쪽이 이겼다) 그 밖이면 봐야 한다.
-            log.warn("기기를 잇지 못했습니다 — 로그인은 계속합니다 userId={} cause={}", userId, RootCause.label(e));
-        }
     }
 
     /**

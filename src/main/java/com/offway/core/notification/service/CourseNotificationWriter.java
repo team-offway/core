@@ -63,12 +63,12 @@ public class CourseNotificationWriter {
         for (Course course : courses) {
             try {
                 if (notificationRepository.saveIfAbsent(Notification.builder()
-                        .guestId(course.getGuestId())
+                        .userId(course.getUserId())
                         .type(type)
                         .courseId(course.getId())
                         .createdAt(now)
                         .build())) {
-                    created.add(new PushTarget(course.getGuestId(), type, course.getId()));
+                    created.add(new PushTarget(course.getUserId(), type, course.getId()));
                 }
             } catch (DataIntegrityViolationException e) {
                 // 조회와 삽입 사이에 다른 실행이 같은 것을 넣었다. 유니크 키가 막아 준 것이고 결과는

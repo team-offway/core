@@ -14,5 +14,6 @@ public interface PolicyApi {
     @Operation(summary = "정책 상세", description = "정책 정보와 이 혜택이 되는 여행지 목록(정책→지역 역방향)을 반환한다.")
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "404", description = "정책이 없거나 노출 대상이 아님(미검증 포함)")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<PolicyResponse> getPolicy(@Parameter(description = "정책 ID", example = "1") Long policyId);
 }

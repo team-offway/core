@@ -7,6 +7,7 @@ import com.offway.core.notification.repository.NotificationRepository;
 import com.offway.core.notification.service.dto.MyNotifications;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -40,8 +41,8 @@ public class NotificationService {
      * <p><b>안읽음 수는 따로 센다.</b> 배지가 쓰는 값이라 페이지 안에서 세면 첫 페이지 크기에서 멈춘다.
      */
     @Transactional(readOnly = true)
-    public MyNotifications myNotifications(String guestId, Integer page, Integer size) {
-        String owner = Notification.requireOwner(guestId);
+    public MyNotifications myNotifications(UUID userId, Integer page, Integer size) {
+        UUID owner = Notification.requireOwner(userId);
         Page<Notification> found = notificationRepository.findByOwner(owner, Paging.of(page, size));
         return MyNotifications.of(found, notificationRepository.countUnread(owner));
     }
@@ -58,8 +59,8 @@ public class NotificationService {
      * @return 처리 후 남은 안읽음 개수
      */
     @Transactional
-    public long markRead(String guestId, long notificationId) {
-        String owner = Notification.requireOwner(guestId);
+    public long markRead(UUID userId, long notificationId) {
+        UUID owner = Notification.requireOwner(userId);
         // 조회는 남긴다 — 없는 id 와 남의 id 를 404 로 가르는 자리다. UPDATE 만으로는 "0행" 이
         // "이미 읽음" 인지 "남의 것" 인지 구분되지 않는다.
         notificationRepository
@@ -79,8 +80,8 @@ public class NotificationService {
      * @return 처리 후 남은 안읽음 개수
      */
     @Transactional
-    public long markAllRead(String guestId) {
-        String owner = Notification.requireOwner(guestId);
+    public long markAllRead(UUID userId) {
+        UUID owner = Notification.requireOwner(userId);
         int changed = notificationRepository.markAllRead(owner, LocalDateTime.now(SERVICE_ZONE));
         log.info("알림 전체 읽음 처리 changed={}", changed);
         return notificationRepository.countUnread(owner);

@@ -3,6 +3,7 @@ package com.offway.core.itinerary.repository;
 import com.offway.core.itinerary.domain.TripOutcome;
 import java.util.Collection;
 import java.util.Set;
+import java.util.UUID;
 
 /** 도메인이 의존하는 port. 구현은 {@link TripOutcomeRepositoryImpl}. */
 public interface TripOutcomeRepository {
@@ -12,7 +13,7 @@ public interface TripOutcomeRepository {
      *
      * @return 지운 행 수
      */
-    int deleteByGuestId(String guestId);
+    int deleteByUserId(UUID userId);
 
 
     /**
@@ -20,7 +21,7 @@ public interface TripOutcomeRepository {
      *
      * <p>코스마다 "답했나" 를 물으면 코스 수만큼 쿼리가 늘어난다. 한 번에 모아온다.
      */
-    Set<Long> findAnsweredCourseIds(String guestId);
+    Set<Long> findAnsweredCourseIds(UUID userId);
 
     /** 이 코스들 중 이미 답한 것 — 알림 배치가 소유자별로 묻지 않게 한 번에 판다(#302). */
     Set<Long> findAnsweredCourseIdsIn(Collection<Long> courseIds);

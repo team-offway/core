@@ -3,6 +3,7 @@ package com.offway.core.itinerary.domain;
 import com.offway.core.itinerary.repository.CourseRepository;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -27,14 +28,14 @@ public enum CourseScope {
      */
     UPCOMING {
         @Override
-        public List<Course> find(CourseRepository repository, String guestId, LocalDate today) {
-            return repository.findUpcoming(guestId, today);
+        public List<Course> find(CourseRepository repository, UUID userId, LocalDate today) {
+            return repository.findUpcoming(userId, today);
         }
 
         @Override
         public Page<Course> find(
-                CourseRepository repository, String guestId, LocalDate today, Pageable pageable) {
-            return repository.findUpcoming(guestId, today, pageable);
+                CourseRepository repository, UUID userId, LocalDate today, Pageable pageable) {
+            return repository.findUpcoming(userId, today, pageable);
         }
     },
 
@@ -46,34 +47,34 @@ public enum CourseScope {
      */
     PAST {
         @Override
-        public List<Course> find(CourseRepository repository, String guestId, LocalDate today) {
-            return repository.findPast(guestId, today);
+        public List<Course> find(CourseRepository repository, UUID userId, LocalDate today) {
+            return repository.findPast(userId, today);
         }
 
         @Override
         public Page<Course> find(
-                CourseRepository repository, String guestId, LocalDate today, Pageable pageable) {
-            return repository.findPast(guestId, today, pageable);
+                CourseRepository repository, UUID userId, LocalDate today, Pageable pageable) {
+            return repository.findPast(userId, today, pageable);
         }
     },
 
     /** 전부 — 저장한 순서(최근 저장이 위). 날짜 없는 코스도 여기 나온다. */
     ALL {
         @Override
-        public List<Course> find(CourseRepository repository, String guestId, LocalDate today) {
-            return repository.findByGuestId(guestId);
+        public List<Course> find(CourseRepository repository, UUID userId, LocalDate today) {
+            return repository.findByUserId(userId);
         }
 
         @Override
         public Page<Course> find(
-                CourseRepository repository, String guestId, LocalDate today, Pageable pageable) {
-            return repository.findByGuestId(guestId, pageable);
+                CourseRepository repository, UUID userId, LocalDate today, Pageable pageable) {
+            return repository.findByUserId(userId, pageable);
         }
     };
 
-    public abstract List<Course> find(CourseRepository repository, String guestId, LocalDate today);
+    public abstract List<Course> find(CourseRepository repository, UUID userId, LocalDate today);
 
     /** 같은 범위를 한 페이지만 — 목록 화면이 쓴다(#105). 정렬은 범위가 이미 소유한다. */
     public abstract Page<Course> find(
-            CourseRepository repository, String guestId, LocalDate today, Pageable pageable);
+            CourseRepository repository, UUID userId, LocalDate today, Pageable pageable);
 }

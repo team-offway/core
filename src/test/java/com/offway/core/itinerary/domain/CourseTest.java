@@ -47,7 +47,7 @@ class CourseTest {
         Course course = Course.sharedOnly(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 2)),
                 LocalDate.of(2026, 9, 12), 1, new Coordinate(37.55, 126.97), StartDayLeave.FULL_DAY);
 
-        assertNull(course.getGuestId());
+        assertNull(course.getUserId());
         assertEquals(42L, course.getRegionId());
         assertTrue(course.origin().isPresent());
     }

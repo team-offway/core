@@ -2,6 +2,7 @@ package com.offway.core.leave.repository;
 
 import com.offway.core.leave.domain.LeaveBalance;
 import java.util.Optional;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -13,8 +14,8 @@ public class LeaveBalanceRepositoryImpl implements LeaveBalanceRepository {
     private final LeaveBalanceJpaRepository jpaRepository;
 
     @Override
-    public Optional<LeaveBalance> findByGuestId(String guestId) {
-        return jpaRepository.findByGuestId(guestId);
+    public Optional<LeaveBalance> findByUserId(UUID userId) {
+        return jpaRepository.findByUserId(userId);
     }
 
     @Override
@@ -23,7 +24,7 @@ public class LeaveBalanceRepositoryImpl implements LeaveBalanceRepository {
     }
 
     @Override
-    public int deleteByGuestId(String guestId) {
-        return jpaRepository.deleteByGuestId(guestId);
+    public int deleteByUserId(UUID userId) {
+        return jpaRepository.deleteByUserId(userId);
     }
 }

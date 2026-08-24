@@ -21,5 +21,6 @@ public interface QuotaApi {
 
                     한 번도 안 부른 API 도 0 으로 함께 나간다. 빠져 있으면 "안 쓴 것" 과 "안 센 것" 이 구분되지 않는다.""")
     @ApiResponse(responseCode = "200", description = "조회 성공")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<QuotaResponse> quotas();
 }

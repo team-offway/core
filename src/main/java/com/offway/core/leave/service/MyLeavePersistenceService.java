@@ -2,6 +2,7 @@ package com.offway.core.leave.service;
 
 import com.offway.core.leave.domain.LeaveBalance;
 import com.offway.core.leave.repository.LeaveBalanceRepository;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -29,8 +30,8 @@ public class MyLeavePersistenceService {
      * @return 고쳤으면 {@code true}
      */
     @Transactional
-    public boolean updateTotalIfPresent(String guestId, double totalDays) {
-        return balanceRepository.findByGuestId(guestId)
+    public boolean updateTotalIfPresent(UUID userId, double totalDays) {
+        return balanceRepository.findByUserId(userId)
                 .map(balance -> {
                     balance.changeTotal(totalDays);
                     balanceRepository.save(balance);
@@ -40,7 +41,7 @@ public class MyLeavePersistenceService {
     }
 
     /**
-     * 새로 만든다. 같은 소유자로 동시에 들어오면 한쪽이 {@code uk_leave_balance_guest} 에 걸려
+     * 새로 만든다. 같은 소유자로 동시에 들어오면 한쪽이 {@code uk_leave_balance_user} 에 걸려
      * {@link org.springframework.dao.DataIntegrityViolationException} 을 던진다 — <b>이 트랜잭션만</b> 롤백되고
      * 호출자가 그걸 잡아 갱신으로 되돌아간다.
      *
@@ -49,7 +50,7 @@ public class MyLeavePersistenceService {
      * {@code UnexpectedRollbackException} 이 난다.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void create(String guestId, double totalDays) {
-        balanceRepository.save(LeaveBalance.of(guestId, totalDays));
+    public void create(UUID userId, double totalDays) {
+        balanceRepository.save(LeaveBalance.of(userId, totalDays));
     }
 }

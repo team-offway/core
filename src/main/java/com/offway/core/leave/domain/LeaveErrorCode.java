@@ -54,7 +54,13 @@ public enum LeaveErrorCode implements ErrorCode {
     INVALID_LEAVE_USAGE_DAYS(
             "LEAVE-010", ErrorCategory.BAD_REQUEST, "연차 증감은 0.25일 단위여야 하고 0일은 기록할 수 없습니다."),
 
-    /** 소유 키 헤더가 비었거나 너무 김 — 헤더 자체가 없으면 프레임워크가 먼저 COMMON-400 으로 막는다. */
+    /**
+     * 소유 키 헤더가 비었거나 너무 김 — <b>이제 아무도 던지지 않는다</b>(#280).
+     *
+     * <p>소유 키가 요청 헤더({@code X-Guest-Id})이던 시절의 사유다. 지금은 인증이 확인한 UUID 라 형식이 어긋날
+     * 자리가 없고, 주체가 없으면 401 이 먼저 나간다. <b>그래도 지우지 않는다</b> — 번호는 append-only 라
+     * 재사용·재배치하지 않고 결번도 만들지 않는다(코드가 클라이언트 계약이다).
+     */
     INVALID_OWNER_ID("LEAVE-011", ErrorCategory.BAD_REQUEST, "사용자 식별값이 올바르지 않습니다."),
 
     /** 지우려는 사용 내역이 없거나 남의 것 — 둘을 구분해 답하지 않는다(존재 여부를 흘리지 않는다). */

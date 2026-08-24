@@ -46,8 +46,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @AutoConfigureMockMvc
 class AuthIntegrationTest {
 
-    private static final String GUEST_HEADER = "X-Guest-Id";
-
     private static final String CALLBACK_URL = "/api/v1/auth/callback/%s";
     private static final String REISSUE_URL = "/api/v1/auth/reissue";
     private static final String LOGOUT_URL = "/api/v1/auth/logout";
@@ -540,121 +538,22 @@ class AuthIntegrationTest {
         return JsonPath.read(payload, "$.sub");
     }
 
-    // ── 기기 연결(#34) ────────────────────────────────────────
+    // ── 동시 가입 ─────────────────────────────────────────────
 
     /**
-     * 로그인할 때 이 기기를 사용자에게 이어 둔다 — <b>탈퇴가 데이터를 찾는 유일한 근거다</b>.
+     * 같은 신원으로 동시에 로그인해도 <b>둘 다 성공하고 계정은 하나다</b>.
      *
-     * <p>코스·연차는 아직 {@code guest_id} 로 묶여 있다. 이 기록이 없으면 서버는 "이 사용자의 데이터가
-     * 무엇인가" 를 스스로 알지 못해, 헤더 없이 온 탈퇴 요청에서 코스·연차가 주인 없이 영영 남는다.
+     * <p>로그인 버튼 더블탭이면 그대로 일어난다. 두 요청이 모두 "계정이 없다" 를 읽고 둘 다 만들려 해서 하나가
+     * {@code uk_user_identity_provider} 에 걸리는데, 진 쪽을 그냥 실패시키면 사용자가 원한 상태(계정 하나)는
+     * 이미 이뤄져 있는데도 로그인에 실패한다.
+     *
+     * <p><b>진 쪽은 먼저 만들어진 계정으로 들어온다</b> — 계정이 둘로 갈리면 "내 코스"·연차가 어느 쪽에
+     * 붙었는지에 따라 사라진 것처럼 보인다.
      */
     @Test
-    void 로그인하면_이_기기가_사용자에게_이어진다() throws Exception {
-        String guest = "link-" + UUID.randomUUID();
+    void 같은_신원으로_동시에_로그인해도_둘_다_성공하고_계정은_하나다() throws Exception {
         socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
-
-        mockMvc.perform(callback("google", "any-id-token").header(GUEST_HEADER, guest))
-                .andExpect(status().isOk());
-
-        assertEquals(1, linkCount(guest), "로그인이 기기를 잇지 않았다");
-    }
-
-    @Test
-    void 헤더가_없어도_로그인은_된다() throws Exception {
-        // 기록은 나중을 위한 것이지 로그인의 조건이 아니다. 여기서 막으면 헤더를 안 보내는 앱이 못 들어온다.
-        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
-
-        mockMvc.perform(callback("google", "any-id-token")).andExpect(status().isOk());
-    }
-
-    @Test
-    void 같은_기기로_다시_로그인해도_연결은_하나다() throws Exception {
-        String guest = "link-" + UUID.randomUUID();
-        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
-
-        mockMvc.perform(callback("google", "t1").header(GUEST_HEADER, guest)).andExpect(status().isOk());
-        mockMvc.perform(callback("google", "t2").header(GUEST_HEADER, guest)).andExpect(status().isOk());
-
-        assertEquals(1, linkCount(guest));
-    }
-
-    /**
-     * 한 기기에서 두 사람이 로그인해도 그 기기는 <b>먼저 로그인한 사용자</b>의 것으로 남는다.
-     *
-     * <p>뒤에 온 사람에게 넘기면 그 기기에 쌓인 남의 코스·연차를 넘기는 셈이고, 탈퇴가 그것을 지운다.
-     * 데이터를 잘못 넘기는 것보다 안 넘기는 쪽이 낫다.
-     */
-    @Test
-    void 한_기기를_두_사람이_쓰면_먼저_로그인한_쪽이_갖는다() throws Exception {
-        String guest = "link-" + UUID.randomUUID();
-        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "먼저", null);
-        String firstUser = ownerOf(guest, callback("google", "t1").header(GUEST_HEADER, guest));
-
-        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "나중", null);
-        mockMvc.perform(callback("google", "t2").header(GUEST_HEADER, guest)).andExpect(status().isOk());
-
-        assertEquals(1, linkCount(guest));
-        assertEquals(firstUser, currentOwner(guest), "뒤에 로그인한 사용자가 기기를 가져갔다");
-    }
-
-    private int linkCount(String guestId) {
-        return jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM user_guest_link WHERE guest_id = ?", Integer.class, guestId);
-    }
-
-    /**
-     * 앞머리가 일치하는 연결 행 수.
-     *
-     * <p><b>전체 값으로 세면 잘려서 저장된 행을 못 본다.</b> 구현이 64자로 자르면 원본 200자로 조회한 결과는
-     * 0 인데 {@code user_guest_link} 에는 행이 남는다 — "기록하지 않았다" 를 확인하려는 단언이 조용히 통과한다.
-     * 상한 안에 들어가는 고유 앞머리로 세면 잘린 행도 잡힌다.
-     */
-    private int linkCountStartingWith(String guestIdPrefix) {
-        return jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM user_guest_link WHERE guest_id LIKE ?", Integer.class, guestIdPrefix + "%");
-    }
-
-    private String currentOwner(String guestId) {
-        return jdbcTemplate.queryForObject(
-                "SELECT HEX(user_id) FROM user_guest_link WHERE guest_id = ?", String.class, guestId);
-    }
-
-    private String ownerOf(String guestId, MockHttpServletRequestBuilder request) throws Exception {
-        mockMvc.perform(request).andExpect(status().isOk());
-        return currentOwner(guestId);
-    }
-
-    /**
-     * 헤더가 길어도 <b>로그인은 성공한다</b> — 기록은 나중을 위한 것이지 로그인의 조건이 아니다.
-     *
-     * <p>여기서 터지면 계정은 만들어졌는데 토큰을 못 받아, 재시도해도 같은 자리에서 계속 실패하는 락아웃이
-     * 된다. 실제로 그랬다 — {@code VARCHAR(64)} 를 넘긴 값이 DB 에서 잘리며 500 을 냈다.
-     */
-    @Test
-    void 기기_식별자가_너무_길어도_로그인은_된다() throws Exception {
-        // 앞머리를 컬럼 상한(64) 안에 두고 고유하게 만든다 — 잘려서 저장돼도 이 앞머리는 살아남아 조회에 걸린다.
-        String head = "toolong-" + UUID.randomUUID();
-        String tooLong = head + "d".repeat(200);
-        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
-
-        mockMvc.perform(callback("google", "any-id-token").header(GUEST_HEADER, tooLong))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.accessToken").isNotEmpty());
-
-        assertEquals(0, linkCountStartingWith(head), "이을 수 없는 값을 기록했다");
-    }
-
-    /**
-     * 같은 기기로 동시에 로그인해도 <b>둘 다 성공한다</b>.
-     *
-     * <p>유니크 제약 위반을 트랜잭션 <b>안에서</b> 삼키면 소용이 없다 — 세션이 rollback-only 가 되어 커밋에서
-     * {@code UnexpectedRollbackException} 으로 끝난다. 진 쪽이 로그인에 실패하면 새 기기 첫 로그인을
-     * 두 번 누른 사용자가 들어오지 못한다.
-     */
-    @Test
-    void 같은_기기로_동시에_로그인해도_둘_다_성공한다() throws Exception {
-        String guest = "link-" + UUID.randomUUID();
-        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+        long before = userJpaRepository.count();
         int attempts = 2;
         CyclicBarrier barrier = new CyclicBarrier(attempts);
         ExecutorService executor = Executors.newFixedThreadPool(attempts);
@@ -663,7 +562,7 @@ class AuthIntegrationTest {
             for (int i = 0; i < attempts; i++) {
                 results.add(executor.submit(() -> {
                     barrier.await();
-                    return mockMvc.perform(callback("google", "any-id-token").header(GUEST_HEADER, guest))
+                    return mockMvc.perform(callback("google", "any-id-token"))
                             .andReturn()
                             .getResponse()
                             .getStatus();
@@ -678,6 +577,6 @@ class AuthIntegrationTest {
         } finally {
             executor.shutdownNow();
         }
-        assertEquals(1, linkCount(guest));
+        assertEquals(before + 1, userJpaRepository.count(), "동시 로그인이 계정을 둘 만들었다");
     }
 }
