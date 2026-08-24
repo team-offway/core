@@ -94,7 +94,7 @@ public interface LeaveApi {
     @ApiResponse(responseCode = "200", description = "수정 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usageId 가 숫자가 아님 · usedOn 날짜 형식 오류 · "
+            description = "usageId 가 숫자가 아님 · usedOn 날짜 형식 오류 · "
                     + "days 가 0 이거나 0.25 단위가 아니거나 99 초과(LEAVE-010) · days 가 음수(LEAVE-013)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "404", description = "그 내역이 없거나 다른 소유자의 것")
