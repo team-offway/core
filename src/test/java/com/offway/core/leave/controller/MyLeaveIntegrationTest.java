@@ -189,6 +189,7 @@ class MyLeaveIntegrationTest {
     // ── 내역 수정(#267) ────────────────────────────────────────
 
     @Test
+    @WithLoginUser
     void 내역을_고치면_잔여가_따라_바뀐다() throws Exception {
         mockMvc.perform(patch(URL)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"totalDays\": 10}"))
@@ -211,6 +212,7 @@ class MyLeaveIntegrationTest {
     }
 
     @Test
+    @WithLoginUser
     void 빈_사유를_보내면_사유가_지워진다() throws Exception {
         // 안 보냄·null 은 "그대로 두라" 라, 지우는 신호는 빈 문자열뿐이다.
         long usageId = onlyUsageId(addUsage("{\"usedOn\": \"2026-05-08\", \"days\": 1, \"reason\": \"제주\"}")
@@ -224,6 +226,7 @@ class MyLeaveIntegrationTest {
     }
 
     @Test
+    @WithLoginUser
     void 수정도_등록과_같은_400_을_준다() throws Exception {
         long usageId = onlyUsageId(addUsage("{\"usedOn\": \"2026-05-08\", \"days\": 1}")
                 .andReturn().getResponse().getContentAsString());
@@ -526,6 +529,7 @@ class MyLeaveIntegrationTest {
      * 계약을 코드에 남기기 위해서다 — 재현되는 날엔 잡는다.
      */
     @Test
+    @WithLoginUser
     void 같은_소유자로_동시에_수정해도_둘_다_성공한다() throws Exception {
         // 풀 스레드는 SecurityContextHolder(ThreadLocal)를 상속받지 못한다 — 인증을 요청에 직접 싣는다.
         UUID owner = UUID.randomUUID();

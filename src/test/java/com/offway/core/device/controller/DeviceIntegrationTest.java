@@ -35,13 +35,12 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 /**
  * 푸시 토큰 등록·해제의 HTTP 계약(#264).
  *
- * <p><b>이 도메인은 소유 키를 옮기지 않았다</b>(#280 범위 밖). 코스·연차·알림이 {@code user_id}(UUID)로
- * 간 뒤에도 {@code device_push_token} 의 소유 칸은 {@code guest_id}(문자열)이고, 컨트롤러는 여전히
- * {@code X-Guest-Id} 헤더로 주인을 정한다 — 여기서 대상은 사람이 아니라 <b>기기</b>이기 때문이다.
+ * <p><b>기기의 주인은 로그인한 사용자다</b>(#280). 기기를 가리키는 것은 {@code token} 이고, 소유 칸은
+ * "누구의 기기냐" 를 담는다 — 그건 사람이어야 한다.
  *
- * <p>다만 <b>인증은 요구된다.</b> {@code SecurityConfig} 가 {@code /api/v1/devices/**} 를 로그인 뒤로
- * 옮겼으므로 요청마다 로그인 사용자가 필요하다({@link WithLoginUser}). 그 사용자와 헤더의 게스트 키가
- * 서로 무관하다는 점은 {@link #인증한_사용자와_무관하게_헤더의_게스트_키로_저장된다()} 가 잠근다.
+ * <p>예전에는 {@code X-Guest-Id} 헤더가 그 자리였다. 그러면 알림은 {@code user_id} 로 만들어지는데 기기는
+ * 헤더 값으로 저장돼 <b>발송이 한 대도 찾지 못했다</b> — 알림은 생기는데 푸시만 조용히 안 가는 상태다.
+ * 등록과 발송이 같은 키를 쓰는지가 이 클래스가 지키는 것이다.
  *
  * <p><b>소유자·토큰을 테스트마다 다르게 쓴다.</b> 이 클래스는 DB 를 롤백하지 않아(컨텍스트를 공유하는 다른
  * 컨트롤러 통합 테스트와 같다) 같은 값을 쓰면 앞 테스트의 잔여 상태가 다음 시나리오로 새어 든다.
@@ -52,10 +51,16 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 class DeviceIntegrationTest {
 
     private static final String URL = "/api/v1/devices";
-    private static final String GUEST_HEADER = "X-Guest-Id";
-
-    /** 로그인 사용자와 기기 소유 키가 무관함을 보이는 시나리오의 고정 사용자. */
+    /**
+     * 소유자를 명시해야 하는 시나리오의 고정 사용자.
+     *
+     * <p><b>시나리오마다 다른 값을 쓴다.</b> 이 클래스는 DB 를 롤백하지 않아, 둘이 같은 사용자를 쓰면
+     * 앞 테스트가 등록한 기기가 뒤 테스트의 건수에 섞인다 — 실제로 그렇게 한 번 깨졌다.
+     */
     private static final String ACTOR = "00000264-0000-4000-8000-000000000001";
+
+    /** 헤더를 무시하는지 보는 시나리오의 고정 사용자 — 위와 겹치면 안 된다. */
+    private static final String HEADER_IGNORED_ACTOR = "00000264-0000-4000-8000-000000000002";
 
     /** {@code SecurityConfig} 가 요구하는 권한 — {@code WithLoginUserSecurityContextFactory} 와 같은 값이다. */
     private static final String APP_USER_AUTHORITY = "ROLE_USER";
@@ -77,10 +82,9 @@ class DeviceIntegrationTest {
 
     @Test
     void 등록하면_200과_빈_data를_준다() throws Exception {
-        String guest = guest("device-register");
+        String guest = owner("device-register");
 
-        mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, guest)
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(guest)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(uniqueToken(), "IOS")))
                 .andExpect(status().isOk())
@@ -96,48 +100,35 @@ class DeviceIntegrationTest {
     }
 
     /**
-     * 기기의 주인은 <b>헤더의 게스트 키</b>다 — 로그인한 사용자가 아니다.
+     * 기기의 주인은 <b>로그인한 사용자</b>다 — 요청이 정하지 않는다.
      *
-     * <p>#280 이 코스·연차·알림의 소유를 {@code user_id} 로 옮겼지만 이 도메인은 범위 밖이라 그대로다.
-     * 그래서 <b>인증은 통과해야 하지만 저장되는 주인은 헤더 값</b>이라는, 한 요청 안에 두 소유 개념이
-     * 공존하는 상태가 됐다.
-     *
-     * <p>이 어긋남에는 대가가 있다. 푸시 발송({@code PushDispatcher})은 알림 소유자
-     * {@code UUID.toString()} 으로 기기를 찾는데 여기 저장되는 값은 그것이 아니라 앱의 게스트 키다 —
-     * <b>실제로는 한 대도 찾지 못한다.</b> 그 사실은 {@code PushDispatcherIntegrationTest} 가 발송 쪽에서
-     * 잠그고, 여기서는 등록 쪽이 그 원인 절반을 갖고 있음을 못 박는다. 기기 소유 키를 무엇으로 둘지는
-     * 별도 결정이라 지금 코드의 동작을 있는 그대로 남긴다.
+     * <p>이 값이 곧 푸시 발송이 기기를 찾는 키다({@code PushDispatcher} 는 알림 소유자
+     * {@code UUID.toString()} 으로 조회한다). 등록과 발송이 같은 키를 써야 알림이 실제로 닿는다 —
+     * 예전에는 등록이 헤더 값을 넣어 <b>발송이 한 대도 못 찾았다.</b>
      */
     @Test
     @WithLoginUser(ACTOR)
-    void 인증한_사용자와_무관하게_헤더의_게스트_키로_저장된다() throws Exception {
-        String guest = guest("device-owner-key");
-
+    void 로그인한_사용자를_기기의_주인으로_저장한다() throws Exception {
         mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, guest)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(uniqueToken(), "IOS")))
                 .andExpect(status().isOk());
 
-        assertEquals(1, devicePushTokenRepository.findByOwner(guest).size());
-        assertTrue(
-                devicePushTokenRepository.findByOwner(ACTOR).isEmpty(),
-                "로그인 사용자 UUID 로는 기기가 등록되지 않는다 — 푸시 발송이 이 값으로 찾는다");
+        assertEquals(1, devicePushTokenRepository.findByOwner(ACTOR).size(),
+                "푸시 발송이 이 키로 기기를 찾는다");
     }
 
     @Test
     void 같은_토큰을_다시_보내도_행이_늘지_않고_갱신된다() throws Exception {
         // 토큰은 갱신되고 같은 기기가 여러 번 등록한다 — 그때마다 행이 생기면 같은 알림이 여러 번 간다.
-        String guest = guest("device-reregister");
+        String guest = owner("device-reregister");
         String token = uniqueToken();
 
-        mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, guest)
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(guest)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(token, "IOS")))
                 .andExpect(status().isOk());
-        mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, guest)
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(guest)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(token, "ANDROID")))
                 .andExpect(status().isOk())
@@ -155,16 +146,14 @@ class DeviceIntegrationTest {
         // 갈아끼웠다 — 남의 FCM 토큰을 아는 쪽이 상대의 푸시를 끊고(주인이 바뀌므로) 자기 알림을 상대
         // 기기로 보낼 수 있었다. 기기 소유 키가 아직 헤더 값이라 사칭 비용은 여전히 없다.
         String token = uniqueToken();
-        String victim = guest("device-victim");
-        String attacker = guest("device-attacker");
+        String victim = owner("device-victim");
+        String attacker = owner("device-attacker");
 
-        mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, victim)
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(victim)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(token, "IOS")))
                 .andExpect(status().isOk());
-        mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, attacker)
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(attacker)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(token, "ANDROID")))
                 .andExpect(status().isOk());
@@ -183,16 +172,14 @@ class DeviceIntegrationTest {
         // 기기로 알림이 두 번 간다. 그 정리는 발송 단계가 한다 — 토큰 기준 중복 제거와 FCM 의
         // UNREGISTERED 응답으로 걷어낸다(#270). 지금 정리 배치를 두지 않는 것이 의도임을 여기 남긴다.
         String token = uniqueToken();
-        String before = guest("device-before-reinstall");
-        String after = guest("device-after-reinstall");
+        String before = owner("device-before-reinstall");
+        String after = owner("device-after-reinstall");
 
-        mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, before)
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(before)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(token, "IOS")))
                 .andExpect(status().isOk());
-        mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, after)
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(after)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(token, "IOS")))
                 .andExpect(status().isOk());
@@ -203,15 +190,13 @@ class DeviceIntegrationTest {
 
     @Test
     void 한_게스트가_기기_두_대를_등록할_수_있다() throws Exception {
-        String guest = guest("device-two");
+        String guest = owner("device-two");
 
-        mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, guest)
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(guest)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(uniqueToken(), "IOS")))
                 .andExpect(status().isOk());
-        mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, guest)
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(guest)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(uniqueToken(), "ANDROID")))
                 .andExpect(status().isOk());
@@ -221,20 +206,18 @@ class DeviceIntegrationTest {
 
     @Test
     void 해제하면_그_게스트의_토큰만_지운다() throws Exception {
-        String guest = guest("device-unregister");
-        String other = guest("device-untouched");
-        mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, guest)
+        String guest = owner("device-unregister");
+        String other = owner("device-untouched");
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(guest)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(uniqueToken(), "IOS")))
                 .andExpect(status().isOk());
-        mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, other)
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(other)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(uniqueToken(), "IOS")))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(delete(URL).header(GUEST_HEADER, guest))
+        mockMvc.perform(delete(URL).with(loginAs(UUID.fromString(guest))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.code").value("OK"))
@@ -247,7 +230,7 @@ class DeviceIntegrationTest {
     @Test
     void 지울_토큰이_없어도_해제는_성공한다() throws Exception {
         // 원한 상태가 이미 이뤄져 있는데 로그아웃 화면이 404 를 띄울 이유가 없다.
-        mockMvc.perform(delete(URL).header(GUEST_HEADER, guest("device-nothing")))
+        mockMvc.perform(delete(URL).with(loginAs(UUID.fromString(owner("device-nothing")))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"));
     }
@@ -256,7 +239,7 @@ class DeviceIntegrationTest {
     void 같은_토큰이_동시에_등록돼도_행이_하나다() throws Exception {
         // 이 설계의 핵심 주장이다. "있나 보고 없으면 넣기" 로 풀었다면 여기서 둘 다 "없다" 를 읽고
         // 하나가 유니크 제약에 걸려 500 이 나간다. 판정을 DB 한 문장에 맡겨 경합 자체를 없앴다.
-        String guest = guest("device-concurrent");
+        String actor = owner("device-concurrent");
         String token = uniqueToken();
         int attempts = 4;
         ExecutorService pool = Executors.newFixedThreadPool(attempts);
@@ -268,10 +251,11 @@ class DeviceIntegrationTest {
                 try {
                     start.await();
                     // 클래스의 @WithLoginUser 는 테스트 스레드에 묶여 있어 여기까지 따라오지 않는다(전부 401).
-                    // 요청마다 인증을 실어 보낸다 — 기기의 주인은 어차피 헤더가 정하므로 누구로 로그인해도 같다.
+                    // 요청마다 인증을 실어 보낸다 — **같은 사용자여야 한다.** 주인이 다르면 경합 자체가
+                    // 없어 이 테스트가 아무것도 검증하지 않는다(#280 으로 주인이 로그인 사용자가 됐다).
                     statuses.add(mockMvc.perform(post(URL)
-                                    .with(loginAs(UUID.randomUUID()))
-                                    .header(GUEST_HEADER, guest)
+                                    .with(loginAs(UUID.fromString(actor)))
+                                    
                                     .contentType(MediaType.APPLICATION_JSON)
                                     .content(body(token, "IOS")))
                             .andReturn()
@@ -287,13 +271,13 @@ class DeviceIntegrationTest {
         assertTrue(pool.awaitTermination(30, TimeUnit.SECONDS), "동시 등록이 제시간에 끝나지 않았다");
 
         assertEquals(List.of(200, 200, 200, 200), statuses.stream().sorted().toList());
-        assertEquals(1, devicePushTokenRepository.findByOwner(guest).size());
+        assertEquals(1, devicePushTokenRepository.findByOwner(actor).size());
     }
 
     @Test
     void 토큰이_비면_400이다() throws Exception {
         mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, guest("device-blank-token"))
+                        
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(" ", "IOS")))
                 .andExpect(status().isBadRequest())
@@ -304,7 +288,7 @@ class DeviceIntegrationTest {
     @Test
     void 모르는_플랫폼은_400이다() throws Exception {
         mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, guest("device-bad-platform"))
+                        
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(uniqueToken(), "WINDOWS_PHONE")))
                 .andExpect(status().isBadRequest())
@@ -312,26 +296,26 @@ class DeviceIntegrationTest {
     }
 
     /**
-     * 게스트 헤더가 비면 <b>여전히 400</b> 이다.
+     * <b>요청이 소유자를 정하지 못한다</b>(#280).
      *
-     * <p>다른 도메인에서는 이 시나리오가 사라졌다 — 소유 키가 인증에서 오면서 빈 헤더라는 입력 자체가
-     * 없어졌기 때문이다(#280). 기기는 그 전환 밖이라 헤더가 남았고, 그래서 이 계약도 남는다.
+     * <p>예전에는 {@code X-Guest-Id} 헤더가 주인이라 빈 값이 400 이었고, 남의 값을 적어 보내면 남의
+     * 기기가 됐다. 이제 그 입력 자체가 없다 — 헤더를 실어 보내도 서버가 안 읽는다.
      */
     @Test
-    void 게스트_헤더가_비면_400이고_등록되지_않는다() throws Exception {
+    @WithLoginUser(HEADER_IGNORED_ACTOR)
+    void 헤더로_소유자를_바꿔_보내도_로그인한_사용자로_저장된다() throws Exception {
+        String other = owner("device-someone-else");
+
         mockMvc.perform(post(URL)
-                        .header(GUEST_HEADER, " ")
+                        .header("X-Guest-Id", other)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(uniqueToken(), "IOS")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.code").value("DEVICE-001"))
-                .andExpect(jsonPath("$.detail").value("게스트 식별자가 올바르지 않습니다."))
-                .andExpect(jsonPath("$.data").doesNotExist());
+                .andExpect(status().isOk());
 
-        mockMvc.perform(delete(URL).header(GUEST_HEADER, " "))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("DEVICE-001"));
+        assertEquals(1, devicePushTokenRepository.findByOwner(HEADER_IGNORED_ACTOR).size(),
+                "로그인한 사용자로 저장돼야 한다 — 푸시 발송이 이 값으로 찾는다");
+        assertTrue(devicePushTokenRepository.findByOwner(other).isEmpty(),
+                "헤더에 적은 남의 값으로는 저장되지 않는다");
     }
 
     /**
@@ -345,7 +329,7 @@ class DeviceIntegrationTest {
     void 인증_없이_부르면_401이다() throws Exception {
         mockMvc.perform(post(URL)
                         .with(anonymous())
-                        .header(GUEST_HEADER, guest("device-anonymous"))
+                        
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(uniqueToken(), "IOS")))
                 .andExpect(status().isUnauthorized())
@@ -353,7 +337,7 @@ class DeviceIntegrationTest {
                 .andExpect(jsonPath("$.code").value("COMMON-401"))
                 .andExpect(jsonPath("$.data").doesNotExist());
 
-        mockMvc.perform(delete(URL).with(anonymous()).header(GUEST_HEADER, guest("device-anonymous")))
+        mockMvc.perform(delete(URL).with(anonymous()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("COMMON-401"));
     }
@@ -365,7 +349,9 @@ class DeviceIntegrationTest {
      * 커밋된 상태가 필요하다). 고정 id 를 쓰면 앞선 실행이 남긴 행이 그 수에 섞여, 코드가 멀쩡한데 빨간불이 되거나
      * 반대로 깨진 코드가 통과한다.
      */
-    private static String guest(String prefix) {
-        return prefix + "-" + UUID.randomUUID();
+    private static String owner(String unused) {
+        // 소유자는 이제 UUID 다(#280). 인자는 시나리오를 읽기 쉽게 남겨 둔 이름표일 뿐이다 —
+        // 값이 겹치면 롤백 없는 이 클래스에서 앞 테스트의 잔여 상태가 새어 든다.
+        return UUID.randomUUID().toString();
     }
 }
