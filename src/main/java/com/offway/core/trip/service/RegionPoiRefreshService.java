@@ -140,16 +140,14 @@ public class RegionPoiRefreshService {
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
             LocalDate today = LocalDate.now(SERVICE_ZONE);
-            if (batchRunRepository.hasRunOn(BATCH_NAME, today)) {
-                log.info("지역 장소 풀을 오늘 이미 돌려 갱신을 건너뜁니다 date={}", today);
+            // 확인과 기록을 한 문장으로 묶는다 — 트리거가 둘이라 "확인 → 267콜 → 기록" 사이의 창에
+            // 다른 트리거가 들어오면 같은 날 두 번 쏜다. 선점에 성공한 실행만 아래로 내려간다.
+            if (!batchRunRepository.tryStartOn(BATCH_NAME, today, LocalDateTime.now(SERVICE_ZONE))) {
+                log.info("지역 장소 풀을 오늘 이미 돌렸거나 다른 트리거가 선점해 갱신을 건너뜁니다 date={}", today);
                 return;
             }
-            try {
-                refresh(YearMonth.from(today));
-            } finally {
-                // 실패해도 남긴다 — 안 남기면 같은 날 재부팅마다 267콜을 다시 쏜다.
-                batchRunRepository.markStarted(BATCH_NAME, LocalDateTime.now(SERVICE_ZONE));
-            }
+            // 선점이 곧 기록이다 — 아래가 실패해도 시각이 남아 같은 날 재부팅이 267콜을 다시 쏘지 않는다.
+            refresh(YearMonth.from(today));
         });
     }
 

@@ -24,4 +24,22 @@ public interface BatchRunRepository {
 
     /** 시작 시각을 남긴다 — 배치당 한 행이라 있으면 갱신, 없으면 만든다. */
     void markStarted(String name, LocalDateTime at);
+
+    /**
+     * 그 날짜의 실행을 <b>선점</b>한다 — 이긴 쪽만 참을 받는다(#314).
+     *
+     * <p><b>{@link #hasRunOn} + {@link #markStarted} 로는 못 막는 경우가 있다.</b> 확인과 기록이 별개
+     * 작업이라 그 사이에 다른 실행이 끼어들 수 있고, 트리거가 둘인 배치는 실제로 그 창을 만난다
+     * ({@code RegionPoiRefreshService} 가 cron 과 부팅 확인을 함께 쓴다). 둘 다 "아직 안 돌았다" 를 읽으면
+     * 같은 날 267콜을 <b>두 번</b> 쏜다 — 관광정보 일일 한도의 절반이 넘는다.
+     *
+     * <p>조건부 UPDATE 한 문장이 판정과 기록을 함께 한다. 행이 아직 없을 때만 INSERT 로 내려가고, 그 경합은
+     * {@code uk_batch_run_name} 이 갈라 준다. {@code ExternalApiCallRepository.claimNotifyStep} 이 같은
+     * 이유로 같은 모양을 쓴다.
+     *
+     * <p>선점에 성공하면 시작 시각이 <b>이미 기록된 상태</b>다 — 이후 작업이 실패해도 그날 다시 쏘지 않는다.
+     *
+     * @return 이번 호출이 그 날짜를 처음 선점했으면 {@code true}. 이미 누가 잡았으면 {@code false}
+     */
+    boolean tryStartOn(String name, LocalDate date, LocalDateTime at);
 }
