@@ -62,24 +62,22 @@ public class CourseRepositoryImpl implements CourseRepository {
 
     @Override
     public List<Course> findUpcoming(UUID userId, LocalDate today) {
-        return courseJpaRepository.findByUserIdAndTravelDateGreaterThanEqualOrderByTravelDateAscIdDesc(userId, today);
+        return courseJpaRepository.findUpcomingByEndDate(userId, today);
     }
 
     @Override
     public Page<Course> findUpcoming(UUID userId, LocalDate today, Pageable pageable) {
-        return courseJpaRepository.findByUserIdAndTravelDateGreaterThanEqualOrderByTravelDateAscIdDesc(
-                userId, today, pageable);
+        return courseJpaRepository.findUpcomingByEndDate(userId, today, pageable);
     }
 
     @Override
     public List<Course> findPast(UUID userId, LocalDate today) {
-        return courseJpaRepository.findByUserIdAndTravelDateLessThanOrderByTravelDateDescIdDesc(userId, today);
+        return courseJpaRepository.findPastByEndDate(userId, today);
     }
 
     @Override
     public Page<Course> findPast(UUID userId, LocalDate today, Pageable pageable) {
-        return courseJpaRepository.findByUserIdAndTravelDateLessThanOrderByTravelDateDescIdDesc(
-                userId, today, pageable);
+        return courseJpaRepository.findPastByEndDate(userId, today, pageable);
     }
 
     @Override

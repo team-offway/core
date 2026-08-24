@@ -8,6 +8,8 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /** Spring Data JPA — 어댑터가 위임하는 실제 구현. */
 public interface CourseJpaRepository extends JpaRepository<Course, Long> {
@@ -38,16 +40,89 @@ public interface CourseJpaRepository extends JpaRepository<Course, Long> {
      */
     List<Course> findByTravelDateBetweenAndUserIdIsNotNull(LocalDate from, LocalDate to);
 
-    List<Course> findByUserIdAndTravelDateGreaterThanEqualOrderByTravelDateAscIdDesc(
-            UUID userId, LocalDate today);
+    /**
+     * 다가오는 여행 — <b>종료일이 오늘 포함 이후</b>(#325).
+     *
+     * <p><b>시작일이 아니라 종료일로 가른다.</b> 시작일로 가르면 2박3일 여행 둘째 날에 그 코스가 이미
+     * "지난 여행" 탭으로 넘어간다 — 앱의 칩(종료일 기준)은 아직 D-DAY 라, 다녀온 여행 탭 안에 D-DAY
+     * 코스가 이틀간 앉아 있게 된다.
+     *
+     * <p><b>native 인 이유.</b> 종료일은 컬럼이 아니라 {@code travel_date + travel_days - 1} 로 계산되는
+     * 파생값이다. JPQL 은 컬럼 값만큼 날짜를 더하는 표준 문법이 없어, 이 레포가 이미 못박은 규칙
+     * (로컬·테스트·운영이 전부 MySQL)을 따라 native 로 쓴다.
+     *
+     * <p><b>인덱스를 타지 못한다.</b> 조건이 컬럼 연산이라 travel_date 인덱스로 범위를 좁힐 수 없다.
+     * 다만 앞선 {@code user_id} 조건이 이미 한 사람의 코스로 줄여 주고, 한 사람이 담는 코스는 수십 건
+     * 규모다. 그 전제가 깨질 만큼 쌓이면 종료일을 컬럼으로 저장하는 편이 낫다.
+     */
+    @Query(value = """
+                    SELECT * FROM course
+                     WHERE user_id = :userId
+                       AND travel_date IS NOT NULL
+                       AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) >= :today
+                     ORDER BY travel_date ASC, id DESC
+                    """, countQuery = """
+                    SELECT COUNT(*) FROM course
+                     WHERE user_id = :userId
+                       AND travel_date IS NOT NULL
+                       AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) >= :today
+                    """, nativeQuery = true)
+    List<Course> findUpcomingByEndDate(@Param("userId") UUID userId, @Param("today") LocalDate today);
 
-    Page<Course> findByUserIdAndTravelDateGreaterThanEqualOrderByTravelDateAscIdDesc(
-            UUID userId, LocalDate today, Pageable pageable);
+    @Query(value = """
+                    SELECT * FROM course
+                     WHERE user_id = :userId
+                       AND travel_date IS NOT NULL
+                       AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) >= :today
+                     ORDER BY travel_date ASC, id DESC
+                    """, countQuery = """
+                    SELECT COUNT(*) FROM course
+                     WHERE user_id = :userId
+                       AND travel_date IS NOT NULL
+                       AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) >= :today
+                    """, nativeQuery = true)
+    Page<Course> findUpcomingByEndDate(
+            @Param("userId") UUID userId, @Param("today") LocalDate today, Pageable pageable);
 
-    List<Course> findByUserIdAndTravelDateLessThanOrderByTravelDateDescIdDesc(UUID userId, LocalDate today);
+    /**
+     * 지난 여행 — <b>종료일이 오늘보다 앞</b>(#325). 여행 중인 코스는 여기 오지 않는다.
+     *
+     * <p><b>정렬도 종료일이다.</b> 무엇이 PAST 인지 가르는 기준이 종료일인데 정렬만 시작일이면 둘이
+     * 어긋난다 — 기간이 긴 코스는 더 일찍 떠나고도 더 늦게 끝나서, "최근 여행이 위" 라는 계약이 깨진다.
+     *
+     * <p>{@link #findUpcomingByEndDate} 는 반대로 <b>시작일</b> 순을 유지한다. 그쪽 계약은 "D-day 순" 이고
+     * 화면에 찍히는 D-day 는 시작일로 계산되므로, 종료일로 정렬하면 목록 순서와 카드의 숫자가 어긋난다.
+     *
+     * <p>native 인 이유와 인덱스 이야기는 {@link #findUpcomingByEndDate} 와 같다.
+     */
+    @Query(value = """
+                    SELECT * FROM course
+                     WHERE user_id = :userId
+                       AND travel_date IS NOT NULL
+                       AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) < :today
+                     ORDER BY DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) DESC, id DESC
+                    """, countQuery = """
+                    SELECT COUNT(*) FROM course
+                     WHERE user_id = :userId
+                       AND travel_date IS NOT NULL
+                       AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) < :today
+                    """, nativeQuery = true)
+    List<Course> findPastByEndDate(@Param("userId") UUID userId, @Param("today") LocalDate today);
 
-    Page<Course> findByUserIdAndTravelDateLessThanOrderByTravelDateDescIdDesc(
-            UUID userId, LocalDate today, Pageable pageable);
+    @Query(value = """
+                    SELECT * FROM course
+                     WHERE user_id = :userId
+                       AND travel_date IS NOT NULL
+                       AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) < :today
+                     ORDER BY DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) DESC, id DESC
+                    """, countQuery = """
+                    SELECT COUNT(*) FROM course
+                     WHERE user_id = :userId
+                       AND travel_date IS NOT NULL
+                       AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) < :today
+                    """, nativeQuery = true)
+    Page<Course> findPastByEndDate(
+            @Param("userId") UUID userId, @Param("today") LocalDate today, Pageable pageable);
 
     Optional<Course> findByIdAndUserId(Long id, UUID userId);
 
