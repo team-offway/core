@@ -46,7 +46,14 @@ public record SocialLoginRequest(
                 String authorizationCode) {
 
     public SocialLoginCommand toCommand(String provider) {
-        return new SocialLoginCommand(
-                AuthProvider.from(provider), accessToken, name, email, authorizationCode);
+        // 이름을 적어 넘긴다 — 이 record 는 email·name 순인데 커맨드는 nickname·email 순이라
+        // 위치 인수로는 둘이 뒤바뀌어도 컴파일이 통과한다.
+        return SocialLoginCommand.builder()
+                .provider(AuthProvider.from(provider))
+                .credential(accessToken)
+                .nickname(name)
+                .email(email)
+                .authorizationCode(authorizationCode)
+                .build();
     }
 }
