@@ -86,6 +86,12 @@ public interface CourseJpaRepository extends JpaRepository<Course, Long> {
     /**
      * 지난 여행 — <b>종료일이 오늘보다 앞</b>(#325). 여행 중인 코스는 여기 오지 않는다.
      *
+     * <p><b>정렬도 종료일이다.</b> 무엇이 PAST 인지 가르는 기준이 종료일인데 정렬만 시작일이면 둘이
+     * 어긋난다 — 기간이 긴 코스는 더 일찍 떠나고도 더 늦게 끝나서, "최근 여행이 위" 라는 계약이 깨진다.
+     *
+     * <p>{@link #findUpcomingByEndDate} 는 반대로 <b>시작일</b> 순을 유지한다. 그쪽 계약은 "D-day 순" 이고
+     * 화면에 찍히는 D-day 는 시작일로 계산되므로, 종료일로 정렬하면 목록 순서와 카드의 숫자가 어긋난다.
+     *
      * <p>native 인 이유와 인덱스 이야기는 {@link #findUpcomingByEndDate} 와 같다.
      */
     @Query(value = """
@@ -93,7 +99,7 @@ public interface CourseJpaRepository extends JpaRepository<Course, Long> {
                      WHERE guest_id = :guestId
                        AND travel_date IS NOT NULL
                        AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) < :today
-                     ORDER BY travel_date DESC, id DESC
+                     ORDER BY DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) DESC, id DESC
                     """, countQuery = """
                     SELECT COUNT(*) FROM course
                      WHERE guest_id = :guestId
@@ -107,7 +113,7 @@ public interface CourseJpaRepository extends JpaRepository<Course, Long> {
                      WHERE guest_id = :guestId
                        AND travel_date IS NOT NULL
                        AND DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) < :today
-                     ORDER BY travel_date DESC, id DESC
+                     ORDER BY DATE_ADD(travel_date, INTERVAL (travel_days - 1) DAY) DESC, id DESC
                     """, countQuery = """
                     SELECT COUNT(*) FROM course
                      WHERE guest_id = :guestId

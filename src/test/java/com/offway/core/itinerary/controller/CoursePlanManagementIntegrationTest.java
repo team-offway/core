@@ -154,6 +154,16 @@ class CoursePlanManagementIntegrationTest {
                 ]}""".formatted(travelDate);
     }
 
+    /**
+     * 2박3일 코스 — 담긴 날은 둘인데 여행은 사흘이다({@code travelDays} 를 함께 보낸다).
+     *
+     * <p>시작일과 종료일의 간격을 벌리려고 쓴다. 하루·이틀짜리만으로는 "더 일찍 떠나고 더 늦게 끝나는"
+     * 조합을 만들 수 없어 정렬 기준의 차이가 드러나지 않는다.
+     */
+    private static String threeDayCourseBody(LocalDate travelDate) {
+        return twoDayCourseBody(travelDate).replace("\"days\":", "\"travelDays\": 3, \"days\":");
+    }
+
     private long saveTwoDayCourse(String guest, LocalDate travelDate) throws Exception {
         return saveWithBody(guest, twoDayCourseBody(travelDate));
     }
@@ -474,6 +484,28 @@ class CoursePlanManagementIntegrationTest {
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].courseId").value(ended));
         list(guest, "UPCOMING").andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    /**
+     * <b>PAST 는 종료일 순이다</b>(#325) — 무엇이 PAST 인지 가르는 기준과 정렬 기준이 같아야 한다.
+     *
+     * <p>기간이 긴 코스는 <b>더 일찍 떠나고도 더 늦게 끝난다.</b> 시작일로 정렬하면 그 코스가 뒤로 밀려
+     * "최근 여행이 위" 라는 계약이 깨진다.
+     */
+    @Test
+    void PAST_는_늦게_끝난_여행이_위에_온다() throws Exception {
+        noHolidays();
+        String guest = uniqueGuest();
+        // 늦게 떠났지만 당일치기 — 3일 전에 끝났다.
+        long earlierEnd = saveCourse(guest, today().minusDays(3));
+        // 더 일찍 떠났지만 2박3일 — 2일 전에 끝났다. 종료일 기준이면 이쪽이 더 최근이다.
+        long laterEnd = saveWithBody(guest, threeDayCourseBody(today().minusDays(4)));
+
+        list(guest, "PAST")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].courseId").value(laterEnd))
+                .andExpect(jsonPath("$.data[1].courseId").value(earlierEnd));
     }
 
     @Test
