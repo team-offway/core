@@ -164,6 +164,16 @@ class CoursePlanManagementIntegrationTest {
                 ]}""".formatted(travelDate);
     }
 
+    /**
+     * 2박3일 코스 — 담긴 날은 둘인데 여행은 사흘이다({@code travelDays} 를 함께 보낸다).
+     *
+     * <p>시작일과 종료일의 간격을 벌리려고 쓴다. 하루·이틀짜리만으로는 "더 일찍 떠나고 더 늦게 끝나는"
+     * 조합을 만들 수 없어 정렬 기준의 차이가 드러나지 않는다.
+     */
+    private static String threeDayCourseBody(LocalDate travelDate) {
+        return twoDayCourseBody(travelDate).replace("\"days\":", "\"travelDays\": 3, \"days\":");
+    }
+
     private long saveTwoDayCourse(LocalDate travelDate) throws Exception {
         return saveWithBody(twoDayCourseBody(travelDate));
     }
@@ -437,6 +447,60 @@ class CoursePlanManagementIntegrationTest {
                 .andExpect(jsonPath("$.data[0].courseId").value(past))
                 .andExpect(jsonPath("$.data[0].dDay").value(-3));
         list("UPCOMING").andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    /**
+     * <b>여행 중인 코스는 아직 "다녀온 여행" 이 아니다</b>(#325).
+     *
+     * <p>예전에는 시작일로 갈라서, 2박3일 여행 둘째 날에 그 코스가 이미 PAST 로 넘어갔다. 앱의 칩은
+     * 종료일 기준이라 아직 D-DAY 였고, "다녀오셨나요?" 모달도 종료일 다음 날에 뜬다 — 결국 다녀온 여행
+     * 탭 안에 D-DAY 코스가 이틀간 앉아 있었다.
+     */
+    @Test
+    void 여행_중인_코스는_UPCOMING_에_남는다() throws Exception {
+        noHolidays();
+        // 어제 출발한 1박2일 — 오늘이 마지막 날이라 아직 끝나지 않았다.
+        long ongoing = saveTwoDayCourse(today().minusDays(1));
+
+        list("UPCOMING")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].courseId").value(ongoing));
+        list("PAST").andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void 종료일이_지나야_PAST_로_넘어간다() throws Exception {
+        // 경계를 못박는다 — 어제 끝난 여행은 PAST, 오늘 끝나는 여행은 UPCOMING 이다.
+        noHolidays();
+        long ended = saveTwoDayCourse(today().minusDays(2)); // 그저께~어제
+
+        list("PAST")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].courseId").value(ended));
+        list("UPCOMING").andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    /**
+     * <b>PAST 는 종료일 순이다</b>(#325) — 무엇이 PAST 인지 가르는 기준과 정렬 기준이 같아야 한다.
+     *
+     * <p>기간이 긴 코스는 <b>더 일찍 떠나고도 더 늦게 끝난다.</b> 시작일로 정렬하면 그 코스가 뒤로 밀려
+     * "최근 여행이 위" 라는 계약이 깨진다.
+     */
+    @Test
+    void PAST_는_늦게_끝난_여행이_위에_온다() throws Exception {
+        noHolidays();
+        // 늦게 떠났지만 당일치기 — 3일 전에 끝났다.
+        long earlierEnd = saveCourse(today().minusDays(3));
+        // 더 일찍 떠났지만 2박3일 — 2일 전에 끝났다. 종료일 기준이면 이쪽이 더 최근이다.
+        long laterEnd = saveWithBody(threeDayCourseBody(today().minusDays(4)));
+
+        list("PAST")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].courseId").value(laterEnd))
+                .andExpect(jsonPath("$.data[1].courseId").value(earlierEnd));
     }
 
     @Test
