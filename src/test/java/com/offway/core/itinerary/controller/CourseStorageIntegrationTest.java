@@ -2,6 +2,7 @@ package com.offway.core.itinerary.controller;
 
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -357,26 +358,44 @@ class CourseStorageIntegrationTest {
     }
 
     @Test
-    void 목록에_지역명과_대표_이미지가_실린다() throws Exception {
+    void 목록에_지역명이_실린다() throws Exception {
         // 없어서 FE 가 코스마다 상세를 한 번씩 더 불렀다(#171).
         String guest = uniqueGuest();
         save(guest, bodyWithDateAndImage(LocalDate.now().plusDays(1)));
 
         mockMvc.perform(get(URL).header("X-Guest-Id", guest))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].regionName").value("정선군"))
-                .andExpect(jsonPath("$.data[0].coverImageUrl").value("http://img/cover.jpg"));
+                .andExpect(jsonPath("$.data[0].regionName").value("정선군"));
     }
 
+    /**
+     * 카드 사진은 <b>코스가 아니라 지역</b>의 것이다(#313).
+     *
+     * <p>예전에는 코스 첫 장소의 사진이었다. 같은 공주시 코스인데 하나는 석탑, 하나는 소나무숲으로 떴다 —
+     * 코스를 다시 뽑으면 첫 장소가 바뀌기 때문이다. 카드가 대표하는 것은 그 코스가 아니라 "내가 담은
+     * 공주시 여행" 이라, 지역이 같으면 사진도 같아야 목록에서 지역이 눈에 들어온다.
+     *
+     * <p>사진을 실은 코스와 안 실은 코스를 <b>같은 지역으로</b> 담아, 첫 장소가 달라도 카드 사진이 갈리지
+     * 않는 것을 본다. 그것이 이 이슈가 고친 바로 그 증상이다.
+     */
     @Test
-    void 이미지가_없는_코스는_대표_이미지가_null이다() throws Exception {
+    void 같은_지역_코스는_첫_장소가_달라도_같은_사진이다() throws Exception {
         String guest = uniqueGuest();
+        save(guest, bodyWithDateAndImage(LocalDate.now().plusDays(1)));
         save(guest, VALID_BODY);
 
-        mockMvc.perform(get(URL).header("X-Guest-Id", guest))
+        String body = mockMvc.perform(get(URL).header("X-Guest-Id", guest))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].regionName").value("정선군"))
-                .andExpect(jsonPath("$.data[0].coverImageUrl").doesNotExist());
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> covers = JsonPath.read(body, "$.data[*].coverImageUrl");
+        // 지역 대표 사진을 못 고른 지역이면 둘 다 없다 — 그때도 "갈리지 않는다" 는 성질은 지켜진다.
+        assertEquals(1, covers.stream().distinct().count(),
+                "같은 지역 코스의 카드 사진이 갈렸다: " + covers);
+        // 첫 장소 사진(http://img/cover.jpg)이 그대로 실리면 옛 동작으로 되돌아간 것이다.
+        assertFalse(covers.contains("http://img/cover.jpg"),
+                "카드 사진이 다시 코스 첫 장소의 것이 됐다");
     }
 
     @Test

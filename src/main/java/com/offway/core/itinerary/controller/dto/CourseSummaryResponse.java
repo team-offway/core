@@ -29,7 +29,8 @@ public record CourseSummaryResponse(
         @Schema(example = "PACKED") String density,
         @Schema(description = "지역명 (모르면 null)", example = "정선군", nullable = true) String regionName,
         @Schema(
-                        description = "카드 대표 이미지 — 코스 첫 장소의 사진. 없으면 null",
+                        description = "카드 대표 이미지 — **그 지역의 대표 사진**(#313). 같은 지역 코스는 같은 사진이다. "
+                                + "지역 카드(GET /regions)가 쓰는 그 사진이며, 못 고른 지역은 null",
                         example = "http://tong.visitkorea.or.kr/cms/resource/1.jpg",
                         nullable = true)
                 String coverImageUrl,
@@ -51,7 +52,7 @@ public record CourseSummaryResponse(
                 course.getTravelDays(),
                 course.getDensity().name(),
                 myCourses.regionName(course),
-                course.coverImageUrl().orElse(null),
+                myCourses.regionImage(course),
                 course.totalSlots(),
                 myCourses.isDeducted(course),
                 myCourses.shareToken(course));

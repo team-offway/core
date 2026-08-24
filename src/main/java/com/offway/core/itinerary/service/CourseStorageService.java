@@ -15,6 +15,7 @@ import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.trip.service.RegionImageProvider;
 import com.offway.core.transport.service.dto.TrainAccess;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.transport.service.TrainAccessService;
@@ -57,6 +58,7 @@ public class CourseStorageService {
     private final CourseLeaveDeductionService courseLeaveDeductionService;
     private final MyLeaveService myLeaveService;
     private final TrainAccessService trainAccessService;
+    private final RegionImageProvider regionImageProvider;
 
     /** 이미 조립된 게스트 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
     public GeneratedCourse save(Course course) {
@@ -194,6 +196,9 @@ public class CourseStorageService {
                 found,
                 myLeaveService.deductedCourseIds(guestId),
                 regionNamesOf(courses),
+                // 카드 사진은 코스가 아니라 지역의 것이다(#313). 관광 데이터를 소유한 도메인이 고른다 —
+                // 지역 카드와 같은 사진이어야 하므로 그 규칙을 여기서 다시 구현하지 않는다.
+                regionImageProvider.imageUrls(courses.stream().map(Course::getRegionId).toList()),
                 shareTokensOf(courses),
                 today);
     }

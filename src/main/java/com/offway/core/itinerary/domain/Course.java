@@ -494,19 +494,6 @@ public class Course {
     }
 
     /**
-     * 목록 카드에 쓸 대표 이미지 — 첫 슬롯의 것(#171).
-     *
-     * <p>이미지가 없는 슬롯은 건너뛴다. 하나도 없으면 빈 Optional 이고 화면은 자리표시자를 쓴다.
-     */
-    public Optional<String> coverImageUrl() {
-        return days.stream()
-                .flatMap(day -> day.getSlots().stream())
-                .map(Slot::getImageUrl)
-                .filter(url -> url != null && !url.isBlank())
-                .findFirst();
-    }
-
-    /**
      * 코스의 중심 좌표 — 날씨를 어느 지점으로 물을지의 기준(#169).
      *
      * <p>슬롯 좌표의 평균이다. 생성 경로는 볼거리 군집의 중심(hub)을 쓰는데, 저장 코스는 그 계산을 다시 하지
