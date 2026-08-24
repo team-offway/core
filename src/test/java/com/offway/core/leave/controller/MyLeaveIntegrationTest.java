@@ -247,6 +247,27 @@ class MyLeaveIntegrationTest {
     }
 
     @Test
+    void 이모지가_섞인_메모도_그대로_돌아온다() throws Exception {
+        // **자르기만 안전해도 소용없다** — 컬럼 charset 이 utf8mb4 가 아니면 4바이트 문자는 애초에
+        // 저장되지 않는다(Data too long 이거나 조용히 물음표가 된다). 마이그레이션이 charset 을
+        // 명시하지 않아 서버 기본값에 기대므로, 그 전제를 여기서 실제로 왕복시켜 확인한다.
+        //
+        // 커넥션 인코딩·컬럼 charset·JSON 직렬화가 한 줄에 다 걸리는 경로다.
+        String memo = "제주 🎉 숙소 체크인 15시 🏨 렌터카 🚗";
+        long usageId = onlyUsageId(addUsage("leave-memo-emoji",
+                "{\"usedOn\": \"2026-05-08\", \"days\": 1, \"memo\": \"" + memo + "\"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.usages[0].memo").value(memo))
+                .andReturn().getResponse().getContentAsString());
+
+        // 다시 읽어도 같아야 한다 — 등록 응답은 메모리의 값일 수 있어, DB 왕복을 한 번 더 거친다.
+        mockMvc.perform(get(URL).header(GUEST_HEADER, "leave-memo-emoji"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.usages[0].memo").value(memo));
+        assertTrue(usageId > 0);
+    }
+
+    @Test
     void 메모를_안_보내도_등록된다() throws Exception {
         // 선택 필드다. Jackson 3 은 primitive 자리에 값이 없으면 요청 전체를 400 으로 되돌리는데,
         // 문자열이라 그 함정은 없다 — 그래도 계약으로 못박는다.
