@@ -1,6 +1,7 @@
 package com.offway.core.leave.domain;
 
 import java.time.LocalDate;
+import java.time.Month;
 import java.time.Year;
 
 /**
@@ -42,11 +43,11 @@ public record HolidayYear(int value) {
 
     /** 그 해의 첫날. */
     public LocalDate start() {
-        return LocalDate.of(value, 1, 1);
+        return Year.of(value).atMonth(Month.JANUARY).atDay(1);
     }
 
     /** 그 해의 마지막 날 — 윤년을 직접 계산하지 않는다. */
     public LocalDate end() {
-        return Year.of(value).atMonth(12).atEndOfMonth();
+        return Year.of(value).atMonth(Month.DECEMBER).atEndOfMonth();
     }
 }

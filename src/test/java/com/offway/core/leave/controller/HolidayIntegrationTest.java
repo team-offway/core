@@ -11,7 +11,7 @@ import com.offway.core.leave.service.LeaveService;
 import java.time.LocalDate;
 import java.time.Year;
 import java.util.Set;
-import org.junit.jupiter.api.BeforeEach;
+import java.util.function.BiFunction;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -47,12 +47,6 @@ class HolidayIntegrationTest {
     @Autowired
     private LeaveService leaveService;
 
-    // 공휴일 캐시는 공유 싱글톤 — 각 테스트가 자기 stub 시나리오를 타도록 비운다.
-    @BeforeEach
-    void evictHolidayCache() {
-        leaveService.evictCache();
-    }
-
     @TestConfiguration
     static class StubConfig {
 
@@ -63,11 +57,23 @@ class HolidayIntegrationTest {
         }
     }
 
+    /**
+     * 공휴일 동작을 정하고 캐시를 비운다 — <b>stub 지정과 한 몸으로 묶는다</b>.
+     *
+     * <p>캐시가 공유 싱글톤이라 앞 테스트가 남긴 값이 이 시나리오로 샌다. 그렇다고 셋업 hook 에 두면
+     * 캐시를 쓰지 않는 테스트(입력 검증)까지 끌려들고, 무엇보다 각 테스트가 자기 상태를 본문에서
+     * 만든다는 규약과 어긋난다. 비우는 시점을 stub 지정과 붙여두면 둘이 갈릴 수 없다.
+     */
+    private void holidays(BiFunction<Integer, Integer, Set<LocalDate>> behavior) {
+        holidayClient.respond(behavior);
+        leaveService.evictCache();
+    }
+
     @Test
     void 한_해의_공휴일을_날짜순으로_준다() throws Exception {
         LocalDate liberation = LocalDate.of(THIS_YEAR, 8, 15);
         LocalDate newYear = LocalDate.of(THIS_YEAR, 1, 1);
-        holidayClient.respond((year, month) -> switch (month) {
+        holidays((year, month) -> switch (month) {
             case 1 -> Set.of(newYear);
             case 8 -> Set.of(liberation);
             default -> Set.of();
@@ -88,7 +94,7 @@ class HolidayIntegrationTest {
     @Test
     void 공휴일이_없는_해는_빈_배열이다() throws Exception {
         // 빈 배열이 "없음" 을 뜻하려면, 실패는 반드시 다른 모양이어야 한다(아래 502 테스트가 그 짝이다).
-        holidayClient.respond((year, month) -> Set.of());
+        holidays((year, month) -> Set.of());
 
         mockMvc.perform(get(URL).param("year", String.valueOf(THIS_YEAR)))
                 .andExpect(status().isOk())
@@ -99,7 +105,7 @@ class HolidayIntegrationTest {
     void 공휴일_조회에_실패하면_빈_배열이_아니라_502다() throws Exception {
         // **이 테스트가 이 API 의 핵심이다.** 실패를 빈 목록으로 답하면 앱은 그것을 "공휴일 없는 해" 로 읽고
         // 공휴일을 평일로 세어 차감일을 과다 계산한다 — 조용히 틀리는 쪽이다.
-        holidayClient.respond((year, month) -> {
+        holidays((year, month) -> {
             throw HolidayException.lookupFailed(new IllegalStateException("특일정보 장애"));
         });
 

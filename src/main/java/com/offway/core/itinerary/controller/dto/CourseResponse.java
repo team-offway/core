@@ -8,6 +8,7 @@ import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.trip.domain.MapSearchLink;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.itinerary.service.dto.OwnedCourse;
+import lombok.Builder;
 import com.offway.core.itinerary.service.dto.SlotHours;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.service.dto.TrainAccess;
@@ -47,6 +48,7 @@ import java.util.Map;
  * 전역으로 걸면 그 약속이 깨진다.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
+@Builder(toBuilder = true)
 public record CourseResponse(
         Long courseId,
         long regionId,
@@ -104,15 +106,16 @@ public record CourseResponse(
 
     public static CourseResponse from(GeneratedCourse generated) {
         Course course = generated.course();
-        return new CourseResponse(
-                course.getId(), // 저장된 코스만 값, 생성만 된 코스는 null
-                course.getRegionId(),
-                course.getTravelDays(),
-                course.getTravelDate(),
-                course.getDensity().name(),
-                course.getTransport().name(),
+        return CourseResponse.builder()
+                // 저장된 코스만 값, 생성만 된 코스는 null
+                .courseId(course.getId())
+                .regionId(course.getRegionId())
+                .travelDays(course.getTravelDays())
+                .travelDate(course.getTravelDate())
+                .density(course.getDensity().name())
+                .transport(course.getTransport().name())
                 // 날짜가 바뀌는 구간의 거리는 여기서 잰다 — 좌표가 이미 있어 외부 호출이 없다(#188).
-                IntStream.range(0, course.getDays().size())
+                .days(IntStream.range(0, course.getDays().size())
                         .mapToObj(i -> Day.from(
                                 course.getDays().get(i),
                                 course.getTravelDate(),
@@ -121,15 +124,15 @@ public record CourseResponse(
                                 course.distanceFromPrevDayMeters(i),
                                 generated.hoursByContentId(),
                                 slotBenefits(generated)))
-                        .toList(),
-                generated.benefits().stream().map(Benefit::from).toList(),
-                generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()),
-                generated.shareToken(),
-                generated.firstDayChange() == null ? null : generated.firstDayChange().name(),
+                        .toList())
+                .benefits(generated.benefits().stream().map(Benefit::from).toList())
+                .trainAccess(
+                        generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()))
+                .shareToken(generated.shareToken())
+                .firstDayChange(generated.firstDayChange() == null ? null : generated.firstDayChange().name())
                 // 차감 정보는 소유자 조회에서만 뜻이 있다. 생성(아직 저장 전)·공개 공유는 이 경로로 오며,
-                // 그때는 값이 없다는 사실 자체가 정확한 답이라 null 로 둔다(NON_NULL 이라 키가 사라진다).
-                null,
-                null);
+                // 그때는 값이 없다는 사실 자체가 정확한 답이다. 빌더라 적지 않으면 그대로 null 이다.
+                .build();
     }
 
     /**
@@ -138,21 +141,10 @@ public record CourseResponse(
      * <p>앱이 상세를 열 때마다 목록을 병행 조회해 요약의 차감 여부를 찾아 채우던 것을 없애려는 것이다.
      */
     public static CourseResponse from(OwnedCourse owned) {
-        CourseResponse course = from(owned.course());
-        return new CourseResponse(
-                course.courseId(),
-                course.regionId(),
-                course.travelDays(),
-                course.travelDate(),
-                course.density(),
-                course.transport(),
-                course.days(),
-                course.benefits(),
-                course.trainAccess(),
-                course.shareToken(),
-                course.firstDayChange(),
-                owned.deducted(),
-                owned.consumedLeaveDays());
+        return from(owned.course()).toBuilder()
+                .leaveDeducted(owned.deducted())
+                .consumedLeaveDays(owned.consumedLeaveDays())
+                .build();
     }
 
     /**
@@ -165,23 +157,17 @@ public record CourseResponse(
      * <p>{@code @JsonInclude(NON_NULL)} 이라 두 필드는 응답에서 <b>키 자체가 사라진다</b>.
      */
     public static CourseResponse publicView(GeneratedCourse generated) {
-        CourseResponse owned = from(generated);
-        return new CourseResponse(
-                null, // courseId — 내부 순번을 공개하지 않는다
-                owned.regionId(),
-                owned.travelDays(),
-                owned.travelDate(),
-                owned.density(),
-                owned.transport(),
-                owned.days(),
-                owned.benefits(),
-                owned.trainAccess(),
-                null, // shareToken — 이미 URL 에 있다
-                null, // firstDayChange — 날짜 수정은 소유자만 한다
+        // 빼는 것만 적는다 — 나머지는 그대로 흐른다. 위치 기반으로 전부 다시 나열하면 필드가 하나 끼는
+        // 순간 값이 조용히 옆칸으로 밀리는데, 인접 필드가 같은 타입이면 컴파일도 통과한다.
+        return from(generated).toBuilder()
+                .courseId(null) // 내부 순번을 공개하지 않는다
+                .shareToken(null) // 이미 URL 에 있다
+                .firstDayChange(null) // 날짜 수정은 소유자만 한다
                 // 차감 정보는 코스가 아니라 **소유자**에게 딸린 값이다. 링크를 받은 사람에게 내리면
                 // 남의 연차 사정을 알려주는 셈이라, from(GeneratedCourse) 가 이미 비우지만 여기서도 못박는다.
-                null,
-                null);
+                .leaveDeducted(null)
+                .consumedLeaveDays(null)
+                .build();
     }
 
     @Override

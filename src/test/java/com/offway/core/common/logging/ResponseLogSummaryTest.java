@@ -35,8 +35,16 @@ class ResponseLogSummaryTest {
         CourseResponse.Item item = new CourseResponse.Item(
                 1, "MORNING", "SIGHT", "관광", "c1", "장소1", null, null, null, null, null, null, null, null, null, 37.5, 128.6, 0, null, "정선군");
         CourseResponse.Day day = new CourseResponse.Day(1, null, null, null, null, null, List.of(item));
-        CourseResponse response = new CourseResponse(
-                1L, 16, 3, null, "PACKED", "CAR", List.of(day), List.of(), null, null, null, null, null);
+        // 빌더로 만든다 — 필드가 하나 늘 때마다 위치를 세어 null 을 덧붙이던 자리다(#317 에서 실제로 깨졌다).
+        CourseResponse response = CourseResponse.builder()
+                .courseId(1L)
+                .regionId(16)
+                .travelDays(3)
+                .density("PACKED")
+                .transport("CAR")
+                .days(List.of(day))
+                .benefits(List.of())
+                .build();
 
         assertEquals("정선군 코스 3일 1슬롯", response.logSummary());
     }
@@ -44,8 +52,15 @@ class ResponseLogSummaryTest {
     /** 지역명을 못 채운 코스도 로그를 남겨야 한다 — 요약이 통째로 빠지면 그 요청만 흔적이 없다. */
     @Test
     void 지역명이_없으면_지역미상으로_낸다() {
-        CourseResponse response =
-                new CourseResponse(1L, 16, 1, null, "PACKED", "CAR", List.of(), List.of(), null, null, null, null, null);
+        CourseResponse response = CourseResponse.builder()
+                .courseId(1L)
+                .regionId(16)
+                .travelDays(1)
+                .density("PACKED")
+                .transport("CAR")
+                .days(List.of())
+                .benefits(List.of())
+                .build();
 
         assertEquals("지역미상 코스 1일 0슬롯", response.logSummary());
     }
