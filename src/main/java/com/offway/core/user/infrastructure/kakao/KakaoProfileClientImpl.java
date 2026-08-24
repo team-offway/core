@@ -63,6 +63,9 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
     private static final String NICKNAME_FIELD = "nickname";
     private static final String EMAIL_FIELD = "email";
 
+    /** 원본 사진. {@code thumbnail_image_url} 도 오지만 마이 화면은 큰 자리라 원본을 쓴다(#308). */
+    private static final String PROFILE_IMAGE_FIELD = "profile_image_url";
+
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
 
@@ -136,7 +139,8 @@ class KakaoProfileClientImpl implements KakaoProfileClient {
         return new KakaoProfile(
                 id,
                 account.path(PROFILE_FIELD).path(NICKNAME_FIELD).asString(null),
-                account.path(EMAIL_FIELD).asString(null));
+                account.path(EMAIL_FIELD).asString(null),
+                account.path(PROFILE_FIELD).path(PROFILE_IMAGE_FIELD).asString(null));
     }
 
     /**

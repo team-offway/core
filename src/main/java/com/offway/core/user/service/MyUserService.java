@@ -35,13 +35,15 @@ public class MyUserService {
     public MyUser myUser(UUID userId) {
         User user = userRepository.findById(userId).orElseThrow(UserException::withdrawnUser);
         // 연결이 없을 수 있다 — local 개발 로그인은 provider 없이 사용자만 만든다. 그때는 null 로 내린다.
-        return new MyUser(
-                user.getNickname(),
-                user.getEmail(),
-                userIdentityRepository
+        return MyUser.builder()
+                .nickname(user.getNickname())
+                .email(user.getEmail())
+                .provider(userIdentityRepository
                         .findFirstByUserId(userId)
                         .map(UserIdentity::getProvider)
-                        .orElse(null),
-                user.getCreatedAt());
+                        .orElse(null))
+                .profileImageUrl(user.getProfileImageUrl())
+                .joinedAt(user.getCreatedAt())
+                .build();
     }
 }
