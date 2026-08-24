@@ -64,7 +64,15 @@ public class CourseLeaveDeductionService {
         try {
             MyLeave after = myLeaveService.addUsage(
                     userId,
-                    new AddLeaveUsage(course.getTravelDate(), days, DEDUCTION_REASON, courseId, startDayLeave));
+                    // 메모는 넣지 않는다(#319) — 사용자가 쓰는 칸이고, 이 행은 서버가 만든다.
+                    // 빌더라 안 적으면 그대로 null 이다.
+                    AddLeaveUsage.builder()
+                            .usedOn(course.getTravelDate())
+                            .days(days)
+                            .reason(DEDUCTION_REASON)
+                            .courseId(courseId)
+                            .startDayLeave(startDayLeave)
+                            .build());
             log.info("코스 연차 차감 courseId={} days={} 남은={}", courseId, days, after.summary().remainingDays());
             return after;
         } catch (DataIntegrityViolationException e) {

@@ -111,6 +111,7 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "요청한 코스가 없거나 소유자가 아님")
+    // 차감 정보(leaveDeducted·consumedLeaveDays)를 함께 준다(#317) — 목록을 병행 조회하지 않아도 된다.
     ApiResponseBody<CourseResponse> course(
             UUID userId, @Parameter(description = "코스 ID", example = "1") long courseId);
 

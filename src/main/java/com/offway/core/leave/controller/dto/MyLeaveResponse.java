@@ -35,6 +35,7 @@ public record MyLeaveResponse(
      * @param usedOn 연차를 쓴 날
      * @param days 쓴 일수. 새 내역은 양수지만, <b>삭제 API 가 없던 시절의 상쇄 등록은 음수로 남아 있다</b>(#265)
      * @param reason 사유 (없으면 null)
+     * @param memo 상세 메모 (없으면 null, #319)
      * @param courseId 이 내역을 만든 코스 (수동 입력이면 null). <b>값이 있으면 삭제할 수 없다</b> — 코스에서 차감을 취소한다
      */
     public record Usage(
@@ -42,11 +43,17 @@ public record MyLeaveResponse(
             @Schema(example = "2026-05-08") LocalDate usedOn,
             @Schema(description = "쓴 일수 (옛 상쇄 등록만 음수)", example = "1.0") double days,
             @Schema(example = "제주 여행", nullable = true) String reason,
+            @Schema(example = "숙소 체크인 15시", nullable = true) String memo,
             @Schema(nullable = true) Long courseId) {
 
         static Usage from(LeaveUsage usage) {
             return new Usage(
-                    usage.getId(), usage.getUsedOn(), usage.getDays(), usage.getReason(), usage.getCourseId());
+                    usage.getId(),
+                    usage.getUsedOn(),
+                    usage.getDays(),
+                    usage.getReason(),
+                    usage.getMemo(),
+                    usage.getCourseId());
         }
     }
 }

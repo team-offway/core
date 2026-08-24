@@ -2,12 +2,15 @@ package com.offway.core.trip.controller;
 
 import static com.offway.core.user.config.TestLogins.loginAs;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.datalab.StubTourDataLabClient;
 import com.offway.core.trip.infrastructure.datalab.TourDataLabClient;
@@ -273,7 +276,64 @@ class HomeIntegrationTest {
                         .value(org.hamcrest.Matchers.hasItem("FOOD")))
                 // 카드가 장소라 지역명을 따로 싣는다.
                 .andExpect(jsonPath("$.data.recommendedPlaces[?(@.poiContentId=='" + food + "')].regionName")
-                        .value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.notNullValue())));
+                        .value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.notNullValue())))
+                // 이름만으로는 동명 시군구(부산·대구·인천 동구)를 가릴 수 없어 id 를 함께 싣는다(#318).
+                // toIntExact 다 — 그냥 (int) 로 좁히면 범위를 넘겼을 때 조용히 잘린 값과 비교해
+                // "다르다" 가 아니라 엉뚱한 이유로 실패한다. 넘치면 그 자리에서 터지는 편이 낫다.
+                .andExpect(jsonPath("$.data.recommendedPlaces[?(@.poiContentId=='" + food + "')].regionId")
+                        .value(org.hamcrest.Matchers.hasItem(Math.toIntExact(regionId))));
+    }
+
+    /**
+     * 장소 카드의 {@code regionId} 는 <b>같은 응답의 지역 카드 중 하나와 반드시 일치한다</b>(#318).
+     *
+     * <p>앱이 시도 표기를 그쪽에서 가져다 쓰는 것이 이 필드를 넣은 이유다. 두 섹션이 어긋나면 앱은
+     * 짝을 못 찾아 예전처럼 시도를 비우게 되고, 그러면 필드를 넣은 값어치가 사라진다.
+     *
+     * <p>장소를 애초에 상위 지역들에서만 뽑기 때문에 성립하는 성질이다 — 그 전제가 깨지면 여기서 잡힌다.
+     *
+     * <p><b>장소를 심을 지역을 응답에서 받아온다.</b> 지역 마스터의 첫 지역에 심으면 그 지역이 랭킹
+     * 상위에 든다는 보장이 없어, 카드가 비면 계약을 검증하기도 전에 준비 단계에서 넘어진다. 랭킹이
+     * 무엇을 고르든 그중 하나에 심으면 그 결합이 사라진다.
+     */
+    @Test
+    // 주인은 이 시나리오와 무관하다(장소·지역 카드만 본다). 다만 홈도 인증 뒤에 있어 로그인은 필요하다.
+    @WithLoginUser
+    void 장소_카드의_지역은_같은_응답의_지역_카드_중_하나다() throws Exception {
+        long regionId = topRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(poi(regionId, "home-pair-1", Category.SIGHT, "이중섭거리")));
+
+        String body = mockMvc.perform(get(URL))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        // Number 로 읽는다 — 계약이 long 이라 int 로 좁히면 값에 따라 Integer·Long 이 섞여
+        // containsAll 이 같은 숫자를 다른 값으로 본다(Integer(76).equals(Long(76)) 은 false).
+        List<Long> placeRegionIds = regionIdsAt(body, "$.data.recommendedPlaces[*].regionId");
+        List<Long> cardRegionIds = regionIdsAt(body, "$.data.recommendedRegions[*].regionId");
+        assertFalse(placeRegionIds.isEmpty(), "장소 카드가 비면 이 성질을 검증할 수 없다");
+        assertTrue(cardRegionIds.containsAll(placeRegionIds),
+                "장소 카드의 지역이 지역 카드에 없다: places=%s regions=%s".formatted(placeRegionIds, cardRegionIds));
+    }
+
+    /** 응답이 고른 추천 지역 중 하나 — 랭킹이 무엇을 뽑든 장소를 그 안에 심으려는 것이다. */
+    private long topRegionId() throws Exception {
+        String body = mockMvc.perform(get(URL))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        List<Long> regionIds = regionIdsAt(body, "$.data.recommendedRegions[*].regionId");
+        assertFalse(regionIds.isEmpty(), "추천 지역이 비어 이 테스트가 성립하지 않는다");
+        return regionIds.get(0);
+    }
+
+    /** JSON 숫자를 long 으로 맞춰 읽는다 — API 계약이 long 이라 박싱 타입에 기대지 않는다. */
+    private static List<Long> regionIdsAt(String body, String path) {
+        List<Number> raw = JsonPath.read(body, path);
+        return raw.stream().map(Number::longValue).toList();
     }
 
     /**

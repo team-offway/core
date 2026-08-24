@@ -516,7 +516,8 @@ class UserWithdrawalIntegrationTest {
 
     private void seedLeave(UUID userId) {
         leaveBalanceJpaRepository.save(LeaveBalance.of(userId, 15.0));
-        leaveUsageJpaRepository.save(LeaveUsage.manual(userId, LocalDate.now(), 1.0, "테스트"));
+        // 메모는 null 이다(#319) — 이 시나리오가 보는 것은 탈퇴가 무엇을 지우는가이지 메모가 아니다.
+        leaveUsageJpaRepository.save(LeaveUsage.manual(userId, LocalDate.now(), 1.0, "테스트", null));
     }
 
     /** 여행 후기 한 건 — 탈퇴가 지우는 데이터 중 코스와 다른 테이블에 있는 쪽이다. */
