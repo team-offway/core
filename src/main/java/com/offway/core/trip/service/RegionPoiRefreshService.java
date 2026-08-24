@@ -23,6 +23,7 @@ import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.annotation.Schedules;
 import org.springframework.stereotype.Service;
 
 /**
@@ -42,9 +43,16 @@ import org.springframework.stereotype.Service;
  * <p><b>매일 돌 이유도 없다.</b> 지역별 POI 목록은 새 관광지가 등록되며 느리게 늘 뿐이라, 어제와 오늘이
  * 다를 일이 거의 없다.
  *
- * <p><b>{@code fixedDelay} 를 쓰지 않는다.</b> 그건 프로세스가 살아 있는 동안의 간격이라 재배포하면 주기가
- * 처음부터 다시 센다 — "주 1회" 라고 적어 두고 배포마다 도는 일이 실제로 있었다(#226·#231). 대신
- * <b>기준월 마커</b>로 가른다: 그 달치가 이미 있는 지역은 외부를 아예 안 부른다.
+ * <p><b>주기를 {@code fixedDelay} 에 맡기지 않는다.</b> 그건 프로세스가 살아 있는 동안의 간격이라 재배포하면
+ * 처음부터 다시 센다 — "주 1회" 라고 적어 두고 배포마다 도는 일이 실제로 있었다(#226·#231). 갱신 주기는
+ * cron 이 소유한다.
+ *
+ * <p><b>다만 부팅 확인은 따로 둔다</b>(#314). cron 만 두면 배치가 들어온 날부터 다음 1일까지 테이블이 빈 채로
+ * 있고, 실제로 지역 상세·홈 추천 장소·홈 카드 부제가 함께 막혔다. 두 트리거의 역할이 다르다 — cron 은
+ * "달이 바뀌면 갱신", 부팅은 "비어 있으면 채움" 이다.
+ *
+ * <p>둘 다 안전한 것은 <b>기준월 마커</b> 덕이다: 그 달치가 이미 있는 지역은 외부를 아예 안 부른다.
+ * 여기에 {@code hasRunOn} 이 하루 한 번으로 더 조인다.
  */
 @Slf4j
 @Service
@@ -58,6 +66,30 @@ public class RegionPoiRefreshService {
      * 기준월과 실행일을 맞추기 위해서다 — 월말에 돌면 다음 달 첫 조회가 이미 낡은 값을 본다.
      */
     private static final String MONTHLY_AT_DAWN = "0 0 4 1 * *";
+
+    /**
+     * 부팅 후 첫 확인까지의 지연 — <b>cron 을 기다리다 화면이 비는 것을 막는다</b>(#314).
+     *
+     * <p>월 1회 cron 만 두면 배치가 머지된 날부터 다음 1일까지 {@code region_poi} 가 빈 채로 있다. 실제로
+     * 그랬다 — 8/23 에 들어온 배치가 9/1 까지 안 돌아 지역 상세의 매력 포인트와 홈 추천 장소가 함께 비었고,
+     * 그 테이블을 읽는 홈 카드 부제까지 일감이 0행이 됐다. 재기동해도 cron 은 그 시각에만 발화해 손쓸 수단이
+     * 없었다.
+     *
+     * <p><b>거의 공짜다.</b> 아래 {@code hasFresh} 가 그 달치를 이미 받은 지역을 외부 호출 없이 건너뛴다 —
+     * 첫 배포만 267콜이고 이후 배포는 0콜이다. 같은 날 재배포는 {@code hasRunOn} 이 막는다.
+     *
+     * <p><b>지연을 길게 둔 이유는 둘이다.</b> 부팅 직후 다른 적재 배치(30~90초)와 겹쳐 외부를 한꺼번에
+     * 때리지 않게 하고, <b>통합 테스트가 끝난 뒤에 오게</b> 한다. 프로파일로는 못 막는다 —
+     * {@code spring.profiles.active} 기본값이 {@code local} 이라 테스트 컨텍스트에서도 {@code local} 이
+     * 켜져 있어 {@code @Profile("local | prod")} 가 아무것도 거르지 않는다(실측으로 확인했다).
+     */
+    private static final String BOOT_CHECK_DELAY = "PT120S";
+
+    /**
+     * 부팅 확인의 반복 간격. 실질적으로는 재발화하지 않는 값이다 — 주기 갱신은 {@link #MONTHLY_AT_DAWN} 이
+     * 소유하고, 이 트리거는 "부팅했는데 비어 있으면 채운다" 만 맡는다.
+     */
+    private static final String BOOT_CHECK_INTERVAL = "P30D";
 
     /** 서비스 기준 시간대. 갱신 기준월은 한국 달력 기준이라 서버 로케일에 맡기지 않는다. */
     private static final String SERVICE_ZONE_ID = "Asia/Seoul";
@@ -101,7 +133,10 @@ public class RegionPoiRefreshService {
     private final BatchRunRepository batchRunRepository;
     private final BatchBudgetProperties batchBudget;
 
-    @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID)
+    @Schedules({
+        @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID),
+        @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
+    })
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
             LocalDate today = LocalDate.now(SERVICE_ZONE);
