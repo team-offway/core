@@ -2,11 +2,9 @@ package com.offway.core.user.service;
 
 import com.offway.core.user.domain.AuthProvider;
 import com.offway.core.user.domain.UserException;
-import com.offway.core.user.domain.UserGuestLink;
 import com.offway.core.user.domain.UserIdentity;
 import com.offway.core.user.event.UserWithdrawn;
 import com.offway.core.user.repository.RefreshTokenRepository;
-import com.offway.core.user.repository.UserGuestLinkRepository;
 import com.offway.core.user.repository.UserIdentityRepository;
 import com.offway.core.user.repository.UserRepository;
 import java.util.List;
@@ -36,7 +34,6 @@ public class UserWithdrawalPersistenceService {
     private final UserRepository userRepository;
     private final UserIdentityRepository userIdentityRepository;
     private final RefreshTokenRepository refreshTokenRepository;
-    private final UserGuestLinkRepository userGuestLinkRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     /**
@@ -69,22 +66,15 @@ public class UserWithdrawalPersistenceService {
         if (userRepository.findById(userId).isEmpty()) {
             throw UserException.withdrawnUser();
         }
-        List<String> guestIds = userGuestLinkRepository.findByUserId(userId).stream()
-                .map(UserGuestLink::getGuestId)
-                .toList();
-        if (guestIds.isEmpty()) {
-            // 로그인할 때 헤더를 안 보낸 앱이다. 계정은 지우되 그 사용자의 코스·연차는 못 찾는다 —
-            // 조용히 넘어가면 개인정보가 주인 없이 남은 것을 아무도 모른다.
-            log.warn("탈퇴 대상 기기가 없습니다 — 코스·연차가 남을 수 있습니다 userId={}", userId);
-        }
-        guestIds.forEach(guestId -> eventPublisher.publishEvent(new UserWithdrawn(userId, guestId)));
+        // 대상을 찾는 단계가 사라졌다(#280). 예전에는 게스트 키를 모아 그 수만큼 이벤트를 보냈고,
+        // 헤더를 안 보낸 앱은 키가 없어 코스·연차가 주인 없이 남았다 — 그 경고를 남겨야 했던 이유다.
+        // 이제 소유가 이 사용자라 "대상을 못 찾는 탈퇴" 자체가 없다.
+        eventPublisher.publishEvent(new UserWithdrawn(userId));
         int identities = userIdentityRepository.deleteByUserId(userId);
         int tokens = refreshTokenRepository.deleteByUserId(userId);
-        int links = userGuestLinkRepository.deleteByUserId(userId);
         userRepository.deleteById(userId);
         // 식별자만 남긴다 — 닉네임·이메일은 지우는 마당에 로그로 옮겨 적을 이유가 없다.
-        log.info("회원 탈퇴 완료 userId={} 신원 {}건 · refresh {}건 · 기기 {}건 삭제",
-                userId, identities, tokens, links);
+        log.info("회원 탈퇴 완료 userId={} 신원 {}건 · refresh {}건 삭제", userId, identities, tokens);
     }
 
     /**

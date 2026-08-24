@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.stream.IntStream;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -64,10 +65,11 @@ public class HomeService {
     /**
      * 홈 화면. 남은 연차는 <b>저장값에서 읽는다</b> — 예전엔 클라이언트가 보낸 값을 그대로 되돌려줬다(#89).
      *
-     * @param guestId 소유 키 (없으면 남은 연차는 null — "미설정" 과 0 을 구분한다)
+     * @param userId 인증으로 확인된 사용자. <b>없을 수 있다</b> — 홈은 로그인 앞에 있는 화면이라 비로그인 요청이
+     *     정상이고, 그때 남은 연차만 null 이다("미설정" 과 0 을 구분한다)
      */
-    public HomeResult home(String guestId) {
-        Double remainingLeaveDays = myLeaveService.remainingDaysOrNull(guestId);
+    public HomeResult home(UUID userId) {
+        Double remainingLeaveDays = myLeaveService.remainingDaysOrNull(userId);
         List<Region> all = regionMaster.all();
         List<RegionScore> ranked = regionRankingService.rankByVisitors(all);
 

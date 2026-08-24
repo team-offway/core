@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -46,7 +47,7 @@ public class CoursePersistenceService {
      * 실패한다({@code OptimisticLockingFailureException}). 그 번역은 호출자가 한다 — 여기서 잡으면 이미 늦다.
      */
     /**
-     * 게스트 소유의 저장 코스를 읽는다 — <b>트랜잭션은 여기까지</b>(#169).
+     * 소유자의 저장 코스를 읽는다 — <b>트랜잭션은 여기까지</b>(#169).
      *
      * <p>혜택·지역·날씨 조립은 호출자가 트랜잭션 밖에서 한다. 날씨는 외부 호출이라 read-timeout 이 길고,
      * 트랜잭션 안에 넣으면 DB 커넥션을 그만큼 오래 잡는다(영속성 규약).
@@ -54,9 +55,9 @@ public class CoursePersistenceService {
      * <p>없거나 소유자가 아니면 존재 여부를 흘리지 않도록 똑같이 404.
      */
     @Transactional(readOnly = true)
-    public Course loadOwned(String guestId, long courseId) {
+    public Course loadOwned(UUID userId, long courseId) {
         Course course = courseRepository
-                .findByIdAndGuestId(courseId, guestId)
+                .findByIdAndUserId(courseId, userId)
                 .orElseThrow(ItineraryException::courseNotFound);
         course.totalSlots(); // tx 안에서 days·slots 초기화(직렬화·조립은 tx 밖)
         return course;
@@ -130,13 +131,13 @@ public class CoursePersistenceService {
      * @param deductionDays 다시 계산한 차감 일수. 차감한 적 없는 코스면 null — 연차는 건드리지 않는다
      */
     @Transactional
-    public Course applyTravelDate(String guestId, long courseId, LocalDate travelDate, Double deductionDays) {
+    public Course applyTravelDate(UUID userId, long courseId, LocalDate travelDate, Double deductionDays) {
         Course course = courseRepository
-                .findByIdAndGuestId(courseId, guestId)
+                .findByIdAndUserId(courseId, userId)
                 .orElseThrow(ItineraryException::courseNotFound);
         course.changeTravelDate(travelDate, LocalDate.now(CourseStorageService.SERVICE_ZONE));
         if (deductionDays != null) {
-            myLeaveService.rescheduleCourseDeduction(guestId, courseId, travelDate, deductionDays);
+            myLeaveService.rescheduleCourseDeduction(userId, courseId, travelDate, deductionDays);
         }
         course.totalSlots(); // tx 안에서 days·slots 초기화(직렬화·조립은 tx 밖)
         return course;
@@ -154,9 +155,9 @@ public class CoursePersistenceService {
      * @return 걷어낸 슬롯 수. 0 이면 바뀐 것이 없다
      */
     @Transactional
-    public int realignFirstDay(String guestId, long courseId, DayStart firstDayStart) {
+    public int realignFirstDay(UUID userId, long courseId, DayStart firstDayStart) {
         Course course = courseRepository
-                .findByIdAndGuestId(courseId, guestId)
+                .findByIdAndUserId(courseId, userId)
                 .orElseThrow(ItineraryException::courseNotFound);
         return course.trimFirstDayTo(firstDayStart);
     }
@@ -202,11 +203,11 @@ public class CoursePersistenceService {
     }
 
     @Transactional
-    public void deleteOwned(String guestId, long courseId) {
+    public void deleteOwned(UUID userId, long courseId) {
         Course course = courseRepository
-                .findByIdAndGuestId(courseId, guestId)
+                .findByIdAndUserId(courseId, userId)
                 .orElseThrow(ItineraryException::courseNotFound);
-        myLeaveService.cancelCourseDeduction(guestId, courseId);
+        myLeaveService.cancelCourseDeduction(userId, courseId);
         courseRepository.delete(course);
     }
 }

@@ -45,6 +45,7 @@ public interface UserApi {
             responseCode = "401",
             description =
                     "access 토큰이 없거나 무효·만료(USER-004) · 자격증명 없음(COMMON-401) · 이미 탈퇴한 계정(USER-006)")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<MyUserResponse> me(UUID userId);
 
     @Operation(
@@ -58,14 +59,10 @@ public interface UserApi {
                       → 같은 소셜 계정으로 다시 가입하면 **새 사용자**가 된다
                     - 저장한 코스(일정·슬롯 포함) · 여행 후기 응답
                     - 연차 설정 · 연차 사용 내역
+                    - 받은 알림
 
-                    **이 요청에는 `X-Guest-Id` 를 보내지 않는다.** 보내도 무시된다 — 지울 대상은 요청이 아니라
-                    **로그인할 때 기록해 둔 기기 연결**이 정한다. 요청 헤더가 대상을 정하면 남의 값을 적어
-                    남의 데이터를 지울 수 있어서다.
-
-                    대신 **로그인(`POST /auth/callback/{provider}`)에 `X-Guest-Id` 를 함께 보내야 한다.**
-                    코스·연차가 아직 그 키로 묶여 있어(소유 키 전환 미완료), 로그인 때 이어 두지 않으면 탈퇴가
-                    그 데이터를 찾지 못하고 계정만 지워진다.
+                    **지울 대상은 access 토큰이 정한다.** 요청 헤더·본문에 무엇을 실어도 대상이 바뀌지 않는다 —
+                    코스·연차·후기·알림이 전부 `user_id` 로 묶여 있어, 인증으로 확인된 그 사용자의 것만 지워진다.
 
                     **지우지 않는 것**
                     - 이미 발급한 **공유 링크**(`course_share`). 코스가 사라져 링크는 410(게시자가 삭제함)으로
@@ -94,5 +91,6 @@ public interface UserApi {
             responseCode = "401",
             description =
                     "access 토큰이 없거나 무효·만료(USER-004) · 자격증명 없음(COMMON-401) · 이미 탈퇴한 계정(USER-006)")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<Void> withdraw(UUID userId);
 }

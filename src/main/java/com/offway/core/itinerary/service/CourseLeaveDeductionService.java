@@ -11,6 +11,7 @@ import com.offway.core.leave.service.dto.AvailableTimeCommand;
 import com.offway.core.leave.service.dto.MyLeave;
 import java.time.LocalDate;
 import java.util.OptionalDouble;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -50,19 +51,19 @@ public class CourseLeaveDeductionService {
      *
      * @param startDayLeave 첫날에 쓴 연차 — 차감이 그 단위만큼 줄어든다(반차 0.5 · 반반차 0.25)
      */
-    public MyLeave deduct(String guestId, long courseId, StartDayLeave startDayLeave) {
-        Course course = findOwned(guestId, courseId);
+    public MyLeave deduct(UUID userId, long courseId, StartDayLeave startDayLeave) {
+        Course course = findOwned(userId, courseId);
         course.requireTravelDate();
 
-        if (myLeaveService.alreadyDeducted(guestId, courseId)) {
+        if (myLeaveService.alreadyDeducted(userId, courseId)) {
             log.info("코스 연차 차감 건너뜀 — 이미 차감된 코스 courseId={}", courseId);
-            return myLeaveService.myLeave(guestId);
+            return myLeaveService.myLeave(userId);
         }
 
         double days = consumedLeaveDays(course, startDayLeave);
         try {
             MyLeave after = myLeaveService.addUsage(
-                    guestId,
+                    userId,
                     // 메모는 넣지 않는다(#319) — 사용자가 쓰는 칸이고, 이 행은 서버가 만든다.
                     // 빌더라 안 적으면 그대로 null 이다.
                     AddLeaveUsage.builder()
@@ -78,12 +79,12 @@ public class CourseLeaveDeductionService {
             // 이 예외는 유니크 제약 위반만 뜻하지 않는다(NOT NULL·길이 초과 등). 정말 먼저 기록된 내역이 있을 때만
             // '이미 차감됨' 과 결과가 같다. 확인 없이 삼키면 아무것도 저장되지 않았는데 200 을 주게 되고,
             // 사용자와 화면은 차감이 끝난 줄 안다 — 규약이 막는 '조용한 실패' 그 자체다.
-            if (!myLeaveService.alreadyDeducted(guestId, courseId)) {
+            if (!myLeaveService.alreadyDeducted(userId, courseId)) {
                 log.error("코스 연차 차감 실패 — 중복이 아닌 제약 위반 courseId={}", courseId, e);
                 throw e;
             }
             log.info("코스 연차 차감 경합 — 먼저 기록된 내역을 그대로 둡니다 courseId={}", courseId);
-            return myLeaveService.myLeave(guestId);
+            return myLeaveService.myLeave(userId);
         }
     }
 
@@ -95,10 +96,10 @@ public class CourseLeaveDeductionService {
      *
      * <p>코스 소유 확인은 그대로 한다 — 남의 코스 ID 로 남의 연차를 건드릴 수 있으면 안 된다.
      */
-    public MyLeave cancel(String guestId, long courseId) {
-        findOwned(guestId, courseId);
-        myLeaveService.cancelCourseDeduction(guestId, courseId);
-        return myLeaveService.myLeave(guestId);
+    public MyLeave cancel(UUID userId, long courseId) {
+        findOwned(userId, courseId);
+        myLeaveService.cancelCourseDeduction(userId, courseId);
+        return myLeaveService.myLeave(userId);
     }
 
     /**
@@ -127,7 +128,7 @@ public class CourseLeaveDeductionService {
      */
     public OptionalDouble recalculateFor(Course course, LocalDate travelDate) {
         return myLeaveService
-                .courseDeduction(course.getGuestId(), course.getId())
+                .courseDeduction(course.getUserId(), course.getId())
                 .map(deduction -> OptionalDouble.of(consumedLeaveDays(
                         travelDate,
                         travelDate.plusDays(course.getTravelDays() - 1L),
@@ -150,9 +151,9 @@ public class CourseLeaveDeductionService {
      * <p>트랜잭션을 걸지 않는다. 같은 빈 안에서 부르면 프록시를 거치지 않아 어차피 무효고, 리포지토리 호출 하나라
      * 그것으로 충분하다. 지연 로딩 컬렉션({@code days})은 여기서 건드리지 않는다 — 날짜·일수·이동수단만 쓴다.
      */
-    private Course findOwned(String guestId, long courseId) {
+    private Course findOwned(UUID userId, long courseId) {
         return courseRepository
-                .findByIdAndGuestId(courseId, guestId)
+                .findByIdAndUserId(courseId, userId)
                 .orElseThrow(ItineraryException::courseNotFound);
     }
 }

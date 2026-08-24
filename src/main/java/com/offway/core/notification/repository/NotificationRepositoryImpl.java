@@ -3,6 +3,7 @@ package com.offway.core.notification.repository;
 import com.offway.core.notification.domain.Notification;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -38,7 +39,7 @@ public class NotificationRepositoryImpl implements NotificationRepository {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean saveIfAbsent(Notification notification) {
         return notificationJpaRepository.insertIfAbsent(
-                        notification.getGuestId(),
+                        notification.getUserId().toString(),
                         notification.getType().name(),
                         notification.course().orElse(null),
                         notification.getCreatedAt())
@@ -46,27 +47,33 @@ public class NotificationRepositoryImpl implements NotificationRepository {
     }
 
     @Override
-    public Page<Notification> findByOwner(String guestId, Pageable pageable) {
-        return notificationJpaRepository.findByGuestIdOrderByCreatedAtDescIdDesc(guestId, pageable);
+    public Page<Notification> findByOwner(UUID userId, Pageable pageable) {
+        return notificationJpaRepository.findByUserIdOrderByCreatedAtDescIdDesc(userId, pageable);
     }
 
     @Override
-    public Optional<Notification> findOwned(String guestId, Long id) {
-        return notificationJpaRepository.findByIdAndGuestId(id, guestId);
+    public Optional<Notification> findOwned(UUID userId, Long id) {
+        return notificationJpaRepository.findByIdAndUserId(id, userId);
     }
 
     @Override
-    public long countUnread(String guestId) {
-        return notificationJpaRepository.countByGuestIdAndReadAtIsNull(guestId);
+    public long countUnread(UUID userId) {
+        return notificationJpaRepository.countByUserIdAndReadAtIsNull(userId);
     }
 
     @Override
-    public int markAllRead(String guestId, LocalDateTime readAt) {
-        return notificationJpaRepository.markAllRead(guestId, readAt);
+    public int markAllRead(UUID userId, LocalDateTime readAt) {
+        return notificationJpaRepository.markAllRead(userId, readAt);
     }
 
     @Override
-    public int markRead(String guestId, Long id, LocalDateTime readAt) {
-        return notificationJpaRepository.markRead(guestId, id, readAt);
+    public int markRead(UUID userId, Long id, LocalDateTime readAt) {
+        return notificationJpaRepository.markRead(userId, id, readAt);
+    }
+
+    @Override
+    @Transactional
+    public int deleteByUserId(UUID userId) {
+        return notificationJpaRepository.deleteByUserId(userId);
     }
 }

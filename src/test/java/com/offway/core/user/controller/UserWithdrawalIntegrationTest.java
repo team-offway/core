@@ -1,5 +1,8 @@
 package com.offway.core.user.controller;
 
+import com.offway.core.notification.domain.Notification;
+import com.offway.core.notification.domain.NotificationType;
+import com.offway.core.notification.repository.NotificationRepository;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,26 +14,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.offway.core.itinerary.domain.Course;
-import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.itinerary.domain.CourseShare;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.domain.Slot;
-import com.offway.core.itinerary.domain.TripOutcome;
-import com.offway.core.itinerary.domain.VisitOutcome;
-import com.offway.core.itinerary.repository.TripOutcomeJpaRepository;
 import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.TimeOfDay;
+import com.offway.core.itinerary.domain.TripOutcome;
+import com.offway.core.itinerary.domain.VisitOutcome;
 import com.offway.core.itinerary.repository.CourseJpaRepository;
 import com.offway.core.itinerary.repository.CourseShareRepository;
+import com.offway.core.itinerary.repository.TripOutcomeJpaRepository;
 import com.offway.core.leave.domain.LeaveBalance;
 import com.offway.core.leave.domain.LeaveUsage;
+import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.leave.repository.LeaveBalanceJpaRepository;
 import com.offway.core.leave.repository.LeaveUsageJpaRepository;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.user.domain.AuthProvider;
-import com.offway.core.user.repository.UserGuestLinkRepository;
 import com.offway.core.user.infrastructure.apple.StubAppleAccountLink;
 import org.springframework.context.annotation.Primary;
 import com.offway.core.user.infrastructure.social.StubSocialIdentityVerifier;
@@ -48,6 +50,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
  * 회원 탈퇴 — 무엇이 지워지고 무엇이 남는지를 계약으로 고정한다.
@@ -55,9 +58,13 @@ import org.springframework.test.web.servlet.MockMvc;
  * <p>개인정보처리방침이 약속한 동작이라 "대충 지워진다" 로는 부족하다. 남는 것(공유 링크)도 의도된
  * 선택이므로 함께 잠근다.
  *
+ * <p><b>지울 대상은 access 토큰이 정한다(#280).</b> 코스·연차·후기가 전부 {@code user_id} 로 묶여 있어,
+ * 요청이 무엇을 들고 오든 지워지는 것은 인증으로 확인된 그 사용자의 데이터뿐이다. 그래서 이 클래스의 두 축은
+ * <b>내 데이터는 빠짐없이 지워진다</b> 와 <b>남의 데이터는 무엇을 실어 보내도 안 지워진다</b> 다.
+ *
  * <p><b>클래스 레벨 트랜잭션 롤백에 기대지 않는다</b>(빠뜨린 것이 아니다). 탈퇴는 이벤트 리스너가 발행자
  * 트랜잭션에 참여해 한 덩어리로 커밋되는 것이 핵심인데, 테스트가 바깥에서 트랜잭션을 열어 롤백해 버리면
- * 그 경계가 테스트 트랜잭션에 흡수돼 검증하려던 성질이 사라진다. 대신 시나리오마다 고유 UUID 로 격리한다
+ * 그 경계가 테스트 트랜잭션에 흡수돼 검증하려던 성질이 사라진다. 대신 시나리오마다 새 사용자로 격리한다
  * — {@code AuthIntegrationTest} 도 같은 이유로 같은 방식이다.
  */
 @SpringBootTest
@@ -68,8 +75,13 @@ class UserWithdrawalIntegrationTest {
     private static final String REISSUE_URL = "/api/v1/auth/reissue";
     private static final String CALLBACK_URL = "/api/v1/auth/callback/google";
     private static final String SHARED_COURSE_URL = "/api/v1/public/courses/%s";
-    private static final String GUEST_HEADER = "X-Guest-Id";
     private static final String BEARER = "Bearer ";
+
+    /**
+     * 소유 키였던 옛 헤더. 서버는 더 이상 읽지 않지만, <b>실어 보내도 아무 일이 없다</b>는 것이 이 이슈가
+     * 닫은 공격의 핵심이라 그 값을 만들어 보내는 테스트가 남아 있다.
+     */
+    private static final String LEGACY_GUEST_HEADER = "X-Guest-Id";
 
     @TestConfiguration
     static class SocialStubConfiguration {
@@ -112,10 +124,10 @@ class UserWithdrawalIntegrationTest {
     private LeaveUsageJpaRepository leaveUsageJpaRepository;
 
     @Autowired
-    private UserGuestLinkRepository userGuestLinkRepository;
+    private TripOutcomeJpaRepository tripOutcomeJpaRepository;
 
     @Autowired
-    private TripOutcomeJpaRepository tripOutcomeJpaRepository;
+    private NotificationRepository notificationRepository;
 
     // ── 계정 ──────────────────────────────────────────────────
 
@@ -169,7 +181,6 @@ class UserWithdrawalIntegrationTest {
     void 탈퇴_후_같은_소셜_신원으로_다시_가입하면_새_사용자다() throws Exception {
         // provider 신원 매핑까지 지우지 않으면 UNIQUE 가 남아 없는 사용자를 가리키는 신원에 붙는다.
         String providerUserId = "sub-" + UUID.randomUUID();
-        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
         Session first = login(providerUserId);
         mockMvc.perform(withdraw(first.accessToken())).andExpect(status().isOk());
 
@@ -179,107 +190,91 @@ class UserWithdrawalIntegrationTest {
         mockMvc.perform(withdraw(second.accessToken())).andExpect(status().isOk());
     }
 
-    // ── 게스트 키로 묶인 데이터 ────────────────────────────────
+    // ── 내 데이터는 빠짐없이 지워진다 ───────────────────────────
 
+    /**
+     * <b>건너뛰는 길이 없다</b>(#280). 예전에는 지울 대상을 로그인 때 기록해 둔 기기 연결이 정해서, 그 기록이
+     * 없으면 계정만 지워지고 코스·연차가 주인 없이 남았다. 이제 소유 키가 탈퇴하는 본인이라 항상 닿는다.
+     *
+     * <p><b>알림도 함께 본다.</b> 알림은 코스·연차보다 늦게 생겨(#263) 탈퇴 정리에 끼지 못했고, 이 전환에서야
+     * 리스너가 붙었다. FK 를 두지 않는 규약이라 DB 가 대신 지워주지 않으므로, 빠지면 알림 행이 <b>없는
+     * 사용자를 가리킨 채</b> 남는다. 알림 본문에는 여행 일정이 담긴다.
+     */
     @Test
-    void 탈퇴하면_저장한_코스와_연차와_후기가_함께_지워진다() throws Exception {
+    void 탈퇴하면_내_코스와_연차와_후기가_함께_지워진다() throws Exception {
         Session session = login();
-        Long courseId = saveCourse(session.guestId());
-        seedLeave(session.guestId());
-        seedOutcome(session.guestId(), courseId);
+        Long courseId = saveCourse(session.userId());
+        seedLeave(session.userId());
+        seedOutcome(session.userId(), courseId);
+        seedNotification(session.userId(), courseId);
 
         mockMvc.perform(withdraw(session.accessToken())).andExpect(status().isOk());
 
         assertTrue(courseJpaRepository.findById(courseId).isEmpty(), "코스가 남았다");
-        assertTrue(leaveBalanceJpaRepository.findByGuestId(session.guestId()).isEmpty(), "연차 설정이 남았다");
-        assertTrue(leaveUsageJpaRepository.findByGuestIdOrderByUsedOnDescIdDesc(session.guestId()).isEmpty(), "연차 내역이 남았다");
-        // 후기는 리스너가 지우는 넷 중 하나인데 오래 검증에서 빠져 있었다. 코스와 다른 테이블이라
+        assertTrue(leaveBalanceJpaRepository.findByUserId(session.userId()).isEmpty(), "연차 설정이 남았다");
+        assertTrue(
+                leaveUsageJpaRepository
+                        .findByUserIdOrderByUsedOnDescIdDesc(session.userId())
+                        .isEmpty(),
+                "연차 내역이 남았다");
+        // 후기는 리스너가 지우는 것 중 하나인데 오래 검증에서 빠져 있었다. 코스와 다른 테이블이라
         // 코스 삭제가 통과해도 이쪽만 조용히 남을 수 있다.
-        assertTrue(tripOutcomeJpaRepository.findAnsweredCourseIds(session.guestId()).isEmpty(), "여행 후기가 남았다");
+        assertTrue(tripOutcomeJpaRepository.findAnsweredCourseIds(session.userId()).isEmpty(), "여행 후기가 남았다");
+        assertEquals(0, notificationRepository.countUnread(session.userId()), "알림이 남았다");
     }
 
+    // ── 남의 데이터는 안 지워진다 ──────────────────────────────
+
     @Test
-    void 로그인할_때_기기를_안_이었으면_계정만_지워진다() throws Exception {
-        // 남은 한계다. 지울 대상은 로그인 시점의 기록이 정하므로, 그때 헤더를 안 보낸 앱의 코스·연차에는
-        // 닿지 못한다. 그렇다고 탈퇴를 막지는 않는다 — 계정을 지울 권리가 옛 로그인에 인질로 잡힌다.
-        // 못 지운 사실은 서버가 warn 으로 남긴다.
-        String providerUserId = "sub-" + UUID.randomUUID();
-        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
-        String response = mockMvc.perform(post(CALLBACK_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"accessToken\": \"any-id-token\"}"))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String accessToken = JsonPath.read(response, "$.data.accessToken");
-        Long courseId = saveCourse("guest-" + UUID.randomUUID());
-
-        mockMvc.perform(withdraw(accessToken)).andExpect(status().isOk());
-
-        assertTrue(userJpaRepository.findById(userIdOf(accessToken)).isEmpty(), "계정은 지워져야 한다");
-        assertTrue(courseJpaRepository.findById(courseId).isPresent(), "이은 기기가 없으면 코스에 닿지 못한다");
-    }
-
-    /**
-     * 헤더로 남의 데이터를 지목할 수 없다 — <b>탈퇴가 헤더를 아예 안 받는다</b>.
-     *
-     * <p>지울 대상은 로그인 때 기록된 연결이 정한다. 예전에는 요청 헤더가 대상을 정해서, 남의 게스트 키를
-     * 적어 보내면 그 사람의 연차·후기가 지워졌다.
-     */
-    @Test
-    void 남의_게스트_키를_헤더로_보내도_남의_데이터는_안_지워진다() throws Exception {
+    void 탈퇴는_남의_코스와_연차와_후기를_건드리지_않는다() throws Exception {
         Session mine = login();
         Session other = login();
-        Long otherCourse = saveCourse(other.guestId());
-        seedOutcome(other.guestId(), otherCourse);
+        Long otherCourse = saveCourse(other.userId());
+        seedLeave(other.userId());
+        seedOutcome(other.userId(), otherCourse);
+        seedNotification(other.userId(), otherCourse);
 
-        mockMvc.perform(withdraw(mine.accessToken()).header(GUEST_HEADER, other.guestId()))
-                .andExpect(status().isOk());
+        mockMvc.perform(withdraw(mine.accessToken())).andExpect(status().isOk());
 
-        assertTrue(courseJpaRepository.findById(otherCourse).isPresent(), "남의 코스가 지워졌다");
         assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
+        assertEquals(otherCourse, courseJpaRepository.findById(otherCourse).orElseThrow().getId());
+        assertFalse(leaveBalanceJpaRepository.findByUserId(other.userId()).isEmpty(), "남의 연차 설정이 지워졌다");
         // 지우는 축만 후기를 확인하면 "남의 후기는 안 지워지는가" 가 빈다 — 개인정보 관점에서 더 아픈 쪽이다.
-        assertFalse(tripOutcomeJpaRepository.findAnsweredCourseIds(other.guestId()).isEmpty(), "남의 후기가 지워졌다");
+        assertFalse(tripOutcomeJpaRepository.findAnsweredCourseIds(other.userId()).isEmpty(), "남의 후기가 지워졌다");
+        assertEquals(1, notificationRepository.countUnread(other.userId()), "남의 알림이 지워졌다");
     }
 
     /**
-     * 남의 기기 키를 <b>로그인 헤더로</b> 보내 이어 붙인 뒤 탈퇴해도 그 사람의 데이터는 남는다.
+     * 이 이슈가 닫은 공격을 그대로 재현한다 — <b>이제는 아무 일도 일어나지 않아야 한다</b>.
      *
-     * <p>위 테스트는 탈퇴 요청에 헤더를 실었을 때를 본다. 이건 다른 경로다 — <b>로그인 때</b> 남의 키를
-     * 실으면 그 기기가 내 것으로 기록되고, 그다음 탈퇴는 헤더 없이도 그 기기를 지운다. 탈퇴가 헤더를 안 받는
-     * 것만으로는 이 경로가 막히지 않는다.
+     * <p>예전 구조는 소유 키가 요청 헤더({@code X-Guest-Id})였다. 일회용 소셜 계정으로 가입하며 피해자의 키를
+     * 로그인 콜백에 실어 두면, 그 계정을 탈퇴시키는 것만으로 피해자의 코스·연차·후기가 지워졌다. 임시 대책을
+     * 두 번 얹었지만(탈퇴가 헤더를 안 받게 · 서버가 연결을 기록) 자리를 옮겼을 뿐이었다.
      *
-     * <p>막는 것은 <b>한 게스트 키가 한 사용자에게만 붙는다</b>는 제약이다({@code uk_user_guest_link_guest}).
-     * 먼저 로그인한 쪽이 그 기기를 갖고, 뒤에 온 로그인은 가져가지 못한다.
+     * <p>지금은 파괴가 <b>인증된 주체</b>에 묶여 있어, 남의 계정으로 로그인하지 않는 한 남의 데이터에 닿을 수
+     * 없다. 그래서 공격자가 <b>로그인과 탈퇴 양쪽에</b> 피해자의 식별자를 실어 보내도 결과가 바뀌지 않는다.
      *
-     * <p><b>그래도 로그인 자체는 성공한다.</b> 이을 수 없다고 로그인을 막으면, 남의 키 한 줄을 헤더에 적어
-     * 보내는 것으로 그 사람의 가입을 봉쇄할 수 있다.
-     *
-     * <p>남은 구멍은 <b>피해자가 한 번도 로그인하지 않은 경우</b>다 — 그때는 선점자가 없어 공격자가 그 기기를
-     * 가져간다. 헤더가 파괴 범위를 정하는 구조 자체를 없애야 닫히고, 그것이 이슈 #280 이다.
+     * <p>헤더는 서버가 더 이상 읽지 않으므로 이 단언은 지금 자명하다. 그래도 남긴다 — 누군가 요청 값으로 대상을
+     * 정하는 길을 다시 열면 <b>여기가 먼저 빨개진다</b>. 그것이 이 테스트의 값어치다.
      */
     @Test
-    void 남의_기기_키로_로그인한_뒤_탈퇴해도_남의_데이터는_안_지워진다() throws Exception {
+    void 남의_식별자를_요청에_실어_로그인하고_탈퇴해도_남의_데이터는_안_지워진다() throws Exception {
         Session victim = login();
-        Long victimCourse = saveCourse(victim.guestId());
-        seedLeave(victim.guestId());
-        // 공격자가 피해자의 게스트 키를 로그인 헤더에 실어 보낸다.
-        Session attacker = login("sub-" + UUID.randomUUID(), victim.guestId());
+        Long victimCourse = saveCourse(victim.userId());
+        seedLeave(victim.userId());
+        seedOutcome(victim.userId(), victimCourse);
+        // 공격자는 일회용 계정으로 가입하며 피해자의 식별자를 옛 소유 헤더에 실어 보낸다.
+        Session attacker = loginClaiming(victim.userId());
 
-        // 탈퇴 전에 선점을 직접 확인한다 — 여기가 뚫리면 아래 단언들은 이미 늦었다.
-        assertEquals(
-                victim.userId(),
-                userGuestLinkRepository.findByGuestId(victim.guestId()).orElseThrow().getUserId(),
-                "공격자가 피해자의 기기를 가져갔다");
-
-        mockMvc.perform(withdraw(attacker.accessToken())).andExpect(status().isOk());
+        mockMvc.perform(withdraw(attacker.accessToken()).header(LEGACY_GUEST_HEADER, victim.userId()))
+                .andExpect(status().isOk());
 
         assertTrue(userJpaRepository.findById(attacker.userId()).isEmpty(), "공격자 계정은 지워져야 한다");
-        assertTrue(courseJpaRepository.findById(victimCourse).isPresent(), "피해자의 코스가 지워졌다");
-        assertFalse(
-                leaveBalanceJpaRepository.findByGuestId(victim.guestId()).isEmpty(), "피해자의 연차 설정이 지워졌다");
         assertTrue(userJpaRepository.findById(victim.userId()).isPresent(), "피해자의 계정이 지워졌다");
+        assertTrue(courseJpaRepository.findById(victimCourse).isPresent(), "피해자의 코스가 지워졌다");
+        assertFalse(leaveBalanceJpaRepository.findByUserId(victim.userId()).isEmpty(), "피해자의 연차 설정이 지워졌다");
+        assertFalse(
+                tripOutcomeJpaRepository.findAnsweredCourseIds(victim.userId()).isEmpty(), "피해자의 후기가 지워졌다");
     }
 
     // ── Apple 연결 해제 (#287) ─────────────────────────────────
@@ -363,9 +358,7 @@ class UserWithdrawalIntegrationTest {
         String body = authorizationCode == null
                 ? "{\"accessToken\": \"any-id-token\"}"
                 : "{\"accessToken\": \"any-id-token\", \"authorizationCode\": \"%s\"}".formatted(authorizationCode);
-        String guest = "guest-" + UUID.randomUUID();
         String response = mockMvc.perform(post("/api/v1/auth/callback/apple")
-                        .header(GUEST_HEADER, guest)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
@@ -374,7 +367,7 @@ class UserWithdrawalIntegrationTest {
                 .getContentAsString();
         String accessToken = JsonPath.read(response, "$.data.accessToken");
         return new Session(
-                userIdOf(accessToken), accessToken, JsonPath.read(response, "$.data.refreshToken"), guest);
+                userIdOf(accessToken), accessToken, JsonPath.read(response, "$.data.refreshToken"));
     }
 
     @Test
@@ -450,7 +443,7 @@ class UserWithdrawalIntegrationTest {
         // 404 로 만들지 않는다 — "링크를 잘못 옮겨 적었다" 와 구분되지 않아 받은 사람이 상황을 알 수 없다.
         // 410 은 "있었는데 게시자가 지웠다" 를 정확히 말한다.
         Session session = login();
-        Long courseId = saveCourse(session.guestId());
+        Long courseId = saveCourse(session.userId());
         String shareToken = courseShareRepository
                 .save(CourseShare.issue(courseId, LocalDateTime.now()))
                 .getShareToken();
@@ -464,61 +457,40 @@ class UserWithdrawalIntegrationTest {
 
     // ── 헬퍼 ──────────────────────────────────────────────────
 
-    @Test
-    void 탈퇴는_다른_사람의_데이터를_건드리지_않는다() throws Exception {
-        Session mine = login();
-        Session other = login();
-        Long otherCourse = saveCourse(other.guestId());
-
-        mockMvc.perform(withdraw(mine.accessToken())).andExpect(status().isOk());
-
-        assertTrue(userJpaRepository.findById(other.userId()).isPresent(), "남의 계정이 지워졌다");
-        assertEquals(otherCourse, courseJpaRepository.findById(otherCourse).orElseThrow().getId());
-    }
-
-    private record Session(UUID userId, String accessToken, String refreshToken, String guestId) {}
+    private record Session(UUID userId, String accessToken, String refreshToken) {}
 
     private Session login() throws Exception {
-        String providerUserId = "sub-" + UUID.randomUUID();
-        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
-        return login(providerUserId);
+        return login("sub-" + UUID.randomUUID());
     }
 
+    /** 소셜 로그인 한 번 — <b>게스트 헤더를 보내지 않는다</b>. 로그인은 더 이상 기기를 잇지 않는다(#280). */
     private Session login(String providerUserId) throws Exception {
-        return login(providerUserId, "guest-" + UUID.randomUUID());
+        return login(providerUserId, post(CALLBACK_URL));
     }
 
-    /**
-     * 로그인하며 이 기기를 사용자에게 잇는다.
-     *
-     * <p>탈퇴가 지울 대상을 여기서 정한다 — 헤더를 안 보내고 로그인하면 그 사용자의 코스·연차는 서버가
-     * 찾지 못한다({@link #로그인할_때_기기를_안_이었으면_계정만_지워진다}).
-     */
-    private Session login(String providerUserId, String guestId) throws Exception {
+    /** 옛 소유 헤더에 남의 식별자를 실어 로그인한다 — 서버가 그 값을 쓰지 않는다는 것을 보이기 위한 경로다. */
+    private Session loginClaiming(UUID victimUserId) throws Exception {
+        return login("sub-" + UUID.randomUUID(), post(CALLBACK_URL).header(LEGACY_GUEST_HEADER, victimUserId));
+    }
+
+    private Session login(String providerUserId, MockHttpServletRequestBuilder request) throws Exception {
         socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
-        String response = mockMvc.perform(post(CALLBACK_URL)
-                        .header(GUEST_HEADER, guestId)
-                        .contentType(MediaType.APPLICATION_JSON)
+        String response = mockMvc.perform(request.contentType(MediaType.APPLICATION_JSON)
                         .content("{\"accessToken\": \"any-id-token\"}"))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
         String accessToken = JsonPath.read(response, "$.data.accessToken");
-        return new Session(
-                userIdOf(accessToken), accessToken, JsonPath.read(response, "$.data.refreshToken"), guestId);
+        return new Session(userIdOf(accessToken), accessToken, JsonPath.read(response, "$.data.refreshToken"));
     }
 
-    /**
-     * 탈퇴 — <b>게스트 헤더를 보내지 않는다</b>. 지울 대상은 로그인 때 기록된 연결이 정한다.
-     *
-     * <p>헤더를 받지 않으므로 남의 값을 적어 넣을 자리도 없다.
-     */
-    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder withdraw(String accessToken) {
+    /** 탈퇴 — 지울 대상을 지목할 자리가 없다. 대상은 이 access 토큰이 정한다. */
+    private MockHttpServletRequestBuilder withdraw(String accessToken) {
         return delete(WITHDRAW_URL).header(HttpHeaders.AUTHORIZATION, BEARER + accessToken);
     }
 
-    private Long saveCourse(String guestId) {
+    private Long saveCourse(UUID userId) {
         Slot slot = Slot.of(
                 1,
                 TimeOfDay.MORNING,
@@ -530,7 +502,7 @@ class UserWithdrawalIntegrationTest {
                 0,
                 new SlotDisplay(null, null, null, null));
         Course course = Course.ownedBy(
-                guestId,
+                userId,
                 16L,
                 Density.PACKED,
                 TransportMode.CAR,
@@ -542,19 +514,30 @@ class UserWithdrawalIntegrationTest {
         return courseJpaRepository.save(course).getId();
     }
 
-    private void seedLeave(String guestId) {
-        leaveBalanceJpaRepository.save(LeaveBalance.of(guestId, 15.0));
-        leaveUsageJpaRepository.save(LeaveUsage.manual(guestId, LocalDate.now(), 1.0, "테스트", null));
+    private void seedLeave(UUID userId) {
+        leaveBalanceJpaRepository.save(LeaveBalance.of(userId, 15.0));
+        // 메모는 null 이다(#319) — 이 시나리오가 보는 것은 탈퇴가 무엇을 지우는가이지 메모가 아니다.
+        leaveUsageJpaRepository.save(LeaveUsage.manual(userId, LocalDate.now(), 1.0, "테스트", null));
+    }
+
+    /** 여행 후기 한 건 — 탈퇴가 지우는 데이터 중 코스와 다른 테이블에 있는 쪽이다. */
+    private void seedOutcome(UUID userId, Long courseId) {
+        tripOutcomeJpaRepository.save(TripOutcome.of(userId, courseId, VisitOutcome.VISITED, LocalDate.now()));
     }
 
     /** access 토큰(JWT) payload 의 sub 이 사용자 식별자다. */
-    /** 여행 후기 한 건 — 탈퇴가 지우는 넷째 데이터다. */
-    private void seedOutcome(String guestId, Long courseId) {
-        tripOutcomeJpaRepository.save(TripOutcome.of(guestId, courseId, VisitOutcome.VISITED, LocalDate.now()));
-    }
-
     private static UUID userIdOf(String accessToken) {
         String payload = new String(java.util.Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]));
         return UUID.fromString(JsonPath.read(payload, "$.sub"));
+    }
+
+    /** 알림 한 건 — 탈퇴가 알림까지 지우는지 보려면 지울 것이 있어야 한다. */
+    private void seedNotification(UUID userId, Long courseId) {
+        notificationRepository.save(Notification.builder()
+                .userId(userId)
+                .type(NotificationType.TRIP_TOMORROW)
+                .courseId(courseId)
+                .createdAt(LocalDateTime.now())
+                .build());
     }
 }

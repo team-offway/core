@@ -10,10 +10,8 @@ public final class NotificationException extends BaseException {
         super(errorCode);
     }
 
-    /** 소유 키가 비었거나 너무 길다. */
-    public static NotificationException invalidOwnerId() {
-        return new NotificationException(NotificationErrorCode.INVALID_OWNER_ID);
-    }
+    // 소유 키 형식 예외(invalidOwnerId)는 소유자가 인증된 UUID 가 되면서 던질 일이 없어
+    // 사라졌다(#280). 에러코드 상수는 append-only 라 그대로 둔다(NotificationErrorCode#INVALID_OWNER_ID).
 
     /** 요청한 알림이 없거나 소유자가 아니다 — 둘을 구분하지 않는다. */
     public static NotificationException notificationNotFound() {

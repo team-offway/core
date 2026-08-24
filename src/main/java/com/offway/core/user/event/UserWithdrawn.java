@@ -1,6 +1,5 @@
 package com.offway.core.user.event;
 
-import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -14,14 +13,9 @@ import java.util.UUID;
  * 남는 상태가 생기고, 그건 소유자가 없어 <b>다시는 지울 수 없는</b> 데이터가 된다. 개인정보를 지우는 작업이라
  * 부분 성공을 허용하지 않는다 — 하나라도 실패하면 탈퇴 전체를 롤백하고 사용자에게 실패를 알린다.
  *
- * @param userId 탈퇴한 사용자
- * @param guestId 이 사용자가 써 온 게스트 식별자. <b>없을 수 있다.</b> 코스·연차는 아직 {@code guest_id} 로
- *     묶여 있어(소유 전환 미이행) 이 값이 없으면 그 데이터에 닿지 못한다
+ * <p><b>키가 {@code userId} 하나다(#280).</b> 예전에는 게스트 키를 함께 실었고, 그 값이 없으면 리스너가 데이터에
+ * 닿지 못했다. 이제 코스·연차·후기·알림이 전부 {@code user_id} 로 묶여 있어 "대상을 못 찾는 탈퇴" 자체가 없다.
+ *
+ * @param userId 탈퇴한 사용자 — 각 도메인이 이 값으로 자기 데이터를 찾는다
  */
-public record UserWithdrawn(UUID userId, String guestId) {
-
-    /** 게스트 키로 묶인 데이터를 지울 수 있는 경우에만 값이 있다. */
-    public Optional<String> guestIdIfPresent() {
-        return Optional.ofNullable(guestId).filter(value -> !value.isBlank());
-    }
-}
+public record UserWithdrawn(UUID userId) {}

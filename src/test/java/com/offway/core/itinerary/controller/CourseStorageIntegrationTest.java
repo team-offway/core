@@ -1,10 +1,13 @@
 package com.offway.core.itinerary.controller;
 
+import static com.offway.core.user.config.TestLogins.loginAs;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.testSecurityContext;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -19,6 +22,7 @@ import com.offway.core.transport.infrastructure.tago.TrainInfoClient;
 import com.offway.core.transport.service.TrainRouteService;
 import com.offway.core.transport.domain.TrainAvailability;
 import com.offway.core.transport.domain.TrainLeg;
+import com.offway.core.user.config.WithLoginUser;
 import com.offway.core.weather.domain.DailyWeather;
 import com.offway.core.weather.domain.SkyState;
 import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
@@ -37,16 +41,26 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-// DB 격리: 롤백 대신 테스트마다 고유 게스트 ID 를 써서 "내 코스" 목록이 섞이지 않게 한다.
+/**
+ * 코스 저장·조회(#33) 통합 테스트.
+ *
+ * <p>DB 격리: 롤백 대신 <b>테스트마다 다른 사용자</b>로 요청한다 — 값 없는 {@link WithLoginUser} 가 매번 새 UUID 를
+ * 넣으므로 "내 코스" 목록이 이전 실행·다른 테스트와 섞이지 않는다(#280 이전의 고유 게스트 ID 와 같은 역할).
+ */
 @SpringBootTest
 @AutoConfigureMockMvc
-@WithMockUser
+@WithLoginUser
 class CourseStorageIntegrationTest {
 
     private static final String URL = "/api/v1/courses";
+
+    /** {@code SecurityConfig} · {@code JwtAuthenticationFilter} 가 쓰는 권한 이름 — 같은 값이어야 한다. */
+    private static final String USER_AUTHORITY = "ROLE_USER";
 
     // 정선(16) 당일치기 · 유효한 코스(첫 슬롯 이동 0, 순서 연속)
     /** {@code VALID_BODY} 가 쓰는 지역 — 혜택 대조에서 같은 지역을 봐야 한다. */
@@ -99,14 +113,23 @@ class CourseStorageIntegrationTest {
         weatherClient.reset(); // 공유 컨텍스트 — 앞 테스트가 세팅한 예보가 다음 테스트로 새지 않게
     }
 
-    /** 테스트마다 고유한 게스트 ID — 롤백 없이 "내 코스" 목록이 이전 실행과 섞이지 않게. */
-    private static String uniqueGuest() {
-        return "guest-" + UUID.randomUUID();
+
+    /** 로그인한 사용자(클래스 애노테이션이 넣은 사람)로 코스를 저장하고 courseId 를 준다. */
+    private long save(String body) throws Exception {
+        return save(body, testSecurityContext());
+    }
+
+    private long save(String body, RequestPostProcessor as) throws Exception {
+        String saved = mockMvc.perform(post(URL).with(as)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(saved, "$.data.courseId")).longValue();
     }
 
     @Test
     void 코스를_저장하면_201로_courseId를_준다() throws Exception {
-        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest()).contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value(201))
                 .andExpect(jsonPath("$.code").value("OK"))
@@ -117,20 +140,15 @@ class CourseStorageIntegrationTest {
 
     @Test
     void 저장한_코스가_내_코스_목록과_상세에_나온다() throws Exception {
-        String guest = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(VALID_BODY);
 
-        mockMvc.perform(get(URL).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].courseId").value(courseId))
                 .andExpect(jsonPath("$.data[0].placeCount").value(2));
 
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.courseId").value(courseId))
                 .andExpect(jsonPath("$.data.days[0].items.length()").value(2));
@@ -138,31 +156,38 @@ class CourseStorageIntegrationTest {
 
     @Test
     void 남의_코스는_상세로_볼_수_없다_404() throws Exception {
-        String owner = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", owner)
-                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(VALID_BODY, loginAs(UUID.randomUUID()));
 
-        // 다른 게스트가 같은 courseId 를 조회 → 존재 여부를 흘리지 않도록 404
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", uniqueGuest()))
+        // 다른 사용자가 같은 courseId 를 조회 → 존재 여부를 흘리지 않도록 404
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-003"));
     }
 
     @Test
-    void 게스트_헤더가_없으면_400() throws Exception {
-        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
-                .andExpect(status().isBadRequest());
+    void 내_코스_목록에_남의_코스는_섞이지_않는다() throws Exception {
+        save(VALID_BODY, loginAs(UUID.randomUUID()));
+
+        mockMvc.perform(get(URL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.length()").value(0));
     }
 
     @Test
-    void 게스트_ID가_공백이면_400() throws Exception {
-        // 빈 게스트 ID 를 허용하면 모든 요청이 한 묶음을 공유 → 도메인이 막고 400
-        mockMvc.perform(post(URL).header("X-Guest-Id", "  ").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    void 인증_없이_부르면_401이다() throws Exception {
+        // 소유자를 요청 헤더가 아니라 인증이 정한다(#280) — 인증이 없으면 대상을 정할 수 없다.
+        // 예전에는 게스트 헤더가 없거나 공백이면 400 이었다. 그 형식 검증 자체가 사라졌다.
+        mockMvc.perform(get(URL).with(anonymous()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.code").value("COMMON-401"));
+
+        mockMvc.perform(post(URL).with(anonymous())
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("COMMON-401"));
     }
 
     @Test
@@ -175,95 +200,79 @@ class CourseStorageIntegrationTest {
                   ]}
                 ]}""";
 
-        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest()).contentType(MediaType.APPLICATION_JSON).content(invalid))
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(invalid))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ITINERARY-002"));
     }
 
     @Test
     void 없는_코스_상세는_404_ITINERARY_003() throws Exception {
-        mockMvc.perform(get(URL + "/{id}", 999999).header("X-Guest-Id", uniqueGuest()))
+        mockMvc.perform(get(URL + "/{id}", 999999))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-003"));
     }
 
     @Test
     void 코스를_삭제하면_목록과_상세에서_사라진다() throws Exception {
-        String guest = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(VALID_BODY);
 
         // 204 를 쓰지 않는다 — 응답 래퍼가 항상 body 를 만든다.
-        mockMvc.perform(delete(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(delete(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data").value(nullValue()));
 
-        mockMvc.perform(get(URL).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(0));
 
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-003"));
     }
 
     @Test
     void 남의_코스는_삭제할_수_없고_그대로_남는다_404() throws Exception {
-        String owner = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", owner)
-                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        UUID owner = UUID.randomUUID();
+        long courseId = save(VALID_BODY, loginAs(owner));
 
         // 403 이 아니라 404 — 403 이면 "그 ID 는 존재한다" 를 알려주는 셈이다.
-        mockMvc.perform(delete(URL + "/{id}", courseId).header("X-Guest-Id", uniqueGuest()))
+        mockMvc.perform(delete(URL + "/{id}", courseId))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-003"));
 
         // 거부로 끝나야 한다 — 주인 것이 지워졌으면 안 된다
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", owner))
+        mockMvc.perform(get(URL + "/{id}", courseId).with(loginAs(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.courseId").value(courseId));
     }
 
     @Test
     void 없는_코스_삭제는_404_ITINERARY_003() throws Exception {
-        mockMvc.perform(delete(URL + "/{id}", 999999).header("X-Guest-Id", uniqueGuest()))
+        mockMvc.perform(delete(URL + "/{id}", 999999))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-003"));
     }
 
     @Test
     void 같은_코스를_두_번_삭제하면_두_번째는_404() throws Exception {
-        String guest = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(VALID_BODY);
 
-        mockMvc.perform(delete(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(delete(URL + "/{id}", courseId))
                 .andExpect(status().isOk());
         // 더블클릭·재시도 — 이미 없으니 없는 코스와 같은 답이다
-        mockMvc.perform(delete(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(delete(URL + "/{id}", courseId))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-003"));
     }
 
     @Test
     void 같은_코스를_동시에_삭제해도_500이_나지_않는다() throws Exception {
-        String guest = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        // 인증을 요청 단위로 붙인다 — 클래스의 @WithLoginUser 는 현재 스레드 전용이라 아래 풀 스레드엔 안 닿는다.
+        // 그래서 이 테스트만 사용자를 직접 만들어 저장·삭제를 같은 사람으로 맞춘다.
+        RequestPostProcessor owner = loginAs(UUID.randomUUID());
+        long courseId = save(VALID_BODY, owner);
 
         int threads = 2;
         java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
@@ -275,11 +284,7 @@ class CourseStorageIntegrationTest {
                 pool.submit(() -> {
                     try {
                         start.await();
-                        // 요청 단위 mock 인증 — @WithMockUser 는 현재 스레드 전용이라 이 요청엔 안 닿는다.
-                        // 실제 계정을 쓰지 않으므로 운영 자격증명이 바뀌어도 이 테스트는 그대로다.
-                        statuses.add(mockMvc.perform(delete(URL + "/{id}", courseId)
-                                        .header("X-Guest-Id", guest)
-                                        .with(user("test")))
+                        statuses.add(mockMvc.perform(delete(URL + "/{id}", courseId).with(owner))
                                 .andReturn().getResponse().getStatus());
                     } catch (Exception e) {
                         statuses.add(-1);
@@ -317,24 +322,15 @@ class CourseStorageIntegrationTest {
                 ]}""".formatted(travelDate);
     }
 
-    private long save(String guest, String body) throws Exception {
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.read(saved, "$.data.courseId")).longValue();
-    }
-
     @Test
     void 저장한_코스_상세에도_날씨가_실린다() throws Exception {
         // 생성 응답에는 날씨가 실리는데 저장 코스 조회에는 빠져 있어 화면이 비어 있었다(#169).
         LocalDate travelDate = LocalDate.now().plusDays(1);
         weatherClient.respondByDate(date ->
                 Optional.of(new DailyWeather(date, 18, 27, SkyState.RAIN, 80)));
-        String guest = uniqueGuest();
-        long courseId = save(guest, bodyWithDateAndImage(travelDate));
+        long courseId = save(bodyWithDateAndImage(travelDate));
 
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.days[0].weather.sky").value("비"))
                 .andExpect(jsonPath("$.data.days[0].weather.minTemp").value(18))
@@ -347,11 +343,10 @@ class CourseStorageIntegrationTest {
     void 날짜없이_저장한_코스는_날씨가_비어_있다() throws Exception {
         // 물어볼 기준이 없다. 지어내지 않고 비운다.
         weatherClient.respond(() -> Optional.of(new DailyWeather(LocalDate.now(), 18, 27, SkyState.CLEAR, 0)));
-        String guest = uniqueGuest();
-        long courseId = save(guest, VALID_BODY);
+        long courseId = save(VALID_BODY);
 
         // 키 자체가 빠진다 — "없는 값은 내려보내지 않는다"(응답 계약). null 로 내리지 않는다.
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.days[0].weather").doesNotExist());
     }
@@ -359,10 +354,9 @@ class CourseStorageIntegrationTest {
     @Test
     void 목록에_지역명과_대표_이미지가_실린다() throws Exception {
         // 없어서 FE 가 코스마다 상세를 한 번씩 더 불렀다(#171).
-        String guest = uniqueGuest();
-        save(guest, bodyWithDateAndImage(LocalDate.now().plusDays(1)));
+        save(bodyWithDateAndImage(LocalDate.now().plusDays(1)));
 
-        mockMvc.perform(get(URL).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].regionName").value("정선군"))
                 .andExpect(jsonPath("$.data[0].coverImageUrl").value("http://img/cover.jpg"));
@@ -370,10 +364,9 @@ class CourseStorageIntegrationTest {
 
     @Test
     void 이미지가_없는_코스는_대표_이미지가_null이다() throws Exception {
-        String guest = uniqueGuest();
-        save(guest, VALID_BODY);
+        save(VALID_BODY);
 
-        mockMvc.perform(get(URL).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].regionName").value("정선군"))
                 .andExpect(jsonPath("$.data[0].coverImageUrl").doesNotExist());
@@ -384,10 +377,9 @@ class CourseStorageIntegrationTest {
         // 우리가 답할 수 있는 것은 D+10 까지다(단기 D+0~3 · 중기 D+4~10). 그 밖은 기상청도 예보를 내지 않는다.
         // 지어내지 않고 비운다 — 평년값으로 채우는 것은 후속(#133)이다.
         weatherClient.respondByDate(date -> Optional.empty());
-        String guest = uniqueGuest();
-        long courseId = save(guest, bodyWithDateAndImage(LocalDate.now().plusDays(30)));
+        long courseId = save(bodyWithDateAndImage(LocalDate.now().plusDays(30)));
 
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.days[0].weather").doesNotExist())
                 // 날씨가 없어도 코스는 그대로 나간다 — 부가 정보다
@@ -417,14 +409,9 @@ class CourseStorageIntegrationTest {
     void 대중교통_코스는_저장_후에도_열차_접근이_나온다() throws Exception {
         // 생성 때 "청량리 → 정선" 을 보고 저장했는데 다시 열면 비어 있었다(#187).
         trainArrives();
-        String guest = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(transitBody(true)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(transitBody(true));
 
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.trainAccess.toStation").value("정선"));
     }
@@ -433,14 +420,9 @@ class CourseStorageIntegrationTest {
     void 출발지_없이_저장된_코스는_열차_접근이_비고_그게_오류가_아니다() throws Exception {
         // 이 필드가 생기기 전에 저장된 코스가 이 경우다. 근거가 없으니 지어내지 않는다.
         trainArrives();
-        String guest = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(transitBody(false)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(transitBody(false));
 
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.trainAccess").doesNotExist())
                 .andExpect(jsonPath("$.data.days.length()").value(1));
@@ -453,8 +435,7 @@ class CourseStorageIntegrationTest {
         String latOnly = transitBody(false).replace("\"travelDate\": \"2026-09-11\",",
                 "\"travelDate\": \"2026-09-11\", \"originLat\": 37.5547,");
 
-        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest())
-                        .contentType(MediaType.APPLICATION_JSON).content(latOnly))
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(latOnly))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ITINERARY-002"));
     }
@@ -463,15 +444,9 @@ class CourseStorageIntegrationTest {
     void 자차_코스는_출발지가_있어도_열차_접근이_없다() throws Exception {
         // 자차는 열차 접근이 개념적으로 없다.
         trainArrives();
-        String guest = uniqueGuest();
-        String body = transitBody(true).replace("\"TRANSIT\"", "\"CAR\"");
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(transitBody(true).replace("\"TRANSIT\"", "\"CAR\""));
 
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
     }
@@ -498,16 +473,10 @@ class CourseStorageIntegrationTest {
 
     @Test
     void 날짜를_보내면_첫날이_빠진_코스도_생성_때와_같은_날짜로_저장된다() throws Exception {
-        String guest = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(firstDayEmptyBody("2026-09-12", "2026-09-13")))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(firstDayEmptyBody("2026-09-12", "2026-09-13"));
 
         // 예전에는 며칠째를 그대로 달력 위치로 봐서 9/11·9/12 로 하루씩 당겨졌다.
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.days[0].date").value("2026-09-12"))
                 .andExpect(jsonPath("$.data.days[1].date").value("2026-09-13"));
@@ -516,15 +485,9 @@ class CourseStorageIntegrationTest {
     @Test
     void 날짜를_안_보내면_종전대로_며칠째를_달력_위치로_본다() throws Exception {
         // 이 필드가 생기기 전 연동이 그대로 도는지 — 하위 호환.
-        String guest = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(firstDayEmptyBody(null, null)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(firstDayEmptyBody(null, null));
 
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.days[0].date").value("2026-09-11"))
                 .andExpect(jsonPath("$.data.days[1].date").value("2026-09-12"));
@@ -532,8 +495,7 @@ class CourseStorageIntegrationTest {
 
     @Test
     void 여행_시작일보다_앞선_날짜는_400이다() throws Exception {
-        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest())
-                        .contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
                         .content(firstDayEmptyBody("2026-09-10", "2026-09-13")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ITINERARY-002"));
@@ -549,8 +511,7 @@ class CourseStorageIntegrationTest {
                   ]}
                 ]}""";
 
-        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest())
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ITINERARY-002"));
     }
@@ -558,8 +519,7 @@ class CourseStorageIntegrationTest {
     @Test
     void 여행_기간을_넘는_날짜는_400이다() throws Exception {
         // 2026-09-11 시작 3일이면 9/13 이 마지막이다. 9/14 는 종료일 뒤라 앞뒤가 안 맞는다(#164).
-        mockMvc.perform(post(URL).header("X-Guest-Id", uniqueGuest())
-                        .contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
                         .content(firstDayEmptyBody("2026-09-12", "2026-09-14")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ITINERARY-002"));
@@ -605,18 +565,16 @@ class CourseStorageIntegrationTest {
      * "같은 코스인데 경로마다 답이 다르다" 라, 일치 자체가 검증 대상이다.
      */
     private int benefitCountOf(LocalDate travelDate) throws Exception {
-        String guest = uniqueGuest();
         String body = VALID_BODY.replace(
                 "{ \"regionId\": 16,", "{ \"travelDate\": \"" + travelDate + "\", \"regionId\": 16,");
 
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+        String saved = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         int courseId = JsonPath.read(saved, "$.data.courseId");
         int onSave = ((List<?>) JsonPath.read(saved, "$.data.benefits")).size();
 
-        String detail = mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        String detail = mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.travelDate").value(travelDate.toString()))
                 .andReturn().getResponse().getContentAsString();
@@ -656,16 +614,11 @@ class CourseStorageIntegrationTest {
     void 날짜를_옮겨_도착이_자정을_넘기면_첫날_일정을_걷어낸다() throws Exception {
         weatherClient.respondByDate(date -> Optional.empty());
         trainArrivesAt(LocalDateTime.of(2026, 9, 11, 8, 30)); // 당일 오전 도착 — 첫날 일정 정상
-        String guest = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(transitTwoDayBody("2026-09-11")))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(transitTwoDayBody("2026-09-11"));
 
         trainArrivesAt(LocalDateTime.of(2026, 9, 21, 2, 0)); // 옮긴 날짜의 막차 — 자정을 넘겨 닿는다
 
-        mockMvc.perform(patch(URL + "/{id}", courseId).header("X-Guest-Id", guest)
+        mockMvc.perform(patch(URL + "/{id}", courseId)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"travelDate\": \"2026-09-20\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.firstDayChange").value("TRIMMED"))
@@ -680,19 +633,14 @@ class CourseStorageIntegrationTest {
         // 응답만 고치고 저장을 안 하면 다음 조회에서 갈 수 없는 일정이 되살아난다.
         weatherClient.respondByDate(date -> Optional.empty());
         trainArrivesAt(LocalDateTime.of(2026, 9, 11, 8, 30));
-        String guest = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(transitTwoDayBody("2026-09-11")))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(transitTwoDayBody("2026-09-11"));
 
         trainArrivesAt(LocalDateTime.of(2026, 9, 21, 2, 0));
-        mockMvc.perform(patch(URL + "/{id}", courseId).header("X-Guest-Id", guest)
+        mockMvc.perform(patch(URL + "/{id}", courseId)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"travelDate\": \"2026-09-20\"}"))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get(URL + "/{id}", courseId).header("X-Guest-Id", guest))
+        mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.days.length()").value(1))
                 .andExpect(jsonPath("$.data.days[0].items[0].title").value("장소2"));
@@ -702,16 +650,11 @@ class CourseStorageIntegrationTest {
     void 도착이_그대로면_첫날을_건드리지_않는다() throws Exception {
         weatherClient.respondByDate(date -> Optional.empty());
         trainArrivesAt(LocalDateTime.of(2026, 9, 11, 8, 30));
-        String guest = uniqueGuest();
-        String saved = mockMvc.perform(post(URL).header("X-Guest-Id", guest)
-                        .contentType(MediaType.APPLICATION_JSON).content(transitTwoDayBody("2026-09-11")))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        int courseId = JsonPath.read(saved, "$.data.courseId");
+        long courseId = save(transitTwoDayBody("2026-09-11"));
 
         trainArrivesAt(LocalDateTime.of(2026, 9, 20, 8, 30)); // 옮긴 날짜에도 오전 도착
 
-        mockMvc.perform(patch(URL + "/{id}", courseId).header("X-Guest-Id", guest)
+        mockMvc.perform(patch(URL + "/{id}", courseId)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"travelDate\": \"2026-09-20\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.firstDayChange").doesNotExist())
