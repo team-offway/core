@@ -79,4 +79,9 @@ public final class LeaveException extends BaseException {
     public static LeaveException courseLeaveUsageNotDeletable() {
         return new LeaveException(LeaveErrorCode.COURSE_LEAVE_USAGE_NOT_DELETABLE);
     }
+
+    /** 공휴일을 물을 수 있는 연도 범위 밖(#317). */
+    public static LeaveException holidayYearOutOfRange() {
+        return new LeaveException(LeaveErrorCode.HOLIDAY_YEAR_OUT_OF_RANGE);
+    }
 }

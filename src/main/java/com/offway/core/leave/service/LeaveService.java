@@ -1,6 +1,7 @@
 package com.offway.core.leave.service;
 
 import com.offway.core.leave.domain.AvailableTime;
+import com.offway.core.leave.domain.HolidayYear;
 import com.offway.core.leave.domain.PeriodStyle;
 import com.offway.core.leave.domain.SandwichHoliday;
 import com.offway.core.leave.domain.TripPeriod;
@@ -53,6 +54,23 @@ public class LeaveService {
                 availableTime.consumedLeaveDays(),
                 availableTime.maxReachMinutes());
         return new AvailableTimeResult(period, availableTime, command.startDayLeave());
+    }
+
+    /**
+     * 한 해의 공휴일을 날짜 오름차순으로 돌려준다(#317).
+     *
+     * <p><b>앱의 로컬 계산을 서버와 같은 답으로 만들려는 것이다.</b> 앱은 가용시간 호출이 실패하면 자체
+     * 계산으로 폴백하는데, 주말만 걸러 공휴일이 낀 주의 차감일을 실제보다 많게 냈다. 목록을 한 번 받아 두면
+     * 폴백도 정확해지고, 날짜를 고칠 때마다 서버를 왕복하지 않아도 된다.
+     *
+     * <p>조회 자체는 {@code holidaysWithin} 이 그대로 한다 — DB 를 한 번에 읽고, 없는 달만 외부로 넘어가며,
+     * 그 외부가 실패하면 빈 집합이 아니라 502 로 답한다. 공휴일을 "없음" 으로 넘기면 연차가 과다 계산되기
+     * 때문인데, 그 규칙은 이 API 에도 그대로 필요하다.
+     *
+     * <p>연도 범위는 {@link HolidayYear} 가 막는다 — 아무 해나 받으면 요청 하나가 외부 호출 열두 번이 된다.
+     */
+    public List<LocalDate> holidaysOf(HolidayYear year) {
+        return holidaysWithin(year.start(), year.end()).stream().sorted().toList();
     }
 
     /**

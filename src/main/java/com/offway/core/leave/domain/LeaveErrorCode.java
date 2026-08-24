@@ -73,7 +73,15 @@ public enum LeaveErrorCode implements ErrorCode {
 
     /** 코스 확정으로 기록된 내역을 연차 화면에서 지우려 함 — 코스 쪽 차감 취소로만 되돌릴 수 있다. */
     COURSE_LEAVE_USAGE_NOT_DELETABLE(
-            "LEAVE-014", ErrorCategory.CONFLICT, "코스 확정으로 기록된 연차입니다. 코스에서 차감을 취소해 주세요.");
+            "LEAVE-014", ErrorCategory.CONFLICT, "코스 확정으로 기록된 연차입니다. 코스에서 차감을 취소해 주세요."),
+
+    /**
+     * 공휴일을 물을 수 있는 연도 범위 밖(#317) — 적재 창 밖이라 한 요청이 외부 호출 열두 번이 된다.
+     *
+     * <p>빈 목록으로 답하지 않는 이유: 앱이 "공휴일이 없는 해" 로 읽어 연차를 과다 계산한다.
+     */
+    HOLIDAY_YEAR_OUT_OF_RANGE(
+            "LEAVE-015", ErrorCategory.BAD_REQUEST, "공휴일은 지난해부터 내년까지만 조회할 수 있습니다.");
 
     private final String code;
     private final ErrorCategory category;

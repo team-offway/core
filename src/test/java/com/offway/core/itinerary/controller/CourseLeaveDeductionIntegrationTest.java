@@ -395,6 +395,52 @@ class CourseLeaveDeductionIntegrationTest {
                 .andExpect(jsonPath("$.data.usages.length()").value(1));
     }
 
+    // ── 상세 응답의 차감 정보(#317) ──────────────────────────
+
+    @Test
+    void 코스_상세가_차감_여부와_차감량을_함께_준다() throws Exception {
+        // 앱이 상세를 열 때마다 목록을 병행 조회해 요약의 차감 여부를 찾아 채우고 있었다 —
+        // 상세 하나 보는 데 요청이 두 번 나갔다.
+        holidays(Set.of());
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 15.0);
+        long courseId = saveCourse(guest, TWO_DAY_COURSE);
+
+        mockMvc.perform(get(COURSES + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                // 차감 전에는 "안 했다" 로 답한다. 값이 아예 없는 것과 구분돼야 화면이 뱃지를 그릴 수 있다.
+                .andExpect(jsonPath("$.data.leaveDeducted").value(false))
+                .andExpect(jsonPath("$.data.consumedLeaveDays").doesNotExist());
+
+        answerVisited(guest, courseId).andExpect(status().isOk());
+
+        mockMvc.perform(get(COURSES + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.leaveDeducted").value(true))
+                .andExpect(jsonPath("$.data.consumedLeaveDays").value(2.0));
+    }
+
+    @Test
+    void 공유_링크로_여는_코스에는_차감_정보가_없다() throws Exception {
+        // **차감은 코스가 아니라 소유자에게 딸린 값이다.** 링크를 받은 사람에게 내리면 남의 연차 사정을
+        // 알려주는 셈이 된다. courseId·shareToken 을 걷어내는 것과 같은 이유다(#143).
+        holidays(Set.of());
+        String guest = uniqueGuest();
+        setTotalLeave(guest, 15.0);
+        long courseId = saveCourse(guest, TWO_DAY_COURSE);
+        answerVisited(guest, courseId).andExpect(status().isOk());
+
+        String detail = mockMvc.perform(get(COURSES + "/{id}", courseId).header("X-Guest-Id", guest))
+                .andExpect(jsonPath("$.data.leaveDeducted").value(true))
+                .andReturn().getResponse().getContentAsString();
+        String shareToken = JsonPath.read(detail, "$.data.shareToken");
+
+        mockMvc.perform(get("/api/v1/public/courses/{token}", shareToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.leaveDeducted").doesNotExist())
+                .andExpect(jsonPath("$.data.consumedLeaveDays").doesNotExist());
+    }
+
     @Test
     void 코스_확정_내역은_연차_화면에서_고칠_수도_없다() throws Exception {
         // 삭제와 같은 관문이다(#267). 수정은 더 위험하다 — 일수를 고치면 코스가 아는 차감량과 조용히

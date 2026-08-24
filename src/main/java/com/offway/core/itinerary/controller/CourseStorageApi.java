@@ -105,6 +105,7 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "400", description = "게스트 ID 누락")
     @ApiResponse(responseCode = "404", description = "요청한 코스가 없거나 소유자가 아님")
+    // 차감 정보(leaveDeducted·consumedLeaveDays)를 함께 준다(#317) — 목록을 병행 조회하지 않아도 된다.
     ApiResponseBody<CourseResponse> course(
             @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
             @Parameter(description = "코스 ID", example = "1") long courseId);
