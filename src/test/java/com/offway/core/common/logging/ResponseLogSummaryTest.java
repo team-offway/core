@@ -36,7 +36,7 @@ class ResponseLogSummaryTest {
                 1, "MORNING", "SIGHT", "관광", "c1", "장소1", null, null, null, null, null, null, null, null, null, 37.5, 128.6, 0, null, "정선군");
         CourseResponse.Day day = new CourseResponse.Day(1, null, null, null, null, null, List.of(item));
         CourseResponse response = new CourseResponse(
-                1L, 16, 3, null, "PACKED", "CAR", List.of(day), List.of(), null, null, null);
+                1L, 16, 3, null, "PACKED", "CAR", List.of(day), List.of(), null, null, null, null, null);
 
         assertEquals("정선군 코스 3일 1슬롯", response.logSummary());
     }
@@ -45,7 +45,7 @@ class ResponseLogSummaryTest {
     @Test
     void 지역명이_없으면_지역미상으로_낸다() {
         CourseResponse response =
-                new CourseResponse(1L, 16, 1, null, "PACKED", "CAR", List.of(), List.of(), null, null, null);
+                new CourseResponse(1L, 16, 1, null, "PACKED", "CAR", List.of(), List.of(), null, null, null, null, null);
 
         assertEquals("지역미상 코스 1일 0슬롯", response.logSummary());
     }

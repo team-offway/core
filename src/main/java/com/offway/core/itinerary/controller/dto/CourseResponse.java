@@ -7,6 +7,7 @@ import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.trip.domain.MapSearchLink;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
+import com.offway.core.itinerary.service.dto.OwnedCourse;
 import com.offway.core.itinerary.service.dto.SlotHours;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.service.dto.TrainAccess;
@@ -75,7 +76,20 @@ public record CourseResponse(
                                 + "그 밖에는 필드가 없다",
                         example = "TRIMMED",
                         nullable = true)
-                String firstDayChange) implements LogSummary {
+                String firstDayChange,
+        @Schema(
+                        description = "이 코스로 연차를 차감했는가(#317). 목록 요약의 같은 값이라, "
+                                + "상세를 열 때 목록을 병행 조회하지 않아도 된다. "
+                                + "공유 링크로 여는 공개 조회에는 없다 — 소유자에게 딸린 값이다",
+                        example = "true",
+                        nullable = true)
+                Boolean leaveDeducted,
+        @Schema(
+                        description = "이 코스로 깎인 연차 일수(#317). 차감한 적 없으면 null 이다 — "
+                                + "0 과 구분해야 한다. 0 은 '확정했고 깎을 평일이 없었다' 는 뜻이다",
+                        example = "1.25",
+                        nullable = true)
+                Double consumedLeaveDays) implements LogSummary {
 
     /**
      * 예: {@code 정선군 코스 3일 26슬롯}.
@@ -111,7 +125,34 @@ public record CourseResponse(
                 generated.benefits().stream().map(Benefit::from).toList(),
                 generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()),
                 generated.shareToken(),
-                generated.firstDayChange() == null ? null : generated.firstDayChange().name());
+                generated.firstDayChange() == null ? null : generated.firstDayChange().name(),
+                // 차감 정보는 소유자 조회에서만 뜻이 있다. 생성(아직 저장 전)·공개 공유는 이 경로로 오며,
+                // 그때는 값이 없다는 사실 자체가 정확한 답이라 null 로 둔다(NON_NULL 이라 키가 사라진다).
+                null,
+                null);
+    }
+
+    /**
+     * 소유자가 보는 상세 — 코스에 <b>차감 정보</b>를 얹는다(#317).
+     *
+     * <p>앱이 상세를 열 때마다 목록을 병행 조회해 요약의 차감 여부를 찾아 채우던 것을 없애려는 것이다.
+     */
+    public static CourseResponse from(OwnedCourse owned) {
+        CourseResponse course = from(owned.course());
+        return new CourseResponse(
+                course.courseId(),
+                course.regionId(),
+                course.travelDays(),
+                course.travelDate(),
+                course.density(),
+                course.transport(),
+                course.days(),
+                course.benefits(),
+                course.trainAccess(),
+                course.shareToken(),
+                course.firstDayChange(),
+                owned.deducted(),
+                owned.consumedLeaveDays());
     }
 
     /**
@@ -136,7 +177,11 @@ public record CourseResponse(
                 owned.benefits(),
                 owned.trainAccess(),
                 null, // shareToken — 이미 URL 에 있다
-                null); // firstDayChange — 날짜 수정은 소유자만 한다
+                null, // firstDayChange — 날짜 수정은 소유자만 한다
+                // 차감 정보는 코스가 아니라 **소유자**에게 딸린 값이다. 링크를 받은 사람에게 내리면
+                // 남의 연차 사정을 알려주는 셈이라, from(GeneratedCourse) 가 이미 비우지만 여기서도 못박는다.
+                null,
+                null);
     }
 
     @Override

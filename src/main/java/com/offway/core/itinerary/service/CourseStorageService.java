@@ -8,6 +8,7 @@ import com.offway.core.itinerary.domain.DayStart;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
+import com.offway.core.itinerary.service.dto.OwnedCourse;
 import com.offway.core.itinerary.service.dto.GeneratedCourse.FirstDayChange;
 import com.offway.core.itinerary.service.dto.MyCourses;
 import com.offway.core.leave.service.MyLeaveService;
@@ -214,7 +215,7 @@ public class CourseStorageService {
      * 게스트 소유의 저장 코스 상세(혜택 포함). 소유자 범위로만 조회해 남의 코스를 ID 만으로 볼 수 없게 한다. 없거나 소유자가
      * 아니면 존재 여부를 흘리지 않도록 똑같이 404.
      */
-    public GeneratedCourse get(String guestId, long courseId) {
+    public OwnedCourse get(String guestId, long courseId) {
         // 로딩만 트랜잭션 안에서 한다(별도 빈이라 프록시를 탄다). 날씨는 외부 호출이라 밖에서 붙인다(#169).
         Course course = coursePersistenceService.loadOwned(guestId, courseId);
         // 공유 토큰을 상세에도 싣는다(#259). 저장 응답에만 실어 두니, 그 응답을 놓친 코스는 영영 공유할 수
@@ -222,7 +223,20 @@ public class CourseStorageService {
         //
         // **여기서 발급까지 한다.** 없는 것을 null 로 두면 #143 이전에 저장된 코스가 그대로 공유 불가로 남는다.
         // 조회가 쓰기를 하는 셈이지만, 코스당 한 번뿐이고 두 번째부터는 있는 것을 읽어 준다.
-        return withBenefits(course, true).withShareToken(shareTokenOrNull(course.getId()));
+        return owned(guestId, courseId, withBenefits(course, true).withShareToken(shareTokenOrNull(course.getId())));
+    }
+
+    /**
+     * 코스에 <b>그 코스로 깎인 연차</b>를 붙인다(#317) — 상세가 스스로 답하게 하려는 것이다.
+     *
+     * <p>앱이 상세를 열 때마다 목록을 병행 조회해 요약의 차감 여부를 찾아 채우고 있었다. 상세 하나 보는 데
+     * 요청이 두 번 나가던 것을 한 번으로 줄인다.
+     *
+     * <p>차감한 적 없으면 {@code null} 이다 — 0 과 구분해야 한다. 차감량 0 은 "확정했고 깎을 평일이
+     * 없었다" 는 뜻이라 차감하지 않은 것과 다르다(#212).
+     */
+    private OwnedCourse owned(String guestId, long courseId, GeneratedCourse course) {
+        return new OwnedCourse(course, myLeaveService.courseDeduction(guestId, courseId).orElse(null));
     }
 
     /**
@@ -238,7 +252,7 @@ public class CourseStorageService {
      * <p>지난 날짜 거절을 <b>계산 전에</b> 한 번 더 한다. 어차피 400 으로 돌려보낼 요청 때문에 외부 API 를
      * 부를 이유가 없다. 규칙 자체는 {@link Course#requireChangeableTo} 하나뿐이라 두 자리가 갈리지 않는다.
      */
-    public GeneratedCourse changeTravelDate(String guestId, long courseId, LocalDate travelDate) {
+    public OwnedCourse changeTravelDate(String guestId, long courseId, LocalDate travelDate) {
         Course.requireChangeableTo(travelDate, LocalDate.now(SERVICE_ZONE));
         Course course = coursePersistenceService.loadOwned(guestId, courseId);
         OptionalDouble recalculated = courseLeaveDeductionService.recalculateFor(course, travelDate);
@@ -257,9 +271,14 @@ public class CourseStorageService {
         // 상세 조회와 같은 모양으로 돌려준다 — 화면이 날짜·날씨·요일을 새 날짜 기준으로 다시 그려야 한다.
         // 공유 토큰도 같은 이유로 함께 싣는다(#259). 여기서만 빠지면 날짜를 고친 순간 화면의 공유 버튼이
         // 사라진다.
-        return assemble(finalCourse, region, trainAccess)
-                .withShareToken(shareTokenOrNull(courseId))
-                .withFirstDayChange(change);
+        // 차감 정보도 함께 싣는다(#317) — 방금 다시 계산한 값이라, 여기서 빼면 화면이 새 날짜와 옛 차감량을
+        // 나란히 보여주게 된다.
+        return owned(
+                guestId,
+                courseId,
+                assemble(finalCourse, region, trainAccess)
+                        .withShareToken(shareTokenOrNull(courseId))
+                        .withFirstDayChange(change));
     }
 
     /**
