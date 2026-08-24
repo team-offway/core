@@ -33,15 +33,16 @@ import org.springframework.context.annotation.Primary;
  * <p>여기서 보는 것은 발송 자체가 아니라 <b>발송을 둘러싼 결정</b>이다: 같은 기기에 두 번 보내지 않는가,
  * 죽은 토큰을 실제로 걷어내는가, 일시 실패한 토큰은 남기는가.
  *
- * <h2>알림 소유자는 UUID 인데 기기 소유 키는 문자열이다(#280)</h2>
+ * <h2>알림 소유자는 UUID 인데 기기 소유 칸은 문자열이다(#280)</h2>
  *
- * <p>알림·코스·연차의 소유는 {@code user_id}(UUID)로 옮겼지만 {@code device_push_token} 은 그 전환의
- * 범위 밖이라 소유 칸이 아직 {@code guest_id}(문자열)다. {@link PushDispatcher} 는 그 사이를
- * {@code userId.toString()} 으로 잇는다 — 그래서 이 테스트도 토큰을 <b>그 문자열</b>로 심는다.
+ * <p>알림·코스·연차의 소유는 {@code user_id}(UUID)로 옮겼고 기기 등록도 같은 사용자를 주인으로 삼는다.
+ * 다만 {@code device_push_token} 의 소유 <b>칸 타입</b>은 아직 문자열({@code guest_id})이라
+ * {@link PushDispatcher} 가 그 사이를 {@code userId.toString()} 으로 잇는다 — 그래서 이 테스트도
+ * 토큰을 <b>그 문자열</b>로 심는다. 칸 이름 정리는 별도 작업이다.
  *
- * <p><b>지금 앱은 그 값을 적어 주지 않는다.</b> 기기 등록은 여전히 {@code X-Guest-Id} 헤더 값을 그 칸에
- * 넣으므로 운영에서는 이 조회가 0건이 된다. 그 상태를 꾸미지 않고
- * {@link #앱_게스트_키로_등록된_기기는_사용자_UUID로_찾지_못한다()} 가 있는 그대로 잠근다.
+ * <p><b>잇는 규칙이 어긋나면 조회가 통째로 0건이 된다.</b> 등록과 발송이 같은 문자열을 쓰지 않으면
+ * 알림은 만들어지는데 푸시만 조용히 안 간다 — 예외도 안 나므로 아무 흔적이 없다.
+ * {@link #소유_문자열이_다르면_그_기기는_찾히지_않는다()} 가 그 규칙을 잠근다.
  */
 @SpringBootTest
 @Import(PushDispatcherIntegrationTest.StubPushSenderConfig.class)
@@ -121,31 +122,31 @@ class PushDispatcherIntegrationTest {
     }
 
     /**
-     * 앱이 심은 기기 등록은 <b>사용자 UUID 로 찾히지 않는다</b> — 지금 코드의 실제 동작이다.
+     * 소유 문자열이 다른 기기 등록은 <b>사용자 UUID 로 찾히지 않는다</b> — 조회가 정확히 일치로만 매칭된다.
      *
      * <p>{@link PushDispatcher} 는 알림 소유자를 {@code userId.toString()} 으로 바꿔
-     * {@code device_push_token.guest_id} 를 뒤진다. 그런데 그 칸에 실제로 들어가는 값은 앱이
-     * {@code X-Guest-Id} 헤더에 넣는 게스트 키라, 두 값은 <b>같아질 이유가 없다</b>. 그래서 알림은
-     * 만들어지지만 푸시는 한 건도 나가지 않는다.
+     * {@code device_push_token.guest_id} 를 뒤진다. 등록이 같은 규칙으로 그 칸을 채우지 않으면 두 값은
+     * 절대 만나지 않는다 — <b>알림은 만들어지는데 푸시만 한 건도 안 나간다.</b> 예외가 아니라 0건이라
+     * 아무 흔적이 없는 것이 이 실패의 성질이다.
      *
-     * <p><b>이 테스트는 그 상태가 옳다고 말하지 않는다.</b> 고리가 이어진 척 꾸미면 나중에 기기 소유 키를
-     * 옮길 때 무엇이 바뀌는지 아무도 모른다 — 지금 동작을 못 박아 두면 그때 이 테스트가 먼저 빨간불이 된다.
-     * 끊긴 고리 자체는 별도 이슈다({@code PushDispatcher.deliveries} 의 {@code withoutDevice} 경고가
-     * 운영에서 이 상태를 드러낸다).
+     * <p>#280 이전에 {@code X-Guest-Id} 헤더 값으로 심긴 등록이 정확히 이 모양이었다. 지금은 등록도
+     * 발송도 같은 사용자 UUID 를 쓰므로 새 등록에는 이 일이 안 생기지만, <b>규칙을 한쪽만 바꾸면 다시
+     * 생긴다.</b> 그래서 옛 데이터가 아니라 그 규칙을 잠근다 —
+     * {@code PushDispatcher.deliveries} 의 {@code withoutDevice} 경고가 운영에서 이 상태를 드러낸다.
      */
     @Test
-    void 앱_게스트_키로_등록된_기기는_사용자_UUID로_찾지_못한다() {
+    void 소유_문자열이_다르면_그_기기는_찾히지_않는다() {
         UUID owner = UUID.randomUUID();
-        String appGuestKey = "guest-" + UUID.randomUUID();
+        String mismatchedOwner = "guest-" + UUID.randomUUID();
         String token = "token-270-unreachable-" + owner;
-        registerToken(appGuestKey, token);
+        registerToken(mismatchedOwner, token);
         pushSender.respondWith(t -> {
             throw new AssertionError("찾히지 않아야 할 기기로 발송을 시도했다");
         });
 
         assertEquals(0, pushDispatcher.dispatch(List.of(target(owner, 15L))), "사용자 UUID 로는 그 기기를 못 찾는다");
         // 못 찾았을 뿐이라 토큰은 그대로 남는다 — 죽은 토큰으로 오해해 지우면 안 된다.
-        assertEquals(1, devicePushTokenRepository.findByOwner(appGuestKey).size());
+        assertEquals(1, devicePushTokenRepository.findByOwner(mismatchedOwner).size());
     }
 
     /** 알림 소유자(UUID)를 기기 등록의 소유 키(문자열)로 맞춘다 — {@code PushDispatcher} 와 같은 규칙이다. */

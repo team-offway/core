@@ -144,7 +144,9 @@ class DeviceIntegrationTest {
     void 남의_토큰을_등록해도_원래_소유자의_등록은_그대로다() throws Exception {
         // **이 변경의 존재 이유다.** 유니크 제약이 토큰 단독이던 때는 이 두 번째 요청이 첫 행의 소유자를
         // 갈아끼웠다 — 남의 FCM 토큰을 아는 쪽이 상대의 푸시를 끊고(주인이 바뀌므로) 자기 알림을 상대
-        // 기기로 보낼 수 있었다. 기기 소유 키가 아직 헤더 값이라 사칭 비용은 여전히 없다.
+        // 기기로 보낼 수 있었다. 이제 주인은 access 토큰이 정하므로(#280) 사칭하려면 남의 계정으로
+        // 로그인해야 한다. 그래도 이 제약은 남긴다 — 한 기기에 두 계정이 로그인하는 것은 정상이고,
+        // 그때 뒷사람이 앞사람의 등록을 뺏으면 앞사람의 알림이 조용히 끊긴다.
         String token = uniqueToken();
         String victim = owner("device-victim");
         String attacker = owner("device-attacker");
@@ -321,9 +323,9 @@ class DeviceIntegrationTest {
     /**
      * 인증 없이 부르면 401 이다 — 헤더만으로는 못 들어온다(#280).
      *
-     * <p>{@code SecurityConfig} 가 {@code /api/v1/devices/**} 를 로그인 뒤로 옮겼다. 기기 소유 키가 아직
-     * 헤더라 이 게이트가 소유를 지켜주지는 않지만, 최소한 아무나 남의 게스트 키로 토큰을 심어 놓을 수는
-     * 없게 한다.
+     * <p>{@code SecurityConfig} 가 {@code /api/v1/devices/**} 를 로그인 뒤로 옮겼고, 등록되는 소유자는
+     * 그 게이트를 통과한 바로 그 사용자다. <b>인증과 소유가 같은 값을 가리킨다</b> — 둘이 갈려 있으면
+     * 게이트를 통과한 뒤 남의 이름으로 토큰을 심을 수 있다.
      */
     @Test
     void 인증_없이_부르면_401이다() throws Exception {

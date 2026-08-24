@@ -44,7 +44,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * 코스 공유 링크(#143) — 공개 조회의 HTTP 계약.
  *
  * <p><b>클래스에 인증을 걸지 않는다.</b> 이 경로가 인증 게이트를 통과하는지가 검증 대상이라, {@code @WithLoginUser}
- * 를 클래스에 붙이면 정작 확인하려던 것이 가려진다. 코스를 만드는 준비 요청에만 {@link #loginUser} 로 사용자를 붙인다.
+ * 를 클래스에 붙이면 정작 확인하려던 것이 가려진다. 코스를 만드는 준비 요청에만
+ * {@link com.offway.core.user.config.TestLogins#loginAs(java.util.UUID) loginAs} 로 사용자를 붙인다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
