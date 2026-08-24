@@ -4,6 +4,7 @@ import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.device.controller.dto.DeviceRegisterRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import java.util.UUID;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
@@ -36,7 +37,7 @@ public interface DeviceApi {
             description = "게스트 ID 누락·빈 값·64자 초과 · token 누락·빈 값·512자 초과 · platform 누락 또는 IOS·ANDROID 가 아님")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<Void> register(
-            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
+            UUID userId,
             DeviceRegisterRequest request);
 
     @Operation(
@@ -57,5 +58,5 @@ public interface DeviceApi {
     @ApiResponse(responseCode = "400", description = "게스트 ID 누락·빈 값·64자 초과")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     ApiResponseBody<Void> unregister(
-            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId);
+            UUID userId);
 }

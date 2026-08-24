@@ -4,6 +4,7 @@ import com.offway.core.itinerary.domain.Course;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -12,13 +13,12 @@ public interface CourseRepository {
 
     Course save(Course course);
 
-    /** 게스트의 코스 목록(최신 저장 순). */
-    List<Course> findByGuestId(String guestId);
+    /** 사용자의 코스 목록(최신 저장 순). */
+    List<Course> findByUserId(UUID userId);
 
-    /** 게스트의 코스 한 페이지(최신 저장 순). */
-    Page<Course> findByGuestId(String guestId, Pageable pageable);
+    /** 사용자의 코스 한 페이지(최신 저장 순). */
+    Page<Course> findByUserId(UUID userId, Pageable pageable);
 
-    /** 소유자 범위 상세 조회 — 남의 코스를 ID 만으로 못 보게 게스트 소유로 제한한다. */
     /**
      * 그 날짜에 떠나는 <b>모든 소유자</b>의 저장 코스 — 알림 배치가 쓴다(#269).
      *
@@ -28,21 +28,22 @@ public interface CourseRepository {
     List<Course> findByTravelDate(LocalDate travelDate);
 
     /** 오늘 포함 이후 여행 — 가까운 것부터. 날짜 없는 코스는 분류 근거가 없어 빠진다. */
-    List<Course> findUpcoming(String guestId, LocalDate today);
+    List<Course> findUpcoming(UUID userId, LocalDate today);
 
-    Page<Course> findUpcoming(String guestId, LocalDate today, Pageable pageable);
+    Page<Course> findUpcoming(UUID userId, LocalDate today, Pageable pageable);
 
     /** 오늘 이전 여행 — 최근 것부터. 날짜 없는 코스는 빠진다. */
-    List<Course> findPast(String guestId, LocalDate today);
+    List<Course> findPast(UUID userId, LocalDate today);
 
-    Page<Course> findPast(String guestId, LocalDate today, Pageable pageable);
+    Page<Course> findPast(UUID userId, LocalDate today, Pageable pageable);
 
-    Optional<Course> findByIdAndGuestId(Long id, String guestId);
+    /** 소유자 범위 상세 조회 — 남의 코스를 ID 만으로 못 보게 소유자로 제한한다. */
+    Optional<Course> findByIdAndUserId(Long id, UUID userId);
 
     /**
      * 소유자 무관 조회 — <b>공유 링크 전용</b>(#143).
      *
-     * <p>일반 상세 조회는 반드시 {@link #findByIdAndGuestId} 를 쓴다. 이 메서드로 열면 순번 ID 만으로 남의
+     * <p>일반 상세 조회는 반드시 {@link #findByIdAndUserId} 를 쓴다. 이 메서드로 열면 순번 ID 만으로 남의
      * 코스를 훑을 수 있다. 여기서 접근을 막는 것은 소유자가 아니라 <b>추측 불가능한 토큰</b>이다.
      */
     Optional<Course> findById(Long id);
@@ -62,5 +63,5 @@ public interface CourseRepository {
      *
      * @return 지운 코스 수
      */
-    int deleteByGuestId(String guestId);
+    int deleteByUserId(UUID userId);
 }

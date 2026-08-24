@@ -60,10 +60,8 @@ public final class LeaveException extends BaseException {
         return new LeaveException(LeaveErrorCode.INVALID_LEAVE_USAGE_DAYS);
     }
 
-    /** 소유 키 헤더가 비었거나 너무 김. */
-    public static LeaveException invalidOwnerId() {
-        return new LeaveException(LeaveErrorCode.INVALID_OWNER_ID);
-    }
+    // 소유 키 형식 오류(LEAVE-011)를 던지던 팩토리는 없앴다 — 소유자가 인증된 UUID 가 되어 부를 자리가
+    // 사라졌다(#280). 에러코드 상수는 append-only 라 그대로 둔다(LeaveErrorCode#INVALID_OWNER_ID).
 
     /** 지우려는 사용 내역이 없거나 남의 것. */
     public static LeaveException leaveUsageNotFound() {

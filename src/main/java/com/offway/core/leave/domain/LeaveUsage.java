@@ -1,5 +1,8 @@
 package com.offway.core.leave.domain;
 
+import org.hibernate.type.SqlTypes;
+import org.hibernate.annotations.JdbcTypeCode;
+import java.util.UUID;
 import jakarta.persistence.Column;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -37,8 +40,9 @@ public class LeaveUsage {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "guest_id", nullable = false, length = LeaveBalance.MAX_OWNER_ID_LENGTH)
-    private String guestId;
+    @JdbcTypeCode(SqlTypes.BINARY)
+    @Column(name = "user_id", nullable = false, columnDefinition = "BINARY(16)")
+    private UUID userId;
 
     /** 연차를 쓴 날. */
     @Column(name = "used_on", nullable = false)
@@ -87,13 +91,13 @@ public class LeaveUsage {
     private Boolean halfDayStart;
 
     private LeaveUsage(
-            String guestId,
+            UUID userId,
             LocalDate usedOn,
             double days,
             String reason,
             Long courseId,
             StartDayLeave startDayLeave) {
-        this.guestId = Objects.requireNonNull(guestId, "guestId 는 null 일 수 없습니다.");
+        this.userId = Objects.requireNonNull(userId, "userId 는 null 일 수 없습니다.");
         this.usedOn = Objects.requireNonNull(usedOn, "usedOn 은 null 일 수 없습니다.");
         this.days = requireDays(days, courseId);
         this.reason = trimReason(reason);
@@ -105,8 +109,8 @@ public class LeaveUsage {
     }
 
     /** 사용자가 직접 남기는 내역. */
-    public static LeaveUsage manual(String guestId, LocalDate usedOn, double days, String reason) {
-        return new LeaveUsage(guestId, usedOn, days, reason, null, null);
+    public static LeaveUsage manual(UUID userId, LocalDate usedOn, double days, String reason) {
+        return new LeaveUsage(userId, usedOn, days, reason, null, null);
     }
 
     /**
@@ -115,14 +119,14 @@ public class LeaveUsage {
      * @param startDayLeave 첫날에 쓴 연차. 날짜를 고칠 때 차감량을 다시 계산하는 입력이라 함께 남긴다(#170)
      */
     public static LeaveUsage forCourse(
-            String guestId,
+            UUID userId,
             LocalDate usedOn,
             double days,
             String reason,
             long courseId,
             StartDayLeave startDayLeave) {
         return new LeaveUsage(
-                guestId, usedOn, days, reason, courseId, Objects.requireNonNull(startDayLeave, "startDayLeave"));
+                userId, usedOn, days, reason, courseId, Objects.requireNonNull(startDayLeave, "startDayLeave"));
     }
 
     /**
@@ -159,7 +163,7 @@ public class LeaveUsage {
     /**
      * 코스의 여행 날짜가 바뀌어 차감을 다시 잡는다(#170) — 쓴 날과 일수를 함께 옮긴다.
      *
-     * <p>지우고 다시 넣지 않는다. {@code uk_leave_usage_guest_course} 가 코스당 한 행을 강제하는데(#91),
+     * <p>지우고 다시 넣지 않는다. {@code uk_leave_usage_user_course} 가 코스당 한 행을 강제하는데(#91),
      * 같은 트랜잭션 안에서 delete·insert 를 하면 Hibernate 가 flush 순서를 보장하지 않아 제약에 걸릴 수 있다.
      *
      * <p>반차 여부는 그대로 둔다 — 사용자가 고친 것은 날짜뿐이다.

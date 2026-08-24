@@ -15,8 +15,10 @@ import com.offway.core.itinerary.controller.dto.CourseShareResponse;
 import com.offway.core.itinerary.controller.dto.CourseSummaryResponse;
 import com.offway.core.itinerary.controller.dto.CourseUpdateRequest;
 import com.offway.core.itinerary.service.CourseStorageService;
+import com.offway.core.user.config.LoginUser;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -25,7 +27,6 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -36,8 +37,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class CourseStorageController implements CourseStorageApi {
 
-    private static final String GUEST_HEADER = "X-Guest-Id";
-
     private final CourseStorageService courseStorageService;
     private final CourseLeaveDeductionService courseLeaveDeductionService;
     private final TripOutcomeService tripOutcomeService;
@@ -46,8 +45,8 @@ public class CourseStorageController implements CourseStorageApi {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponseBody<CourseResponse> save(
-            @RequestHeader(GUEST_HEADER) String guestId, @Valid @RequestBody CourseSaveRequest request) {
-        return ApiResponseBody.created(CourseResponse.from(courseStorageService.save(request.toCourse(guestId))));
+            @LoginUser UUID userId, @Valid @RequestBody CourseSaveRequest request) {
+        return ApiResponseBody.created(CourseResponse.from(courseStorageService.save(request.toCourse(userId))));
     }
 
     @Override
@@ -61,36 +60,34 @@ public class CourseStorageController implements CourseStorageApi {
     @Override
     @GetMapping
     public ApiResponseBody<List<CourseSummaryResponse>> myCourses(
-            @RequestHeader(GUEST_HEADER) String guestId,
+            @LoginUser UUID userId,
             @RequestParam(defaultValue = "ALL") CourseScope scope,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
-        MyCourses myCourses = courseStorageService.myCourses(guestId, scope, page, size);
+        MyCourses myCourses = courseStorageService.myCourses(userId, scope, page, size);
         return ApiResponseBody.ok(CourseSummaryResponse.listFrom(myCourses), PageResponse.of(myCourses));
     }
 
     @Override
     @GetMapping("/{courseId}")
-    public ApiResponseBody<CourseResponse> course(
-            @RequestHeader(GUEST_HEADER) String guestId, @PathVariable long courseId) {
-        return ApiResponseBody.ok(CourseResponse.from(courseStorageService.get(guestId, courseId)));
+    public ApiResponseBody<CourseResponse> course(@LoginUser UUID userId, @PathVariable long courseId) {
+        return ApiResponseBody.ok(CourseResponse.from(courseStorageService.get(userId, courseId)));
     }
 
     @Override
     @PatchMapping("/{courseId}")
     public ApiResponseBody<CourseResponse> updateCourse(
-            @RequestHeader(GUEST_HEADER) String guestId,
+            @LoginUser UUID userId,
             @PathVariable long courseId,
             @Valid @RequestBody CourseUpdateRequest request) {
         return ApiResponseBody.ok(CourseResponse.from(
-                courseStorageService.changeTravelDate(guestId, courseId, request.travelDate())));
+                courseStorageService.changeTravelDate(userId, courseId, request.travelDate())));
     }
 
     @Override
     @DeleteMapping("/{courseId}")
-    public ApiResponseBody<Void> deleteCourse(
-            @RequestHeader(GUEST_HEADER) String guestId, @PathVariable long courseId) {
-        courseStorageService.delete(guestId, courseId);
+    public ApiResponseBody<Void> deleteCourse(@LoginUser UUID userId, @PathVariable long courseId) {
+        courseStorageService.delete(userId, courseId);
         // 204 를 쓰지 않는다 — 응답 래퍼가 항상 body 를 만든다(exception-and-response).
         return ApiResponseBody.ok(null);
     }
@@ -98,23 +95,23 @@ public class CourseStorageController implements CourseStorageApi {
     @Override
     @DeleteMapping("/{courseId}/leave-deduction")
     public ApiResponseBody<MyLeaveResponse> cancelLeaveDeduction(
-            @RequestHeader(GUEST_HEADER) String guestId, @PathVariable long courseId) {
-        return ApiResponseBody.ok(MyLeaveResponse.from(courseLeaveDeductionService.cancel(guestId, courseId)));
+            @LoginUser UUID userId, @PathVariable long courseId) {
+        return ApiResponseBody.ok(MyLeaveResponse.from(courseLeaveDeductionService.cancel(userId, courseId)));
     }
 
     @Override
     @GetMapping("/pending-trips")
-    public ApiResponseBody<PendingTripsResponse> pendingTrips(@RequestHeader(GUEST_HEADER) String guestId) {
-        return ApiResponseBody.ok(PendingTripsResponse.from(tripOutcomeService.pending(guestId)));
+    public ApiResponseBody<PendingTripsResponse> pendingTrips(@LoginUser UUID userId) {
+        return ApiResponseBody.ok(PendingTripsResponse.from(tripOutcomeService.pending(userId)));
     }
 
     @Override
     @PostMapping("/{courseId}/trip-outcome")
     public ApiResponseBody<MyLeaveResponse> answerTripOutcome(
-            @RequestHeader(GUEST_HEADER) String guestId,
+            @LoginUser UUID userId,
             @PathVariable long courseId,
             @Valid @RequestBody TripOutcomeRequest request) {
         return ApiResponseBody.ok(
-                MyLeaveResponse.from(tripOutcomeService.answer(guestId, courseId, request.outcome())));
+                MyLeaveResponse.from(tripOutcomeService.answer(userId, courseId, request.outcome())));
     }
 }

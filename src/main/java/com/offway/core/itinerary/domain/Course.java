@@ -25,6 +25,9 @@ import java.util.List;
 import java.util.Optional;
 
 import java.util.Objects;
+import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -47,9 +50,6 @@ public class Course {
 
     /** 코스 상한 — 최대 2박3일(feature-spec F4 · 와이어프레임 캘린더 정책). */
     public static final int MAX_TRAVEL_DAYS = 3;
-
-    /** 게스트 ID 최대 길이 — {@code guest_id} 컬럼 폭과 일치시켜, 초과 입력이 저장 단계 서버 오류로 새지 않게 경계에서 거른다. */
-    public static final int MAX_GUEST_ID_LENGTH = 64;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -103,9 +103,15 @@ public class Course {
     @Column(name = "origin_lng")
     private Double originLng;
 
-    /** 소유 게스트 ID(저장된 코스만) — 로그인 전이라 클라이언트 게스트 식별자로 "내 코스"를 묶는다. 생성만 된 코스는 null. */
-    @Column(name = "guest_id", length = MAX_GUEST_ID_LENGTH)
-    private String guestId;
+    /**
+     * 소유 사용자 ID(저장된 코스만) — 인증으로 확인된 값이라 요청이 소유자를 자칭할 수 없다(#280).
+     *
+     * <p><b>null 이 정상인 코스가 있다.</b> 생성만 된 코스와, 담지 않고 링크만 만든 공유 전용 코스
+     * ({@link #sharedOnly}, #261)가 그렇다 — 후자는 주인을 두지 않는 것이 설계다.
+     */
+    @JdbcTypeCode(SqlTypes.BINARY)
+    @Column(name = "user_id", columnDefinition = "BINARY(16)")
+    private UUID userId;
 
     /**
      * 첫날에 쓴 연차 — <b>출발 시각의 근거</b>(#138).
@@ -129,7 +135,7 @@ public class Course {
     private List<DaySchedule> days;
 
     private Course(
-            String guestId,
+            UUID userId,
             Long regionId,
             Density density,
             TransportMode transport,
@@ -148,7 +154,7 @@ public class Course {
         requireSequentialDays(days);
         requireIncreasingOffsets(days);
         requireSpanCovers(days, travelDays);
-        this.guestId = guestId;
+        this.userId = userId;
         this.regionId = Objects.requireNonNull(regionId, "지역 ID는 필수입니다");
         this.density = Objects.requireNonNull(density, "일정 밀도는 필수입니다");
         this.transport = Objects.requireNonNull(transport, "이동수단은 필수입니다");
@@ -188,12 +194,12 @@ public class Course {
     }
 
     /**
-     * 게스트 소유로 코스를 만든다(저장용). 게스트 ID 는 공백일 수 없고 길이 상한을 넘지 않는다(빈 값이면 모든 요청이 한 묶음을 공유).
+     * 사용자 소유로 코스를 만든다(저장용). 소유자는 인증에서 온 UUID 라 형식 검증이 필요 없다 — 있는지만 본다.
      *
      * @param origin 출발지. 대중교통 열차 접근을 다시 계산하는 근거다(#187). 모르면 null
      */
     public static Course ownedBy(
-            String guestId,
+            UUID userId,
             Long regionId,
             Density density,
             TransportMode transport,
@@ -202,14 +208,8 @@ public class Course {
             int travelDays,
             Coordinate origin,
             StartDayLeave startDayLeave) {
-        Objects.requireNonNull(guestId, "게스트 ID는 필수입니다");
-        if (guestId.isBlank()) {
-            throw new IllegalArgumentException("게스트 ID는 비어 있을 수 없습니다");
-        }
-        if (guestId.length() > MAX_GUEST_ID_LENGTH) {
-            throw new IllegalArgumentException("게스트 ID가 너무 깁니다: " + guestId.length());
-        }
-        return new Course(guestId, regionId, density, transport, days, travelDate, travelDays,
+        Objects.requireNonNull(userId, "사용자 ID는 필수입니다");
+        return new Course(userId, regionId, density, transport, days, travelDate, travelDays,
                 origin == null ? null : origin.lat(), origin == null ? null : origin.lng(), startDayLeave);
     }
 
@@ -217,7 +217,7 @@ public class Course {
      * <b>소유자 없이</b> 영속하는 코스(#261) — 담지 않고 공유 링크만 만들 때.
      *
      * <p>공유 링크로 열려면 코스가 어딘가 있어야 하는데, 사용자는 이걸 "내 코스에 담았다" 고 여기지 않는다.
-     * 그래서 <b>주인을 두지 않는다</b> — "내 코스" 조회는 전부 {@code guest_id} 로 좁히므로(목록·상세·삭제)
+     * 그래서 <b>주인을 두지 않는다</b> — "내 코스" 조회는 전부 {@code user_id} 로 좁히므로(목록·상세·삭제)
      * 주인이 없는 코스는 어느 질의에도 걸리지 않는다. 목록에서 빼려고 플래그를 더하고 질의마다 조건을
      * 붙이는 것보다, 애초에 소유 관계를 만들지 않는 편이 규칙이 하나로 끝난다.
      *

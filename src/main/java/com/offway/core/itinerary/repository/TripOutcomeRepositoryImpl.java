@@ -2,6 +2,7 @@ package com.offway.core.itinerary.repository;
 
 import com.offway.core.itinerary.domain.TripOutcome;
 import java.util.Set;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -13,8 +14,8 @@ public class TripOutcomeRepositoryImpl implements TripOutcomeRepository {
     private final TripOutcomeJpaRepository jpaRepository;
 
     @Override
-    public Set<Long> findAnsweredCourseIds(String guestId) {
-        return jpaRepository.findAnsweredCourseIds(guestId);
+    public Set<Long> findAnsweredCourseIds(UUID userId) {
+        return jpaRepository.findAnsweredCourseIds(userId);
     }
 
     @Override
@@ -23,7 +24,7 @@ public class TripOutcomeRepositoryImpl implements TripOutcomeRepository {
     }
 
     @Override
-    public int deleteByGuestId(String guestId) {
-        return jpaRepository.deleteByGuestId(guestId);
+    public int deleteByUserId(UUID userId) {
+        return jpaRepository.deleteByUserId(userId);
     }
 }

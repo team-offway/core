@@ -1,5 +1,8 @@
 package com.offway.core.notification.domain;
 
+import org.hibernate.type.SqlTypes;
+import org.hibernate.annotations.JdbcTypeCode;
+import java.util.UUID;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -34,9 +37,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Notification {
 
-    /** 소유 키 길이 — 코스({@code Course.MAX_GUEST_ID_LENGTH})·연차와 같은 값을 쓴다. */
-    public static final int MAX_OWNER_ID_LENGTH = 64;
-
     /** enum 이름을 담는 칸. 지금 가장 긴 이름의 두 배 남짓으로, 새 종류가 늘어도 마이그레이션이 필요 없다. */
     public static final int TYPE_LENGTH = 40;
 
@@ -44,8 +44,9 @@ public class Notification {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "guest_id", nullable = false, length = MAX_OWNER_ID_LENGTH)
-    private String guestId;
+    @JdbcTypeCode(SqlTypes.BINARY)
+    @Column(name = "user_id", nullable = false, columnDefinition = "BINARY(16)")
+    private UUID userId;
 
     /**
      * ordinal 이 아니라 이름으로 저장한다 — ordinal 은 상수를 재배치하는 순간 이미 저장된 행의 뜻이 통째로
@@ -67,27 +68,22 @@ public class Notification {
     private LocalDateTime createdAt;
 
     @Builder
-    private Notification(String guestId, NotificationType type, Long courseId, LocalDateTime createdAt) {
-        this.guestId = requireOwner(guestId);
+    private Notification(UUID userId, NotificationType type, Long courseId, LocalDateTime createdAt) {
+        this.userId = requireOwner(userId);
         this.type = Objects.requireNonNull(type, "알림 종류는 필수입니다");
         this.courseId = courseId;
         this.createdAt = Objects.requireNonNull(createdAt, "생성 시각은 필수입니다");
     }
 
     /**
-     * 소유 키 계약 검증(400).
+     * 소유자는 인증으로 확인된 사용자다 — <b>형식 검증이 필요 없다</b>(#280).
      *
-     * <p>빈 헤더({@code X-Guest-Id: " "})는 {@code @RequestHeader} 를 통과하므로 <b>멀쩡한 클라이언트가
-     * 정상 요청으로 닿는다</b> — 불변식으로 다루면 500 이 나간다.
-     *
-     * <p>도메인이 들고 조회 경로도 이걸 쓴다. 조회만 통과시키면 같은 헤더가 메서드에 따라 200 과 400 으로
-     * 갈린다.
+     * <p>예전에는 길이·공백을 봤다. 소유 키가 요청 헤더({@code X-Guest-Id})라 아무 문자열이나 들어왔고,
+     * 그 값이 그대로 컬럼에 저장돼 잘리거나 빈 값이 남았다. 지금은 {@code @LoginUser} 가 토큰에서 꺼낸
+     * {@code UUID} 라 <b>형식이 이미 보장돼 있고, 무엇보다 남의 값을 적어 보낼 수 없다.</b>
      */
-    public static String requireOwner(String guestId) {
-        if (guestId == null || guestId.isBlank() || guestId.length() > MAX_OWNER_ID_LENGTH) {
-            throw NotificationException.invalidOwnerId();
-        }
-        return guestId;
+    public static UUID requireOwner(UUID userId) {
+        return Objects.requireNonNull(userId, "사용자 ID는 필수입니다");
     }
 
     /**

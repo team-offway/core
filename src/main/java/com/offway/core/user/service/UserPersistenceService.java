@@ -4,9 +4,7 @@ import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.RefreshToken;
 import com.offway.core.user.domain.User;
 import com.offway.core.user.domain.UserIdentity;
-import com.offway.core.user.domain.UserGuestLink;
 import com.offway.core.user.repository.RefreshTokenRepository;
-import com.offway.core.user.repository.UserGuestLinkRepository;
 import com.offway.core.user.repository.UserIdentityRepository;
 import com.offway.core.user.repository.UserRepository;
 import com.offway.core.user.service.dto.AuthenticatedUser;
@@ -16,7 +14,6 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,7 +31,6 @@ public class UserPersistenceService {
     private final UserRepository userRepository;
     private final UserIdentityRepository userIdentityRepository;
     private final RefreshTokenRepository refreshTokenRepository;
-    private final UserGuestLinkRepository userGuestLinkRepository;
 
     /**
      * 검증된 provider 신원으로 사용자를 찾거나 만든다. 최초 로그인이 곧 가입이다.
@@ -139,33 +135,5 @@ public class UserPersistenceService {
     private void revokeActive(UUID userId, Instant now) {
         // 읽어서 하나씩 고치면 행 수만큼 UPDATE 가 나간다. 이 표는 삭제 경로가 없어 계속 쌓이는 자리다.
         refreshTokenRepository.revokeActive(userId, now);
-    }
-
-    /**
-     * 이 기기를 사용자에게 잇는다(#34) — <b>이미 누군가의 것이면 그대로 둔다</b>.
-     *
-     * <p>코스·연차가 아직 {@code guest_id} 로 묶여 있어, 서버가 "이 사용자의 데이터가 무엇인가" 를 알 수 있는
-     * 유일한 근거다. 탈퇴가 이것으로 대상을 찾고, 나중에 소유를 옮길 때 backfill 키가 된다.
-     *
-     * <p><b>덮어쓰지 않는다.</b> 한 기기에서 두 사람이 로그인하면 그 기기의 옛 데이터는 먼저 로그인한 사용자의
-     * 것이다. 뒤에 온 사람에게 넘기면 남의 코스·연차를 넘기는 셈이라, 안 넘기는 쪽이 낫다.
-     *
-     * <p><b>실패해도 로그인을 막지 않는다.</b> 이 기록은 나중을 위한 것이지 로그인의 조건이 아니다. 다만 조용히
-     * 넘어가지는 않는다 — 없으면 그 사용자의 탈퇴가 데이터를 못 찾으므로 사유를 warn 으로 남긴다.
-     */
-    @Transactional
-    public void linkGuest(UUID userId, String guestId, Instant now) {
-        Optional<UserGuestLink> existing = userGuestLinkRepository.findByGuestId(guestId);
-        if (existing.isPresent()) {
-            if (!existing.get().getUserId().equals(userId)) {
-                // 한 기기를 두 사람이 썼다. 먼저 로그인한 쪽의 것으로 두고, 이 사용자의 코스·연차는 이어지지
-                // 않는다 — 조용히 넘어가면 나중에 "왜 이 계정만 탈퇴해도 데이터가 남나" 를 추적할 수 없다.
-                log.warn("이미 다른 사용자에게 이어진 기기입니다 — 이 사용자의 데이터는 이어지지 않습니다 userId={}", userId);
-            }
-            return;
-        }
-        // 여기서 잡지 않는다. 제약 위반은 이 트랜잭션을 rollback-only 로 만들어, 삼켜도 커밋에서
-        // UnexpectedRollbackException 으로 끝난다. 경합 처리는 트랜잭션 밖(호출자)이 한다.
-        userGuestLinkRepository.save(UserGuestLink.of(userId, guestId, now));
     }
 }

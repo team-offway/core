@@ -41,6 +41,17 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  *
  * <p>인증 실패 응답은 {@link ApiResponseAuthenticationEntryPoint}·{@link ApiAccessDeniedHandler} 가 공통 래퍼
  * 규격으로 만든다 — 이 경로는 {@code GlobalExceptionHandler} 가 닿지 못한다.
+ *
+ * <h2>소유 키가 {@code user_id} 로 옮겨간 뒤의 경계(#280)</h2>
+ *
+ * <p>목표 경계는 <b>로그인 없이</b>(코스 생성 · 지역 둘러보기 · 공유 링크 만들기 · 공유 링크 열기) 와
+ * <b>로그인 필요</b>(내 코스에 담기 · 연차 · 알림 · 푸시 토큰) 다. 이 중 <b>로그인 필요 쪽만 여기서 닫았다</b> —
+ * {@link #USER_OWNED_PATHS} 가 읽기까지 Bearer 를 요구한다.
+ *
+ * <p>로그인 없이 열어야 할 쪽은 아직 열지 않았다. 공유 링크 열기({@code /api/v1/public/**})만 이미 열려 있고,
+ * 나머지(지역 둘러보기 · 코스 생성 · 공유 링크 만들기)는 <b>#122 의 Basic 게이트 뒤에 있다</b>. 그것을 여는 것은
+ * 이 전환과 별개의 결정이다 — 배포 스모크가 "무인증 GET 은 401" 을 게이트로 삼아 아니면 롤백하고, 코스 생성은
+ * 열면 TourAPI·TMAP 일일 한도가 인증 없이 노출된다. 두 가지를 함께 정리하는 별도 PR 이 필요하다.
  */
 @Configuration
 @EnableWebSecurity
@@ -68,6 +79,26 @@ public class SecurityConfig {
      */
     private static final String APP_USER_ROLE = "USER";
 
+    /**
+     * <b>소유자가 있는 데이터</b> — 내 코스 · 연차 · 알림 · 푸시 토큰. 읽기든 쓰기든 Bearer 를 요구한다(#280).
+     *
+     * <p>읽기까지 역할을 요구하는 이유는 <b>소유 키가 {@code user_id} 로 바뀌었기</b> 때문이다. 이 경로들은
+     * 요청 헤더가 아니라 access 토큰이 넣은 principal 로 대상을 정하는데, Basic 으로 들어온 요청은 principal 이
+     * null 이다({@code @LoginUser} 는 JWT 가 넣은 것만 푼다). 그대로 통과시키면 소유자 없이 조회가 돌아
+     * "빈 목록 200" 이나 NPE 500 이 나간다 — 규약이 막는 조용한 실패다. 여기서 403 으로 끊는 편이 낫다.
+     *
+     * <p>{@code /api/v1/courses/**} 안에는 로그인 없이 열어야 할 것(코스 생성 · 공유 링크 만들기)이 섞여 있다.
+     * 그것들은 이 규칙보다 <b>앞</b>에 예외로 적어야 하고, 아직 그 결정이 서지 않아 지금은 전부 로그인 뒤에 있다.
+     */
+    private static final String[] USER_OWNED_PATHS = {
+        "/api/v1/courses/**",
+        "/api/v1/leaves/me/**",
+        "/api/v1/notifications/**",
+        "/api/v1/devices/**",
+        "/api/v1/users/**",
+        "/api/v1/auth/logout"
+    };
+
     /** 사람이 서버를 들여다보는 수단. Basic 이 남아 있는 이유이자, 여기까지가 Basic 의 한계다. */
     private static final String[] DOCS_PATHS = {"/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**"};
 
@@ -92,7 +123,10 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(CREDENTIAL_ISSUING_PATHS)
                         .permitAll()
-                        // 읽기는 두 수단 다 받는다 — Swagger 로 명세를 보고, 스모크가 적재를 확인한다.
+                        // 소유자가 있는 데이터는 읽기도 Bearer 만. Basic 은 principal 이 없어 대상을 정할 수 없다.
+                        .requestMatchers(USER_OWNED_PATHS)
+                        .hasRole(APP_USER_ROLE)
+                        // 나머지 읽기는 두 수단 다 받는다 — Swagger 로 명세를 보고, 스모크가 적재를 확인한다.
                         .requestMatchers(HttpMethod.GET, "/**")
                         .authenticated()
                         .requestMatchers(HttpMethod.HEAD, "/**")

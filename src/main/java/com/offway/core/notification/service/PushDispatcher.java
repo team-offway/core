@@ -47,9 +47,9 @@ public class PushDispatcher {
     /**
      * 대상들에게 푸시를 보내고, 죽은 토큰을 걷어낸다.
      *
-     * <p><b>같은 토큰에는 한 번만 보낸다.</b> 앱을 지웠다 깔면 게스트 ID 는 새로 발급되지만 FCM 토큰은
-     * 이어질 수 있어, 같은 기기가 여러 소유자로 등록돼 있을 수 있다(#264 가 유니크 키를 (소유자, 토큰)
-     * 복합으로 둔 대가다). 그대로 두면 같은 기기에 같은 알림이 두 번 간다.
+     * <p><b>같은 토큰에는 한 번만 보낸다.</b> 앱을 지웠다 깔면 기기 등록의 소유 키는 새로 발급되지만 FCM
+     * 토큰은 이어질 수 있어, 같은 기기가 여러 소유자로 등록돼 있을 수 있다(#264 가 유니크 키를 (소유자,
+     * 토큰) 복합으로 둔 대가다). 그대로 두면 같은 기기에 같은 알림이 두 번 간다.
      *
      * @return 실제로 보낸 건수
      */
@@ -111,12 +111,21 @@ public class PushDispatcher {
      *
      * <p>같은 토큰이 여러 소유자로 있으면 가장 최근에 갱신된 등록만 남긴다. 그 등록이 그 기기를 실제로
      * 쓰고 있는 사람일 가능성이 가장 높다.
+     *
+     * <p><b>등록된 기기가 하나도 없는 대상을 센다.</b> 알림은 만들어졌는데 푸시가 안 나간 상태는 로그가
+     * 없으면 아무 흔적을 남기지 않는다 — 앱이 토큰을 안 보낸 것인지, 소유 키가 어긋나 못 찾은 것인지를
+     * 가르려면 이 숫자가 먼저 있어야 한다.
      */
     private List<Delivery> deliveries(List<PushTarget> targets) {
         List<Delivery> deliveries = new ArrayList<>();
         Set<String> seenTokens = new HashSet<>();
+        int withoutDevice = 0;
         for (PushTarget target : targets) {
-            List<DevicePushToken> tokens = new ArrayList<>(devicePushTokenRepository.findByOwner(target.guestId()));
+            List<DevicePushToken> tokens = new ArrayList<>(devicePushTokenRepository.findByOwner(deviceOwner(target)));
+            if (tokens.isEmpty()) {
+                withoutDevice++;
+                continue;
+            }
             tokens.sort(Comparator.comparing(DevicePushToken::getUpdatedAt).reversed());
             for (DevicePushToken token : tokens) {
                 if (seenTokens.add(token.getToken())) {
@@ -124,7 +133,25 @@ public class PushDispatcher {
                 }
             }
         }
+        if (withoutDevice > 0) {
+            log.warn("푸시를 보낼 기기가 없는 대상이 있습니다 — 알림은 목록에만 남습니다 대상={}건", withoutDevice);
+        }
         return deliveries;
+    }
+
+    /**
+     * 알림 소유자(인증된 {@code UUID})를 <b>기기 등록의 소유 키(문자열)</b>로 맞춘다.
+     *
+     * <p>알림·코스·연차의 소유는 {@code user_id} 로 옮겼지만 {@code device_push_token} 은 그 범위 밖이다
+     * (#280) — 거기서 대상은 사람이 아니라 <b>기기</b>라 소유 키가 아직 문자열 칸({@code guest_id})이다.
+     * 두 표현이 만나는 자리가 여기뿐이라 변환을 한곳에 모아 둔다.
+     *
+     * <p><b>기기 등록도 같은 값을 적는다.</b> {@code DeviceController} 가 principal 을 문자열로 넘겨
+     * 저장하므로 이 대응이 성립한다. 등록이 요청 헤더 값을 넣던 시절에는 조회가 0건이 됐고, 그러면
+     * 알림은 만들어지는데 푸시만 조용히 안 갔다 — {@code withoutDevice} 경고가 그 신호다.
+     */
+    private static String deviceOwner(PushTarget target) {
+        return target.userId().toString();
     }
 
     /**

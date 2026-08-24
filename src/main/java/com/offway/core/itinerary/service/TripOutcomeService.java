@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -59,10 +60,10 @@ public class TripOutcomeService {
      *
      * <p>여행 날짜 없이 저장된 코스는 애초에 {@link CourseScope#PAST} 에 들어오지 않는다. 지났는지 알 수 없다.
      */
-    public PendingTrips pending(String guestId) {
+    public PendingTrips pending(UUID userId) {
         // 페이지가 아니라 전부 — 여기서 더 거르므로(끝났나·답했나·차감했나) 잘라 오면 답이 달라진다.
-        MyCourses past = courseStorageService.allCourses(guestId, CourseScope.PAST);
-        Set<Long> answered = tripOutcomeRepository.findAnsweredCourseIds(guestId);
+        MyCourses past = courseStorageService.allCourses(userId, CourseScope.PAST);
+        Set<Long> answered = tripOutcomeRepository.findAnsweredCourseIds(userId);
 
         List<Course> waiting = past.courses().stream()
                 .filter(course -> course.hasEndedBy(past.today()))
@@ -70,7 +71,7 @@ public class TripOutcomeService {
                 .filter(course -> !past.isDeducted(course))
                 .toList();
 
-        Double remaining = myLeaveService.remainingDaysOrNull(guestId);
+        Double remaining = myLeaveService.remainingDaysOrNull(userId);
         if (waiting.isEmpty()) {
             return new PendingTrips(List.of(), Map.of(), Map.of(), remaining);
         }
@@ -85,20 +86,20 @@ public class TripOutcomeService {
      *
      * @return 답한 뒤의 내 연차 — 모달이 상단 "남은 연차" 를 바로 고쳐 그린다
      */
-    public MyLeave answer(String guestId, long courseId, VisitOutcome outcome) {
-        Course course = findOwned(guestId, courseId);
+    public MyLeave answer(UUID userId, long courseId, VisitOutcome outcome) {
+        Course course = findOwned(userId, courseId);
         course.requireTravelDate();
-        requireAnswerable(guestId, course);
+        requireAnswerable(userId, course);
 
         if (outcome.deductsLeave()) {
             // 단위를 여기서 정하지 않는다 — 코스가 만들어질 때 이미 답한 값이다(#284·#288).
             // 모달이 반차를 안 묻는 것은 맞지만, 그게 "종일로 친다" 는 뜻은 아니었다. 물을 필요가 없을 뿐이다.
-            leaveDeductionService.deduct(guestId, courseId, course.startDayLeave());
+            leaveDeductionService.deduct(userId, courseId, course.startDayLeave());
         }
 
         try {
             tripOutcomeRepository.save(
-                    TripOutcome.of(guestId, courseId, outcome, LocalDate.now(CourseStorageService.SERVICE_ZONE)));
+                    TripOutcome.of(userId, courseId, outcome, LocalDate.now(CourseStorageService.SERVICE_ZONE)));
         } catch (DataIntegrityViolationException e) {
             // 모달을 두 번 눌렀다 — 유니크 제약이 두 번째를 막았다. 앞선 답이 이미 남아 있으므로 409 가 맞다.
             log.info("여행 결과 동시 제출 — 먼저 기록된 답을 그대로 둡니다 courseId={}", courseId);
@@ -106,7 +107,7 @@ public class TripOutcomeService {
         }
 
         log.info("여행 결과 기록 courseId={} outcome={}", courseId, outcome);
-        return myLeaveService.myLeave(guestId);
+        return myLeaveService.myLeave(userId);
     }
 
     /**
@@ -122,14 +123,14 @@ public class TripOutcomeService {
      * <p>이미 차감한 코스를 {@code TRIP_ALREADY_ANSWERED} 로 막는 이유 — 내 코스 카드에서 "연차 차감하기" 를
      * 눌렀다면 <b>그게 곧 "다녀왔다" 는 답</b>이다({@link #pending} 이 같은 이유로 걸러낸다).
      */
-    private void requireAnswerable(String guestId, Course course) {
+    private void requireAnswerable(UUID userId, Course course) {
         if (!course.hasEndedBy(LocalDate.now(CourseStorageService.SERVICE_ZONE))) {
             throw ItineraryException.tripNotEnded();
         }
-        if (tripOutcomeRepository.findAnsweredCourseIds(guestId).contains(course.getId())) {
+        if (tripOutcomeRepository.findAnsweredCourseIds(userId).contains(course.getId())) {
             throw ItineraryException.tripAlreadyAnswered();
         }
-        if (myLeaveService.alreadyDeducted(guestId, course.getId())) {
+        if (myLeaveService.alreadyDeducted(userId, course.getId())) {
             throw ItineraryException.tripAlreadyAnswered();
         }
     }
@@ -165,9 +166,9 @@ public class TripOutcomeService {
     }
 
     /** 조회와 같은 규칙 — 없거나 남의 코스면 404. 존재 여부를 알려주지 않으려 403 으로 나누지 않는다. */
-    private Course findOwned(String guestId, long courseId) {
+    private Course findOwned(UUID userId, long courseId) {
         return courseRepository
-                .findByIdAndGuestId(courseId, guestId)
+                .findByIdAndUserId(courseId, userId)
                 .orElseThrow(ItineraryException::courseNotFound);
     }
 }
