@@ -116,6 +116,55 @@ class MyUserIntegrationTest {
     }
 
     @Test
+    void 프로필_사진_주소를_그대로_내려준다() throws Exception {
+        // 앱은 이 값으로 마이 화면 아바타를 그린다. 없으면 기본 아이콘이라, 있을 때 실리는지가 계약이다.
+        String photo = "https://k.kakaocdn.net/dn/abc/profile.jpg";
+        socialIdentityVerifier.respondWithProfileImage(
+                AuthProvider.GOOGLE, "google-photo-1", "세빈", "sevin@example.com", photo);
+        String accessToken = accessTokenFrom(AuthProvider.GOOGLE);
+
+        mockMvc.perform(me(accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.profileImageUrl").value(photo));
+    }
+
+    /**
+     * 사진이 없으면 <b>필드는 실리고 값이 null</b> 이다 — 이메일과 같은 규칙(#308).
+     *
+     * <p>빈 문자열로 채우면 앱이 "없다" 와 "빈 값" 을 구분 못 해 깨진 이미지 자리를 그린다. Apple 로그인이
+     * 늘 이 경로다 — 사진을 아예 주지 않는다.
+     */
+    @Test
+    void 사진이_없으면_필드는_실리고_값이_null_이다() throws Exception {
+        String accessToken = login(AuthProvider.APPLE, "세빈", null);
+
+        mockMvc.perform(me(accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.profileImageUrl").value(nullValue()));
+    }
+
+    /**
+     * <b>이미 가입한 사용자도 다음 로그인에 사진이 채워진다.</b>
+     *
+     * <p>이 필드는 지금 추가되는 것이라 기존 사용자는 전부 비어 있다. 가입 때만 저장하면 그들에게는 영영
+     * 안 보인다 — 다시 가입할 일이 없기 때문이다.
+     */
+    @Test
+    void 기존_사용자도_다시_로그인하면_사진이_채워진다() throws Exception {
+        String subject = "google-backfill-1";
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, subject, "세빈", "sevin@example.com");
+        String beforePhoto = accessTokenFrom(AuthProvider.GOOGLE);
+        mockMvc.perform(me(beforePhoto)).andExpect(jsonPath("$.data.profileImageUrl").value(nullValue()));
+
+        String photo = "https://lh3.googleusercontent.com/a/backfill.jpg";
+        socialIdentityVerifier.respondWithProfileImage(
+                AuthProvider.GOOGLE, subject, "세빈", "sevin@example.com", photo);
+        String afterPhoto = accessTokenFrom(AuthProvider.GOOGLE);
+
+        mockMvc.perform(me(afterPhoto)).andExpect(jsonPath("$.data.profileImageUrl").value(photo));
+    }
+
+    @Test
     void 닉네임이_안_왔으면_기본값이_채워져_있다() throws Exception {
         // nickname 은 화면이 반드시 쓰는 값이라 null 로 내리지 않는다 — 가입 때 기본값이 들어간다.
         String accessToken = login(AuthProvider.APPLE, null, null);
@@ -169,6 +218,11 @@ class MyUserIntegrationTest {
 
     private String login(AuthProvider provider, String nickname, String email) throws Exception {
         socialIdentityVerifier.respondWith(provider, "sub-" + UUID.randomUUID(), nickname, email);
+        return accessTokenFrom(provider);
+    }
+
+    /** stub 신원을 <b>이미 지정한 뒤</b> 로그인만 시킨다 — 같은 사용자로 두 번 로그인하는 경로를 보려면 필요하다. */
+    private String accessTokenFrom(AuthProvider provider) throws Exception {
         String response = mockMvc.perform(post(CALLBACK_URL.formatted(provider.name().toLowerCase()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"accessToken\": \"any-token\"}"))

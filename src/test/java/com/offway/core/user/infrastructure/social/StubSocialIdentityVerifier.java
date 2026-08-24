@@ -37,10 +37,17 @@ public class StubSocialIdentityVerifier implements SocialIdentityVerifier {
         this.behavior = behavior;
     }
 
-    /** 어떤 요청이든 같은 신원으로 검증 성공시킨다. */
+    /** 어떤 요청이든 같은 신원으로 검증 성공시킨다. 사진은 없는 것으로 둔다(Apple 이 늘 그렇다). */
     public void respondWith(AuthProvider provider, String providerUserId, String nickname, String email) {
         this.behavior =
                 (requestedProvider, credential) -> new SocialIdentity(provider, providerUserId, nickname, email);
+    }
+
+    /** 프로필 사진까지 주는 신원(#308) — Google 의 {@code picture} 클레임이 실린 상황이다. */
+    public void respondWithProfileImage(
+            AuthProvider provider, String providerUserId, String nickname, String email, String profileImageUrl) {
+        this.behavior = (requestedProvider, credential) ->
+                new SocialIdentity(provider, providerUserId, nickname, email, null, profileImageUrl);
     }
 
     /**
@@ -52,7 +59,7 @@ public class StubSocialIdentityVerifier implements SocialIdentityVerifier {
     public void respondWithAudience(
             AuthProvider provider, String providerUserId, String nickname, String email, String audience) {
         this.behavior = (requestedProvider, credential) ->
-                new SocialIdentity(provider, providerUserId, nickname, email, audience);
+                new SocialIdentity(provider, providerUserId, nickname, email, audience, null);
     }
 
     @Override
