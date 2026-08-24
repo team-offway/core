@@ -441,6 +441,41 @@ class CoursePlanManagementIntegrationTest {
         list(guest, "UPCOMING").andExpect(jsonPath("$.data.length()").value(0));
     }
 
+    /**
+     * <b>여행 중인 코스는 아직 "다녀온 여행" 이 아니다</b>(#325).
+     *
+     * <p>예전에는 시작일로 갈라서, 2박3일 여행 둘째 날에 그 코스가 이미 PAST 로 넘어갔다. 앱의 칩은
+     * 종료일 기준이라 아직 D-DAY 였고, "다녀오셨나요?" 모달도 종료일 다음 날에 뜬다 — 결국 다녀온 여행
+     * 탭 안에 D-DAY 코스가 이틀간 앉아 있었다.
+     */
+    @Test
+    void 여행_중인_코스는_UPCOMING_에_남는다() throws Exception {
+        noHolidays();
+        String guest = uniqueGuest();
+        // 어제 출발한 1박2일 — 오늘이 마지막 날이라 아직 끝나지 않았다.
+        long ongoing = saveTwoDayCourse(guest, today().minusDays(1));
+
+        list(guest, "UPCOMING")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].courseId").value(ongoing));
+        list(guest, "PAST").andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void 종료일이_지나야_PAST_로_넘어간다() throws Exception {
+        // 경계를 못박는다 — 어제 끝난 여행은 PAST, 오늘 끝나는 여행은 UPCOMING 이다.
+        noHolidays();
+        String guest = uniqueGuest();
+        long ended = saveTwoDayCourse(guest, today().minusDays(2)); // 그저께~어제
+
+        list(guest, "PAST")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].courseId").value(ended));
+        list(guest, "UPCOMING").andExpect(jsonPath("$.data.length()").value(0));
+    }
+
     @Test
     void 다가오는_여행은_가까운_것부터_준다() throws Exception {
         noHolidays();
