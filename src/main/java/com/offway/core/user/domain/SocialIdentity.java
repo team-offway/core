@@ -20,18 +20,30 @@ import java.util.Optional;
  *     비어 있거나 실제 주소가 아닐 수 있다. 계정 매칭에는 쓰지 않는다
  * @param audience 이 토큰이 <b>어느 클라이언트로 발급됐는지</b>(검증된 {@code aud}). ID 토큰을 검증한 provider 만
  *     채운다 — 프로필 API 로 확인하는 Kakao 는 없다
+ * @param profileImageUrl provider 가 준 프로필 사진 주소(#308). <b>Apple 은 주지 않고</b> Kakao 는 동의를
+ *     거부할 수 있어 비어 있을 수 있다
  */
 public record SocialIdentity(
-        AuthProvider provider, String providerUserId, String nickname, String email, String audience) {
+        AuthProvider provider,
+        String providerUserId,
+        String nickname,
+        String email,
+        String audience,
+        String profileImageUrl) {
 
     /**
-     * {@code aud} 를 모르는 provider 용 — Kakao 처럼 ID 토큰을 안 쓰는 쪽이다.
+     * {@code aud} 도 사진도 없는 provider 용 — Apple 이 그렇고, 개발 로그인 stub 도 그렇다.
      *
-     * <p>편의 생성자를 두는 이유는 {@code aud} 가 <b>있는 것이 예외</b>가 아니라 <b>없는 것이 정상</b>인
-     * provider 가 있기 때문이다. 모든 호출부에 {@code null} 을 적게 하면 그 의미가 흐려진다.
+     * <p>편의 생성자를 두는 이유는 그 값들이 <b>있는 것이 예외</b>가 아니라 <b>없는 것이 정상</b>인 provider 가
+     * 있기 때문이다. 모든 호출부에 {@code null} 을 나열하게 하면 그 의미가 흐려진다.
+     *
+     * <p><b>인자 5개짜리 편의 생성자는 두지 않는다.</b> 예전에 {@code (provider, id, nickname, email, audience)}
+     * 형태가 있었는데, 거기에 사진을 받는 같은 arity 를 더하면 <b>기존 호출부가 조용히 뜻이 바뀐다</b> —
+     * audience 로 넘긴 값이 사진 주소로 들어가도 둘 다 String 이라 컴파일이 통과한다. 사진이 필요한 곳은
+     * 정규 생성자를 쓰고 {@code audience} 자리에 무엇을 넣는지 눈으로 보게 한다.
      */
     public SocialIdentity(AuthProvider provider, String providerUserId, String nickname, String email) {
-        this(provider, providerUserId, nickname, email, null);
+        this(provider, providerUserId, nickname, email, null, null);
     }
 
     public SocialIdentity {
@@ -53,6 +65,10 @@ public record SocialIdentity(
 
     public Optional<String> emailIfPresent() {
         return blankToEmpty(email);
+    }
+
+    public Optional<String> profileImageUrlIfPresent() {
+        return blankToEmpty(profileImageUrl);
     }
 
     private static Optional<String> blankToEmpty(String value) {

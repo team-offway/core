@@ -42,6 +42,7 @@ public class MyUserService {
                         .findFirstByUserId(userId)
                         .map(UserIdentity::getProvider)
                         .orElse(null),
+                user.getProfileImageUrl(),
                 user.getCreatedAt());
     }
 }

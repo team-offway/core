@@ -24,6 +24,12 @@ public interface UserApi {
                       그때 앱이 `email` 을 로그인 요청에 실어 보내지 않았다면 서버도 모른다.
                     - `provider` — local 개발 로그인(`/auth/dev-login`)으로 만든 계정은 연결이 없다.
                       운영에서는 항상 값이 있다.
+                    - `profileImageUrl` — **Apple 은 사진을 아예 주지 않는다.** 카카오는 동의를 거부하거나
+                      기본 이미지를 쓰면 없다. 없으면 앱이 기본 아이콘을 그린다.
+
+                    `profileImageUrl` 은 **로그인할 때마다 provider 값으로 갱신**한다. 사진을 바꾸거나
+                    카카오 CDN 주소가 만료돼도 다음 로그인에 따라온다. 주소가 죽어 있으면 앱이 기본 아이콘으로
+                    되돌아가면 된다.
 
                     `nickname` 은 항상 있다. provider 가 이름을 주지 않았으면 가입 때 기본값이 채워진다.
 

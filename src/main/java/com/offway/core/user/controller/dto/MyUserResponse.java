@@ -18,12 +18,15 @@ import java.time.ZoneId;
  * @param nickname 표시 이름. 항상 있다 — 값이 안 왔으면 가입 때 기본값이 채워진다
  * @param email 이메일. 카카오는 동의를 안 하면 없고, Apple 은 최초 로그인에서만 준다
  * @param provider 어느 provider 로 로그인했는지. local 개발 로그인 계정은 없다
+ * @param profileImageUrl 프로필 사진 주소(#308). Apple 은 사진을 주지 않고, Kakao 는 동의를 거부하거나 기본
+ *     이미지를 쓰면 없다. 앱은 없으면 기본 아이콘을 그린다
  * @param joinedAt 가입 시각(KST)
  */
 public record MyUserResponse(
         @Schema(example = "세빈") String nickname,
         @Schema(example = "user@example.com", nullable = true) String email,
         @Schema(example = "GOOGLE", nullable = true) AuthProvider provider,
+        @Schema(example = "https://k.kakaocdn.net/dn/abc/profile.jpg", nullable = true) String profileImageUrl,
         @Schema(example = "2026-08-17T21:30:00") LocalDateTime joinedAt) {
 
     /** 화면에 그대로 쓰는 값이라 서비스 시간대로 바꿔 내린다 — 다른 응답의 시각과 같은 기준이어야 한다. */
@@ -34,6 +37,7 @@ public record MyUserResponse(
                 myUser.nickname(),
                 myUser.email(),
                 myUser.provider(),
+                myUser.profileImageUrl(),
                 LocalDateTime.ofInstant(myUser.joinedAt(), SERVICE_ZONE));
     }
 }

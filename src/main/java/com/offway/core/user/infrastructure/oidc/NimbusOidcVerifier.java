@@ -123,7 +123,12 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
         }
         Jwt jwt = decode(provider, oidc, credential, audiences);
         return new SocialIdentity(
-                provider, jwt.getSubject(), nicknameOf(oidc, jwt), emailOf(jwt), matchedAudience(jwt, audiences));
+                provider,
+                jwt.getSubject(),
+                nicknameOf(oidc, jwt),
+                emailOf(jwt),
+                matchedAudience(jwt, audiences),
+                pictureOf(oidc, jwt));
     }
 
     /**
@@ -288,5 +293,15 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
 
     private static String emailOf(Jwt jwt) {
         return jwt.getClaimAsString(AuthProvider.EMAIL_CLAIM);
+    }
+
+    /**
+     * 프로필 사진 주소(#308) — 이미 검증한 그 토큰에서 꺼낸다.
+     *
+     * <p>사진 때문에 별도 호출을 하지 않는다. Google 은 {@code picture} 클레임을 이미 실어 보내고, Apple 은
+     * 어디서도 주지 않으므로 {@code null} 이 정답이다.
+     */
+    private static String pictureOf(AuthProvider.Oidc oidc, Jwt jwt) {
+        return oidc.pictureClaimIfPresent().map(jwt::getClaimAsString).orElse(null);
     }
 }
