@@ -262,6 +262,13 @@ public class LeaveUsage {
             return null;
         }
         String trimmed = value.strip();
-        return trimmed.length() <= maxLength ? trimmed : trimmed.substring(0, maxLength);
+        // **코드 포인트로 센다.** length()·substring() 은 UTF-16 코드 단위라, 이모지처럼 두 칸을 쓰는
+        // 문자의 한가운데서 자르면 짝 잃은 서로게이트가 남는다 — 그 문자열은 DB 에 들어가서도,
+        // 응답으로 직렬화될 때도 깨진 채 돌아다닌다. 메모는 사용자가 풀어 쓰는 자리라 이모지가 흔하다.
+        int codePoints = trimmed.codePointCount(0, trimmed.length());
+        if (codePoints <= maxLength) {
+            return trimmed;
+        }
+        return trimmed.substring(0, trimmed.offsetByCodePoints(0, maxLength));
     }
 }

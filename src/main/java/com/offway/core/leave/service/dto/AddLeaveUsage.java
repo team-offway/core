@@ -1,6 +1,7 @@
 package com.offway.core.leave.service.dto;
 
 import com.offway.core.leave.domain.StartDayLeave;
+import lombok.Builder;
 import java.time.LocalDate;
 
 /**
@@ -14,6 +15,7 @@ import java.time.LocalDate;
  * @param startDayLeave 첫날에 쓴 연차. 코스 차감에서만 뜻이 있고, 날짜를 고칠 때 차감량을 다시 계산하는
  *     입력이라 함께 남긴다(#170)
  */
+@Builder
 public record AddLeaveUsage(
         LocalDate usedOn,
         double days,
@@ -25,6 +27,13 @@ public record AddLeaveUsage(
     /** 사용자가 직접 남기는 내역 — 첫날 단위 개념이 없어 종일로 둔다. */
     public static AddLeaveUsage manual(
             LocalDate usedOn, double days, String reason, String memo, Long courseId) {
-        return new AddLeaveUsage(usedOn, days, reason, memo, courseId, StartDayLeave.DEFAULT);
+        return AddLeaveUsage.builder()
+                .usedOn(usedOn)
+                .days(days)
+                .reason(reason)
+                .memo(memo)
+                .courseId(courseId)
+                .startDayLeave(StartDayLeave.DEFAULT)
+                .build();
     }
 }

@@ -240,6 +240,22 @@ class LeaveUsageTest {
     }
 
     @Test
+    void 이모지를_반으로_자르지_않는다() {
+        // length()·substring() 은 UTF-16 코드 단위라, 두 칸을 쓰는 문자의 한가운데서 자르면 짝 잃은
+        // 서로게이트가 남는다. 그 문자열은 DB 에서도 응답에서도 깨진 채 돌아다닌다.
+        // 상한 직전까지 채운 뒤 이모지를 걸치게 두면 정확히 그 경계를 밟는다.
+        String memo = "가".repeat(LeaveUsage.MAX_MEMO_LENGTH - 1) + "🎉🎉";
+
+        String stored = LeaveUsage.manual("guest-1", WHEN, 1.0, null, memo).getMemo();
+
+        assertEquals(LeaveUsage.MAX_MEMO_LENGTH, stored.codePointCount(0, stored.length()),
+                "코드 포인트 기준으로 상한만큼 남아야 한다");
+        assertTrue(stored.codePoints().allMatch(Character::isValidCodePoint));
+        assertFalse(Character.isHighSurrogate(stored.charAt(stored.length() - 1)),
+                "마지막 글자가 짝 잃은 상위 서로게이트로 남으면 안 된다");
+    }
+
+    @Test
     void 코스_확정_내역에는_메모가_없다() {
         // 사용자가 쓰는 칸인데 이 행은 서버가 만든다 — 채울 사람이 없다.
         LeaveUsage usage = LeaveUsage.forCourse("guest-1", WHEN, 2.0, "코스 확정", 7L, StartDayLeave.FULL_DAY);

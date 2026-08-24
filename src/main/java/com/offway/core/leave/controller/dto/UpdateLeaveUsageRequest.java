@@ -45,6 +45,11 @@ public record UpdateLeaveUsageRequest(
                 throw LeaveException.invalidLeaveUsageDays();
             }
         }
-        return new UpdateLeaveUsage(usedOn, days, reason, memo);
+        return UpdateLeaveUsage.builder()
+                .usedOn(usedOn)
+                .days(days)
+                .reason(reason)
+                .memo(memo)
+                .build();
     }
 }
