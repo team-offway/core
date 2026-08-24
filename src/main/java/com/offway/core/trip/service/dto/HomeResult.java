@@ -33,6 +33,8 @@ public record HomeResult(
      *
      * @param poiContentId 장소 상세({@code GET /pois/{id}})로 가는 키
      * @param kind 이 장소가 걸린 칩. 앱이 이 값으로 필터를 건다
+     * @param regionId 어느 지역인지(#318). <b>같은 응답의 {@code regions} 중 하나와 반드시 일치한다</b> —
+     *     장소는 그 지역들에서만 뽑기 때문이다
      * @param regionName 어느 지역인지 — 카드가 장소라 지역명을 따로 실어야 한다
      * @param subtitle 장소명 아래 한 줄. <b>없을 수 있다</b> — 재료가 없으면 앱이 그 줄을 접는다
      * @param benefit 그 지역에 걸리는 대표 혜택(없으면 null)
@@ -43,6 +45,7 @@ public record HomeResult(
             String name,
             String imageUrl,
             Category kind,
+            long regionId,
             String regionName,
             String subtitle,
             Benefit benefit) {

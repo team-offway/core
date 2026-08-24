@@ -37,6 +37,9 @@ public record HomeResponse(
      * @param name 장소명. 시안의 제목이 이것이다
      * @param imageUrl 대표 이미지 (없는 장소는 애초에 안 실린다)
      * @param kind 이 장소가 걸린 칩 — 앱이 이 값으로 필터를 건다
+     * @param regionId 지역 ID(#318). 이름만으로는 <b>동명 시군구</b>를 가릴 수 없어 함께 싣는다 —
+     *     동구는 부산·대구·인천에 다 있다. 이 값은 같은 응답의 {@code recommendedRegions} 중 하나와
+     *     반드시 일치하므로, 앱은 시도 표기를 그쪽에서 그대로 가져다 쓸 수 있다
      * @param regionName 시군구명. 카드가 장소라 지역을 따로 싣는다
      * @param subtitle 장소명 아래 한 줄. <b>없으면 null</b> — 앱이 그 줄을 접는다. 재료가 없는 장소가
      *     실제로 있다(캠핑장·레포츠)
@@ -47,6 +50,7 @@ public record HomeResponse(
             @Schema(example = "삼탄아트마인") String name,
             @Schema(example = "http://tong.visitkorea.or.kr/cms/resource/…") String imageUrl,
             @Schema(example = "SIGHT") Category kind,
+            @Schema(example = "76") long regionId,
             @Schema(example = "정선군") String regionName,
             @Schema(example = "폐광촌에서 다시 태어난 마을", nullable = true) String subtitle,
             @Schema(nullable = true) Benefit benefit) {
@@ -57,6 +61,7 @@ public record HomeResponse(
                     card.name(),
                     card.imageUrl(),
                     card.kind(),
+                    card.regionId(),
                     card.regionName(),
                     card.subtitle(),
                     card.benefit() == null ? null : Benefit.from(card.benefit()));
