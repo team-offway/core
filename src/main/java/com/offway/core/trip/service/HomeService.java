@@ -159,6 +159,9 @@ public class HomeService {
                 .name(poi.getTitle())
                 .imageUrl(poi.getImageUrl())
                 .kind(kind)
+                // 지역명과 달리 id 는 장소가 직접 들고 있어 마스터 조회에 기대지 않는다. 장소를 애초에
+                // 상위 지역들에서만 뽑으므로, 이 값은 같은 응답의 지역 카드 중 하나와 늘 일치한다.
+                .regionId(poi.getRegionId())
                 .regionName(region == null ? null : region.getSigungu())
                 .subtitle(subtitle)
                 .benefit(matched.isEmpty() ? null : toBenefit(matched.get(0)))

@@ -1,11 +1,14 @@
 package com.offway.core.trip.controller;
 
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.datalab.StubTourDataLabClient;
 import com.offway.core.trip.infrastructure.datalab.TourDataLabClient;
@@ -201,7 +204,36 @@ class HomeIntegrationTest {
                         .value(org.hamcrest.Matchers.hasItem("FOOD")))
                 // 카드가 장소라 지역명을 따로 싣는다.
                 .andExpect(jsonPath("$.data.recommendedPlaces[?(@.poiContentId=='" + food + "')].regionName")
-                        .value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.notNullValue())));
+                        .value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.notNullValue())))
+                // 이름만으로는 동명 시군구(부산·대구·인천 동구)를 가릴 수 없어 id 를 함께 싣는다(#318).
+                .andExpect(jsonPath("$.data.recommendedPlaces[?(@.poiContentId=='" + food + "')].regionId")
+                        .value(org.hamcrest.Matchers.hasItem((int) regionId)));
+    }
+
+    /**
+     * 장소 카드의 {@code regionId} 는 <b>같은 응답의 지역 카드 중 하나와 반드시 일치한다</b>(#318).
+     *
+     * <p>앱이 시도 표기를 그쪽에서 가져다 쓰는 것이 이 필드를 넣은 이유다. 두 섹션이 어긋나면 앱은
+     * 짝을 못 찾아 예전처럼 시도를 비우게 되고, 그러면 필드를 넣은 값어치가 사라진다.
+     *
+     * <p>장소를 애초에 상위 지역들에서만 뽑기 때문에 성립하는 성질이다 — 그 전제가 깨지면 여기서 잡힌다.
+     */
+    @Test
+    void 장소_카드의_지역은_같은_응답의_지역_카드_중_하나다() throws Exception {
+        long regionId = anyRegionId();
+        regionPoiRepository.replaceRegion(regionId, List.of(poi(regionId, "home-pair-1", Category.SIGHT, "이중섭거리")));
+
+        String body = mockMvc.perform(get(URL).header("X-Guest-Id", GUEST))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        List<Integer> placeRegionIds = JsonPath.read(body, "$.data.recommendedPlaces[*].regionId");
+        List<Integer> cardRegionIds = JsonPath.read(body, "$.data.recommendedRegions[*].regionId");
+        assertFalse(placeRegionIds.isEmpty(), "장소 카드가 비면 이 성질을 검증할 수 없다");
+        assertTrue(cardRegionIds.containsAll(placeRegionIds),
+                "장소 카드의 지역이 지역 카드에 없다: places=%s regions=%s".formatted(placeRegionIds, cardRegionIds));
     }
 
     /**
