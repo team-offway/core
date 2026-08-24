@@ -52,16 +52,6 @@ class DeviceIntegrationTest {
 
     private static final String URL = "/api/v1/devices";
     /**
-     * 소유자를 명시해야 하는 시나리오의 고정 사용자.
-     *
-     * <p><b>시나리오마다 다른 값을 쓴다.</b> 이 클래스는 DB 를 롤백하지 않아, 둘이 같은 사용자를 쓰면
-     * 앞 테스트가 등록한 기기가 뒤 테스트의 건수에 섞인다 — 실제로 그렇게 한 번 깨졌다.
-     */
-    private static final String ACTOR = "00000264-0000-4000-8000-000000000001";
-
-    /** 헤더를 무시하는지 보는 시나리오의 고정 사용자 — 위와 겹치면 안 된다. */
-    private static final String HEADER_IGNORED_ACTOR = "00000264-0000-4000-8000-000000000002";
-
     /** {@code SecurityConfig} 가 요구하는 권한 — {@code WithLoginUserSecurityContextFactory} 와 같은 값이다. */
     private static final String APP_USER_AUTHORITY = "ROLE_USER";
 
@@ -107,14 +97,15 @@ class DeviceIntegrationTest {
      * 예전에는 등록이 헤더 값을 넣어 <b>발송이 한 대도 못 찾았다.</b>
      */
     @Test
-    @WithLoginUser(ACTOR)
     void 로그인한_사용자를_기기의_주인으로_저장한다() throws Exception {
-        mockMvc.perform(post(URL)
+        String actor = owner("device-actor");
+
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(actor)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(uniqueToken(), "IOS")))
                 .andExpect(status().isOk());
 
-        assertEquals(1, devicePushTokenRepository.findByOwner(ACTOR).size(),
+        assertEquals(1, devicePushTokenRepository.findByOwner(actor).size(),
                 "푸시 발송이 이 키로 기기를 찾는다");
     }
 
@@ -304,17 +295,17 @@ class DeviceIntegrationTest {
      * 기기가 됐다. 이제 그 입력 자체가 없다 — 헤더를 실어 보내도 서버가 안 읽는다.
      */
     @Test
-    @WithLoginUser(HEADER_IGNORED_ACTOR)
     void 헤더로_소유자를_바꿔_보내도_로그인한_사용자로_저장된다() throws Exception {
+        String actor = owner("device-header-ignored");
         String other = owner("device-someone-else");
 
-        mockMvc.perform(post(URL)
+        mockMvc.perform(post(URL).with(loginAs(UUID.fromString(actor)))
                         .header("X-Guest-Id", other)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(uniqueToken(), "IOS")))
                 .andExpect(status().isOk());
 
-        assertEquals(1, devicePushTokenRepository.findByOwner(HEADER_IGNORED_ACTOR).size(),
+        assertEquals(1, devicePushTokenRepository.findByOwner(actor).size(),
                 "로그인한 사용자로 저장돼야 한다 — 푸시 발송이 이 값으로 찾는다");
         assertTrue(devicePushTokenRepository.findByOwner(other).isEmpty(),
                 "헤더에 적은 남의 값으로는 저장되지 않는다");

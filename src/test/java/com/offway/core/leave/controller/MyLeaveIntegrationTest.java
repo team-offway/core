@@ -45,9 +45,13 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * 다른 문자열을 붙였는데, 이제는 {@code @WithLoginUser} 가 넣은 access 토큰 principal(UUID)이 주인이다 —
  * 그래서 어느 요청에도 소유 키 헤더가 없다.
  *
- * <p>클래스 레벨에 주인을 두지 않는다. 값을 비운 {@code @WithLoginUser} 는 <b>테스트마다 새 UUID</b> 라,
- * 이 클래스가 DB 를 롤백하지 않아도(공유 컨텍스트) 앞 테스트의 잔여 상태가 다음 시나리오로 새어 들지 않는다.
- * 주인을 고정해야 하는 시나리오(옛 데이터를 직접 심는 것·소유자 격리)만 값을 적는다.
+ * <p><b>주인은 어디에도 고정하지 않는다.</b> 값을 비운 {@code @WithLoginUser} 는 테스트마다 새 UUID 이고,
+ * 그것으로 부족한 시나리오(옛 데이터를 SQL 로 심는 것·소유자 격리)는 <b>본문에서</b> {@code UUID.randomUUID()}
+ * 로 주인을 만들어 요청마다 실어 보낸다.
+ *
+ * <p>이 클래스는 DB 를 롤백하지 않는다(공유 컨텍스트). 그래서 고정 UUID 를 쓰면 <b>같은 DB 로 두 번째로
+ * 돌릴 때</b> 앞 실행의 행이 남아 "내역이 하나뿐"·"음수 행 2건" 같은 전제가 깨진다. 지금은 Testcontainers 가
+ * 실행마다 새 MySQL 을 띄워 드러나지 않지만, 원인을 남겨 둘 이유가 없다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -55,12 +59,6 @@ class MyLeaveIntegrationTest {
 
     private static final String URL = "/api/v1/leaves/me";
     private static final String USAGES_URL = URL + "/usages";
-
-    /** 옛 데이터를 SQL 로 심는 시나리오 — 심을 때와 읽을 때가 같은 주인이어야 해서 값을 고정한다. */
-    private static final String LEGACY_OWNER = "11111111-1111-1111-1111-111111111111";
-
-    /** 소유자 격리 시나리오의 주인. 상대편은 매번 새 UUID 라 따로 고정하지 않는다. */
-    private static final String OWNER = "22222222-2222-2222-2222-222222222222";
 
     /** {@code SecurityConfig} 가 소유 데이터 경로에 요구하는 권한 — {@code WithLoginUser} 와 같은 값이다. */
     private static final String USER_AUTHORITY = "ROLE_USER";
@@ -80,6 +78,25 @@ class MyLeaveIntegrationTest {
 
     private ResultActions setTotalDays(double totalDays) throws Exception {
         return mockMvc.perform(patch(URL)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"totalDays\": " + totalDays + "}"));
+    }
+
+    /**
+     * 주인을 본문에서 만든 시나리오용 오버로드 — 요청마다 그 주인을 실어 보낸다.
+     *
+     * <p>{@code @WithLoginUser} 는 어노테이션이라 값이 컴파일 상수여야 해서, 본문에서 만든 UUID 를 쓸 수 없다.
+     */
+    private ResultActions addUsage(RequestPostProcessor login, String body) throws Exception {
+        return mockMvc.perform(post(USAGES_URL)
+                .with(login)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
+    }
+
+    private ResultActions setTotalDays(RequestPostProcessor login, double totalDays) throws Exception {
+        return mockMvc.perform(patch(URL)
+                .with(login)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"totalDays\": " + totalDays + "}"));
     }
@@ -284,10 +301,14 @@ class MyLeaveIntegrationTest {
     }
 
     @Test
-    @WithLoginUser(OWNER)
     void 남의_내역은_지울_수_없고_없는_것과_같은_404다() throws Exception {
+        // 주인을 본문에서 만든다 — onlyUsageId 가 "이 사람에게 내역이 하나뿐" 을 전제하는데, 고정 UUID 면
+        // 같은 DB 를 재사용해 두 번째로 돌릴 때 앞 실행의 행이 남아 그 전제가 깨진다.
+        UUID owner = UUID.randomUUID();
+        RequestPostProcessor login = loginAs(owner);
+
         // 403 으로 나눠 답하면 id 를 넣어보며 "이 번호는 있다" 를 알아낼 수 있다 — 코스 조회와 같은 규칙이다.
-        String created = addUsage("{\"usedOn\": \"2026-05-08\", \"days\": 1}")
+        String created = addUsage(login, "{\"usedOn\": \"2026-05-08\", \"days\": 1}")
                 .andExpect(status().isCreated())
                 .andReturn()
                 .getResponse()
@@ -300,7 +321,7 @@ class MyLeaveIntegrationTest {
                 .andExpect(jsonPath("$.code").value("LEAVE-012"));
 
         // 주인의 내역은 그대로 남아 있다.
-        mockMvc.perform(get(URL))
+        mockMvc.perform(get(URL).with(login))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usages.length()").value(1));
     }
@@ -316,15 +337,19 @@ class MyLeaveIntegrationTest {
      * (하이드레이션은 생성자를 거치지 않는다).
      */
     @Test
-    @WithLoginUser(LEGACY_OWNER)
     void 이미_쌓인_음수_행은_목록에_보이고_사용자가_지워_정리할_수_있다() throws Exception {
-        setTotalDays(15).andExpect(status().isOk());
-        addUsage("{\"usedOn\": \"2026-05-08\", \"days\": 2}").andExpect(status().isCreated());
-        // 삭제 API 가 없던 시절의 상쇄 등록 — 같은 취소가 두 번 들어와 원장 합이 -2 가 된 그 장부다.
-        insertLegacyReversal(UUID.fromString(LEGACY_OWNER), -2.0);
-        insertLegacyReversal(UUID.fromString(LEGACY_OWNER), -2.0);
+        // 심을 때와 읽을 때가 같은 주인이면 되고, 그 주인이 <b>이 실행에만</b> 속하면 된다. 고정 UUID 로 두면
+        // 같은 DB 를 재사용해 두 번째로 돌릴 때 앞 실행의 음수 행이 남아 "3건" 단언이 깨진다.
+        UUID owner = UUID.randomUUID();
+        RequestPostProcessor login = loginAs(owner);
 
-        String found = mockMvc.perform(get(URL))
+        setTotalDays(login, 15).andExpect(status().isOk());
+        addUsage(login, "{\"usedOn\": \"2026-05-08\", \"days\": 2}").andExpect(status().isCreated());
+        // 삭제 API 가 없던 시절의 상쇄 등록 — 같은 취소가 두 번 들어와 원장 합이 -2 가 된 그 장부다.
+        insertLegacyReversal(owner, -2.0);
+        insertLegacyReversal(owner, -2.0);
+
+        String found = mockMvc.perform(get(URL).with(login))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(0.0))
                 .andExpect(jsonPath("$.data.remainingDays").value(15.0)) // 17 이 아니다
@@ -336,11 +361,12 @@ class MyLeaveIntegrationTest {
         assertEquals(2, negativeIds.size(), "음수 행은 감춰지지 않고 목록에 그대로 나간다");
 
         for (Integer id : negativeIds) {
-            mockMvc.perform(delete(USAGES_URL + "/{id}", id.longValue())).andExpect(status().isOk());
+            mockMvc.perform(delete(USAGES_URL + "/{id}", id.longValue()).with(login))
+                    .andExpect(status().isOk());
         }
 
         // 정리하고 나면 clamp 가 가리고 있던 값과 실제 장부가 같아진다.
-        mockMvc.perform(get(URL))
+        mockMvc.perform(get(URL).with(login))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.usedDays").value(2.0))
                 .andExpect(jsonPath("$.data.remainingDays").value(13.0))
@@ -390,9 +416,11 @@ class MyLeaveIntegrationTest {
      * 알아내면 그만이었다. 이제 주인은 access 토큰이 정하므로 다른 사용자는 남의 연차에 닿을 길이 없다.
      */
     @Test
-    @WithLoginUser(OWNER)
     void 다른_사용자에게는_내_연차가_보이지_않는다() throws Exception {
-        setTotalDays(20).andExpect(status().isOk());
+        // 두 주인이 서로 다르기만 하면 되는 시나리오라 둘 다 본문에서 만든다.
+        RequestPostProcessor mine = loginAs(UUID.randomUUID());
+
+        setTotalDays(mine, 20).andExpect(status().isOk());
 
         mockMvc.perform(get(URL).with(loginAs(UUID.randomUUID())))
                 .andExpect(status().isOk())
@@ -400,7 +428,9 @@ class MyLeaveIntegrationTest {
                 .andExpect(jsonPath("$.data.usages.length()").value(0));
 
         // 내 값은 그대로다 — 남이 조회했다고 달라지지 않는다.
-        mockMvc.perform(get(URL)).andExpect(status().isOk()).andExpect(jsonPath("$.data.totalDays").value(20.0));
+        mockMvc.perform(get(URL).with(mine))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalDays").value(20.0));
     }
 
     @Test

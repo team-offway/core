@@ -59,28 +59,6 @@ class NotificationIntegrationTest {
     private static final String READ_URL = URL + "/{notificationId}/read";
     private static final String READ_ALL_URL = URL + "/read-all";
 
-    /**
-     * 시나리오별 소유자.
-     *
-     * <p>{@code @WithLoginUser} 의 값은 어노테이션 인자라 컴파일 상수여야 한다 — 그래서 랜덤이 아니라
-     * 고정 UUID 를 시나리오마다 하나씩 둔다. 마지막 두 자리가 시나리오 번호다.
-     */
-    private static final String ORDER_OWNER = "00000263-0000-4000-8000-000000000002";
-
-    private static final String PAGED_OWNER = "00000263-0000-4000-8000-000000000003";
-
-    private static final String TIEBREAK_OWNER = "00000263-0000-4000-8000-000000000004";
-
-    private static final String READ_ONE_OWNER = "00000263-0000-4000-8000-000000000005";
-
-    private static final String STRANGER = "00000263-0000-4000-8000-000000000006";
-
-    private static final String READ_ALL_OWNER = "00000263-0000-4000-8000-000000000007";
-
-    private static final String MINE_OWNER = "00000263-0000-4000-8000-000000000008";
-
-    private static final String NATIVE_INSERT_OWNER = "00000263-0000-4000-8000-000000000009";
-
     private static final LocalDateTime BASE_TIME = LocalDateTime.of(2026, 8, 13, 9, 0);
 
     /**
@@ -107,6 +85,23 @@ class NotificationIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /**
+     * 이 실행에만 속하는 주인.
+     *
+     * <p>예전에는 시나리오마다 고정 UUID 상수를 뒀다. {@code @WithLoginUser} 에 값을 적으려면 컴파일
+     * 상수여야 하기 때문인데, 이 클래스는 <b>DB 를 롤백하지 않아</b> 같은 DB 로 두 번째로 돌리면 앞
+     * 실행의 알림이 남아 건수 단언이 깨진다. 어노테이션을 떼고 본문에서 만든 주인을 요청마다 실어
+     * 보내면 그 결합이 사라진다.
+     */
+    private static String newOwner() {
+        return UUID.randomUUID().toString();
+    }
+
+    /** 그 주인으로 로그인한 요청을 만든다 — {@code @WithLoginUser} 를 대신한다. */
+    private static RequestPostProcessor as(String owner) {
+        return loginAs(UUID.fromString(owner));
+    }
+
     private Notification given(String owner, Long courseId, int minutesAfterBase) {
         return notificationRepository.save(Notification.builder()
                 .userId(UUID.fromString(owner))
@@ -132,13 +127,13 @@ class NotificationIntegrationTest {
     }
 
     @Test
-    @WithLoginUser(ORDER_OWNER)
     void 목록은_최신순이고_type과_courseId를_싣는다() throws Exception {
-        given(ORDER_OWNER, 11L, 0);
-        given(ORDER_OWNER, null, 10);
-        Notification newest = given(ORDER_OWNER, 12L, 20);
+        String owner = newOwner();
+        given(owner, 11L, 0);
+        given(owner, null, 10);
+        Notification newest = given(owner, 12L, 20);
 
-        mockMvc.perform(get(URL))
+        mockMvc.perform(get(URL).with(as(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.notifications.length()").value(3))
@@ -152,14 +147,14 @@ class NotificationIntegrationTest {
     }
 
     @Test
-    @WithLoginUser(PAGED_OWNER)
     void 안읽음_수는_페이지가_아니라_전체를_센다() throws Exception {
+        String owner = newOwner();
         // 배지가 쓰는 값이라 페이지 안에서 세면 첫 페이지 크기에서 멈춘다.
-        given(PAGED_OWNER, 1L, 0);
-        given(PAGED_OWNER, 2L, 10);
-        given(PAGED_OWNER, 3L, 20);
+        given(owner, 1L, 0);
+        given(owner, 2L, 10);
+        given(owner, 3L, 20);
 
-        mockMvc.perform(get(URL).param("page", "0").param("size", "1"))
+        mockMvc.perform(get(URL).with(as(owner)).param("page", "0").param("size", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.notifications.length()").value(1))
                 .andExpect(jsonPath("$.data.unreadCount").value(3))
@@ -170,8 +165,8 @@ class NotificationIntegrationTest {
     }
 
     @Test
-    @WithLoginUser(TIEBREAK_OWNER)
     void 같은_시각_알림도_페이지_경계에서_겹치거나_빠지지_않는다() throws Exception {
+        String owner = newOwner();
         // 여행 전날 배치는 여러 건을 같은 시각으로 넣는다. createdAt 이 같은 행들이 페이지 경계에서
         // 겹치거나 빠지지 않는지 — 페이지를 이어 붙인 결과가 넣은 것과 정확히 같은지로 확인한다.
         //
@@ -182,12 +177,13 @@ class NotificationIntegrationTest {
         // 그래도 이 테스트는 남긴다 — 페이지네이션 계약(최신순·중복·누락)은 여기서만 회귀를 잡는다.
         List<Long> saved = new ArrayList<>();
         for (int i = 0; i < 5; i++) {
-            saved.add(given(TIEBREAK_OWNER, (long) i, 0).getId());
+            saved.add(given(owner, (long) i, 0).getId());
         }
 
         List<Long> pagedThrough = new ArrayList<>();
         for (int page = 0; page < 3; page++) {
-            String body = mockMvc.perform(get(URL).param("page", String.valueOf(page)).param("size", "2"))
+            String body = mockMvc.perform(
+                            get(URL).with(as(owner)).param("page", String.valueOf(page)).param("size", "2"))
                     .andExpect(status().isOk())
                     .andReturn()
                     .getResponse()
@@ -203,23 +199,23 @@ class NotificationIntegrationTest {
     }
 
     @Test
-    @WithLoginUser(READ_ONE_OWNER)
     void 하나_읽으면_안읽음이_줄고_다시_읽어도_성공한다() throws Exception {
-        Notification target = given(READ_ONE_OWNER, 5L, 0);
-        given(READ_ONE_OWNER, 6L, 10);
+        String owner = newOwner();
+        Notification target = given(owner, 5L, 0);
+        given(owner, 6L, 10);
 
-        mockMvc.perform(patch(READ_URL, target.getId()))
+        mockMvc.perform(patch(READ_URL, target.getId()).with(as(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.unreadCount").value(1));
 
         // 두 번째 요청도 성공이다 — 사용자가 원한 상태가 이미 이뤄져 있고, 개수도 더 줄지 않는다.
-        mockMvc.perform(patch(READ_URL, target.getId()))
+        mockMvc.perform(patch(READ_URL, target.getId()).with(as(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.unreadCount").value(1));
 
-        mockMvc.perform(get(URL))
+        mockMvc.perform(get(URL).with(as(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.notifications[1].read").value(true))
                 .andExpect(jsonPath("$.data.unreadCount").value(1));
@@ -234,49 +230,49 @@ class NotificationIntegrationTest {
      * 바꿔야</b> 다른 사람이 되고, 그 값은 요청이 정할 수 없다.
      */
     @Test
-    @WithLoginUser(STRANGER)
     void 남의_알림은_없는_알림과_똑같이_404다() throws Exception {
-        String owner = "00000263-0000-4000-8000-00000000000a";
+        String stranger = newOwner();
+        String owner = newOwner();
         Notification othersNotification = given(owner, 7L, 0);
 
-        mockMvc.perform(patch(READ_URL, othersNotification.getId()))
+        mockMvc.perform(patch(READ_URL, othersNotification.getId()).with(as(stranger)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.code").value("NOTIFICATION-002"))
                 .andExpect(jsonPath("$.detail").value("요청한 알림을 찾을 수 없습니다."))
                 .andExpect(jsonPath("$.data").doesNotExist());
 
-        mockMvc.perform(patch(READ_URL, 999_999_999L))
+        mockMvc.perform(patch(READ_URL, 999_999_999L).with(as(stranger)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOTIFICATION-002"));
 
         // 남의 목록에도 보이지 않는다. 그리고 그대로 안 읽음이어야 한다 — 404 를 준 뒤 조용히 고쳐놓으면 최악이다.
-        mockMvc.perform(get(URL))
+        mockMvc.perform(get(URL).with(as(stranger)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.notifications.length()").value(0));
-        mockMvc.perform(get(URL).with(loginAs(UUID.fromString(owner))))
+        mockMvc.perform(get(URL).with(as(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.unreadCount").value(1));
     }
 
     @Test
-    @WithLoginUser(READ_ALL_OWNER)
     void 전체_읽음은_읽을_것이_없어도_성공한다() throws Exception {
-        given(READ_ALL_OWNER, 1L, 0);
-        given(READ_ALL_OWNER, 2L, 10);
-        given(READ_ALL_OWNER, 3L, 20);
+        String owner = newOwner();
+        given(owner, 1L, 0);
+        given(owner, 2L, 10);
+        given(owner, 3L, 20);
 
-        mockMvc.perform(post(READ_ALL_URL))
+        mockMvc.perform(post(READ_ALL_URL).with(as(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.unreadCount").value(0));
 
-        mockMvc.perform(post(READ_ALL_URL))
+        mockMvc.perform(post(READ_ALL_URL).with(as(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.unreadCount").value(0));
 
-        mockMvc.perform(get(URL))
+        mockMvc.perform(get(URL).with(as(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.notifications[0].read").value(true))
                 .andExpect(jsonPath("$.data.notifications[2].read").value(true))
@@ -284,17 +280,17 @@ class NotificationIntegrationTest {
     }
 
     @Test
-    @WithLoginUser(MINE_OWNER)
     void 전체_읽음은_남의_알림을_건드리지_않는다() throws Exception {
-        String yours = "00000263-0000-4000-8000-00000000000b";
-        given(MINE_OWNER, 1L, 0);
+        String mine = newOwner();
+        String yours = newOwner();
+        given(mine, 1L, 0);
         given(yours, 2L, 0);
 
-        mockMvc.perform(post(READ_ALL_URL))
+        mockMvc.perform(post(READ_ALL_URL).with(as(mine)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.unreadCount").value(0));
 
-        mockMvc.perform(get(URL).with(loginAs(UUID.fromString(yours))))
+        mockMvc.perform(get(URL).with(as(yours)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.unreadCount").value(1));
     }
@@ -332,9 +328,9 @@ class NotificationIntegrationTest {
      * 같은 UUID 로 되읽는가({@code BIN_TO_UUID}) ③ HTTP 목록에 실려 나가는가.
      */
     @Test
-    @WithLoginUser(NATIVE_INSERT_OWNER)
     void 배치가_native로_넣은_알림이_내_목록에_그대로_보인다() throws Exception {
-        UUID owner = UUID.fromString(NATIVE_INSERT_OWNER);
+        String ownerId = newOwner();
+        UUID owner = UUID.fromString(ownerId);
         long courseId = 280_001L;
 
         boolean created = notificationRepository.saveIfAbsent(Notification.builder()
@@ -351,13 +347,18 @@ class NotificationIntegrationTest {
                 notificationRepository.findByOwner(owner, PageRequest.of(0, 10)).getTotalElements(),
                 "native 로 넣은 알림을 JPA 조회가 못 찾는다 — 두 경로의 BINARY(16) 표현이 다르다");
         // ② MySQL 이 그 바이트를 같은 UUID 로 되읽는다. 바이트 순서가 뒤집혔다면 여기서 다른 값이 나온다.
+        // 주인으로도 좁힌다 — courseId 만으로 찾으면 같은 DB 로 다시 돌릴 때 앞 실행의 행까지 걸려
+        // queryForObject 가 "행이 둘" 로 터진다.
         assertEquals(
-                NATIVE_INSERT_OWNER,
+                ownerId,
                 jdbcTemplate.queryForObject(
-                        "SELECT BIN_TO_UUID(user_id) FROM notification WHERE course_id = ?", String.class, courseId));
+                        "SELECT BIN_TO_UUID(user_id) FROM notification WHERE course_id = ? AND user_id = UUID_TO_BIN(?)",
+                        String.class,
+                        courseId,
+                        ownerId));
 
         // ③ 그리고 실제로 화면에 실려 나간다.
-        mockMvc.perform(get(URL))
+        mockMvc.perform(get(URL).with(as(ownerId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.notifications.length()").value(1))
                 .andExpect(jsonPath("$.data.notifications[0].courseId").value((int) courseId))
