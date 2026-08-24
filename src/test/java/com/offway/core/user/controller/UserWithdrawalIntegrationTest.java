@@ -544,7 +544,7 @@ class UserWithdrawalIntegrationTest {
 
     private void seedLeave(String guestId) {
         leaveBalanceJpaRepository.save(LeaveBalance.of(guestId, 15.0));
-        leaveUsageJpaRepository.save(LeaveUsage.manual(guestId, LocalDate.now(), 1.0, "테스트"));
+        leaveUsageJpaRepository.save(LeaveUsage.manual(guestId, LocalDate.now(), 1.0, "테스트", null));
     }
 
     /** access 토큰(JWT) payload 의 sub 이 사용자 식별자다. */

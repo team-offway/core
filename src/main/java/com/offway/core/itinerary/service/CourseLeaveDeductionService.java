@@ -63,7 +63,9 @@ public class CourseLeaveDeductionService {
         try {
             MyLeave after = myLeaveService.addUsage(
                     guestId,
-                    new AddLeaveUsage(course.getTravelDate(), days, DEDUCTION_REASON, courseId, startDayLeave));
+                    // 메모는 없다(#319) — 사용자가 쓰는 칸이고, 이 행은 서버가 만든다.
+                    new AddLeaveUsage(
+                            course.getTravelDate(), days, DEDUCTION_REASON, null, courseId, startDayLeave));
             log.info("코스 연차 차감 courseId={} days={} 남은={}", courseId, days, after.summary().remainingDays());
             return after;
         } catch (DataIntegrityViolationException e) {

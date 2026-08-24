@@ -30,8 +30,16 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class LeaveUsage {
 
-    /** 사유 최대 길이 — 화면에 한 줄로 보이는 짧은 메모다. */
+    /** 사유 최대 길이 — 화면에 한 줄로 보이는 짧은 라벨이다. */
     public static final int MAX_REASON_LENGTH = 100;
+
+    /**
+     * 상세 메모 최대 길이(#319) — <b>사유와 별개 칸</b>이다.
+     *
+     * <p>화면에 사유와 상세 메모 입력이 따로 있어, 한 칸에 몰면 둘 중 하나는 담을 자리가 없다.
+     * 사유보다 길게 잡는다 — 사유는 한 줄 라벨에 가깝고 메모는 사용자가 풀어 쓰는 자리다.
+     */
+    public static final int MAX_MEMO_LENGTH = 500;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -55,6 +63,10 @@ public class LeaveUsage {
 
     @Column(length = MAX_REASON_LENGTH)
     private String reason;
+
+    /** 사용자가 풀어 쓰는 상세 메모(#319). 사유와 다른 칸이다. 코스 확정 내역에는 없다(서버가 만든 행이다). */
+    @Column(length = MAX_MEMO_LENGTH)
+    private String memo;
 
     /** 이 내역을 만든 코스 (수동 입력이면 null). 중복 차감 방지의 키다. */
     @Column(name = "course_id")
@@ -91,12 +103,14 @@ public class LeaveUsage {
             LocalDate usedOn,
             double days,
             String reason,
+            String memo,
             Long courseId,
             StartDayLeave startDayLeave) {
         this.guestId = Objects.requireNonNull(guestId, "guestId 는 null 일 수 없습니다.");
         this.usedOn = Objects.requireNonNull(usedOn, "usedOn 은 null 일 수 없습니다.");
         this.days = requireDays(days, courseId);
-        this.reason = trimReason(reason);
+        this.reason = trimText(reason, MAX_REASON_LENGTH);
+        this.memo = trimText(memo, MAX_MEMO_LENGTH);
         this.courseId = courseId;
         this.startDayLeave = startDayLeave;
         // 전환기 동안 예전 컬럼도 채운다. 반반차는 예전 계약으로 표현할 수 없어 반차로 내려앉는데,
@@ -104,9 +118,9 @@ public class LeaveUsage {
         this.halfDayStart = startDayLeave == null ? null : !startDayLeave.isFullDay();
     }
 
-    /** 사용자가 직접 남기는 내역. */
-    public static LeaveUsage manual(String guestId, LocalDate usedOn, double days, String reason) {
-        return new LeaveUsage(guestId, usedOn, days, reason, null, null);
+    /** 사용자가 직접 남기는 내역. 메모는 이 경로에만 있다 — 코스 확정 행은 서버가 만든다. */
+    public static LeaveUsage manual(String guestId, LocalDate usedOn, double days, String reason, String memo) {
+        return new LeaveUsage(guestId, usedOn, days, reason, memo, null, null);
     }
 
     /**
@@ -122,7 +136,7 @@ public class LeaveUsage {
             long courseId,
             StartDayLeave startDayLeave) {
         return new LeaveUsage(
-                guestId, usedOn, days, reason, courseId, Objects.requireNonNull(startDayLeave, "startDayLeave"));
+                guestId, usedOn, days, reason, null, courseId, Objects.requireNonNull(startDayLeave, "startDayLeave"));
     }
 
     /**
@@ -169,8 +183,8 @@ public class LeaveUsage {
      * 있는 필드는 여기 없다 — 날짜와 일수는 지울 수 있는 값이 아니고(지우려면 내역을 삭제한다), 사유는
      * 아래처럼 빈 문자열로 지울 수 있다.
      *
-     * <p><b>사유는 빈 문자열로 지운다.</b> {@code reason: ""} 을 보내면 {@link #trimReason} 이 null 로 만들어
-     * 메모가 사라진다. "안 보냈다"(그대로 두기)와 "지워라" 를 가르는 신호가 필요한데, 이 방식이 wrapper 없이
+     * <p><b>사유·메모는 빈 문자열로 지운다.</b> {@code reason: ""} 을 보내면 {@link #trimText} 가 null 로
+     * 만들어 그 값이 사라진다. 메모도 같은 규칙이다. "안 보냈다"(그대로 두기)와 "지워라" 를 가르는 신호가 필요한데, 이 방식이 wrapper 없이
      * 그 둘을 나누는 유일한 값이다.
      *
      * <p>검증은 등록과 같은 규칙을 탄다 — 같은 값에 계약이 두 개면 화면이 어느 쪽을 따를지 알 수 없다.
@@ -179,8 +193,9 @@ public class LeaveUsage {
      * @param usedOn 새 사용일. null 이면 그대로
      * @param days 새 일수. null 이면 그대로
      * @param reason 새 사유. null 이면 그대로, 빈 문자열이면 지운다
+     * @param memo 새 상세 메모. null 이면 그대로, 빈 문자열이면 지운다
      */
-    public void edit(LocalDate usedOn, Double days, String reason) {
+    public void edit(LocalDate usedOn, Double days, String reason, String memo) {
         // 검증을 먼저 끝내고 대입한다 — 중간에 거절되면 날짜만 바뀐 반쪽 상태가 남는다.
         double editedDays = days == null ? this.days : requireDays(days, courseId);
         if (usedOn != null) {
@@ -188,7 +203,10 @@ public class LeaveUsage {
         }
         this.days = editedDays;
         if (reason != null) {
-            this.reason = trimReason(reason);
+            this.reason = trimText(reason, MAX_REASON_LENGTH);
+        }
+        if (memo != null) {
+            this.memo = trimText(memo, MAX_MEMO_LENGTH);
         }
     }
 
@@ -234,12 +252,16 @@ public class LeaveUsage {
         return days;
     }
 
-    /** 길이를 넘으면 자른다 — 사유는 부가 정보라 요청을 400 으로 되돌릴 만큼은 아니다. */
-    private static String trimReason(String reason) {
-        if (reason == null || reason.isBlank()) {
+    /**
+     * 길이를 넘으면 자른다 — 사유·메모는 부가 정보라 요청을 400 으로 되돌릴 만큼은 아니다.
+     *
+     * <p>빈 문자열·공백만 있는 값은 null 이 된다. 수정에서 "지운다" 를 표현하는 신호가 이것이다({@link #edit}).
+     */
+    private static String trimText(String value, int maxLength) {
+        if (value == null || value.isBlank()) {
             return null;
         }
-        String trimmed = reason.strip();
-        return trimmed.length() <= MAX_REASON_LENGTH ? trimmed : trimmed.substring(0, MAX_REASON_LENGTH);
+        String trimmed = value.strip();
+        return trimmed.length() <= maxLength ? trimmed : trimmed.substring(0, maxLength);
     }
 }

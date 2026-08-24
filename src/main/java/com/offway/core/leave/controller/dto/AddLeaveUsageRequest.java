@@ -12,7 +12,8 @@ import java.time.LocalDate;
  *
  * @param usedOn 연차를 쓴 날 (필수)
  * @param days 쓴 일수 (필수, 0.25 단위 <b>양수</b>). 되돌리려면 등록이 아니라 삭제다(#265 의 삭제 API, #276)
- * @param reason 사유 (선택)
+ * @param reason 사유 (선택) — 한 줄 라벨
+ * @param memo 상세 메모 (선택, #319). 사유와 <b>다른 칸</b>이라 한쪽이 다른 쪽을 덮지 않는다
  * @param courseId 이 내역을 만든 코스 (선택 — 수동 입력이면 생략)
  */
 public record AddLeaveUsageRequest(
@@ -22,7 +23,9 @@ public record AddLeaveUsageRequest(
                         example = "1.0",
                         requiredMode = Schema.RequiredMode.REQUIRED)
                 @NotNull Double days,
-        @Schema(description = "사유 (선택)", example = "제주 여행") String reason,
+        @Schema(description = "사유 (선택). 한 줄 라벨", example = "제주 여행") String reason,
+        @Schema(description = "상세 메모 (선택). 사유와 다른 칸이다", example = "숙소 체크인 15시, 렌터카 예약 완료")
+                String memo,
         @Schema(description = "코스 ID (선택)", example = "12") Long courseId) {
 
     /**
@@ -37,6 +40,6 @@ public record AddLeaveUsageRequest(
         if (!LeaveDays.isValidUsage(days)) {
             throw LeaveException.invalidLeaveUsageDays();
         }
-        return AddLeaveUsage.manual(usedOn, days, reason, courseId);
+        return AddLeaveUsage.manual(usedOn, days, reason, memo, courseId);
     }
 }

@@ -10,5 +10,6 @@ import java.time.LocalDate;
  * @param usedOn 새 사용일. null 이면 그대로
  * @param days 새 일수(0.25 단위 양수). null 이면 그대로
  * @param reason 새 사유. null 이면 그대로, 빈 문자열이면 지운다
+ * @param memo 새 상세 메모. null 이면 그대로, 빈 문자열이면 지운다
  */
-public record UpdateLeaveUsage(LocalDate usedOn, Double days, String reason) {}
+public record UpdateLeaveUsage(LocalDate usedOn, Double days, String reason, String memo) {}

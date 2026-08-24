@@ -88,7 +88,7 @@ public class MyLeaveService {
     public MyLeave addUsage(String guestId, AddLeaveUsage command) {
         String owner = requireOwner(guestId);
         LeaveUsage usage = command.courseId() == null
-                ? LeaveUsage.manual(owner, command.usedOn(), command.days(), command.reason())
+                ? LeaveUsage.manual(owner, command.usedOn(), command.days(), command.reason(), command.memo())
                 : LeaveUsage.forCourse(
                         owner,
                         command.usedOn(),
@@ -145,7 +145,7 @@ public class MyLeaveService {
                 .findByIdAndGuestId(usageId, owner)
                 .orElseThrow(LeaveException::leaveUsageNotFound);
         usage.requireManuallyManaged();
-        usage.edit(command.usedOn(), command.days(), command.reason());
+        usage.edit(command.usedOn(), command.days(), command.reason(), command.memo());
         MyLeave after = myLeave(owner);
         log.info("연차 사용내역 수정 usageId={} days={} 남은={}",
                 usageId, usage.getDays(), after.summary().remainingDays());

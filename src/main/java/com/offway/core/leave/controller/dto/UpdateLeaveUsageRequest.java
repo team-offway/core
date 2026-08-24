@@ -19,12 +19,15 @@ import java.time.LocalDate;
  * @param usedOn 새 사용일 (선택)
  * @param days 새 일수 (선택, 0.25 단위 양수)
  * @param reason 새 사유 (선택). 빈 문자열이면 사유를 지운다
+ * @param memo 새 상세 메모 (선택, #319). 빈 문자열이면 메모를 지운다
  */
 public record UpdateLeaveUsageRequest(
         @Schema(description = "새 사용일. 안 보내면 그대로", example = "2026-05-08") LocalDate usedOn,
         @Schema(description = "새 일수 (0.25 단위 양수). 안 보내면 그대로", example = "1.5") Double days,
         @Schema(description = "새 사유. 안 보내면 그대로, 빈 문자열이면 지운다", example = "제주 여행")
-                String reason) {
+                String reason,
+        @Schema(description = "새 상세 메모. 안 보내면 그대로, 빈 문자열이면 지운다", example = "숙소 변경됨")
+                String memo) {
 
     /**
      * 값 계약을 검증하고 커맨드로 바꾼다.
@@ -42,6 +45,6 @@ public record UpdateLeaveUsageRequest(
                 throw LeaveException.invalidLeaveUsageDays();
             }
         }
-        return new UpdateLeaveUsage(usedOn, days, reason);
+        return new UpdateLeaveUsage(usedOn, days, reason, memo);
     }
 }
