@@ -25,6 +25,7 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalDouble;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,7 +36,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 코스 저장·조회(#33) — 생성된 코스를 게스트의 "내 코스"로 영속화하고 다시 꺼낸다. 혜택은 저장하지 않고 조회 시점에 정책 매칭으로
+ * 코스 저장·조회(#33) — 생성된 코스를 사용자의 "내 코스"로 영속화하고 다시 꺼낸다. 혜택은 저장하지 않고 조회 시점에 정책 매칭으로
  * 다시 붙인다(저장 코스가 정책 변경에 뒤처지지 않게). 애그리거트 저장이라 외부 호출 없이 짧은 트랜잭션.
  */
 @Slf4j
@@ -60,7 +61,7 @@ public class CourseStorageService {
     private final TrainAccessService trainAccessService;
     private final RegionImageProvider regionImageProvider;
 
-    /** 이미 조립된 게스트 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
+    /** 이미 조립된 사용자 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
     public GeneratedCourse save(Course course) {
         // 저장만 트랜잭션 안에서 한다(별도 빈이라 프록시를 탄다) — 조회 경로(get)와 같은 모양이다.
         //
@@ -178,7 +179,7 @@ public class CourseStorageService {
     }
 
     /**
-     * 게스트의 저장 코스 <b>한 페이지</b> — 보는 범위({@link CourseScope})에 따라 다가오는 여행 · 지난 여행 · 전부.
+     * 사용자의 저장 코스 <b>한 페이지</b> — 보는 범위({@link CourseScope})에 따라 다가오는 여행 · 지난 여행 · 전부.
      *
      * <p>어느 코스를 연차 차감했는지 함께 준다. 화면이 "확정함" 을 표시하려면 필요한데, <b>코스마다 물으면 코스 수만큼
      * 쿼리가 늘어난다</b> — 한 번에 모아 온다.
@@ -187,14 +188,14 @@ public class CourseStorageService {
      * 끌고 오므로, 코스가 쌓이면 목록 요청 한 번이 수백~수천 행을 힙에 올린다. 기본값·상한은 {@link Paging} 이 소유한다.
      */
     @Transactional(readOnly = true)
-    public MyCourses myCourses(String guestId, CourseScope scope, Integer page, Integer size) {
+    public MyCourses myCourses(UUID userId, CourseScope scope, Integer page, Integer size) {
         LocalDate today = LocalDate.now(SERVICE_ZONE);
-        Page<Course> found = scope.find(courseRepository, guestId, today, Paging.of(page, size));
+        Page<Course> found = scope.find(courseRepository, userId, today, Paging.of(page, size));
         List<Course> courses = found.getContent();
         courses.forEach(Course::totalSlots); // 응답 직렬화는 tx 밖 — 애그리거트(days·slots)를 여기서 초기화
         return MyCourses.from(
                 found,
-                myLeaveService.deductedCourseIds(guestId),
+                myLeaveService.deductedCourseIds(userId),
                 regionNamesOf(courses),
                 // 카드 사진은 코스가 아니라 지역의 것이다(#313). 관광 데이터를 소유한 도메인이 고른다 —
                 // 지역 카드와 같은 사진이어야 하므로 그 규칙을 여기서 다시 구현하지 않는다.
@@ -209,26 +210,26 @@ public class CourseStorageService {
      * <p>응답으로 그대로 나가는 길이 아니다. 화면에 내리는 목록은 {@link #myCourses} 로 페이지를 끊는다.
      */
     @Transactional(readOnly = true)
-    public MyCourses allCourses(String guestId, CourseScope scope) {
+    public MyCourses allCourses(UUID userId, CourseScope scope) {
         LocalDate today = LocalDate.now(SERVICE_ZONE);
-        List<Course> courses = scope.find(courseRepository, guestId, today);
+        List<Course> courses = scope.find(courseRepository, userId, today);
         courses.forEach(Course::totalSlots);
-        return MyCourses.all(courses, myLeaveService.deductedCourseIds(guestId), regionNamesOf(courses), today);
+        return MyCourses.all(courses, myLeaveService.deductedCourseIds(userId), regionNamesOf(courses), today);
     }
 
     /**
-     * 게스트 소유의 저장 코스 상세(혜택 포함). 소유자 범위로만 조회해 남의 코스를 ID 만으로 볼 수 없게 한다. 없거나 소유자가
+     * 사용자 소유의 저장 코스 상세(혜택 포함). 소유자 범위로만 조회해 남의 코스를 ID 만으로 볼 수 없게 한다. 없거나 소유자가
      * 아니면 존재 여부를 흘리지 않도록 똑같이 404.
      */
-    public OwnedCourse get(String guestId, long courseId) {
+    public OwnedCourse get(UUID userId, long courseId) {
         // 로딩만 트랜잭션 안에서 한다(별도 빈이라 프록시를 탄다). 날씨는 외부 호출이라 밖에서 붙인다(#169).
-        Course course = coursePersistenceService.loadOwned(guestId, courseId);
+        Course course = coursePersistenceService.loadOwned(userId, courseId);
         // 공유 토큰을 상세에도 싣는다(#259). 저장 응답에만 실어 두니, 그 응답을 놓친 코스는 영영 공유할 수
         // 없었다 — 앱을 다시 깔거나 기기를 바꾸면 이전 코스가 전부 그랬다.
         //
         // **여기서 발급까지 한다.** 없는 것을 null 로 두면 #143 이전에 저장된 코스가 그대로 공유 불가로 남는다.
         // 조회가 쓰기를 하는 셈이지만, 코스당 한 번뿐이고 두 번째부터는 있는 것을 읽어 준다.
-        return owned(guestId, courseId, withBenefits(course, true).withShareToken(shareTokenOrNull(course.getId())));
+        return owned(userId, courseId, withBenefits(course, true).withShareToken(shareTokenOrNull(course.getId())));
     }
 
     /**
@@ -240,8 +241,8 @@ public class CourseStorageService {
      * <p>차감한 적 없으면 {@code null} 이다 — 0 과 구분해야 한다. 차감량 0 은 "확정했고 깎을 평일이
      * 없었다" 는 뜻이라 차감하지 않은 것과 다르다(#212).
      */
-    private OwnedCourse owned(String guestId, long courseId, GeneratedCourse course) {
-        return new OwnedCourse(course, myLeaveService.courseDeduction(guestId, courseId).orElse(null));
+    private OwnedCourse owned(UUID userId, long courseId, GeneratedCourse course) {
+        return new OwnedCourse(course, myLeaveService.courseDeduction(userId, courseId).orElse(null));
     }
 
     /**
@@ -257,20 +258,20 @@ public class CourseStorageService {
      * <p>지난 날짜 거절을 <b>계산 전에</b> 한 번 더 한다. 어차피 400 으로 돌려보낼 요청 때문에 외부 API 를
      * 부를 이유가 없다. 규칙 자체는 {@link Course#requireChangeableTo} 하나뿐이라 두 자리가 갈리지 않는다.
      */
-    public OwnedCourse changeTravelDate(String guestId, long courseId, LocalDate travelDate) {
+    public OwnedCourse changeTravelDate(UUID userId, long courseId, LocalDate travelDate) {
         Course.requireChangeableTo(travelDate, LocalDate.now(SERVICE_ZONE));
-        Course course = coursePersistenceService.loadOwned(guestId, courseId);
+        Course course = coursePersistenceService.loadOwned(userId, courseId);
         OptionalDouble recalculated = courseLeaveDeductionService.recalculateFor(course, travelDate);
         Double deductionDays = recalculated.isPresent() ? recalculated.getAsDouble() : null;
-        Course updated = coursePersistenceService.applyTravelDate(guestId, courseId, travelDate, deductionDays);
+        Course updated = coursePersistenceService.applyTravelDate(userId, courseId, travelDate, deductionDays);
 
         // 새 날짜의 도착 시각으로 첫날을 다시 판정한다(#214). 열차는 이미 새 날짜로 조회되는데 그 시각으로
         // 내린 일정 판단은 저장된 옛것이라, 그대로 두면 도착 전 시간에 일정이 잡힌 코스가 남는다.
         Region region = regionOf(updated);
         TrainAccess trainAccess = trainAccessFor(updated, region);
-        FirstDayChange change = realignFirstDay(guestId, courseId, updated, travelDate, trainAccess);
+        FirstDayChange change = realignFirstDay(userId, courseId, updated, travelDate, trainAccess);
         Course finalCourse = change == FirstDayChange.TRIMMED
-                ? coursePersistenceService.loadOwned(guestId, courseId) // 걷어낸 결과로 다시 읽는다
+                ? coursePersistenceService.loadOwned(userId, courseId) // 걷어낸 결과로 다시 읽는다
                 : updated;
 
         // 상세 조회와 같은 모양으로 돌려준다 — 화면이 날짜·날씨·요일을 새 날짜 기준으로 다시 그려야 한다.
@@ -279,7 +280,7 @@ public class CourseStorageService {
         // 차감 정보도 함께 싣는다(#317) — 방금 다시 계산한 값이라, 여기서 빼면 화면이 새 날짜와 옛 차감량을
         // 나란히 보여주게 된다.
         return owned(
-                guestId,
+                userId,
                 courseId,
                 assemble(finalCourse, region, trainAccess)
                         .withShareToken(shareTokenOrNull(courseId))
@@ -295,7 +296,7 @@ public class CourseStorageService {
      * @return 뒤집힘이 없었으면 null
      */
     private FirstDayChange realignFirstDay(
-            String guestId, long courseId, Course course, LocalDate travelDate, TrainAccess trainAccess) {
+            UUID userId, long courseId, Course course, LocalDate travelDate, TrainAccess trainAccess) {
         if (trainAccess == null) {
             return null; // 자차·출발지 없음 — 애초에 첫날 판단이 없다
         }
@@ -307,7 +308,7 @@ public class CourseStorageService {
             // 첫날이 비어 있는데 이제 쓸 수 있다 — 하루를 통째로 버리고 있다는 뜻이다.
             return start.equals(DayStart.none()) ? null : FirstDayChange.FILLABLE;
         }
-        int removed = coursePersistenceService.realignFirstDay(guestId, courseId, start);
+        int removed = coursePersistenceService.realignFirstDay(userId, courseId, start);
         if (removed == 0) {
             return null;
         }
@@ -345,7 +346,7 @@ public class CourseStorageService {
     }
 
     /**
-     * 게스트 소유의 저장 코스를 지운다.
+     * 사용자 소유의 저장 코스를 지운다.
      *
      * <p>조회와 <b>같은 규칙</b>이다 — 없거나 남의 코스면 똑같이 404 다. 403 으로 나누면 "그 ID 는 존재하는데 네 것이
      * 아니다" 를 알려주는 셈이라, ID 를 훑어 남의 코스 존재를 확인할 수 있다.
@@ -356,9 +357,9 @@ public class CourseStorageService {
      * <p><b>이 메서드에 트랜잭션을 걸지 않는다.</b> 동시 삭제 충돌은 flush·commit 시점에 드러나므로 같은 트랜잭션
      * 안에서는 잡을 수 없다 — {@link CoursePersistenceService} 가 커밋까지 끝낸 뒤 결과를 여기서 받는다.
      */
-    public void delete(String guestId, long courseId) {
+    public void delete(UUID userId, long courseId) {
         try {
-            coursePersistenceService.deleteOwned(guestId, courseId);
+            coursePersistenceService.deleteOwned(userId, courseId);
         } catch (OptimisticLockingFailureException e) {
             // 남이 먼저 지웠다. "없다" 가 정확한 답이고, 순차 재삭제(두 번째 요청)와 같은 계약이 된다.
             throw ItineraryException.courseNotFound();

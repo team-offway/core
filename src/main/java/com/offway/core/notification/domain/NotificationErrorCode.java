@@ -10,7 +10,13 @@ import com.offway.core.common.exception.ErrorCode;
  */
 public enum NotificationErrorCode implements ErrorCode {
 
-    /** 소유 키(게스트 ID) 가 비었거나 너무 길다. 빈 헤더는 {@code @RequestHeader} 를 통과하므로 정상 요청이 닿는다. */
+    /**
+     * <b>더 이상 던지지 않는다</b>(#280). 소유 키가 요청 헤더({@code X-Guest-Id})이던 시절, 빈 헤더가
+     * {@code @RequestHeader} 를 통과해 정상 요청으로 닿던 자리였다. 지금 소유자는 인증에서 온 UUID 라
+     * 형식이 이미 보장돼 검증할 것이 없다.
+     *
+     * <p>상수는 남긴다 — 번호가 append-only 라 지우면 뒤 번호가 당겨질 여지가 생긴다.
+     */
     INVALID_OWNER_ID("NOTIFICATION-001", ErrorCategory.BAD_REQUEST, "게스트 식별자가 올바르지 않습니다."),
 
     /**

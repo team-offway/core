@@ -45,12 +45,15 @@ public record SocialLoginRequest(
                         nullable = true)
                 String authorizationCode) {
 
-    /**
-     * @param guestId 이 기기의 게스트 키(#34). 본문이 아니라 헤더로 온다 — 코스·연차가 쓰는 그 값과 같은 것이라
-     *     계약을 둘로 만들지 않는다. 안 보내는 클라이언트도 있어 null 일 수 있다
-     */
-    public SocialLoginCommand toCommand(String provider, String guestId) {
-        return new SocialLoginCommand(
-                AuthProvider.from(provider), accessToken, name, email, guestId, authorizationCode);
+    public SocialLoginCommand toCommand(String provider) {
+        // 이름을 적어 넘긴다 — 이 record 는 email·name 순인데 커맨드는 nickname·email 순이라
+        // 위치 인수로는 둘이 뒤바뀌어도 컴파일이 통과한다.
+        return SocialLoginCommand.builder()
+                .provider(AuthProvider.from(provider))
+                .credential(accessToken)
+                .nickname(name)
+                .email(email)
+                .authorizationCode(authorizationCode)
+                .build();
     }
 }

@@ -22,6 +22,7 @@ import jakarta.validation.constraints.Positive;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.Function;
 
 /**
@@ -69,10 +70,10 @@ public record CourseSaveRequest(
                 StartDayLeave startDayLeave,
         @NotEmpty List<@Valid Day> days) {
 
-    /** 게스트 소유의 도메인 코스로 변환한다 — 예외 번역은 {@link #build} 가 소유한다. */
-    public Course toCourse(String guestId) {
+    /** 인증된 사용자 소유의 도메인 코스로 변환한다 — 예외 번역은 {@link #build} 가 소유한다. */
+    public Course toCourse(UUID userId) {
         return build(origin -> Course.ownedBy(
-                guestId, regionId, density, transport, schedules(), travelDate, span(), origin,
+                userId, regionId, density, transport, schedules(), travelDate, span(), origin,
                 startDayLeaveOrFullDay()));
     }
 
@@ -100,7 +101,7 @@ public record CourseSaveRequest(
 
     /**
      * 출발지를 확정하고 도메인 팩토리를 부른다 — Bean Validation 이 못 잡는 도메인 불변식(일차·슬롯 순서
-     * 연속성, 게스트 ID 규칙 등)은 도메인이 던지고, 여기서 계약 예외(400)로 번역한다. 입력 경계가 계약 검증을
+     * 연속성 등)은 도메인이 던지고, 여기서 계약 예외(400)로 번역한다. 입력 경계가 계약 검증을
      * 소유하므로 이 매핑에서 400 을 확정한다.
      */
     private Course build(Function<Coordinate, Course> factory) {

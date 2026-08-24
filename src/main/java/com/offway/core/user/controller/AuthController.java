@@ -12,7 +12,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,9 +19,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class AuthController implements AuthApi {
-
-    /** 코스·연차가 쓰는 그 헤더다(#34). 로그인할 때 이 기기를 사용자에게 이어 두려고 함께 받는다. */
-    private static final String GUEST_ID_HEADER = "X-Guest-Id";
 
     private final AuthService authService;
 
@@ -35,10 +31,8 @@ public class AuthController implements AuthApi {
     @Override
     @PostMapping("/callback/{provider}")
     public ApiResponseBody<TokenResponse> callback(
-            @PathVariable String provider,
-            @RequestHeader(value = GUEST_ID_HEADER, required = false) String guestId,
-            @Valid @RequestBody SocialLoginRequest request) {
-        return ApiResponseBody.ok(TokenResponse.from(authService.login(request.toCommand(provider, guestId))));
+            @PathVariable String provider, @Valid @RequestBody SocialLoginRequest request) {
+        return ApiResponseBody.ok(TokenResponse.from(authService.login(request.toCommand(provider))));
     }
 
     @Override

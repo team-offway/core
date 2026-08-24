@@ -10,6 +10,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
 import java.util.Objects;
+import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -30,8 +33,9 @@ public class TripOutcome {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "guest_id", nullable = false, length = 64)
-    private String guestId;
+    @JdbcTypeCode(SqlTypes.BINARY)
+    @Column(name = "user_id", nullable = false, columnDefinition = "BINARY(16)")
+    private UUID userId;
 
     @Column(name = "course_id", nullable = false)
     private Long courseId;
@@ -44,23 +48,15 @@ public class TripOutcome {
     @Column(name = "answered_on", nullable = false)
     private LocalDate answeredOn;
 
-    private TripOutcome(String guestId, Long courseId, VisitOutcome outcome, LocalDate answeredOn) {
-        this.guestId = requireGuestId(guestId);
+    private TripOutcome(UUID userId, Long courseId, VisitOutcome outcome, LocalDate answeredOn) {
+        this.userId = Objects.requireNonNull(userId, "사용자 ID는 필수입니다");
         this.courseId = Objects.requireNonNull(courseId, "코스 ID는 필수입니다");
         this.outcome = Objects.requireNonNull(outcome, "여행 결과는 필수입니다");
         this.answeredOn = Objects.requireNonNull(answeredOn, "답한 날짜는 필수입니다");
     }
 
     /** 입력에서 곧바로 도출되는 값이라 빌더가 아니라 팩토리다(조립이면 빌더, 계산이면 팩토리). */
-    public static TripOutcome of(String guestId, long courseId, VisitOutcome outcome, LocalDate answeredOn) {
-        return new TripOutcome(guestId, courseId, outcome, answeredOn);
-    }
-
-    private static String requireGuestId(String guestId) {
-        Objects.requireNonNull(guestId, "게스트 ID는 필수입니다");
-        if (guestId.isBlank()) {
-            throw new IllegalArgumentException("게스트 ID는 비어 있을 수 없습니다");
-        }
-        return guestId;
+    public static TripOutcome of(UUID userId, long courseId, VisitOutcome outcome, LocalDate answeredOn) {
+        return new TripOutcome(userId, courseId, outcome, answeredOn);
     }
 }

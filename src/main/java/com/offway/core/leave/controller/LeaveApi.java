@@ -13,12 +13,22 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.time.LocalDate;
+import java.util.UUID;
 
 /**
  * 연차·가용시간 API 문서 계약. 매핑·검증 어노테이션은 구현체({@link LeaveController})가 소유한다.
  *
- * <p>여기 엔드포인트는 전부 인증 게이트 뒤에 있다({@code anyRequest().authenticated()}, #122) — 그래서 어느
- * 메서드든 401 이 도달 가능하고, 전수 문서화 대상이다. 한 메서드에만 적으면 나머지가 공개로 읽힌다.
+ * <p>여기 엔드포인트는 전부 인증 게이트 뒤에 있어(#122) 어느 메서드든 401 이 도달 가능하고, 전수 문서화
+ * 대상이다. 한 메서드에만 적으면 나머지가 공개로 읽힌다.
+ *
+ * <p><b>다만 요구하는 인증의 종류가 갈린다</b>(#280). {@code /me} 계열은 소유자가 있는 데이터라
+ * {@code ROLE_USER} 를 요구하고({@code SecurityConfig.USER_OWNED_PATHS}), 나머지(가용시간·샌드위치)는
+ * 계산만 하므로 인증되기만 하면 된다. 그래서 <b>{@code /me} 계열만 403 이 도달 가능하다</b> — 팀·Swagger·
+ * 스모크가 쓰는 Basic 자격증명으로 부르면 인증은 통과하지만 역할이 없어 거기서 끊긴다.
+ *
+ * <p><b>"내 연차" 의 주인은 access 토큰이 정한다</b>(#280). 예전에는 {@code X-Guest-Id} 헤더가 소유자였는데,
+ * 서버가 검증할 수 없는 문자열이라 그 값을 아는 것만으로 남의 연차를 읽고 지울 수 있었다. 이제 소유 키를 요청이
+ * 정하지 않으므로 <b>그 헤더는 보내지 않는다</b>(보내도 무시된다) — 헤더 형식 때문에 400 이 나던 사유도 함께 사라졌다.
  */
 @Tag(name = "연차", description = "연차 기반 가용시간(LNT)·샌드위치 연휴·내 연차")
 public interface LeaveApi {
@@ -27,10 +37,9 @@ public interface LeaveApi {
             summary = "내 연차 조회",
             description = "총 연차·쓴 연차·남은 연차와 사용 내역. 아직 설정한 적이 없으면 총 0·내역 없음으로 답한다(404 아님).")
     @ApiResponse(responseCode = "200", description = "조회 성공")
-    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락 · 헤더가 비었거나 64자 초과")
     @ApiResponse(responseCode = "401", description = "인증 필요")
-    ApiResponseBody<MyLeaveResponse> myLeave(
-            @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId);
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
+    ApiResponseBody<MyLeaveResponse> myLeave(UUID userId);
 
     @Operation(
             summary = "내 연차 수정",
@@ -38,11 +47,10 @@ public interface LeaveApi {
     @ApiResponse(responseCode = "200", description = "수정 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · totalDays 누락 · 0.25 단위가 아니거나 0~99 범위 밖")
+            description = "totalDays 누락 · 0.25 단위가 아니거나 0~99 범위 밖")
     @ApiResponse(responseCode = "401", description = "인증 필요")
-    ApiResponseBody<MyLeaveResponse> updateMyLeave(
-            @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
-            UpdateMyLeaveRequest request);
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
+    ApiResponseBody<MyLeaveResponse> updateMyLeave(UUID userId, UpdateMyLeaveRequest request);
 
     @Operation(
             summary = "연차 사용 내역 추가",
@@ -66,12 +74,11 @@ public interface LeaveApi {
     @ApiResponse(responseCode = "201", description = "추가 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usedOn·days 누락 또는 형식 오류 · "
+            description = "usedOn·days 누락 또는 형식 오류 · "
                     + "days 가 0 이거나 0.25 단위가 아니거나 99 초과(LEAVE-010) · days 가 음수(LEAVE-013)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
-    ApiResponseBody<MyLeaveResponse> addLeaveUsage(
-            @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
-            AddLeaveUsageRequest request);
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
+    ApiResponseBody<MyLeaveResponse> addLeaveUsage(UUID userId, AddLeaveUsageRequest request);
 
     @Operation(
             summary = "연차 사용 내역 수정",
@@ -96,13 +103,14 @@ public interface LeaveApi {
     @ApiResponse(responseCode = "200", description = "수정 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usageId 가 숫자가 아님 · usedOn 날짜 형식 오류 · "
+            description = "usageId 가 숫자가 아님 · usedOn 날짜 형식 오류 · "
                     + "days 가 0 이거나 0.25 단위가 아니거나 99 초과(LEAVE-010) · days 가 음수(LEAVE-013)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "그 내역이 없거나 다른 소유자의 것")
     @ApiResponse(responseCode = "409", description = "코스 확정으로 기록된 내역이라 연차 화면에서 고칠 수 없음")
     ApiResponseBody<MyLeaveResponse> updateLeaveUsage(
-            @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
+            UUID userId,
             @Parameter(description = "고칠 사용 내역 ID", example = "42") long usageId,
             UpdateLeaveUsageRequest request);
 
@@ -117,13 +125,13 @@ public interface LeaveApi {
 
                     없는 내역과 남의 내역을 같은 404 로 답한다 — 번호를 넣어보며 존재 여부를 알아낼 수 없게 한다.""")
     @ApiResponse(responseCode = "200", description = "삭제 성공")
-    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·빈 값·64자 초과 · usageId 가 숫자가 아님")
+    @ApiResponse(responseCode = "400", description = "usageId 가 숫자가 아님")
     @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "그 내역이 없거나 다른 소유자의 것")
     @ApiResponse(responseCode = "409", description = "코스 확정으로 기록된 내역이라 연차 화면에서 지울 수 없음")
     ApiResponseBody<MyLeaveResponse> deleteLeaveUsage(
-            @Parameter(description = "소유 키 헤더", example = "guest-abc123") String guestId,
-            @Parameter(description = "지울 사용 내역 ID", example = "42") long usageId);
+            UUID userId, @Parameter(description = "지울 사용 내역 ID", example = "42") long usageId);
 
     @Operation(
             summary = "가용 시간(LNT) 산출",
@@ -143,6 +151,8 @@ public interface LeaveApi {
                     + "CONNECTED 인데 연차 일수 누락 또는 2~3 범위 밖"
                     + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
+    // 소유 데이터는 아니지만 쓰기(POST)라 역할을 요구한다 — Basic 은 여기서 403 이다.
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 쓰기에는 역할이 필요")
     @ApiResponse(responseCode = "502", description = "공휴일 정보(특일정보) 조회 실패")
     ApiResponseBody<AvailableTimeResponse> availableTime(AvailableTimeRequest request);
 

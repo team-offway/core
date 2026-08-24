@@ -22,6 +22,8 @@ public interface CourseGenerateApi {
             responseCode = "400",
             description = "지역 누락 · 일수 범위(1~3) 초과 · 좌표 범위 초과 · 필수값 누락"
                     + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "해당 지역으로 만들 수 있는 코스가 없음(볼거리 부족)")
     @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")
     ApiResponseBody<CourseResponse> generate(CourseGenerateRequest request);
@@ -48,6 +50,8 @@ public interface CourseGenerateApi {
             responseCode = "400",
             description = "지역 누락 · 일수 범위(1~3) 초과 · 좌표 범위 초과 · 필수값 누락"
                     + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "해당 지역으로 만들 수 있는 코스가 없음 (제외한 장소가 많아 볼거리가 남지 않은 경우 포함)")
     @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")
     ApiResponseBody<CourseRegenerateResponse> regenerate(CourseRegenerateRequest request);

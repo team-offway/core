@@ -15,6 +15,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
+import java.util.UUID;
 
 /** 코스 저장·조회 API 문서 계약. 매핑은 구현체({@link CourseStorageController})가 소유한다. */
 @Tag(name = "내 코스", description = "코스 저장 · 내 코스 목록·상세")
@@ -24,7 +25,7 @@ public interface CourseStorageApi {
             summary = "코스 저장",
             description =
                     """
-                    생성한 코스를 게스트의 '내 코스'로 저장한다.
+                    생성한 코스를 로그인한 사용자의 '내 코스'로 저장한다.
 
                     응답에 `shareToken` 이 함께 실린다(#143). 공유 URL 은 `/c/{shareToken}` 이고,
                     받은 사람은 `GET /api/v1/public/courses/{shareToken}` 으로 인증 없이 볼 수 있다.
@@ -33,10 +34,11 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "201", description = "저장 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "게스트 ID 누락 · 코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음"
+            description = "코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음"
                     + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
-    ApiResponseBody<CourseResponse> save(
-            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId, CourseSaveRequest request);
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
+    ApiResponseBody<CourseResponse> save(UUID userId, CourseSaveRequest request);
 
     @Operation(
             summary = "공유 링크만 발급 (내 코스에 담지 않음)",
@@ -46,8 +48,8 @@ public interface CourseStorageApi {
                     응답은 `shareToken` 하나다. 공유 URL 은 `/c/{shareToken}` 이고, 받은 사람은
                     `GET /api/v1/public/courses/{shareToken}` 으로 인증 없이 볼 수 있다.
 
-                    **내 코스 목록·상세에 나오지 않는다.** 담은 것이 아니므로 주인 없이 보관하며, 그래서
-                    `X-Guest-Id` 도 받지 않는다. 담으려면 저장 API 를 따로 부른다 — 그쪽 응답에도 토큰이 실린다.
+                    **내 코스 목록·상세에 나오지 않는다.** 담은 것이 아니므로 **주인 없이** 보관한다.
+                    담으려면 저장 API 를 따로 부른다 — 그쪽 응답에도 토큰이 실린다.
 
                     **한 번 발급하면 되돌릴 수 없다.** 주인이 없어 삭제 API 로 지울 수 없으므로, 링크를 뿌리기 전에
                     누를 버튼이다. 담은 코스의 공유는 저장 API 로 가면 나중에 코스째 지울 수 있다.
@@ -63,12 +65,13 @@ public interface CourseStorageApi {
             description = "코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음 · 출발지 위도·경도 중 하나만 보냄"
                     + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<CourseShareResponse> share(CourseSaveRequest request);
 
     @Operation(
             summary = "내 코스 목록",
             description = """
-                    게스트가 저장한 코스 요약. `scope` 로 보는 범위를 정한다.
+                    로그인한 사용자가 저장한 코스 요약. `scope` 로 보는 범위를 정한다.
 
                     - `UPCOMING` — 오늘 포함 이후 여행, **가까운 것부터**
                     - `PAST` — 지난 여행, 최근 것부터
@@ -87,9 +90,11 @@ public interface CourseStorageApi {
                     **페이지로 끊어 준다.** 전체 건수·페이지 수는 응답 래퍼의 `pageResponse` 에 담긴다.
                     `size` 는 최대 100 이며, 넘겨 보내면 거절하지 않고 100 으로 자른다 — 목록이 통째로 비는 것보다 낫다.""")
     @ApiResponse(responseCode = "200", description = "조회 성공(없으면 빈 목록). 페이지 정보는 pageResponse")
-    @ApiResponse(responseCode = "400", description = "게스트 ID 누락, scope 가 UPCOMING·PAST·ALL 이 아님, 또는 page·size 가 정수가 아님")
+    @ApiResponse(responseCode = "400", description = "scope 가 UPCOMING·PAST·ALL 이 아니거나 page·size 가 정수가 아님")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<List<CourseSummaryResponse>> myCourses(
-            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
+            UUID userId,
             @Parameter(description = "보는 범위", example = "UPCOMING") CourseScope scope,
             @Parameter(description = "0부터 시작하는 페이지 번호. 없으면 0, 음수는 0 으로 자른다", example = "0") Integer page,
             @Parameter(description = "페이지 크기. 없으면 20, 최대 100(초과분은 잘림)", example = "20") Integer size);
@@ -103,12 +108,12 @@ public interface CourseStorageApi {
                     그래야 저장 응답을 놓친 코스(앱 재설치·기기 변경)도 공유할 수 있다. 코스당 한 번뿐이고
                     두 번째부터는 같은 토큰이 나간다.""")
     @ApiResponse(responseCode = "200", description = "조회 성공")
-    @ApiResponse(responseCode = "400", description = "게스트 ID 누락")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "요청한 코스가 없거나 소유자가 아님")
     // 차감 정보(leaveDeducted·consumedLeaveDays)를 함께 준다(#317) — 목록을 병행 조회하지 않아도 된다.
     ApiResponseBody<CourseResponse> course(
-            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
-            @Parameter(description = "코스 ID", example = "1") long courseId);
+            UUID userId, @Parameter(description = "코스 ID", example = "1") long courseId);
 
     @Operation(
             summary = "여행 날짜 수정",
@@ -135,11 +140,13 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "200", description = "수정 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "게스트 ID 누락 · travelDate 누락이거나 날짜 형식이 아님 · 지난 날짜로 옮기려 함")
+            description = "travelDate 누락이거나 날짜 형식이 아님 · 지난 날짜로 옮기려 함")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
     @ApiResponse(responseCode = "502", description = "공휴일(특일정보) 조회에 실패해 차감량을 다시 계산할 수 없음")
     ApiResponseBody<CourseResponse> updateCourse(
-            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
+            UUID userId,
             @Parameter(description = "코스 ID", example = "12") long courseId,
             CourseUpdateRequest request);
 
@@ -151,11 +158,11 @@ public interface CourseStorageApi {
                     없는 코스와 남의 코스를 모두 404 로 답한다 — 403 으로 나누면 "그 ID 는 존재한다" 를
                     알려주는 셈이라 ID 를 훑어 남의 코스 존재를 확인할 수 있다.""")
     @ApiResponse(responseCode = "200", description = "삭제 성공 (data 는 null — 204 를 쓰지 않는다)")
-    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
     ApiResponseBody<Void> deleteCourse(
-            @Parameter(description = "게스트 식별자", example = "guest-abc123") String guestId,
-            @Parameter(description = "코스 ID", example = "12") long courseId);
+            UUID userId, @Parameter(description = "코스 ID", example = "12") long courseId);
 
     @Operation(
             summary = "코스 확정 취소 — 연차 되돌리기",
@@ -173,9 +180,10 @@ public interface CourseStorageApi {
 
                     차감 단위(종일·반차·반반차)도 묻지 않는다. **코스가 만들어질 때 이미 답한 값**을 쓴다.""")
     @ApiResponse(responseCode = "200", description = "취소 성공 (차감된 적이 없어도 200 — 현재 상태를 준다)")
-    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·형식 오류")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
-    ApiResponseBody<MyLeaveResponse> cancelLeaveDeduction(String guestId, long courseId);
+    ApiResponseBody<MyLeaveResponse> cancelLeaveDeduction(UUID userId, long courseId);
 
     @Operation(
             summary = "홈 모달 — 물어볼 지난 여행",
@@ -190,9 +198,10 @@ public interface CourseStorageApi {
                     **모달은 이 응답 하나로 완성된다** — 지역명·여행 날짜·차감될 연차·지도에 찍을 좌표까지 들어
                     있어 카드를 그리려고 코스 상세를 다시 부를 일이 없다.""")
     @ApiResponse(responseCode = "200", description = "조회 성공 (물어볼 여행이 없으면 trips 가 빈 배열)")
-    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·형식 오류")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "502", description = "공휴일 조회(특일정보) 실패로 차감될 연차를 계산할 수 없음")
-    ApiResponseBody<PendingTripsResponse> pendingTrips(String guestId);
+    ApiResponseBody<PendingTripsResponse> pendingTrips(UUID userId);
 
     @Operation(
             summary = "홈 모달 — 다녀왔는지 답하기",
@@ -215,11 +224,13 @@ public interface CourseStorageApi {
                     **물을 필요가 없어서**다 — 코스를 만들 때 이미 답한 값을 서버가 그대로 쓴다. 예전에는 이
                     자리가 종일로 고정돼, 반차로 짠 코스도 하루치가 깎였다(사용자가 0.5 를 더 잃었다).""")
     @ApiResponse(responseCode = "200", description = "기록 성공 (VISITED 면 차감 반영된 연차)")
-    @ApiResponse(responseCode = "400", description = "X-Guest-Id 헤더 누락·형식 오류, outcome 누락·잘못된 값, 또는 여행 날짜 없이 저장된 코스")
+    @ApiResponse(responseCode = "400", description = "outcome 누락·잘못된 값, 또는 여행 날짜 없이 저장된 코스")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
     @ApiResponse(
             responseCode = "409",
             description = "답할 수 없는 여행 — 아직 끝나지 않았거나(종료 당일 포함), 이미 답했거나, 내 코스 카드에서 이미 연차를 차감했음")
     @ApiResponse(responseCode = "502", description = "공휴일 조회(특일정보) 실패로 차감 일수를 계산할 수 없음")
-    ApiResponseBody<MyLeaveResponse> answerTripOutcome(String guestId, long courseId, TripOutcomeRequest request);
+    ApiResponseBody<MyLeaveResponse> answerTripOutcome(UUID userId, long courseId, TripOutcomeRequest request);
 }

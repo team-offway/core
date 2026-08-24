@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Collection;
 import java.util.Set;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -16,28 +17,28 @@ public class LeaveUsageRepositoryImpl implements LeaveUsageRepository {
     private final LeaveUsageJpaRepository jpaRepository;
 
     @Override
-    public List<LeaveUsage> findByGuestId(String guestId) {
-        return jpaRepository.findByGuestIdOrderByUsedOnDescIdDesc(guestId);
+    public List<LeaveUsage> findByUserId(UUID userId) {
+        return jpaRepository.findByUserIdOrderByUsedOnDescIdDesc(userId);
     }
 
     @Override
-    public double sumDaysByGuestId(String guestId) {
-        return jpaRepository.sumDaysByGuestId(guestId);
+    public double sumDaysByUserId(UUID userId) {
+        return jpaRepository.sumDaysByUserId(userId);
     }
 
     @Override
-    public boolean existsByGuestIdAndCourseId(String guestId, Long courseId) {
-        return jpaRepository.existsByGuestIdAndCourseId(guestId, courseId);
+    public boolean existsByUserIdAndCourseId(UUID userId, Long courseId) {
+        return jpaRepository.existsByUserIdAndCourseId(userId, courseId);
     }
 
     @Override
-    public Optional<LeaveUsage> findByGuestIdAndCourseId(String guestId, Long courseId) {
-        return jpaRepository.findByGuestIdAndCourseId(guestId, courseId);
+    public Optional<LeaveUsage> findByUserIdAndCourseId(UUID userId, Long courseId) {
+        return jpaRepository.findByUserIdAndCourseId(userId, courseId);
     }
 
     @Override
-    public Set<Long> findDeductedCourseIds(String guestId) {
-        return jpaRepository.findDeductedCourseIds(guestId);
+    public Set<Long> findDeductedCourseIds(UUID userId) {
+        return jpaRepository.findDeductedCourseIds(userId);
     }
 
     @Override
@@ -46,13 +47,13 @@ public class LeaveUsageRepositoryImpl implements LeaveUsageRepository {
     }
 
     @Override
-    public int deleteByGuestIdAndCourseId(String guestId, Long courseId) {
-        return jpaRepository.deleteByGuestIdAndCourseId(guestId, courseId);
+    public int deleteByUserIdAndCourseId(UUID userId, Long courseId) {
+        return jpaRepository.deleteByUserIdAndCourseId(userId, courseId);
     }
 
     @Override
-    public Optional<LeaveUsage> findByIdAndGuestId(Long id, String guestId) {
-        return jpaRepository.findByIdAndGuestId(id, guestId);
+    public Optional<LeaveUsage> findByIdAndUserId(Long id, UUID userId) {
+        return jpaRepository.findByIdAndUserId(id, userId);
     }
 
     @Override
@@ -66,7 +67,7 @@ public class LeaveUsageRepositoryImpl implements LeaveUsageRepository {
     }
 
     @Override
-    public int deleteByGuestId(String guestId) {
-        return jpaRepository.deleteByGuestId(guestId);
+    public int deleteByUserId(UUID userId) {
+        return jpaRepository.deleteByUserId(userId);
     }
 }
