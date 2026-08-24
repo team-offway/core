@@ -24,6 +24,7 @@ import com.offway.core.transport.domain.TransportMode;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,7 +66,7 @@ class TripAfterNotifierIntegrationTest {
 
     @Test
     void 어제_끝난_여행의_주인에게_알림을_만든다() {
-        String owner = "guest-302-basic";
+        UUID owner = UUID.randomUUID();
         LocalDate today = LocalDate.of(2099, 9, 2);
         Course course = saveCourse(owner, today.minusDays(1), 1);
 
@@ -86,7 +87,7 @@ class TripAfterNotifierIntegrationTest {
      */
     @Test
     void 이박삼일_여행은_마지막_날_기준으로_알린다() {
-        String owner = "guest-302-multiday";
+        UUID owner = UUID.randomUUID();
         LocalDate today = LocalDate.of(2099, 9, 10);
         // 9/7 출발 3일 = 9/9 종료. today 가 9/10 이므로 어제 끝난 여행이다.
         saveCourse(owner, today.minusDays(3), 3);
@@ -107,7 +108,7 @@ class TripAfterNotifierIntegrationTest {
      */
     @Test
     void 일박이일_여행도_종료_다음_날_알린다() {
-        String owner = "guest-309-two-days";
+        UUID owner = UUID.randomUUID();
         // 운영 사례와 같은 날짜 모양: 8/19 출발 · 2일 · 8/20 종료 · 8/21 배치
         LocalDate today = LocalDate.of(2099, 8, 21);
         Course course = saveCourse(owner, LocalDate.of(2099, 8, 19), 2);
@@ -128,7 +129,7 @@ class TripAfterNotifierIntegrationTest {
      */
     @Test
     void 범위의_양_끝에_걸친_여행도_빠지지_않는다() {
-        String owner = "guest-309-edges";
+        UUID owner = UUID.randomUUID();
         LocalDate today = LocalDate.of(2099, 8, 28);
         LocalDate endedOn = today.minusDays(1);
         saveCourse(owner, endedOn, 1);                  // 상단 — 종료일에 시작해 그날 끝난다
@@ -146,7 +147,7 @@ class TripAfterNotifierIntegrationTest {
      */
     @Test
     void 오늘_끝났거나_그저께_끝난_여행은_대상이_아니다() {
-        String owner = "guest-302-other-days";
+        UUID owner = UUID.randomUUID();
         LocalDate today = LocalDate.of(2099, 9, 20);
         saveCourse(owner, today, 1);
         saveCourse(owner, today.minusDays(2), 1);
@@ -163,7 +164,7 @@ class TripAfterNotifierIntegrationTest {
      */
     @Test
     void 이미_답한_여행에는_보내지_않는다() {
-        String owner = "guest-302-answered";
+        UUID owner = UUID.randomUUID();
         LocalDate today = LocalDate.of(2099, 9, 25);
         Course answered = saveCourse(owner, today.minusDays(1), 1);
         Course notAnswered = saveCourse(owner, today.minusDays(1), 1);
@@ -186,7 +187,7 @@ class TripAfterNotifierIntegrationTest {
      */
     @Test
     void 이미_차감한_여행에는_보내지_않는다() {
-        String owner = "guest-302-deducted";
+        UUID owner = UUID.randomUUID();
         LocalDate today = LocalDate.of(2099, 10, 1);
         Course deducted = saveCourse(owner, today.minusDays(1), 1);
         leaveDeductionService.deduct(owner, deducted.getId(), StartDayLeave.DEFAULT);
@@ -203,7 +204,7 @@ class TripAfterNotifierIntegrationTest {
      */
     @Test
     void 두_번_돌아도_같은_코스에_알림은_하나다() {
-        String owner = "guest-302-idempotent";
+        UUID owner = UUID.randomUUID();
         LocalDate today = LocalDate.of(2099, 10, 8);
         saveCourse(owner, today.minusDays(1), 1);
 
@@ -220,7 +221,7 @@ class TripAfterNotifierIntegrationTest {
      */
     @Test
     void 다음_날_배치에서도_같은_코스에_다시_보내지_않는다() {
-        String owner = "guest-302-next-day";
+        UUID owner = UUID.randomUUID();
         LocalDate today = LocalDate.of(2099, 10, 15);
         saveCourse(owner, today.minusDays(1), 1);
         assertEquals(1, notifier.notifyTripsEndedYesterday(today));
@@ -268,7 +269,7 @@ class TripAfterNotifierIntegrationTest {
     }
 
     /** 코스는 하루 이상이어야 성립하므로 최소 형태(하루 1슬롯)로 만든다. 이 테스트가 보는 것은 날짜뿐이다. */
-    private Course saveCourse(String owner, LocalDate travelDate, int travelDays) {
+    private Course saveCourse(UUID owner, LocalDate travelDate, int travelDays) {
         List<DaySchedule> days = IntStream.rangeClosed(1, travelDays)
                 .mapToObj(day -> DaySchedule.of(day, List.of(slot(day))))
                 .toList();
@@ -291,7 +292,7 @@ class TripAfterNotifierIntegrationTest {
                 new SlotDisplay(null, null, null, null));
     }
 
-    private Page<Notification> ownedNotifications(String owner) {
+    private Page<Notification> ownedNotifications(UUID owner) {
         return notificationRepository.findByOwner(owner, PageRequest.of(0, 10));
     }
 }
