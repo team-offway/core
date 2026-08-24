@@ -1,5 +1,10 @@
 package com.offway.core.user.service;
 
+import com.offway.core.common.logging.RootCause;
+import com.offway.core.user.domain.AuthProvider;
+import com.offway.core.user.infrastructure.apple.AppleAccountLink;
+import java.util.List;
+import java.util.Optional;
 import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.UserException;
 import com.offway.core.user.infrastructure.social.SocialIdentityResolver;
@@ -26,6 +31,7 @@ public class AuthService {
 
     private final SocialIdentityResolver socialIdentityResolver;
     private final UserPersistenceService userPersistenceService;
+    private final AppleAccountLink appleAccountLink;
     private final TokenIssuer tokenIssuer;
 
     /**
@@ -40,7 +46,10 @@ public class AuthService {
      */
     public IssuedToken login(SocialLoginCommand command) {
         SocialIdentity identity = socialIdentityResolver.resolve(command.provider(), command.credential());
-        return issueTokens(findOrCreateUser(identity, command));
+        AuthenticatedUser user = findOrCreateUser(identity, command);
+        // 기기를 잇던 단계(linkDevice)는 사라졌다(#280) — 소유가 이 사용자라 이어 둘 것이 없다.
+        rememberProviderLink(user.userId(), identity, command.authorizationCode());
+        return issueTokens(user);
     }
 
     /**
@@ -97,6 +106,64 @@ public class AuthService {
      */
     public IssuedToken devLogin(String nickname) {
         return issueTokens(new AuthenticatedUser(userPersistenceService.createUser(nickname), true));
+    }
+
+    /**
+     * 탈퇴 때 provider 연결을 끊을 수 있게 갱신 토큰을 받아 둔다(#287) — <b>실패해도 로그인을 막지 않는다</b>.
+     *
+     * <p><b>지금 해야만 한다.</b> {@code authorizationCode} 는 1회용·5분이라 탈퇴 시점에는 이미 없다.
+     * 로그인 그 순간이 유일한 기회다.
+     *
+     * <p>그런데도 <b>로그인의 조건은 아니다.</b> Apple 토큰 엔드포인트가 흔들릴 때 여기서 던지면 로그인 자체가
+     * 막힌다 — 연결이 남는 것보다 훨씬 나쁘다. 못 받으면 흔적만 남기고 넘어가고, 그 사용자가 다시 로그인하면
+     * 그때 채워진다.
+     *
+     * <p><b>어느 클라이언트로 발급됐는지는 검증된 {@code aud} 가 안다.</b> 네이티브(Bundle ID)와 웹(Service ID)이
+     * 갈리는데, 그 값이 방금 서명을 확인한 ID 토큰에 들어 있다. 그걸로 <b>한 번만</b> 교환한다.
+     *
+     * <p>후보를 순서대로 시도하지 않는 이유는 {@code authorizationCode} 가 <b>1회용</b>이라는 것이다. 첫 시도가
+     * 틀린 클라이언트였을 때 Apple 이 코드를 살려 둔다는 보장이 없다 — 그러면 맞는 클라이언트로 다시 시도해도
+     * 이미 늦고, 갱신 토큰을 영영 못 받아 <b>탈퇴해도 Apple 연결이 남는다</b>. 이 PR 이 하려는 일이 정확히
+     * 그것이라 추측으로 한 번을 낭비할 수 없다.
+     *
+     * <p>{@code aud} 가 없으면(옛 토큰·검증 경로가 아닌 provider) 예전처럼 후보를 돈다. 아무것도 안 하는 것보다는
+     * 낫고, 그 경우에만 코드 소진 위험을 감수한다.
+     */
+    private void rememberProviderLink(UUID userId, SocialIdentity identity, String authorizationCode) {
+        AuthProvider provider = identity.provider();
+        if (provider != AuthProvider.APPLE || authorizationCode == null || authorizationCode.isBlank()) {
+            return;
+        }
+        for (String clientId : candidateClientIds(identity)) {
+            Optional<String> refreshToken = appleAccountLink.exchange(authorizationCode, clientId);
+            if (refreshToken.isPresent()) {
+                try {
+                    userPersistenceService.rememberProviderToken(
+                            userId, provider, refreshToken.get(), clientId);
+                } catch (RuntimeException e) {
+                    // 저장 실패가 로그인을 막지 않는다. 이 값이 없으면 탈퇴 때 Apple 연결만 못 끊고,
+                    // 그건 아래 경고로 드러난다 — 로그인 자체를 500 으로 만드는 편이 훨씬 나쁘다.
+                    log.warn("Apple 갱신 토큰을 저장하지 못했습니다 userId={} cause={}", userId, RootCause.label(e));
+                }
+                return;
+            }
+        }
+        // 사유를 남긴다 — 이 로그가 쌓이면 탈퇴해도 Apple 연결이 계속 남는다는 뜻이다.
+        log.warn("Apple 갱신 토큰을 받지 못했습니다 — 탈퇴해도 Apple 연결이 남습니다 userId={}", userId);
+    }
+
+    /**
+     * 교환에 쓸 클라이언트 — <b>검증된 {@code aud} 가 있으면 그것 하나뿐</b>이다.
+     *
+     * <p>{@code aud} 를 우리가 설정한 후보 안에서만 받는다. 검증기가 이미 같은 확인을 하지만, 여기서 한 번 더
+     * 거르는 것은 이 값이 <b>서명 키를 고르는 데 쓰이기</b> 때문이다 — 설정에 없는 클라이언트로 서명할 이유가 없다.
+     */
+    private List<String> candidateClientIds(SocialIdentity identity) {
+        List<String> configured = appleAccountLink.clientIds();
+        return identity.audienceIfPresent()
+                .filter(configured::contains)
+                .map(List::of)
+                .orElse(configured);
     }
 
     private IssuedToken issueTokens(AuthenticatedUser user) {

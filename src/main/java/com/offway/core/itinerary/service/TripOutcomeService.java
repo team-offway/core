@@ -26,6 +26,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 홈 진입 모달 "다녀오셨나요?"(#116) — 지난 여행을 묻고, 답에 따라 연차를 깎는다.
@@ -76,6 +77,50 @@ public class TripOutcomeService {
             return new PendingTrips(List.of(), Map.of(), Map.of(), remaining);
         }
         return new PendingTrips(waiting, regionNamesOf(waiting), consumedLeaveDaysOf(waiting), remaining);
+    }
+
+    /**
+     * 그 날 여행이 끝났는데 <b>아직 답을 안 한</b> 코스들 — 종료 다음 날 알림 배치가 물어볼 대상(#302).
+     *
+     * <p><b>{@link #pending} 과 같은 조건을 쓴다.</b> 조회 조건이 갈리면 알림은 갔는데 눌러 들어가면 모달이
+     * 안 뜨는 헛걸음이 생긴다. 다른 것은 범위뿐이다 — {@code pending} 은 한 사람의 <b>지난 여행 전부</b>를,
+     * 여기서는 <b>그 날 끝난 것</b>만 본다.
+     *
+     * <p><b>지난 것 전부가 아니라 그 날 끝난 것만 보는 이유.</b> 전부로 잡으면 첫 배포에 과거 미답 코스가
+     * 한꺼번에 알림·푸시로 나간다 — 몇 달 전 여행까지 함께. 대가는 배치가 하루 거르면 그 코스는 알림을 못
+     * 받는다는 것인데, 모달(#116)이 그대로 뜨므로 답할 길이 사라지지는 않는다.
+     *
+     * <p><b>차감한 코스도 뺀다.</b> 카드에서 "연차 차감하기" 를 눌렀다면 그게 곧 "다녀왔다" 는 답이다 —
+     * {@code pending} 이 같은 이유로 걸러낸다.
+     *
+     * <p>소유자별로 묻지 않는다. 대상마다 "답했나·차감했나" 를 물으면 그게 곧 N+1 이라, 코스 id 를 모아
+     * 두 번의 질의로 끝낸다.
+     *
+     * <p><b>이 메서드에만 트랜잭션이 붙는 이유.</b> 이 클래스는 차감 계산이 공휴일(외부) 조회를 타서 트랜잭션을
+     * 걸지 않는다. 여기는 외부를 부르지 않는 <b>읽기 셋</b>이라 그 사정이 없고, 한 스냅샷으로 묶어야 "끝난
+     * 코스" 를 읽은 뒤 "답했나" 를 읽는 사이에 답이 들어와도 판단이 흔들리지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public List<Course> unansweredTripsEndedOn(LocalDate endedOn) {
+        List<Course> ended = courseRepository.findEndedOn(endedOn);
+        if (ended.isEmpty()) {
+            // 0건이 "그날 끝난 여행이 없다" 인지 "있는데 못 잡았다" 인지는 이 로그가 유일한 단서다.
+            // 알림이 안 왔다는 제보를 받고도 세 갈래(안 돌았다·못 잡았다·걸러졌다)를 못 갈랐다(#309).
+            log.info("여행 종료 대상 — 그 날 끝난 코스가 없습니다 endedOn={}", endedOn);
+            return List.of();
+        }
+        List<Long> courseIds = ended.stream().map(Course::getId).toList();
+        Set<Long> answered = tripOutcomeRepository.findAnsweredCourseIdsIn(courseIds);
+        Set<Long> deducted = myLeaveService.deductedCourseIdsIn(courseIds);
+
+        List<Course> waiting = ended.stream()
+                .filter(course -> !answered.contains(course.getId()))
+                .filter(course -> !deducted.contains(course.getId()))
+                .toList();
+        // 넷을 함께 남겨야 "후보가 없었다" 와 "후보는 있었는데 전부 걸러졌다" 가 로그만으로 갈린다.
+        log.info("여행 종료 대상 endedOn={} 끝난 코스={}건 이미 답함={}건 이미 차감={}건 남은 대상={}건",
+                endedOn, ended.size(), answered.size(), deducted.size(), waiting.size());
+        return waiting;
     }
 
     /**

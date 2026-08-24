@@ -24,5 +24,8 @@ public interface UserIdentityJpaRepository extends JpaRepository<UserIdentity, U
      */
     Optional<UserIdentity> findFirstByUserIdOrderByCreatedAtAscIdAsc(UUID userId);
 
+    /** 이 사용자의 특정 provider 신원 — {@code (user_id, provider)} 조합은 사용자당 하나다. */
+    Optional<UserIdentity> findByUserIdAndProvider(UUID userId, AuthProvider provider);
+
     int deleteByUserId(UUID userId);
 }

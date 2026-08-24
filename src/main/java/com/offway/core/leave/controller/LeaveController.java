@@ -6,6 +6,7 @@ import com.offway.core.leave.controller.dto.AvailableTimeRequest;
 import com.offway.core.leave.controller.dto.AvailableTimeResponse;
 import com.offway.core.leave.controller.dto.MyLeaveResponse;
 import com.offway.core.leave.controller.dto.SandwichResponse;
+import com.offway.core.leave.controller.dto.UpdateLeaveUsageRequest;
 import com.offway.core.leave.controller.dto.UpdateMyLeaveRequest;
 import com.offway.core.leave.service.LeaveService;
 import com.offway.core.leave.service.MyLeaveService;
@@ -57,6 +58,16 @@ public class LeaveController implements LeaveApi {
             @LoginUser UUID userId, @Valid @RequestBody AddLeaveUsageRequest request) {
         return ApiResponseBody.created(
                 MyLeaveResponse.from(myLeaveService.addUsage(userId, request.toCommand())));
+    }
+
+    @Override
+    @PatchMapping("/me/usages/{usageId}")
+    public ApiResponseBody<MyLeaveResponse> updateLeaveUsage(
+            @LoginUser UUID userId,
+            @PathVariable long usageId,
+            @Valid @RequestBody UpdateLeaveUsageRequest request) {
+        return ApiResponseBody.ok(
+                MyLeaveResponse.from(myLeaveService.updateUsage(userId, usageId, request.toCommand())));
     }
 
     @Override

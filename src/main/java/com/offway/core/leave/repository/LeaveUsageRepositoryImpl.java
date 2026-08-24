@@ -3,6 +3,7 @@ package com.offway.core.leave.repository;
 import com.offway.core.leave.domain.LeaveUsage;
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,11 @@ public class LeaveUsageRepositoryImpl implements LeaveUsageRepository {
     @Override
     public Set<Long> findDeductedCourseIds(UUID userId) {
         return jpaRepository.findDeductedCourseIds(userId);
+    }
+
+    @Override
+    public Set<Long> findDeductedCourseIdsIn(Collection<Long> courseIds) {
+        return courseIds.isEmpty() ? Set.of() : jpaRepository.findDeductedCourseIdsIn(courseIds);
     }
 
     @Override

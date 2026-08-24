@@ -30,6 +30,10 @@ concurrency:
 
 permissions:
   contents: read
+  # 배포 대상 커밋이 이미 테스트를 통과했는지 되짚는 데 쓴다(#298) — 커밋이 담긴 PR 을 찾고(pull-requests),
+  # 그 PR head 의 CI 결과를 읽는다(checks). 둘 다 읽기만 한다.
+  pull-requests: read
+  checks: read
 
 jobs:
   deploy:
@@ -50,10 +54,58 @@ jobs:
       - name: Gradle 준비 (의존성 캐시 포함)
         uses: gradle/actions/setup-gradle@v6
 
-      # 테스트까지 돌린다 — 배포 직전이 마지막 방어선이다.
+      # 이 커밋이 **이미 테스트를 통과했는지** 되짚는다(#298).
+      #
+      # dev 브랜치 보호가 strict + 필수 체크 `build & test` 라, PR 이 dev 최신을 품은 상태에서만
+      # 머지된다 — CI 가 검사한 트리와 머지된 트리의 내용이 같다. 그런데 **그 보호를 믿고 건너뛰지
+      # 않는다.** 우회 경로가 실재하기 때문이다(수동 배포, enforce_admins=false 인 관리자 직접 push).
+      #
+      # 그래서 가정하지 않고 사슬을 따라가 확인한다: dev 커밋 → 그 커밋을 담은 PR → PR head 의
+      # `build & test` 결과. 어느 고리든 끊기면 전체 빌드로 떨어져 안전망이 유지된다.
+      - name: 검증된 커밋인지 확인
+        id: verified
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # 1) 이 커밋을 담은 머지된 PR. 없으면 PR 을 안 거친 커밋이다.
+          PR_HEAD=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+            --jq '[.[] | select(.merged_at != null)] | first | .head.sha // empty' 2>/dev/null || echo "")
+          if [ -z "$PR_HEAD" ]; then
+            echo "PR 을 거치지 않은 커밋입니다 — 전체 빌드로 검증합니다."
+            echo "tested=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 2) 그 PR head 에서 CI 의 `build & test` 가 통과했는지. 이름은 ci.yml 의 job name 과 같아야 한다.
+          RESULT=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD}/check-runs" \
+            --jq '[.check_runs[] | select(.name == "build & test")] | first | .conclusion // empty' 2>/dev/null || echo "")
+          if [ "$RESULT" = "success" ]; then
+            echo "PR head ${PR_HEAD:0:7} 에서 build & test 통과 — 배포에서는 테스트를 건너뜁니다."
+            echo "tested=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "PR head ${PR_HEAD:0:7} 의 build & test 결과=${RESULT:-없음} — 전체 빌드로 검증합니다."
+            echo "tested=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 검증된 커밋이면 jar 만 만든다. 아니면 지금까지처럼 테스트까지 돌린다.
+      #
+      # jar 조립은 어느 쪽이든 한다 — 테스트만 돌리면 조립 단계(리소스 중복·repackaging)에서 나는
+      # 문제를 놓친다는 것이 CI 가 `build` 를 쓰는 이유이고, 그 이유는 여기서도 그대로다.
+      #
       # 외부 API 키를 넘기지 않는다: 테스트가 실키로 외부를 호출해 일일 허용량을 태운 적이 있다(#110).
-      - name: 빌드 & 테스트
-        run: ./gradlew build
+      - name: 빌드
+        id: build
+        env:
+          TESTED: ${{ steps.verified.outputs.tested }}
+        run: |
+          if [ "${TESTED:-false}" = "true" ]; then
+            echo "이미 검증된 커밋 — jar 만 조립합니다."
+            ./gradlew bootJar
+          else
+            echo "검증되지 않은 커밋 — 테스트까지 돌립니다."
+            ./gradlew build
+          fi
 
       # EC2 의 22번은 특정 IP 하나만 열려 있다(offway-tokyo-sg). Actions 러너는 매번 다른 IP 라
       # 그대로면 SSH 가 timeout 으로 죽는다. 22번을 상시 개방하는 대신 이 실행의 러너 IP 만
@@ -84,6 +136,7 @@ jobs:
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
       - name: 배포 산출물 전송
+        id: transfer
         run: |
           JAR=$(ls build/libs/*.jar | grep -v plain | head -1)
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
@@ -92,6 +145,10 @@ jobs:
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/offway/build/libs/app.jar"
           scp -i ~/.ssh/deploy_key Dockerfile \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/offway/Dockerfile"
+          # 복구 스크립트도 함께 올린다 — 교체·스모크 두 스텝이 같은 파일을 부른다(#297).
+          # **교체보다 먼저 올라와 있어야 한다.** 교체가 실패한 뒤에 올리면 그때는 이미 늦다.
+          scp -i ~/.ssh/deploy_key scripts/recover-container.sh \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/offway/recover-container.sh"
 
       # 환경변수는 --env-file 로 넘긴다. docker run -e 로 나열하면 서버에서 `ps` 만 쳐도
       # DB 비밀번호와 API 키가 그대로 보인다.
@@ -129,9 +186,18 @@ jobs:
           rm -f env.prod
 
       - name: 이미지 빌드 & 컨테이너 교체
+        id: swap
+        shell: bash
         run: |
+          # **pipefail 을 켠다.** 아래에서 원격 출력을 tee 로 갈라 파일에도 남기는데, 없으면 파이프라인
+          # 종료코드가 tee 의 0 이 되어 교체 실패가 성공으로 둔갑한다(스모크 스텝과 같은 이유).
+          set -o pipefail
+          # 원격 출력을 알림 스텝이 읽는 로그로도 갈라 둔다 — 교체가 실패하고 복구가 돌았을 때
+          # "서비스가 살아 있는가" 를 그 표식으로 가른다. 교체가 성공하면 다음 스모크 스텝이 같은
+          # 파일을 덮어쓰므로(tee 는 overwrite) 남는 것은 언제나 마지막으로 실패한 단계의 로그다.
+          #
           # 커밋 SHA 를 원격 스크립트의 $1 로 넘긴다. heredoc 이 quoted('REMOTE') 라 러너 쪽 변수는 확장되지 않는다.
-          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' -- "${{ github.sha }}" <<'REMOTE'
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' -- "${{ github.sha }}" <<'REMOTE' 2>&1 | tee "$RUNNER_TEMP/deploy-remote.log"
           set -euo pipefail
           SHA="$1"
           cd ~/offway
@@ -155,15 +221,23 @@ jobs:
           echo "이전 이미지: $(cat ~/offway/.prev-image || echo '(없음)')"
 
           # 새 컨테이너를 띄우기 전에 기존 것을 내린다. 같은 8080 을 쓰므로 공존할 수 없다.
+          #
+          # **여기부터가 서비스가 사라져 있는 구간이다.** 이 사이에서 실패하면 스텝이 죽고, 롤백이 들어
+          # 있는 다음 스텝은 `if: success()` 때문에 건너뛰어진다 — 복구가 아예 안 돌아 서버가 내려간 채
+          # 남는다(#297). 그래서 이 구간의 실패는 **여기서 직접** 복구한다.
           docker rm -f offway-core 2>/dev/null || true
 
-          docker run -d \
+          if ! docker run -d \
             --name offway-core \
             --network offway-net \
             --restart unless-stopped \
             --env-file ~/offway/env.prod \
             -p 8080:8080 \
-            "offway-core:$SHA"
+            "offway-core:$SHA"; then
+            echo "새 컨테이너를 띄우지 못했습니다 — 복구를 시도합니다"
+            # 복구 스크립트가 언제나 1 로 끝난다(배포는 실패다). 그 코드로 이 스텝도 실패한다.
+            bash ~/offway/recover-container.sh
+          fi
 
           # 배포마다 쌓이는 dangling 이미지를 정리한다 — 인스턴스 디스크가 조용히 찬다.
           docker image prune -f
@@ -186,15 +260,23 @@ jobs:
       # 그리고 떴다고 기능이 되는 것도 아니다 — 스모크로 실제 응답까지 본 뒤에야 배포를 성공으로 친다.
       # 어느 쪽이든 실패하면 이전 이미지로 되돌린다. 자동 배포에서는 사람이 손으로 되돌릴 수 없다.
       - name: 기동 확인 · 스모크 · 실패 시 롤백
+        id: smoke
+        shell: bash
         run: |
+          # **pipefail 을 반드시 켠다.** 아래에서 원격 출력을 tee 로 갈라 파일에도 남기는데, pipefail 이
+          # 없으면 파이프라인 종료코드가 tee 의 0 이 되어 **배포 실패가 성공으로 둔갑한다.** Actions 의
+          # 기본 셸은 `bash -e` 라 pipefail 이 꺼져 있어, 여기서 켜지 않으면 롤백이 돌아도 초록불이 뜬다.
+          set -o pipefail
           # 스모크 비밀번호만 러너에서 넘긴다. 서버의 env.prod 에는 bcrypt 해시만 있어 평문을 복원할 수
           # 없다({bcrypt} 접두어를 떼면 해시가 남을 뿐이다).
           #
           # 사용자명은 반대로 **서버 파일에서 읽는다.** 시크릿을 인자로 넘기면 값 끝의 개행 하나만으로도
           # `-u "user\n:pass"` 가 되어 401 이 난다 — 실제로 그렇게 두 번 거짓 롤백이 났다.
           # env.prod 에서 읽으면 그 줄만 잘라오므로 개행이 섞이지 않고, 서버가 실제로 쓰는 값과도 어긋나지 않는다.
+          # 원격 출력을 파일로도 갈라 둔다 — 알림 스텝이 "왜 실패했나"(롤백됐는지, 서비스가 살아 있는지)를
+          # 이 로그의 표식으로 가른다. 화면 출력은 tee 라 그대로 남는다.
           ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            'bash -s' -- "${{ secrets.OFFWAY_SMOKE_PASSWORD }}" <<'REMOTE'
+            'bash -s' -- "${{ secrets.OFFWAY_SMOKE_PASSWORD }}" <<'REMOTE' 2>&1 | tee "$RUNNER_TEMP/deploy-remote.log"
           set -uo pipefail
           # 비밀번호도 같은 이유로 개행을 걷어낸다.
           SMOKE_PASS=$(printf '%s' "$1" | tr -d '\r\n')
@@ -204,48 +286,11 @@ jobs:
           # 값이 아니라 길이만 남긴다 — 빈 값인지, 개행이 붙었는지는 이것만으로 가려진다.
           echo "[1/3] 스모크 계정 준비: 사용자명 길이=${#SMOKE_USER} 비밀번호 길이=${#SMOKE_PASS}"
 
+          # 복구는 교체 스텝과 **같은 파일**을 부른다(#297). 예전에는 이 자리에 함수로 있었는데,
+          # 그러면 교체가 실패해 이 스텝이 건너뛰어질 때 복구도 함께 사라졌다.
+          # 스크립트는 언제나 1 로 끝난다 — 되돌아갔든 유지했든 이번 배포는 실패다.
           rollback() {
-            echo "── 배포 실패. 최근 로그 ──"
-            docker logs --tail 120 offway-core 2>&1 || true
-            PREV=$(cat ~/offway/.prev-image 2>/dev/null || echo "")
-            if [ -z "$PREV" ]; then
-              echo "되돌릴 이전 이미지가 없습니다(첫 배포). 컨테이너를 내린 채 둡니다."
-              exit 1
-            fi
-            if ! docker image inspect "$PREV" >/dev/null 2>&1; then
-              # 되돌아갈 이미지가 사라졌다. 죽은 채 두는 것이 가장 나쁘므로, 방금 배포한 것으로라도
-              # 서비스를 세운다 — 기동은 성공했고 스모크만 실패한 경우가 대부분이다.
-              echo "!! 롤백 이미지($PREV)가 없습니다. 방금 배포한 버전으로 서비스를 유지합니다 !!"
-              docker rm -f offway-core 2>/dev/null || true
-              docker run -d --name offway-core --network offway-net --restart unless-stopped \
-                --env-file ~/offway/env.prod -p 8080:8080 offway-core:latest
-              # docker run -d 는 컨테이너 생성까지만 본다. 곧바로 죽으면 서비스가 없는 채로 남으므로
-              # 일반 롤백 경로와 똑같이 응답을 기다린다.
-              for i in $(seq 1 30); do
-                c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:8080/api/v1/categories || true)
-                if [ "$c" = "401" ] || [ "$c" = "200" ]; then
-                  echo "!! 대체 기동 확인 (HTTP $c). 배포는 실패로 처리되지만 서버는 떠 있습니다 !!"
-                  exit 1
-                fi
-                sleep 5
-              done
-              echo "!! 대체 기동까지 실패했습니다. 수동 개입이 필요합니다 !!"
-              exit 1
-            fi
-            echo "── $PREV 로 롤백합니다 ──"
-            docker rm -f offway-core 2>/dev/null || true
-            docker run -d --name offway-core --network offway-net --restart unless-stopped \
-              --env-file ~/offway/env.prod -p 8080:8080 "$PREV"
-            for i in $(seq 1 30); do
-              c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:8080/api/v1/categories || true)
-              if [ "$c" = "401" ] || [ "$c" = "200" ]; then
-                echo "롤백 완료 — 이전 버전으로 서비스 중"
-                exit 1
-              fi
-              sleep 5
-            done
-            echo "롤백까지 실패했습니다. 수동 개입이 필요합니다."
-            exit 1
+            bash ~/offway/recover-container.sh
           }
 
           # ① 기동 — 401 도 정상이다(인증 게이트가 살아 있다는 뜻, #122)
@@ -331,6 +376,29 @@ jobs:
           echo "배포 성공 — 기동·스모크 모두 통과"
           REMOTE
 
+      # 지금 서비스가 실제로 떠 있는지 한 번 찔러 둔다(#295).
+      #
+      # **왜 필요한가.** 교체 단계는 기존 컨테이너를 지우고 새로 띄우는데, 그 사이가 실패하면 스모크
+      # 단계 자체가 건너뛰어져 그 안의 롤백이 돌지 않는다 — 컨테이너가 사라진 채 남는다. 그때 알림이
+      # "교체 실패" 만 말하면 서비스가 죽은 것인지 아닌지를 알 수 없다.
+      #
+      # 실패해도 배포 판정을 바꾸지 않는다. 상태를 못 읽으면 못 읽었다고 알리면 될 뿐이다.
+      #
+      # SSH 키와 22번 개방이 아직 살아 있는 이 자리에서만 가능하다 — 아래 두 스텝이 곧 회수한다.
+      - name: 서비스 상태 확인
+        id: probe
+        if: always() && steps.open-ssh.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          code=$(ssh -i ~/.ssh/deploy_key -o ConnectTimeout=10 \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://localhost:8080/api/v1/categories" \
+            2>/dev/null || echo "unreachable")
+          # 401 도 살아 있는 것이다 — 인증 게이트가 응답한 것이라 앱이 떠 있다는 뜻이다.
+          echo "http_code=$code" >> "$GITHUB_OUTPUT"
+          echo "서비스 상태 확인: $code"
+
       # 배포가 실패해도 규칙은 반드시 회수한다 — 남으면 22번이 조금씩 영구 개방된다.
       - name: 러너 IP 회수
         if: always() && steps.open-ssh.outputs.runner_ip != ''
@@ -342,3 +410,122 @@ jobs:
       - name: SSH 키 삭제
         if: always()
         run: rm -f ~/.ssh/deploy_key
+
+      # 배포 결과를 디스코드로 알린다(#295).
+      #
+      # **앱이 아니라 여기서 보낸다.** 앱의 Notifier 에 맡기면 배포가 깨져 앱이 안 뜰 때 알림도 함께
+      # 죽는다 — 정작 알아야 할 때 못 받는다. 알림 수단이 알림 대상과 함께 사라지면 안 된다.
+      #
+      # **쿼터 경보(#257)와 다른 웹훅을 쓴다.** 배포는 성공해도 매번 울려, 같은 채널에 두면 "봐야 하는"
+      # 신호를 묻는다.
+      - name: 배포 결과 알림
+        if: always()
+        shell: bash
+        env:
+          # 표현식을 셸 인용부호 안에 직접 박지 않는다 — 값에 따옴표·백틱이 섞이면 명령이 깨지거나
+          # 실행된다. env 로 넘기면 셸이 값을 해석하지 않는다.
+          WEBHOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
+          JOB_STATUS: ${{ job.status }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TRANSFER_OUTCOME: ${{ steps.transfer.outcome }}
+          SWAP_OUTCOME: ${{ steps.swap.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+          SERVICE_CODE: ${{ steps.probe.outputs.http_code }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -uo pipefail
+
+          # 웹훅이 없으면 조용히 건너뛴다. 알림 설정 때문에 배포가 실패하면 본말이 전도된다.
+          if [ -z "${WEBHOOK:-}" ]; then
+            echo "DISCORD_DEPLOY_WEBHOOK_URL 이 없어 배포 알림을 건너뜁니다."
+            exit 0
+          fi
+
+          REMOTE_LOG="$RUNNER_TEMP/deploy-remote.log"
+          # 제목 첫 줄만, 그리고 **길이도 자른다**. 디스코드는 content 가 2,000자를 넘으면 400 으로
+          # 통째로 거절해 알림이 유실된다. 커밋 제목에는 길이 제한이 없어(commit-msg 훅도 안 막는다)
+          # 그대로 실으면 그 한도를 넘길 수 있다. 나머지 칸은 고정 문구라 200자면 충분하다.
+          SUBJECT=$(printf '%s' "${COMMIT_MESSAGE:-}" | head -1 | cut -c1-200)
+
+          # 복구 스크립트가 남긴 표식으로 **서비스가 지금 살아 있는지**를 가른다. 이게 이 알림의 핵심이다 —
+          # 복구가 돌았으면 아침에 봐도 되고, 안 돌았으면 지금 붙어야 한다.
+          #
+          # 교체·스모크 두 단계가 같은 스크립트를 부르므로(#297) 판정도 한 곳에 둔다. 표식이 없으면 1 로
+          # 끝나 호출부가 다른 근거(실제 응답 코드)로 넘어간다.
+          #
+          # 문구는 `scripts/recover-container.sh` 가 찍는 것과 짝이다 — 한쪽만 고치면 조용히 안 맞는다.
+          recovery_detail() {
+            if grep -q '롤백 완료' "$REMOTE_LOG" 2>/dev/null; then
+              echo "**이전 버전으로 롤백됨** (서비스 정상)"
+            elif grep -q '대체 기동 확인' "$REMOTE_LOG" 2>/dev/null; then
+              echo "롤백 이미지가 없어 **방금 배포한 버전으로 유지** (서비스는 떠 있음)"
+            elif grep -qE '롤백까지 실패|대체 기동까지 실패|되돌릴 이전 이미지가 없습니다' "$REMOTE_LOG" 2>/dev/null; then
+              echo "**서비스 중단 — 수동 개입 필요**"
+            else
+              return 1
+            fi
+          }
+
+          # 실패했으면 **어느 단계에서 왜** 죽었는지 가른다. "실패" 만 오면 결국 Actions 를 열어야 해서
+          # 알림의 값어치가 절반이다.
+          case "$JOB_STATUS" in
+            success) TITLE="배포 성공"; DETAIL="기동·스모크 모두 통과" ;;
+            cancelled) TITLE="배포 취소됨"; DETAIL="누군가 중단했거나 새 배포가 밀어냈습니다" ;;
+            *)
+              TITLE="배포 실패"
+              if [ "$BUILD_OUTCOME" = "failure" ]; then
+                DETAIL="빌드·테스트 실패 — 서버는 이전 버전 그대로입니다"
+              elif [ "$TRANSFER_OUTCOME" = "failure" ]; then
+                DETAIL="산출물 전송 실패 — 서버는 이전 버전 그대로입니다"
+              elif [ "$SWAP_OUTCOME" = "failure" ]; then
+                # 교체 단계는 기존 컨테이너를 지운 뒤 새로 띄운다. 그 사이가 실패하면 이제 **그 자리에서
+                # 복구가 돈다**(#297) — 그 결과가 로그 표식으로 남으므로 스모크 실패와 같은 방식으로 읽는다.
+                #
+                # 표식이 없는 경우도 정상이다. 빌드나 MySQL 확인처럼 **기존 컨테이너를 지우기 전에** 실패하면
+                # 복구할 것이 없고 서비스도 멀쩡하다. 그때는 실제 응답으로 판정한다.
+                if RECOVERY=$(recovery_detail); then
+                  DETAIL="컨테이너 교체 실패 → $RECOVERY"
+                else
+                  case "$SERVICE_CODE" in
+                    200|401) DETAIL="이미지 빌드·컨테이너 교체 실패 (서비스는 응답 중)" ;;
+                    "") DETAIL="이미지 빌드·컨테이너 교체 실패 — **서비스 상태 미확인**" ;;
+                    *) DETAIL="이미지 빌드·컨테이너 교체 실패 — **서비스 중단(응답 $SERVICE_CODE) · 수동 개입 필요**" ;;
+                  esac
+                fi
+              elif [ "$SMOKE_OUTCOME" = "failure" ]; then
+                if RECOVERY=$(recovery_detail); then
+                  DETAIL="기동·스모크 실패 → $RECOVERY"
+                else
+                  DETAIL="기동·스모크 실패 (롤백 결과를 확인하지 못했습니다)"
+                fi
+              else
+                DETAIL="배포 전 단계에서 실패"
+              fi
+              ;;
+          esac
+
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # 포맷 문자열은 **반드시 작은따옴표**다. 백틱은 디스코드의 인라인 코드 표기라 리터럴이어야
+          # 하는데, 큰따옴표로 바꾸면 셸이 그것을 명령 치환으로 읽어 %s 를 실행하려 든다.
+          # shellcheck disable=SC2016
+          TEXT=$(printf '**%s**\n%s\n`%s` %s\n실행: %s\n%s' \
+            "$TITLE" "$DETAIL" "${GITHUB_SHA:0:7}" "$SUBJECT" "$GITHUB_ACTOR" "$RUN_URL")
+
+          # 본문은 jq 로 만든다 — 커밋 메시지에 따옴표·개행이 섞여도 JSON 이 깨지지 않는다.
+          jq -n --arg content "$TEXT" '{content: $content}' > "$RUNNER_TEMP/discord.json"
+
+          # **알림 실패가 배포 결과를 바꾸지 않는다.** URL 은 그 자체가 자격증명이라 출력에 남기지 않는다
+          # (-s 로 진행률도 끈다). 상태코드만 찍는다.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+            -H 'Content-Type: application/json' \
+            -d "@$RUNNER_TEMP/discord.json" "$WEBHOOK" || echo "000")
+
+          # **못 보냈으면 못 보냈다고 남긴다.** 상태코드만 찍고 넘어가면 알림 유실이 아무 흔적을 남기지
+          # 않는다 — 조용히 안 오는 알림은 없는 알림과 같고, 그 사실조차 아무도 모른다. 배포 자체는
+          # 성공했을 수 있으므로 실패로 만들지는 않고, 요약에 눈에 띄게 남긴다.
+          if [ "$code" = "204" ] || [ "$code" = "200" ]; then
+            echo "디스코드 알림 전송 완료 (HTTP $code)"
+          else
+            echo "::warning title=배포 알림 실패::디스코드가 HTTP $code 로 답해 알림이 전달되지 않았습니다 (웹훅 URL·권한을 확인하세요)"
+          fi
+          exit 0

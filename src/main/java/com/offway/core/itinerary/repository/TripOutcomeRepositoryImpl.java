@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.repository;
 
 import com.offway.core.itinerary.domain.TripOutcome;
+import java.util.Collection;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,11 @@ public class TripOutcomeRepositoryImpl implements TripOutcomeRepository {
     @Override
     public Set<Long> findAnsweredCourseIds(UUID userId) {
         return jpaRepository.findAnsweredCourseIds(userId);
+    }
+
+    @Override
+    public Set<Long> findAnsweredCourseIdsIn(Collection<Long> courseIds) {
+        return courseIds.isEmpty() ? Set.of() : jpaRepository.findAnsweredCourseIdsIn(courseIds);
     }
 
     @Override

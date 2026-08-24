@@ -1,5 +1,6 @@
 package com.offway.core.user.service;
 
+import com.offway.core.user.domain.AuthProvider;
 import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.RefreshToken;
 import com.offway.core.user.domain.User;
@@ -42,8 +43,28 @@ public class UserPersistenceService {
     public AuthenticatedUser findOrCreateUser(SocialIdentity identity, String requestedNickname, String requestedEmail) {
         return userIdentityRepository
                 .findByProviderAndSubject(identity.provider(), identity.providerUserId())
-                .map(found -> new AuthenticatedUser(found.getUserId(), false))
+                .map(found -> {
+                    refreshProfileImage(found.getUserId(), identity);
+                    return new AuthenticatedUser(found.getUserId(), false);
+                })
                 .orElseGet(() -> new AuthenticatedUser(register(identity, requestedNickname, requestedEmail), true));
+    }
+
+    /**
+     * 로그인할 때마다 프로필 사진을 provider 값으로 맞춘다(#308).
+     *
+     * <p><b>가입 때만 저장하면 이미 가입한 사람에게는 영영 안 보인다.</b> 이 필드는 지금 추가되는 것이라
+     * 기존 사용자는 전부 비어 있고, 그들이 다시 가입할 일은 없다. 사진이 바뀌거나 Kakao CDN 주소가 만료되는
+     * 경우도 같은 경로로 따라간다.
+     *
+     * <p>값이 안 왔거나 그대로면 아무것도 하지 않는다 — {@link User#changeProfileImage} 가 그 판단을 들고
+     * 있어 매 로그인마다 UPDATE 가 나가지 않는다.
+     */
+    private void refreshProfileImage(UUID userId, SocialIdentity identity) {
+        identity.profileImageUrlIfPresent()
+                .flatMap(url -> userRepository.findById(userId).map(user -> user.changeProfileImage(url)))
+                .filter(Boolean::booleanValue)
+                .ifPresent(changed -> log.debug("프로필 사진 갱신 userId={}", userId));
     }
 
     /**
@@ -58,6 +79,19 @@ public class UserPersistenceService {
         return userIdentityRepository
                 .findByProviderAndSubject(identity.provider(), identity.providerUserId())
                 .map(found -> new AuthenticatedUser(found.getUserId(), false));
+    }
+
+    /**
+     * provider 가 준 갱신 토큰을 신원 행에 남긴다(#287).
+     *
+     * <p>없는 신원이면 아무것도 하지 않는다 — 로그인 직후라 정상적으로는 늘 있지만, 없다고 예외를 던지면
+     * 연결 해제를 위한 저장이 로그인을 깨뜨리는 셈이 된다.
+     */
+    @Transactional
+    public void rememberProviderToken(UUID userId, AuthProvider provider, String refreshToken, String clientId) {
+        userIdentityRepository
+                .findByUserIdAndProvider(userId, provider)
+                .ifPresent(identity -> identity.rememberProviderToken(refreshToken, clientId));
     }
 
     /** local 개발 로그인용 — provider 연결 없이 사용자만 만든다. */
@@ -120,7 +154,9 @@ public class UserPersistenceService {
     private UUID register(SocialIdentity identity, String requestedNickname, String requestedEmail) {
         String nickname = firstPresent(requestedNickname, identity.nicknameIfPresent().orElse(null));
         String email = firstPresent(requestedEmail, identity.emailIfPresent().orElse(null));
-        User user = userRepository.save(User.of(nickname, email));
+        // 사진은 요청 값을 받지 않는다 — 표시 이름과 달리 앱이 보낼 이유가 없고, 남의 주소를 심을 자리가 된다.
+        User user = userRepository.save(
+                User.of(nickname, email, identity.profileImageUrlIfPresent().orElse(null)));
         userIdentityRepository.save(UserIdentity.link(user.getId(), identity.provider(), identity.providerUserId()));
         // 이메일·닉네임은 개인정보라 로그에 남기지 않는다. 어느 provider 로 몇 명이 들어오는지만 남긴다.
         log.info("신규 가입 provider={} userId={}", identity.provider(), user.getId());

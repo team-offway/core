@@ -145,18 +145,54 @@ public class LeaveUsage {
     }
 
     /**
-     * 사용자가 손으로 지울 수 있는 내역인지 확인한다(#265) — <b>코스 확정 내역은 거절한다</b>(409).
+     * 사용자가 연차 화면에서 <b>직접 건드릴 수 있는</b> 내역인지 확인한다(#265·#267) — 코스 확정 내역은
+     * 거절한다(409).
      *
      * <p>그 행은 차감량이자 <b>확정 표식</b>이다. 연차 화면에서 지우면 코스는 확정인데 연차는 안 깎인 상태가
      * 남고, 코스 삭제·날짜 변경이 그 행을 전제로 도는 것도 함께 어긋난다. 되돌리는 길은 이미 있다 —
      * 코스의 차감 취소가 코스와 연차를 한 덩어리로 되돌린다(#113).
      *
+     * <p><b>삭제와 수정이 같은 관문을 쓴다.</b> 수정은 더하다 — 일수를 고치면 코스가 아는 차감량과 조용히
+     * 어긋나 되돌릴 근거까지 사라진다. 사유가 같으니 답도 같아야 해서 {@code LEAVE-014} 를 함께 쓴다.
+     * 그 문구의 안내("코스에서 차감을 취소해 주세요")도 양쪽에 그대로 맞는다.
+     *
      * <p>404 로 감추지 않는다. 자기 내역이 화면에 보이는데 "없다" 고 답하면 사용자는 버그로 읽는다.
-     * 지울 수 없는 이유를 알려줘야 코스 화면으로 갈 수 있다.
+     * 건드릴 수 없는 이유를 알려줘야 코스 화면으로 갈 수 있다.
      */
-    public void requireManuallyDeletable() {
+    public void requireManuallyManaged() {
         if (!isManual()) {
             throw LeaveException.courseLeaveUsageNotDeletable();
+        }
+    }
+
+    /**
+     * 사용자가 내역을 고친다(#267) — <b>보낸 것만 바꾼다</b>.
+     *
+     * <p><b>null 은 "안 보냈다" 로 읽는다.</b> Jackson 3 에서 빠진 필드와 명시적 {@code null} 은 똑같이
+     * {@code null} 로 도착해 서로 구분되지 않는다. 구분하려면 필드마다 wrapper 를 씌워야 하는데, 그 값어치가
+     * 있는 필드는 여기 없다 — 날짜와 일수는 지울 수 있는 값이 아니고(지우려면 내역을 삭제한다), 사유는
+     * 아래처럼 빈 문자열로 지울 수 있다.
+     *
+     * <p><b>사유는 빈 문자열로 지운다.</b> {@code reason: ""} 을 보내면 {@link #trimReason} 이 null 로 만들어
+     * 메모가 사라진다. "안 보냈다"(그대로 두기)와 "지워라" 를 가르는 신호가 필요한데, 이 방식이 wrapper 없이
+     * 그 둘을 나누는 유일한 값이다.
+     *
+     * <p>검증은 등록과 같은 규칙을 탄다 — 같은 값에 계약이 두 개면 화면이 어느 쪽을 따를지 알 수 없다.
+     * 그래서 {@link #requireDays} 를 그대로 부른다.
+     *
+     * @param usedOn 새 사용일. null 이면 그대로
+     * @param days 새 일수. null 이면 그대로
+     * @param reason 새 사유. null 이면 그대로, 빈 문자열이면 지운다
+     */
+    public void edit(LocalDate usedOn, Double days, String reason) {
+        // 검증을 먼저 끝내고 대입한다 — 중간에 거절되면 날짜만 바뀐 반쪽 상태가 남는다.
+        double editedDays = days == null ? this.days : requireDays(days, courseId);
+        if (usedOn != null) {
+            this.usedOn = usedOn;
+        }
+        this.days = editedDays;
+        if (reason != null) {
+            this.reason = trimReason(reason);
         }
     }
 

@@ -44,9 +44,14 @@ public class StubKakaoProfileClient implements KakaoProfileClient {
         this.tokenInfoBehavior = ourAppTokenInfo();
     }
 
-    /** 어떤 토큰이든 같은 프로필로 성공시킨다. 토큰 정보는 기본값(우리 앱)으로 되돌린다. */
+    /** 어떤 토큰이든 같은 프로필로 성공시킨다. 사진은 없는 것으로 둔다(동의 거부·기본 이미지). */
     public void respondWith(String id, String nickname, String email) {
-        respond(accessToken -> new KakaoProfile(id, nickname, email));
+        respondWith(id, nickname, email, null);
+    }
+
+    /** 프로필 사진까지 주는 응답(#308) — 사진이 저장·노출되는 경로를 보는 테스트용. */
+    public void respondWith(String id, String nickname, String email, String profileImageUrl) {
+        respond(accessToken -> new KakaoProfile(id, nickname, email, profileImageUrl));
     }
 
     /** 토큰 정보 조회 결과를 정한다 — 남의 앱 토큰·조회 실패를 흉내 낼 때 쓴다. */

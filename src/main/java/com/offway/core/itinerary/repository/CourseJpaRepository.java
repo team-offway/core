@@ -26,6 +26,18 @@ public interface CourseJpaRepository extends JpaRepository<Course, Long> {
      */
     List<Course> findByTravelDateAndUserIdIsNotNull(LocalDate travelDate);
 
+    /**
+     * 시작일이 이 구간에 든 코스 전부(소유자 무관) — 종료일 기준 알림 배치용(#302).
+     *
+     * <p><b>종료일로 직접 거르지 않는 이유.</b> 종료일은 컬럼이 아니라
+     * {@code travel_date + travel_days - 1} 로 계산되는 값이라, DB 에서 비교하려면 방언에 묶인 날짜 연산을
+     * 질의에 박아야 한다. 대신 시작일 범위로 후보를 좁혀 오고 정확한 판정은 도메인({@code travelEndDate()})이
+     * 한다 — 계산 규칙이 한 곳에만 있게 된다.
+     *
+     * <p>범위 폭은 코스 최대 기간({@code Course.MAX_TRAVEL_DAYS})이라 후보가 며칠치를 넘지 않는다.
+     */
+    List<Course> findByTravelDateBetweenAndUserIdIsNotNull(LocalDate from, LocalDate to);
+
     List<Course> findByUserIdAndTravelDateGreaterThanEqualOrderByTravelDateAscIdDesc(
             UUID userId, LocalDate today);
 

@@ -45,6 +45,14 @@ class CourseSupplementIntegrationTest {
     /** 테스트 풀이 채운 지역 — 경상북도 의성군. */
     private static final String UISEONG = "76";
 
+    /**
+     * stub 후보의 주소도 그 지역으로 맞춘다.
+     *
+     * <p>요청 지역과 후보 주소가 어긋나 있으면, 주소를 읽는 후속 로직이 깨져도 이 테스트는 통과한다 —
+     * fixture 가 시나리오를 벗어난 만큼 회귀를 못 잡는다.
+     */
+    private static final String UISEONG_ADDRESS = "경상북도 의성군";
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -86,8 +94,24 @@ class CourseSupplementIntegrationTest {
         return new TourPoiResult(items, items.size());
     }
 
+    /**
+     * 콘텐츠 타입에 <b>맞는 대분류</b>를 함께 준다.
+     *
+     * <p>예전에는 대분류를 {@code "NA"} 로 고정했다. 풀을 콘텐츠 타입으로 가르던 시절엔 문제가 없었지만,
+     * 이제 대분류가 기준이라 <b>타입 39(음식점)인데 대분류가 자연</b>인 후보가 볼거리로 들어간다 —
+     * 실제 응답에는 없는 조합이다(전수 6,821건 확인, 어긋난 건 0건).
+     */
     private static TourPoi poi(String id, int contentTypeId, double lat, double lng) {
-        return new TourPoi(id, contentTypeId, "NA", "장소" + id, "경북 의성군", lat, lng, null, null);
+        return new TourPoi(id, contentTypeId, lclsOf(contentTypeId), "장소" + id, UISEONG_ADDRESS, lat, lng,
+                "http://img/" + id + ".jpg", null, null);
+    }
+
+    private static String lclsOf(int contentTypeId) {
+        return switch (contentTypeId) {
+            case 39 -> "FD";
+            case 32 -> "AC";
+            default -> "NA";
+        };
     }
 
     @Test

@@ -44,7 +44,9 @@ public record TourIntro(
         /** 객실 수(숙박). `5` 처럼 숫자만 오기도 하고 `5실` 로 오기도 해 문자열로 둔다. */
         String roomCount,
         /** 예약 안내(숙박). */
-        String reservation) {
+        String reservation,
+        /** 체험안내(체험관광) — 체험 카드 부제(#305). */
+        String experienceGuide) {
 
     /**
      * 도메인 보조정보로 옮긴다 — 외부 응답이 상위 레이어로 새지 않게(매핑 규약: 외부 결과 객체의 {@code toXxx()}).
@@ -63,6 +65,7 @@ public record TourIntro(
                 .checkOut(checkOut)
                 .roomCount(roomCount)
                 .reservation(reservation)
+                .experienceGuide(experienceGuide)
                 .build();
     }
 }

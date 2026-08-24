@@ -88,4 +88,27 @@ class AuthProviderTest {
                 "name",
                 AuthProvider.GOOGLE.oidc().orElseThrow().nicknameClaimIfPresent().orElseThrow());
     }
+
+    /**
+     * 사진 주소를 <b>이미 검증한 토큰에서</b> 얻는다(#308) — 사진 때문에 외부 호출을 더 하지 않는다.
+     *
+     * <p>클레임 이름이 틀어지면 마이 화면 아바타가 조용히 기본 아이콘으로만 남는다. 응답은 정상이고 필드도
+     * 실리니 아무도 오류로 알아채지 못한다.
+     */
+    @Test
+    void 구글은_ID토큰의_picture_클레임에서_사진을_얻는다() {
+        assertEquals(
+                "picture",
+                AuthProvider.GOOGLE.oidc().orElseThrow().pictureClaimIfPresent().orElseThrow());
+    }
+
+    @Test
+    void 애플은_ID토큰에_사진을_담지_않는다() {
+        // provider 가 아예 주지 않아 서버가 할 수 있는 일이 없다 — null 이 정답이다.
+        assertTrue(AuthProvider.APPLE
+                .oidc()
+                .orElseThrow()
+                .pictureClaimIfPresent()
+                .isEmpty());
+    }
 }

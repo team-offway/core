@@ -1,6 +1,7 @@
 package com.offway.core.leave.repository;
 
 import com.offway.core.leave.domain.LeaveUsage;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -28,6 +29,15 @@ public interface LeaveUsageJpaRepository extends JpaRepository<LeaveUsage, Long>
     /** 코스 ID 만 뽑는다 — 목록 화면은 "차감했는가" 만 알면 되므로 내역 전체를 끌어올 이유가 없다. */
     @Query("SELECT u.courseId FROM LeaveUsage u WHERE u.userId = :userId AND u.courseId IS NOT NULL")
     Set<Long> findDeductedCourseIds(@Param("userId") UUID userId);
+
+    /**
+     * 이 코스들 중 <b>이미 차감한 것</b>(소유자 무관) — 알림 배치용(#302).
+     *
+     * <p>소유자를 안 거는 것이 여기서는 맞다. 코스 id 는 이미 "그 소유자의 코스" 로 좁혀져 넘어오고,
+     * 배치가 소유자마다 한 번씩 물으면 대상 수만큼 질의가 나간다.
+     */
+    @Query("SELECT u.courseId FROM LeaveUsage u WHERE u.courseId IN :courseIds")
+    Set<Long> findDeductedCourseIdsIn(@Param("courseIds") Collection<Long> courseIds);
 
     /** @return 지운 행 수 */
     int deleteByUserIdAndCourseId(UUID userId, Long courseId);

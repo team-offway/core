@@ -6,6 +6,7 @@ import com.offway.core.trip.domain.CategoryCounts;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
 import java.util.List;
+import lombok.Builder;
 
 /**
  * 홈 화면 데이터 — 서비스 내부 result. 남은 연차 + 이번주 추천 지역(랭킹 top-N).
@@ -15,8 +16,37 @@ import java.util.List;
  * @param remainingLeaveDays 남은 연차 (저장값. 설정한 적 없으면 null — 0 과 구분한다). 반차가 0.5 라 실수다
  * @param regions 추천 지역 카드 (랭킹 top-N)
  * @param categoryCounts 필터칩별 지역 수(#266). 홈이 그리는 칩이 개수를 지어내지 않게 함께 내린다
+ * @param places <b>이번달 추천 여행지</b> 섹션의 장소 카드(#305). {@code regions} 와 다른 섹션이다 —
+ *     그쪽은 "이번 연차엔 여기 어때요?" 로, 지역명과 대표 이미지만 쓴다
  */
-public record HomeResult(Double remainingLeaveDays, List<RegionCard> regions, CategoryCounts categoryCounts) {
+public record HomeResult(
+        Double remainingLeaveDays,
+        List<RegionCard> regions,
+        CategoryCounts categoryCounts,
+        List<PlaceCard> places) {
+
+    /**
+     * 장소 카드 하나 — 시안의 위쪽 섹션(#305).
+     *
+     * <p><b>카드가 장소여야 칩이 뜻을 갖는다.</b> 지역은 네 칩을 동시에 가지므로 "숙박" 을 눌러도 같은
+     * 지역이 그대로 남는다. 골라도 달라지는 게 없던 것이 이 섹션이 새로 필요한 이유다.
+     *
+     * @param poiContentId 장소 상세({@code GET /pois/{id}})로 가는 키
+     * @param kind 이 장소가 걸린 칩. 앱이 이 값으로 필터를 건다
+     * @param regionName 어느 지역인지 — 카드가 장소라 지역명을 따로 실어야 한다
+     * @param subtitle 장소명 아래 한 줄. <b>없을 수 있다</b> — 재료가 없으면 앱이 그 줄을 접는다
+     * @param benefit 그 지역에 걸리는 대표 혜택(없으면 null)
+     */
+    @Builder
+    public record PlaceCard(
+            String poiContentId,
+            String name,
+            String imageUrl,
+            Category kind,
+            String regionName,
+            String subtitle,
+            Benefit benefit) {
+    }
 
     /**
      * @param regionId 지역 ID

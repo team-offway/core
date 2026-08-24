@@ -13,7 +13,9 @@ import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.RegionPois;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +39,25 @@ public class RegionPoiService {
 
     // TourAPI contentTypeId → 풀. (12 관광지·14 문화시설·15 축제공연행사·28 레포츠 = 볼거리, 39 음식점, 32 숙박)
     private static final Set<Integer> SIGHT_TYPES = Set.of(12, 14, 15, 28);
+
+    /**
+     * 대분류({@code lclsSystm1}) — <b>풀을 가르는 실제 기준</b>(#304).
+     *
+     * <p>{@code contentTypeId} 와 어긋나는 값이 있어 그걸로만 가르면 새는 장소가 생긴다.
+     * 실측(2026-08-21 · 89곳 전수): {@code AC}(숙박) 977건 중 <b>625건이 타입 28</b>(레포츠)이었다 —
+     * 전부 야영장·캠핑장·펜션이다. 지방일수록 그 비중이 커서 "잘 곳 없는 코스" 의 원인이었다.
+     */
+    private static final String LCLS_STAY = "AC";
+
+    private static final String LCLS_FOOD = "FD";
+
+    /**
+     * 중분류로만 갈리는 잘 곳 — <b>복합관광시설(리조트)</b>(#304).
+     *
+     * <p>실측에서 카라반·글램핑 리조트 39건이 대분류 {@code VE}(문화관광)로 왔다. 대분류만 보면 볼거리에
+     * 남는데, 사용자가 거기서 잔다. 사진 보유율 100% 라 숙박 풀이 얇은 지역에서 특히 값어치가 있다.
+     */
+    private static final String LCLS_RESORT = "VE05";
     private static final int FOOD_TYPE = 39;
     private static final int STAY_TYPE = 32;
 
@@ -60,11 +81,18 @@ public class RegionPoiService {
 
         // 볼거리·맛집·숙박을 각각 타입 스코프로 조회한다. 전체타입을 한 번만 뽑으면 인구감소지역처럼 등록 수가 적은 곳에서
         // 맛집·숙박이 볼거리에 밀려 과소표집돼(끼니·숙소가 코스에서 빠짐), 풀마다 독립 조회로 채운다.
-        List<PoiCandidate> sights = candidates(region, null).stream()
-                .filter(c -> SIGHT_TYPES.contains(c.contentTypeId()))
+        //
+        // **전체타입 응답은 대분류(lclsSystm1)로 가른다**(#304). contentTypeId 로 가르면 야영장·캠핑장이
+        // 볼거리로 샌다 — 실측(89곳 전수)에서 AC05(숙박) 625건이 타입 28(레포츠)로 왔다. 숙박 조회
+        // (contentTypeId=32)에는 안 잡히는 값이라, 그동안 지방 숙소가 통째로 빠지고 있었다.
+        List<PoiCandidate> allTypes = candidates(region, null);
+        List<PoiCandidate> sights = allTypes.stream()
+                .filter(c -> isSight(c))
                 .toList();
-        List<PoiCandidate> foods = candidates(region, FOOD_TYPE);
-        List<PoiCandidate> stays = candidates(region, STAY_TYPE);
+        List<PoiCandidate> foods = merge(allTypes.stream().filter(c -> LCLS_FOOD.equals(c.lclsSystm1())).toList(),
+                candidates(region, FOOD_TYPE));
+        List<PoiCandidate> stays = merge(allTypes.stream().filter(RegionPoiService::isStay).toList(),
+                candidates(region, STAY_TYPE));
 
         RegionPois pois = new RegionPois(sights, foods, stays);
         log.debug("코스 POI 수집 regionId={} 볼거리={} 맛집={} 숙박={}", regionId, sights.size(), foods.size(), stays.size());
@@ -133,7 +161,9 @@ public class RegionPoiService {
                 heritage.getImageUrl(),
                 heritage.getAddress(),
                 null,  // 캐치프레이즈는 TourAPI 콘텐츠에만 붙는다
-                null); // 국가유산청은 전화를 주지 않는다
+                null,  // 국가유산청은 전화를 주지 않는다
+                null,  // TourAPI 분류체계 밖이라 대분류가 없다 — 이미 볼거리로 정해져 넘어온다
+                null);
     }
 
     /**
@@ -160,7 +190,9 @@ public class RegionPoiService {
                 null, // 인허가 데이터에는 사진이 없다
                 place.getAddress(),
                 null, // 캐치프레이즈도 TourAPI 콘텐츠에만 붙는다
-                place.getTel()); // 49% 가 채워져 있다 — 있는 것을 버리지 않는다
+                place.getTel(), // 49% 가 채워져 있다 — 있는 것을 버리지 않는다
+                null,           // TourAPI 분류체계 밖이라 대분류가 없다 — 호출부가 kind 로 이미 갈랐다
+                null);
     }
 
     /**
@@ -194,6 +226,42 @@ public class RegionPoiService {
         return out;
     }
 
+    /**
+     * 볼거리인가 — <b>숙박·맛집이 아닌 것</b>.
+     *
+     * <p>대분류가 있으면 그걸 믿는다(TourAPI 출처). 없으면({@code null}) 우리 DB 출처라 이미 볼거리로
+     * 정해져 넘어온 것이고, 그때만 {@code contentTypeId} 로 되돌아간다.
+     */
+    private static boolean isSight(PoiCandidate candidate) {
+        String lcls = candidate.lclsSystm1();
+        if (lcls == null) {
+            return SIGHT_TYPES.contains(candidate.contentTypeId());
+        }
+        return !isStay(candidate) && !LCLS_FOOD.equals(lcls);
+    }
+
+    /**
+     * 잘 곳인가 — <b>대분류가 숙박이거나, 중분류가 리조트</b>다.
+     *
+     * <p>리조트를 따로 보는 이유는 그것만 대분류가 어긋나서다({@code VE} 문화관광). 나머지는 대분류로 갈린다.
+     */
+    private static boolean isStay(PoiCandidate candidate) {
+        return LCLS_STAY.equals(candidate.lclsSystm1()) || LCLS_RESORT.equals(candidate.lclsSystm2());
+    }
+
+    /**
+     * 두 조회 결과를 합친다 — <b>{@code contentId} 로 중복을 접는다</b>.
+     *
+     * <p>전체타입 조회와 타입별 조회가 같은 장소를 함께 물고 온다. 접지 않으면 같은 숙소가 코스에
+     * 두 번 들어갈 수 있다.
+     */
+    private static List<PoiCandidate> merge(List<PoiCandidate> first, List<PoiCandidate> second) {
+        Map<String, PoiCandidate> byContentId = new LinkedHashMap<>();
+        Stream.concat(first.stream(), second.stream())
+                .forEach(candidate -> byContentId.putIfAbsent(candidate.contentId(), candidate));
+        return List.copyOf(byContentId.values());
+    }
+
     private PoiCandidate toCandidate(TourPoi poi) {
         if (poi.contentTypeId() == null || poi.contentId() == null || poi.title() == null
                 || poi.lat() == null || poi.lng() == null) {
@@ -204,6 +272,8 @@ public class RegionPoiService {
                 poi.contentId(), poi.contentTypeId(), poi.title(), poi.lat(), poi.lng(),
                 poi.firstImage(), poi.address(), catchphraseProvider.forContentId(poi.contentId()).orElse(null),
                 // 후보 조회 응답에 이미 들어 있다. 여기서 안 들고 가면 상세를 다시 불러야 얻는다.
-                poi.tel());
+                poi.tel(),
+                poi.lclsSystm1(),
+                poi.lclsSystm2());
     }
 }

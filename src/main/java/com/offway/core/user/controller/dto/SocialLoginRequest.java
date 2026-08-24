@@ -21,6 +21,9 @@ import jakarta.validation.constraints.NotBlank;
  * @param accessToken provider SDK 가 발급한 토큰
  * @param email 표시용 이메일(선택). Apple 은 최초 로그인 응답에만 주므로 그때 받아 넘기지 않으면 영영 얻을 수 없다
  * @param name 표시 이름(선택). 위와 같은 이유로 Apple 최초 로그인에서만 값이 온다
+ * @param authorizationCode Apple 이 로그인 응답에 함께 주는 1회용 코드(#287). 탈퇴 시 Apple 연결을 끊는 데
+ *     필요하다 — 이 값이 없으면 우리 DB 만 지워지고 Apple '이 App으로 로그인' 목록에는 남는다. 카카오·구글은
+ *     보내지 않고, 안 보내도 로그인은 지금과 똑같다
  * @param providerUserId <b>받지만 신원 판단에 쓰지 않는다.</b> 앱 편의를 위해 계약에 남겨 둔 필드다. 이 값을 믿고
  *     계정을 찾으면 아무나 남의 식별자를 적어 그 계정으로 로그인할 수 있다 — 요청 한 번짜리 계정 탈취가 된다.
  *     식별자는 언제나 서버가 provider 에게서 직접 확인한 값을 쓴다
@@ -35,9 +38,15 @@ public record SocialLoginRequest(
         @Schema(
                         description = "제공자별 사용자 식별자(선택). 서버는 신원 판단에 쓰지 않고 provider 에게 직접 확인한다",
                         nullable = true)
-                String providerUserId) {
+                String providerUserId,
+        @Schema(
+                        description = "Apple 이 준 1회용 authorization code (Apple 만). 탈퇴 시 연결 해제에 쓴다 "
+                                + "— 안 보내면 해제만 못 하고 로그인은 그대로다",
+                        nullable = true)
+                String authorizationCode) {
 
     public SocialLoginCommand toCommand(String provider) {
-        return new SocialLoginCommand(AuthProvider.from(provider), accessToken, name, email);
+        return new SocialLoginCommand(
+                AuthProvider.from(provider), accessToken, name, email, authorizationCode);
     }
 }
