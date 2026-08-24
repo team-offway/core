@@ -1,11 +1,12 @@
 package com.offway.core.itinerary.controller;
 
 import com.offway.core.leave.domain.StartDayLeave;
+import static com.offway.core.user.config.TestLogins.loginAs;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -34,13 +35,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * 코스 공유 링크(#143) — 공개 조회의 HTTP 계약.
  *
- * <p><b>클래스에 {@code @WithMockUser} 를 걸지 않는다.</b> 이 경로가 인증 게이트를 통과하는지가 검증
- * 대상이라, 인증을 걸어두면 정작 확인하려던 것이 가려진다. 코스를 만드는 준비 요청에만 {@code user()} 를 붙인다.
+ * <p><b>클래스에 인증을 걸지 않는다.</b> 이 경로가 인증 게이트를 통과하는지가 검증 대상이라, {@code @WithLoginUser}
+ * 를 클래스에 붙이면 정작 확인하려던 것이 가려진다. 코스를 만드는 준비 요청에만 {@link #loginUser} 로 사용자를 붙인다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -49,7 +53,9 @@ class CourseShareIntegrationTest {
     private static final String COURSES_URL = "/api/v1/courses";
     private static final String SHARE_URL = "/api/v1/courses/share";
     private static final String PUBLIC_URL = "/api/v1/public/courses/{shareToken}";
-    private static final String GUEST_HEADER = "X-Guest-Id";
+
+    /** {@code SecurityConfig} · {@code JwtAuthenticationFilter} 가 쓰는 권한 이름 — 같은 값이어야 한다. */
+    private static final String USER_AUTHORITY = "ROLE_USER";
 
     /** 128비트를 URL-safe base64(패딩 없음)로 적으면 22자다 — 규격이 바뀌면 뿌린 링크가 깨진다. */
     private static final int TOKEN_LENGTH = 22;
@@ -73,11 +79,11 @@ class CourseShareIntegrationTest {
     @Autowired
     private CourseShareRepository courseShareRepository;
 
+
     @Test
     void 저장하면_공유토큰이_함께_온다() throws Exception {
         mockMvc.perform(post(COURSES_URL)
-                        .with(user("dev"))
-                        .header(GUEST_HEADER, guest())
+                        .with(loginAs(newUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isCreated())
@@ -86,8 +92,9 @@ class CourseShareIntegrationTest {
 
     @Test
     void 공유토큰이면_인증_없이_코스를_본다() throws Exception {
-        String token = saveAndGetToken(guest());
+        String token = saveAndGetToken(newUser());
 
+        // 인증을 붙이지 않는다 — 링크를 받은 사람은 우리 사용자가 아니다.
         mockMvc.perform(get(PUBLIC_URL, token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
@@ -99,7 +106,7 @@ class CourseShareIntegrationTest {
     /** 링크를 받은 사람은 수정·삭제를 못 하므로 내부 순번을 알 이유가 없다. 알려주면 다른 경로를 두드릴 단서만 준다. */
     @Test
     void 공개_응답에는_내부_식별자와_토큰이_없다() throws Exception {
-        String token = saveAndGetToken(guest());
+        String token = saveAndGetToken(newUser());
 
         mockMvc.perform(get(PUBLIC_URL, token))
                 .andExpect(status().isOk())
@@ -121,12 +128,10 @@ class CourseShareIntegrationTest {
      */
     @Test
     void 게시자가_코스를_지우면_410_으로_삭제를_알린다() throws Exception {
-        String guest = guest();
-        String token = saveAndGetToken(guest);
+        UUID owner = newUser();
+        String token = saveAndGetToken(owner);
 
-        mockMvc.perform(delete(COURSES_URL + "/" + courseIdOf(guest))
-                        .with(user("dev"))
-                        .header(GUEST_HEADER, guest))
+        mockMvc.perform(delete(COURSES_URL + "/" + courseIdOf(owner)).with(loginAs(owner)))
                 .andExpect(status().isOk());
 
         mockMvc.perform(get(PUBLIC_URL, token))
@@ -141,7 +146,7 @@ class CourseShareIntegrationTest {
      */
     @Test
     void 공개_경로는_브라우저_오리진에_열려_있다() throws Exception {
-        String token = saveAndGetToken(guest());
+        String token = saveAndGetToken(newUser());
 
         mockMvc.perform(get(PUBLIC_URL, token).header("Origin", "https://offway.vercel.app"))
                 .andExpect(status().isOk())
@@ -157,12 +162,10 @@ class CourseShareIntegrationTest {
      */
     @Test
     void 상세_응답에_저장_때와_같은_공유토큰이_실린다() throws Exception {
-        String guest = guest();
-        String saved = saveAndGetToken(guest);
+        UUID owner = newUser();
+        String saved = saveAndGetToken(owner);
 
-        mockMvc.perform(get(COURSES_URL + "/" + courseIdOf(guest))
-                        .with(user("dev"))
-                        .header(GUEST_HEADER, guest))
+        mockMvc.perform(get(COURSES_URL + "/" + courseIdOf(owner)).with(loginAs(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.code").value("OK"))
@@ -171,10 +174,10 @@ class CourseShareIntegrationTest {
 
     @Test
     void 목록_항목에도_같은_공유토큰이_실린다() throws Exception {
-        String guest = guest();
-        String saved = saveAndGetToken(guest);
+        UUID owner = newUser();
+        String saved = saveAndGetToken(owner);
 
-        mockMvc.perform(get(COURSES_URL).with(user("dev")).header(GUEST_HEADER, guest))
+        mockMvc.perform(get(COURSES_URL).with(loginAs(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.code").value("OK"))
@@ -184,18 +187,16 @@ class CourseShareIntegrationTest {
     /** 목록은 소유자 범위로만 조회한다 — 남의 코스가 섞이면 그 사람의 공유 링크까지 함께 새어 나간다. */
     @Test
     void 목록은_남의_코스와_토큰을_주지_않는다() throws Exception {
-        String owner = guest();
+        UUID owner = newUser();
         saveAndGetToken(owner);
-        String stranger = guest();
+        UUID stranger = newUser();
 
-        mockMvc.perform(get(COURSES_URL).with(user("dev")).header(GUEST_HEADER, stranger))
+        mockMvc.perform(get(COURSES_URL).with(loginAs(stranger)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").isEmpty());
 
         // 남의 코스 ID 를 직접 알아도 상세로 열 수 없다 — 토큰이 새는 다른 문이 없는지 함께 본다.
-        mockMvc.perform(get(COURSES_URL + "/" + courseIdOf(owner))
-                        .with(user("dev"))
-                        .header(GUEST_HEADER, stranger))
+        mockMvc.perform(get(COURSES_URL + "/" + courseIdOf(owner)).with(loginAs(stranger)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ITINERARY-003"));
     }
@@ -208,14 +209,14 @@ class CourseShareIntegrationTest {
      */
     @Test
     void 토큰이_없던_코스는_상세를_열면_발급된다() throws Exception {
-        String guest = guest();
-        long courseId = saveWithoutShare(guest);
+        UUID owner = newUser();
+        long courseId = saveWithoutShare(owner);
 
-        String first = tokenFromDetail(guest, courseId);
+        String first = tokenFromDetail(owner, courseId);
         assertEquals(TOKEN_LENGTH, first.length());
 
         // 두 번째 조회가 새 토큰을 발급하면 먼저 뿌린 링크가 죽는다.
-        assertEquals(first, tokenFromDetail(guest, courseId));
+        assertEquals(first, tokenFromDetail(owner, courseId));
 
         mockMvc.perform(get(PUBLIC_URL, first)).andExpect(status().isOk());
     }
@@ -228,10 +229,10 @@ class CourseShareIntegrationTest {
      */
     @Test
     void 목록은_없는_공유토큰을_발급하지_않는다() throws Exception {
-        String guest = guest();
-        long courseId = saveWithoutShare(guest);
+        UUID owner = newUser();
+        long courseId = saveWithoutShare(owner);
 
-        mockMvc.perform(get(COURSES_URL).with(user("dev")).header(GUEST_HEADER, guest))
+        mockMvc.perform(get(COURSES_URL).with(loginAs(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].courseId").value((int) courseId))
                 .andExpect(jsonPath("$.data[0].shareToken").doesNotExist());
@@ -243,12 +244,11 @@ class CourseShareIntegrationTest {
     /** 날짜를 고친 순간 토큰이 빠지면 화면의 공유 버튼이 사라진다 — 응답 모양이 상세와 같아야 한다. */
     @Test
     void 여행_날짜를_고쳐도_공유토큰이_그대로_실린다() throws Exception {
-        String guest = guest();
-        String saved = saveAndGetToken(guest);
+        UUID owner = newUser();
+        String saved = saveAndGetToken(owner);
 
-        mockMvc.perform(patch(COURSES_URL + "/" + courseIdOf(guest))
-                        .with(user("dev"))
-                        .header(GUEST_HEADER, guest)
+        mockMvc.perform(patch(COURSES_URL + "/" + courseIdOf(owner))
+                        .with(loginAs(owner))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"travelDate\":\"" + LocalDate.now().plusDays(30) + "\"}"))
                 .andExpect(status().isOk())
@@ -290,14 +290,15 @@ class CourseShareIntegrationTest {
     /**
      * 담지 않은 코스가 목록에 끼면 사용자는 담지 않은 것을 담았다고 오해한다.
      *
-     * <p>주인 없이 보관하는 것이 그 장치다 — "내 코스" 조회가 전부 게스트 범위라 어느 질의에도 안 걸린다.
+     * <p><b>주인 없이</b> 보관하는 것이 그 장치다(#261) — "내 코스" 조회가 전부 {@code user_id} 범위라
+     * 주인이 없는 코스는 어느 질의에도 안 걸린다. 공유를 만든 사용자에게도 안 보여야 한다.
      */
     @Test
     void 담지_않고_공유한_코스는_내_코스에_나오지_않는다() throws Exception {
-        String guest = guest();
-        shareWithoutSaving(VALID_BODY);
+        UUID sharer = newUser();
+        shareWithoutSaving(VALID_BODY, sharer);
 
-        mockMvc.perform(get(COURSES_URL).with(user("dev")).header(GUEST_HEADER, guest))
+        mockMvc.perform(get(COURSES_URL).with(loginAs(sharer)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.data").isEmpty());
@@ -309,7 +310,7 @@ class CourseShareIntegrationTest {
         String invalid = VALID_BODY.replace("\"order\":2", "\"order\":3");
 
         mockMvc.perform(post(SHARE_URL)
-                        .with(user("dev"))
+                        .with(loginAs(newUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(invalid))
                 .andExpect(status().isBadRequest())
@@ -334,8 +335,12 @@ class CourseShareIntegrationTest {
     }
 
     private String shareWithoutSaving(String body) throws Exception {
+        return shareWithoutSaving(body, newUser());
+    }
+
+    private String shareWithoutSaving(String body, UUID sharer) throws Exception {
         String response = mockMvc.perform(post(SHARE_URL)
-                        .with(user("dev"))
+                        .with(loginAs(sharer))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
@@ -347,10 +352,8 @@ class CourseShareIntegrationTest {
         return JsonPath.read(response, "$.data.shareToken");
     }
 
-    private String tokenFromDetail(String guest, long courseId) throws Exception {
-        String body = mockMvc.perform(get(COURSES_URL + "/" + courseId)
-                        .with(user("dev"))
-                        .header(GUEST_HEADER, guest))
+    private String tokenFromDetail(UUID owner, long courseId) throws Exception {
+        String body = mockMvc.perform(get(COURSES_URL + "/" + courseId).with(loginAs(owner)))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
@@ -359,19 +362,18 @@ class CourseShareIntegrationTest {
     }
 
     /** 저장 API 를 거치지 않고 코스만 만든다 — 공유 행이 없는 상태를 재현하는 유일한 길이다. */
-    private long saveWithoutShare(String guest) {
+    private long saveWithoutShare(UUID owner) {
         Slot slot = Slot.of(1, TimeOfDay.MORNING, SlotKind.SIGHT, "c1", "장소1", 37.50, 128.60, 0,
                 new SlotDisplay(null, null, null, null));
         Course course = Course.ownedBy(
-                guest, 16L, Density.PACKED, TransportMode.CAR,
+                owner, 16L, Density.PACKED, TransportMode.CAR,
                 List.of(DaySchedule.of(1, List.of(slot))), null, 1, null, StartDayLeave.FULL_DAY);
         return courseRepository.save(course).getId();
     }
 
-    private String saveAndGetToken(String guest) throws Exception {
+    private String saveAndGetToken(UUID owner) throws Exception {
         String body = mockMvc.perform(post(COURSES_URL)
-                        .with(user("dev"))
-                        .header(GUEST_HEADER, guest)
+                        .with(loginAs(owner))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isCreated())
@@ -381,18 +383,16 @@ class CourseShareIntegrationTest {
         return JsonPath.read(body, "$.data.shareToken");
     }
 
-    private long courseIdOf(String guest) throws Exception {
-        String body = mockMvc.perform(get(COURSES_URL)
-                        .with(user("dev"))
-                        .header(GUEST_HEADER, guest))
+    private long courseIdOf(UUID owner) throws Exception {
+        String body = mockMvc.perform(get(COURSES_URL).with(loginAs(owner)))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
         return ((Number) JsonPath.read(body, "$.data[0].courseId")).longValue();
     }
 
-    /** DB 격리: 롤백 대신 테스트마다 고유 게스트 ID 를 써서 "내 코스" 목록이 섞이지 않게 한다. */
-    private static String guest() {
-        return "share-" + UUID.randomUUID();
+    /** DB 격리: 롤백 대신 테스트마다 새 사용자를 써서 "내 코스" 목록이 섞이지 않게 한다(#280 전의 고유 게스트 ID). */
+    private static UUID newUser() {
+        return UUID.randomUUID();
     }
 }
