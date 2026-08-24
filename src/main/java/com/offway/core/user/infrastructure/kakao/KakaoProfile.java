@@ -15,7 +15,14 @@ import com.offway.core.user.domain.SocialIdentity;
 public record KakaoProfile(String id, String nickname, String email, String profileImageUrl) {
 
     public SocialIdentity toSocialIdentity() {
-        // 정규 생성자를 쓴다 — audience 자리에 무엇이 들어가는지(카카오는 ID 토큰을 안 써 없다) 눈에 보이게.
-        return new SocialIdentity(AuthProvider.KAKAO, id, nickname, email, null, profileImageUrl);
+        // 이름으로 짚는다 — String 이 이어져 순서가 어긋나도 컴파일이 통과하는 자리다.
+        // audience 는 채우지 않는다: 카카오는 ID 토큰을 안 쓴다.
+        return SocialIdentity.builder()
+                .provider(AuthProvider.KAKAO)
+                .providerUserId(id)
+                .nickname(nickname)
+                .email(email)
+                .profileImageUrl(profileImageUrl)
+                .build();
     }
 }

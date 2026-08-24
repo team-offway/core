@@ -5,6 +5,7 @@ import com.offway.core.user.service.dto.MyUser;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import lombok.Builder;
 
 /**
  * 내 정보(#282).
@@ -22,6 +23,7 @@ import java.time.ZoneId;
  *     이미지를 쓰면 없다. 앱은 없으면 기본 아이콘을 그린다
  * @param joinedAt 가입 시각(KST)
  */
+@Builder
 public record MyUserResponse(
         @Schema(example = "세빈") String nickname,
         @Schema(example = "user@example.com", nullable = true) String email,
@@ -32,12 +34,14 @@ public record MyUserResponse(
     /** 화면에 그대로 쓰는 값이라 서비스 시간대로 바꿔 내린다 — 다른 응답의 시각과 같은 기준이어야 한다. */
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
+    /** 이름으로 짚는다 — String 셋이 이어져 있어 순서가 어긋나도 컴파일이 통과하는 자리다. */
     public static MyUserResponse from(MyUser myUser) {
-        return new MyUserResponse(
-                myUser.nickname(),
-                myUser.email(),
-                myUser.provider(),
-                myUser.profileImageUrl(),
-                LocalDateTime.ofInstant(myUser.joinedAt(), SERVICE_ZONE));
+        return MyUserResponse.builder()
+                .nickname(myUser.nickname())
+                .email(myUser.email())
+                .provider(myUser.provider())
+                .profileImageUrl(myUser.profileImageUrl())
+                .joinedAt(LocalDateTime.ofInstant(myUser.joinedAt(), SERVICE_ZONE))
+                .build();
     }
 }

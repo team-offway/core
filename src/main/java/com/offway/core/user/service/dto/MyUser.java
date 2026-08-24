@@ -2,6 +2,7 @@ package com.offway.core.user.service.dto;
 
 import com.offway.core.user.domain.AuthProvider;
 import java.time.Instant;
+import lombok.Builder;
 
 /**
  * 내 정보 조회 결과(#282) — 서비스가 컨트롤러에 넘기는 내부 dto.
@@ -11,6 +12,10 @@ import java.time.Instant;
  * @param provider 어느 provider 로 로그인했는지. <b>null 일 수 있다</b> — local 개발 로그인은 연결이 없다
  * @param profileImageUrl 프로필 사진 주소. <b>null 일 수 있다</b> — Apple 은 주지 않고 Kakao 는 동의를 거부할 수 있다
  * @param joinedAt 가입 시각(UTC 기준 절대시각). 표시 시간대는 응답 dto 가 정한다
+ *
+ * <p><b>빌더로 만든다.</b> {@code nickname}·{@code email}·{@code profileImageUrl} 이 전부 String 이라 순서가
+ * 어긋나도 컴파일이 통과한다 — 이메일이 사진 자리에 들어가도 화면이 그릴 때까지 아무도 모른다.
  */
+@Builder
 public record MyUser(
         String nickname, String email, AuthProvider provider, String profileImageUrl, Instant joinedAt) {}

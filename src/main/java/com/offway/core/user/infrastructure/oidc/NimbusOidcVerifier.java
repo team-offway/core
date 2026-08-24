@@ -122,13 +122,14 @@ public class NimbusOidcVerifier implements SocialIdentityVerifier {
             throw UserException.unsupportedProvider();
         }
         Jwt jwt = decode(provider, oidc, credential, audiences);
-        return new SocialIdentity(
-                provider,
-                jwt.getSubject(),
-                nicknameOf(oidc, jwt),
-                emailOf(jwt),
-                matchedAudience(jwt, audiences),
-                pictureOf(oidc, jwt));
+        return SocialIdentity.builder()
+                .provider(provider)
+                .providerUserId(jwt.getSubject())
+                .nickname(nicknameOf(oidc, jwt))
+                .email(emailOf(jwt))
+                .audience(matchedAudience(jwt, audiences))
+                .profileImageUrl(pictureOf(oidc, jwt))
+                .build();
     }
 
     /**
