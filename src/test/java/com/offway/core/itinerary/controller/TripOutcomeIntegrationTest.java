@@ -1,8 +1,10 @@
 package com.offway.core.itinerary.controller;
 
 import static com.offway.core.user.config.TestLogins.loginAs;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.testSecurityContext;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -12,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.jayway.jsonpath.JsonPath;
 import com.offway.core.leave.infrastructure.holiday.HolidayClient;
 import com.offway.core.leave.infrastructure.holiday.StubHolidayClient;
+import com.offway.core.itinerary.repository.TripOutcomeRepository;
 import com.offway.core.leave.service.LeaveService;
 import com.offway.core.user.config.WithLoginUser;
 import java.time.DayOfWeek;
@@ -64,6 +67,10 @@ class TripOutcomeIntegrationTest {
 
     @Autowired
     private LeaveService leaveService;
+
+    /** 화면에 안 드러나는 정리를 단언한다 — 내부 컴포넌트라 stub 이 아니라 실제 빈이다. */
+    @Autowired
+    private TripOutcomeRepository tripOutcomeRepository;
 
     @TestConfiguration
     static class StubConfig {
@@ -253,6 +260,86 @@ class TripOutcomeIntegrationTest {
         answer(courseId, "VISITED").andExpect(status().isOk());
 
         pending().andExpect(jsonPath("$.data.trips.length()").value(0));
+    }
+
+    /**
+     * 차감을 취소하면 <b>다시 묻는다</b>(#327) — 이 이슈의 존재 이유다.
+     *
+     * <p>앱은 연차 내역에서 코스 건을 지울 때 이 API 를 부른다. 예전에는 내역만 지워져, 카드는 '미방문' 으로
+     * 돌아가는데 {@code trip_outcome} 에는 답이 남아 모달이 다시 묻지 않았다. 앱에는 모달 말고 차감하는
+     * 길이 없어서(#288 로 일원화) 실수로 지운 사용자는 <b>영영 되돌릴 수 없었다.</b>
+     *
+     * <p>연차가 실제로 복구되는지도 함께 본다. 답변만 지우고 내역이 남으면 모달은 다시 뜨는데 연차는 깎인
+     * 채라, 다시 "다녀왔어요" 를 누르면 이중으로 깎인 것처럼 보인다.
+     */
+    @Test
+    void 차감을_취소하면_다시_묻고_연차도_돌아온다() throws Exception {
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(weekdayRun(-3, 1));
+
+        answer(courseId, "VISITED").andExpect(status().isOk());
+        pending().andExpect(jsonPath("$.data.trips.length()").value(0));
+
+        mockMvc.perform(delete(COURSES + "/{id}/leave-deduction", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.remainingDays").value(13.0));
+
+        // 답하지 않은 상태로 돌아갔다 — 그래서 그 코스를 다시 묻는다.
+        pending()
+                .andExpect(jsonPath("$.data.trips.length()").value(1))
+                .andExpect(jsonPath("$.data.trips[0].courseId").value(courseId));
+
+        // 그리고 다시 답할 수 있다 — 409(이미 답함)로 막히지 않는다.
+        answer(courseId, "VISITED")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.remainingDays").value(12.0));
+    }
+
+    /**
+     * 코스를 지우면 답변도 함께 사라진다(#327) — <b>화면에는 안 드러나는 정리다.</b>
+     *
+     * <p>FK 를 두지 않으므로(persistence-convention) 코스를 지워도 {@code trip_outcome} 이 따라 지워지지
+     * 않는다. 조회가 전부 코스에서 시작해 사용자 눈에는 안 보이지만, 주인 없는 행으로 쌓인다.
+     * 그래서 응답이 아니라 저장소로 단언한다.
+     */
+    @Test
+    void 코스를_지우면_그_답변도_남지_않는다() throws Exception {
+        noHolidays();
+        setTotalLeave(13.0);
+        UUID owner = UUID.randomUUID();
+        RequestPostProcessor as = loginAs(owner);
+        long courseId = saveCourse(weekdayRun(-3, 1), as);
+
+        mockMvc.perform(post(COURSES + "/{id}/trip-outcome", courseId).with(as)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"outcome\": \"VISITED\"}"))
+                .andExpect(status().isOk());
+        assertTrue(tripOutcomeRepository.findAnsweredCourseIds(owner).contains(courseId),
+                "지우기 전에는 답변이 있어야 이 시나리오가 성립한다");
+
+        mockMvc.perform(delete(COURSES + "/{id}", courseId).with(as))
+                .andExpect(status().isOk());
+
+        assertTrue(tripOutcomeRepository.findAnsweredCourseIds(owner).isEmpty(),
+                "코스를 지웠는데 답변이 주인 없이 남았다");
+    }
+
+    @Test
+    void 안_갔다고_답한_여행도_취소_경로를_타면_다시_묻는다() throws Exception {
+        // "안갔어요" 는 차감 내역이 없어 취소가 지울 내역도 없다. 그래도 답변은 지워야 한다 —
+        // 멱등하게 도는 이 경로가 "내역이 없으면 아무것도 안 한다" 로 빠지면 그 코스는 다시 못 묻는다.
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(weekdayRun(-3, 1));
+
+        answer(courseId, "NOT_VISITED").andExpect(status().isOk());
+        pending().andExpect(jsonPath("$.data.trips.length()").value(0));
+
+        mockMvc.perform(delete(COURSES + "/{id}/leave-deduction", courseId))
+                .andExpect(status().isOk());
+
+        pending().andExpect(jsonPath("$.data.trips.length()").value(1));
     }
 
     @Test
