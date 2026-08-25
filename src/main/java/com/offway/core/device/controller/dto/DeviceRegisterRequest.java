@@ -22,6 +22,12 @@ public record DeviceRegisterRequest(
         @Schema(description = "기기 종류", example = "IOS") @NotNull DevicePlatform platform) {
 
     public DeviceRegistration toRegistration(String guestId) {
-        return new DeviceRegistration(guestId, token, platform);
+        // 소유 키와 토큰을 이름으로 적는다 — 둘 다 String 이라 위치 인수면 뒤바뀌어도
+        // 컴파일이 통과하고, 그러면 푸시가 조용히 안 간다(#300).
+        return DeviceRegistration.builder()
+                .guestId(guestId)
+                .token(token)
+                .platform(platform)
+                .build();
     }
 }
