@@ -6,6 +6,7 @@ import com.offway.core.itinerary.domain.DayStart;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.repository.CourseShareRepository;
+import com.offway.core.itinerary.repository.TripOutcomeRepository;
 import com.offway.core.leave.service.MyLeaveService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -34,6 +35,7 @@ public class CoursePersistenceService {
     private final CourseRepository courseRepository;
     private final CourseShareRepository courseShareRepository;
     private final MyLeaveService myLeaveService;
+    private final TripOutcomeRepository tripOutcomeRepository;
 
     /**
      * 소유자 범위에서 찾아 지우고, <b>이 코스로 깎았던 연차도 함께 되돌린다</b>(#113).
@@ -202,12 +204,20 @@ public class CoursePersistenceService {
                 .collect(Collectors.toMap(CourseShare::getCourseId, CourseShare::getShareToken, (a, b) -> a));
     }
 
+    /**
+     * 코스를 지운다 — 딸린 것도 함께 지운다.
+     *
+     * <p><b>여행 결과 답변도 지운다</b>(#327). FK 를 두지 않으므로(persistence-convention) 코스를 지워도
+     * {@code trip_outcome} 이 따라 지워지지 않는다. 남겨도 화면에는 안 보이지만 — 조회가 전부 코스에서
+     * 시작한다 — 주인 없는 행으로 쌓인다.
+     */
     @Transactional
     public void deleteOwned(UUID userId, long courseId) {
         Course course = courseRepository
                 .findByIdAndUserId(courseId, userId)
                 .orElseThrow(ItineraryException::courseNotFound);
         myLeaveService.cancelCourseDeduction(userId, courseId);
+        tripOutcomeRepository.deleteAnswer(userId, courseId);
         courseRepository.delete(course);
     }
 }

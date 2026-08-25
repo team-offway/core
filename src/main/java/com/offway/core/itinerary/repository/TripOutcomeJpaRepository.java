@@ -25,4 +25,7 @@ public interface TripOutcomeJpaRepository extends JpaRepository<TripOutcome, Lon
     Set<Long> findAnsweredCourseIdsIn(@Param("courseIds") Collection<Long> courseIds);
 
     int deleteByUserId(UUID userId);
+
+    /** 이 사람의 이 코스 답변 하나 — 차감을 취소하거나 코스를 지울 때 함께 지운다(#327). */
+    int deleteByUserIdAndCourseId(UUID userId, Long courseId);
 }
