@@ -3,6 +3,7 @@ package com.offway.core.itinerary.controller;
 import static com.offway.core.user.config.TestLogins.loginAs;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
@@ -30,6 +31,7 @@ import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -352,24 +354,52 @@ class CourseStorageIntegrationTest {
     }
 
     @Test
-    void 목록에_지역명과_대표_이미지가_실린다() throws Exception {
+    void 목록에_지역명이_실린다() throws Exception {
         // 없어서 FE 가 코스마다 상세를 한 번씩 더 불렀다(#171).
         save(bodyWithDateAndImage(LocalDate.now().plusDays(1)));
 
         mockMvc.perform(get(URL))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].regionName").value("정선군"))
-                .andExpect(jsonPath("$.data[0].coverImageUrl").value("http://img/cover.jpg"));
+                .andExpect(jsonPath("$.data[0].regionName").value("정선군"));
     }
 
+    /**
+     * 카드 사진은 <b>코스가 아니라 지역</b>의 것이다(#313).
+     *
+     * <p>예전에는 코스 첫 장소의 사진이었다. 같은 공주시 코스인데 하나는 석탑, 하나는 소나무숲으로 떴다 —
+     * 코스를 다시 뽑으면 첫 장소가 바뀌기 때문이다. 카드가 대표하는 것은 그 코스가 아니라 "내가 담은
+     * 공주시 여행" 이라, 지역이 같으면 사진도 같아야 목록에서 지역이 눈에 들어온다.
+     *
+     * <p>사진을 실은 코스와 안 실은 코스를 <b>같은 지역으로</b> 담아, 첫 장소가 달라도 카드 사진이 갈리지
+     * 않는 것을 본다. 그것이 이 이슈가 고친 바로 그 증상이다.
+     */
     @Test
-    void 이미지가_없는_코스는_대표_이미지가_null이다() throws Exception {
+    void 같은_지역_코스는_첫_장소가_달라도_같은_사진이다() throws Exception {
+        // 주인은 클래스의 @WithLoginUser 가 정한다(#280) — 두 코스가 같은 사람의 것이어야
+        // 목록에 함께 나오고, 그래야 사진이 갈리는지 볼 수 있다.
+        save(bodyWithDateAndImage(LocalDate.now().plusDays(1)));
         save(VALID_BODY);
 
-        mockMvc.perform(get(URL))
+        String body = mockMvc.perform(get(URL))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].regionName").value("정선군"))
-                .andExpect(jsonPath("$.data[0].coverImageUrl").doesNotExist());
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andReturn().getResponse().getContentAsString();
+
+        // 값이 아니라 카드 객체를 읽는다. `$.data[*].coverImageUrl` 로 값만 뽑으면 <b>키가 없는 카드가
+        // 결과에서 조용히 빠져</b>, 한쪽만 필드를 잃어도 남은 하나로 distinct 가 1 이 된다. 지금은 이 응답이
+        // null 도 그대로 직렬화해 그런 일이 없지만, 옆 파일 CourseResponse 가 @JsonInclude(NON_NULL) 을
+        // 쓰고 있어 누가 여기에도 붙이는 순간 이 단언이 조용히 약해진다.
+        List<Map<String, Object>> cards = JsonPath.read(body, "$.data[*]");
+        assertTrue(cards.stream().allMatch(card -> card.containsKey("coverImageUrl")),
+                "카드에 coverImageUrl 키가 없다 — 앱은 이 필드를 1순위로 읽는다: " + cards);
+
+        List<Object> covers = cards.stream().map(card -> card.get("coverImageUrl")).toList();
+        // 지역 대표 사진을 못 고른 지역이면 둘 다 null 이다 — 그때도 "갈리지 않는다" 는 성질은 지켜진다.
+        assertEquals(1, covers.stream().distinct().count(),
+                "같은 지역 코스의 카드 사진이 갈렸다: " + covers);
+        // 첫 장소 사진(http://img/cover.jpg)이 그대로 실리면 옛 동작으로 되돌아간 것이다.
+        assertFalse(covers.contains("http://img/cover.jpg"),
+                "카드 사진이 다시 코스 첫 장소의 것이 됐다");
     }
 
     @Test

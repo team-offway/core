@@ -18,6 +18,8 @@ import org.springframework.data.domain.Page;
  * @param courses 조회된 코스 (범위에 따라 정렬됨)
  * @param deductedCourseIds 연차를 차감한 코스 ID 들
  * @param regionNames 코스가 속한 지역명(코스 ID 가 아니라 지역 ID 로 색인) — 목록 카드가 숫자 대신 이름을 쓴다(#171)
+ * @param regionImages 코스가 속한 지역의 대표 이미지(지역 ID 로 색인, #313) — <b>같은 지역이면 같은 사진</b>이다.
+ *     코스 첫 장소의 사진을 쓰면 같은 지역인데 코스마다 사진이 갈린다
  * @param shareTokens 코스 ID → 공유 토큰(#259). 링크가 없는 코스는 키가 없다
  * @param today D-day 계산 기준일
  * @param page 0부터 시작하는 페이지 번호
@@ -29,6 +31,7 @@ public record MyCourses(
         List<Course> courses,
         Set<Long> deductedCourseIds,
         Map<Long, String> regionNames,
+        Map<Long, String> regionImages,
         Map<Long, String> shareTokens,
         LocalDate today,
         int page,
@@ -40,6 +43,7 @@ public record MyCourses(
         courses = List.copyOf(courses);
         deductedCourseIds = Set.copyOf(deductedCourseIds);
         regionNames = Map.copyOf(regionNames);
+        regionImages = Map.copyOf(regionImages);
         shareTokens = Map.copyOf(shareTokens);
     }
 
@@ -48,12 +52,14 @@ public record MyCourses(
             Page<Course> page,
             Set<Long> deductedCourseIds,
             Map<Long, String> regionNames,
+            Map<Long, String> regionImages,
             Map<Long, String> shareTokens,
             LocalDate today) {
         return new MyCourses(
                 page.getContent(),
                 deductedCourseIds,
                 regionNames,
+                regionImages,
                 shareTokens,
                 today,
                 page.getNumber(),
@@ -67,18 +73,28 @@ public record MyCourses(
      *
      * <p>화면에 그대로 내리는 길이 아니다. 응답으로 나가는 목록은 {@link #from} 을 쓴다.
      *
-     * <p>공유 토큰은 비운다 — 응답으로 나가지 않는 길이라 읽어봐야 쿼리만 하나 더 는다.
+     * <p>공유 토큰과 지역 이미지는 비운다 — 응답으로 나가지 않는 길이라 읽어봐야 쿼리만 는다.
      */
     public static MyCourses all(
             List<Course> courses, Set<Long> deductedCourseIds, Map<Long, String> regionNames, LocalDate today) {
         return new MyCourses(
-                courses, deductedCourseIds, regionNames, Map.of(), today, 0, courses.size(), courses.size(),
-                courses.isEmpty() ? 0 : 1);
+                courses, deductedCourseIds, regionNames, Map.of(), Map.of(), today, 0, courses.size(),
+                courses.size(), courses.isEmpty() ? 0 : 1);
     }
 
     /** 코스가 속한 지역명. 모르면 null — 화면이 지역 칸을 비운다. */
     public String regionName(Course course) {
         return regionNames.get(course.getRegionId());
+    }
+
+    /**
+     * 카드 대표 이미지 — <b>코스가 아니라 지역</b>의 사진이다(#313).
+     *
+     * <p>못 고른 지역은 null 이다. 코스 첫 장소의 사진으로 되돌아가지 않는다 — 그렇게 두면 어떤 카드는
+     * 지역 사진, 어떤 카드는 장소 사진이 되어 "같은 지역이면 같은 사진" 이라는 규칙이 반쯤만 지켜진다.
+     */
+    public String regionImage(Course course) {
+        return regionImages.get(course.getRegionId());
     }
 
     /**
