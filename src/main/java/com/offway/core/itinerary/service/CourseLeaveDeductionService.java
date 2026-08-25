@@ -3,6 +3,7 @@ package com.offway.core.itinerary.service;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.repository.CourseRepository;
+import com.offway.core.itinerary.repository.TripOutcomeRepository;
 import com.offway.core.leave.service.LeaveService;
 import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.leave.domain.StartDayLeave;
@@ -16,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 코스 확정 → 연차 차감(#91). 와이어프레임의 "연차를 차감할까요?" 확인에 대응하는 명시적 액션이다.
@@ -27,8 +29,11 @@ import org.springframework.stereotype.Service;
  * <p><b>잔여가 부족해도 막지 않는다</b>(결정 #38). 프론트가 경고하고 사용자가 확인하면 진행하며, 서버는 음수 잔여를
  * 허용한다.
  *
- * <p><b>트랜잭션을 걸지 않는다.</b> 공휴일 조회가 외부 호출이라 트랜잭션 안에 넣으면 read-timeout 동안 DB 커넥션을
- * 잡는다. 코스 조회와 내역 기록은 각자의 짧은 트랜잭션에서 끝난다.
+ * <p><b>차감 경로에는 트랜잭션을 걸지 않는다.</b> 공휴일 조회가 외부 호출이라 트랜잭션 안에 넣으면 read-timeout
+ * 동안 DB 커넥션을 잡는다. 코스 조회와 내역 기록은 각자의 짧은 트랜잭션에서 끝난다.
+ *
+ * <p><b>{@link #cancel} 만 예외로 트랜잭션이다</b>(#327). 그쪽은 지우는 것이 둘(내역·여행 결과 답변)인데
+ * 갈리면 절반 상태가 남고, 외부 호출이 없어 커넥션을 오래 잡을 일도 없다.
  */
 @Slf4j
 @Service
@@ -41,6 +46,7 @@ public class CourseLeaveDeductionService {
     private final CourseRepository courseRepository;
     private final LeaveService leaveService;
     private final MyLeaveService myLeaveService;
+    private final TripOutcomeRepository tripOutcomeRepository;
 
     /**
      * 코스로 연차를 차감하고 차감 뒤의 내 연차를 준다.
@@ -95,10 +101,20 @@ public class CourseLeaveDeductionService {
      * 보여주는데, 사용자가 원한 상태(차감 없음)는 이미 이뤄져 있다.
      *
      * <p>코스 소유 확인은 그대로 한다 — 남의 코스 ID 로 남의 연차를 건드릴 수 있으면 안 된다.
+     *
+     * <p><b>여행 결과 답변도 함께 지운다</b>(#327). 내역만 지우면 카드는 '미방문' 으로 돌아가는데
+     * {@code trip_outcome} 에는 답이 남아, 홈 모달이 그 코스를 다시 묻지 않는다. 앱에는 모달 말고
+     * 차감하는 길이 없어서(#288 로 일원화) 실수로 지운 사용자는 되돌릴 방법이 없다 —
+     * '미방문' 이 "아직 답하지 않은" 이 아니라 "답했지만 취소됨" 으로 굳는다.
+     *
+     * <p>둘을 한 트랜잭션에 둔다. 갈리면 연차는 복구됐는데 답변은 남는 절반 상태가 되고, 그게 바로
+     * 이 이슈가 고치는 그 모양이다.
      */
+    @Transactional
     public MyLeave cancel(UUID userId, long courseId) {
         findOwned(userId, courseId);
         myLeaveService.cancelCourseDeduction(userId, courseId);
+        tripOutcomeRepository.deleteAnswer(userId, courseId);
         return myLeaveService.myLeave(userId);
     }
 

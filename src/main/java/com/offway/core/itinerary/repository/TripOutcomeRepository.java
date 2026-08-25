@@ -15,6 +15,16 @@ public interface TripOutcomeRepository {
      */
     int deleteByUserId(UUID userId);
 
+    /**
+     * 이 사람의 이 코스 답변을 지운다 — <b>"답하지 않은 상태" 로 되돌린다</b>(#327).
+     *
+     * <p>차감을 취소하면 내역만 사라지고 답변은 남아, 홈 모달이 다시 묻지 않는다. 앱에는 모달 말고
+     * 차감하는 길이 없어서(#288 로 일원화) 그 코스는 영영 미방문으로 굳는다.
+     *
+     * @return 지운 행 수. 답한 적 없으면 0 — 취소는 멱등이라 그것도 정상이다
+     */
+    int deleteAnswer(UUID userId, long courseId);
+
 
     /**
      * 이 소유자가 이미 답한 코스 ID 들 — 홈 모달의 대기 목록에서 걸러낼 대상.

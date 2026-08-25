@@ -33,4 +33,9 @@ public class TripOutcomeRepositoryImpl implements TripOutcomeRepository {
     public int deleteByUserId(UUID userId) {
         return jpaRepository.deleteByUserId(userId);
     }
+
+    @Override
+    public int deleteAnswer(UUID userId, long courseId) {
+        return jpaRepository.deleteByUserIdAndCourseId(userId, courseId);
+    }
 }
