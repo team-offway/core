@@ -31,6 +31,7 @@ import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -384,8 +385,16 @@ class CourseStorageIntegrationTest {
                 .andExpect(jsonPath("$.data.length()").value(2))
                 .andReturn().getResponse().getContentAsString();
 
-        List<String> covers = JsonPath.read(body, "$.data[*].coverImageUrl");
-        // 지역 대표 사진을 못 고른 지역이면 둘 다 없다 — 그때도 "갈리지 않는다" 는 성질은 지켜진다.
+        // 값이 아니라 카드 객체를 읽는다. `$.data[*].coverImageUrl` 로 값만 뽑으면 <b>키가 없는 카드가
+        // 결과에서 조용히 빠져</b>, 한쪽만 필드를 잃어도 남은 하나로 distinct 가 1 이 된다. 지금은 이 응답이
+        // null 도 그대로 직렬화해 그런 일이 없지만, 옆 파일 CourseResponse 가 @JsonInclude(NON_NULL) 을
+        // 쓰고 있어 누가 여기에도 붙이는 순간 이 단언이 조용히 약해진다.
+        List<Map<String, Object>> cards = JsonPath.read(body, "$.data[*]");
+        assertTrue(cards.stream().allMatch(card -> card.containsKey("coverImageUrl")),
+                "카드에 coverImageUrl 키가 없다 — 앱은 이 필드를 1순위로 읽는다: " + cards);
+
+        List<Object> covers = cards.stream().map(card -> card.get("coverImageUrl")).toList();
+        // 지역 대표 사진을 못 고른 지역이면 둘 다 null 이다 — 그때도 "갈리지 않는다" 는 성질은 지켜진다.
         assertEquals(1, covers.stream().distinct().count(),
                 "같은 지역 코스의 카드 사진이 갈렸다: " + covers);
         // 첫 장소 사진(http://img/cover.jpg)이 그대로 실리면 옛 동작으로 되돌아간 것이다.
