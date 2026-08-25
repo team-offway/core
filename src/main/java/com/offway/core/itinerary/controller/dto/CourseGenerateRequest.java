@@ -45,7 +45,16 @@ public record CourseGenerateRequest(
                 StartDayLeave startDayLeave) {
 
     public GenerateCourse toCommand() {
-        return GenerateCourse.first(
-                regionId, travelDays, density, transport, originLat, originLng, travelDate, startDayLeave);
+        // 씨앗과 제외 목록을 안 적으면 그대로 첫 생성이다 — seed 는 FIRST_SEED(0), 제외는 빈 집합.
+        return GenerateCourse.builder()
+                .regionId(regionId)
+                .travelDays(travelDays)
+                .density(density)
+                .transport(transport)
+                .originLat(originLat)
+                .originLng(originLng)
+                .travelDate(travelDate)
+                .startDayLeave(startDayLeave)
+                .build();
     }
 }
