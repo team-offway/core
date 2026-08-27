@@ -35,6 +35,7 @@ public class UserWithdrawalPersistenceService {
     private final UserIdentityRepository userIdentityRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final ProviderTokenCipher providerTokenCipher;
 
     /**
      * 연결 해제에 쓸 Apple 토큰 — <b>지우기 전에</b> 읽어야 한다.
@@ -47,7 +48,11 @@ public class UserWithdrawalPersistenceService {
         return userIdentityRepository
                 .findByUserIdAndProvider(userId, AuthProvider.APPLE)
                 .filter(UserIdentity::revocable)
-                .map(identity -> new ProviderLink(identity.getProviderRefreshToken(), identity.getProviderClientId()));
+                // 복호화에 실패하면 빈 값이라 해제를 건너뛴다(#301) — 키를 바꿨는데 옛 값이 남았거나
+                // 값이 변조된 경우다. 그때 Apple 을 부르면 어차피 거절당하고, 탈퇴는 그대로 성공해야 한다.
+                .flatMap(identity -> providerTokenCipher
+                        .decrypt(identity.getProviderRefreshToken())
+                        .map(token -> new ProviderLink(token, identity.getProviderClientId())));
     }
 
     /**
