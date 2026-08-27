@@ -209,8 +209,7 @@ public interface CourseStorageApi {
                     홈 진입 시 한 번 부른다. **여행이 끝났고**(종료일 < 오늘) **아직 답하지 않은** 코스를 준다.
                     비어 있으면 모달을 띄우지 않는다.
 
-                    종료 당일은 넣지 않는다 — 아직 여행 중일 수 있다. 내 코스 카드에서 이미 "연차 차감하기" 를
-                    눌렀다면 그게 곧 "다녀왔다" 는 답이므로 함께 빠진다. 여행 날짜 없이 저장된 코스는 지났는지
+                    종료 당일은 넣지 않는다 — 아직 여행 중일 수 있다. 여행 날짜 없이 저장된 코스는 지났는지
                     알 수 없어 대상이 아니다.
 
                     **모달은 이 응답 하나로 완성된다** — 지역명·여행 날짜·차감될 연차·지도에 찍을 좌표까지 들어
@@ -252,7 +251,7 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
     @ApiResponse(
             responseCode = "409",
-            description = "답할 수 없는 여행 — 아직 끝나지 않았거나(종료 당일 포함), 이미 답했거나, 내 코스 카드에서 이미 연차를 차감했음")
+            description = "답할 수 없는 여행 — 아직 끝나지 않았거나(종료 당일 포함), 이미 답했음")
     @ApiResponse(responseCode = "502", description = "공휴일 조회(특일정보) 실패로 차감 일수를 계산할 수 없음")
     ApiResponseBody<MyLeaveResponse> answerTripOutcome(UUID userId, long courseId, TripOutcomeRequest request);
 }
