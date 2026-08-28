@@ -89,3 +89,6 @@ tmp/
 # 일일 진행 리포트 — 팀 공유용 일회성 산출물이라 저장소에 쌓지 않는다.
 # 명세(feature-spec·api-spec·course-logic)와 조사 결과는 계속 추적한다.
 docs/specs/progress-report-*.html
+
+# 파이썬 스크립트(scripts/) 실행 부산물
+__pycache__/
