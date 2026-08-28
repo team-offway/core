@@ -99,7 +99,7 @@ class RegionGeoSeedIntegrationTest {
                 case "경상북도" -> 35;
                 case "경상남도" -> 36;
                 case "전북특별자치도" -> 37;
-                case "전라남도" -> 38;
+                case "전남광주통합특별시" -> 38;
                 default -> throw new IllegalStateException("예상 밖 시도: " + where);
             };
             assertEquals(expected, region.getAreaCode(), where + " areaCode 불일치");

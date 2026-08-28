@@ -31,7 +31,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 class PolicyMatchIntegrationTest {
 
     /** 반값여행 대상이자 비수도권 — 두 정책이 다 붙어야 한다. */
-    private static final String VOUCHER_SIDO = "전라남도";
+    private static final String VOUCHER_SIDO = "전남광주통합특별시";
     private static final String VOUCHER_SIGUNGU = "완도군";
 
     /**
@@ -39,7 +39,7 @@ class PolicyMatchIntegrationTest {
      *
      * <p>함평군이다. 참여 명단의 <b>함양군</b>(경남)과 한 글자 차이라 헷갈리기 쉽다(#345).
      */
-    private static final String NON_VOUCHER_SIDO = "전라남도";
+    private static final String NON_VOUCHER_SIDO = "전남광주통합특별시";
     private static final String NON_VOUCHER_SIGUNGU = "함평군";
 
     /** 인구감소지역이지만 수도권 — 숙박세일페스타가 붙으면 안 된다. */

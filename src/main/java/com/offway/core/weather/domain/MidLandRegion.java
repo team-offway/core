@@ -22,7 +22,7 @@ public enum MidLandRegion {
     CHUNGBUK("11C10000", Set.of("충청북도")),
     DAEJEON_SEJONG_CHUNGNAM("11C20000", Set.of("대전광역시", "세종특별자치시", "충청남도")),
     JEONBUK("11F10000", Set.of("전라북도", "전북특별자치도")),
-    GWANGJU_JEONNAM("11F20000", Set.of("광주광역시", "전라남도")),
+    GWANGJU_JEONNAM("11F20000", Set.of("전라남도", "전남광주통합특별시", "광주광역시")),
     DAEGU_GYEONGBUK("11H10000", Set.of("대구광역시", "경상북도")),
     BUSAN_ULSAN_GYEONGNAM("11H20000", Set.of("부산광역시", "울산광역시", "경상남도")),
     JEJU("11G00000", Set.of("제주특별자치도"));

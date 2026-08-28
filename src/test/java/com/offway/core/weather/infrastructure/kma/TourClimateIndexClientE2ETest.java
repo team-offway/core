@@ -43,8 +43,8 @@ class TourClimateIndexClientE2ETest {
             SigunguKey.of("강원특별자치도", "고성군"),
             SigunguKey.of("경상남도", "고성군"),
             SigunguKey.of("전북특별자치도", "무주군"),
-            SigunguKey.of("전라남도", "완도군"),
-            SigunguKey.of("전라남도", "담양군"),
+            SigunguKey.of("전남광주통합특별시", "완도군"),
+            SigunguKey.of("전남광주통합특별시", "담양군"),
             SigunguKey.of("부산광역시", "동구"),
             SigunguKey.of("충청북도", "단양군"),
             SigunguKey.of("경상북도", "영양군"));
