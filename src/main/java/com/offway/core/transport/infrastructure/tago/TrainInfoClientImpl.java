@@ -3,6 +3,7 @@ package com.offway.core.transport.infrastructure.tago;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.transport.domain.TrainAvailability;
 import com.offway.core.transport.domain.TrainLeg;
 import java.net.URI;
@@ -70,7 +71,7 @@ class TrainInfoClientImpl implements TrainInfoClient {
         try {
             return parse(call(builder));
         } catch (Exception e) {
-            log.warn("TAGO 열차정보 조회 실패 — 조회 불가 처리 cause={}", e.getClass().getSimpleName());
+            log.warn("TAGO 열차정보 조회 실패 — 조회 불가 처리 cause={}", RootCause.of(e));
             return new TrainAvailability.Unavailable();
         }
     }

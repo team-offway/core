@@ -3,6 +3,7 @@ package com.offway.core.transport.infrastructure.tago;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.transport.domain.BusCity;
 import com.offway.core.transport.domain.BusCoverage;
 import com.offway.core.transport.domain.BusStop;
@@ -78,7 +79,7 @@ class BusStopClientImpl implements BusStopClient {
         try {
             return parse(call(builder));
         } catch (Exception e) {
-            log.warn("TAGO 버스정류소 조회 실패 — 조회 불가 처리 cause={}", e.getClass().getSimpleName());
+            log.warn("TAGO 버스정류소 조회 실패 — 조회 불가 처리 cause={}", RootCause.of(e));
             return new BusStopAccess.Unavailable();
         }
     }
@@ -96,7 +97,7 @@ class BusStopClientImpl implements BusStopClient {
         try {
             return parseCities(call(builder));
         } catch (Exception e) {
-            log.warn("TAGO 도시목록 조회 실패 — 커버 판별 불가 cause={}", e.getClass().getSimpleName());
+            log.warn("TAGO 도시목록 조회 실패 — 커버 판별 불가 cause={}", RootCause.of(e));
             return Optional.empty();
         }
     }
