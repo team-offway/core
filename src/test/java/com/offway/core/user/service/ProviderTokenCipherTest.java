@@ -28,8 +28,13 @@ class ProviderTokenCipherTest {
     private static final String OTHER_KEY = Base64.getEncoder().encodeToString("0123456789abcdef0123456789abcdef".getBytes());
 
     private static ProviderTokenCipher cipherWith(String keyBase64) {
-        return new ProviderTokenCipher(
-                new AuthProperties(null, Map.of(), null, new AuthProperties.ProviderToken(keyBase64)));
+        return cipherWith("v1", keyBase64 == null ? Map.of() : Map.of("v1", keyBase64));
+    }
+
+    /** 버전이 여럿인 상황 — 회전 전후를 함께 든 설정이다. */
+    private static ProviderTokenCipher cipherWith(String currentVersion, Map<String, String> keys) {
+        return new ProviderTokenCipher(new AuthProperties(
+                null, Map.of(), null, new AuthProperties.ProviderToken(currentVersion, keys)));
     }
 
     @Test
@@ -73,9 +78,46 @@ class ProviderTokenCipherTest {
     }
 
     @Test
-    void 버전_접두어가_없는_값은_평문으로_읽는다() {
-        // 이 변경 이전에 들어간 값이라는 뜻이다. 지금 DB 에는 없지만(2026-08-25 초기화) 판정은 남겨 둔다.
-        assertEquals("legacy-plaintext", cipherWith(KEY).decrypt("legacy-plaintext").orElseThrow());
+    void 버전_접두어가_없으면_빈_값이다() {
+        // 저장 값을 그대로 돌려주면 그 문자열이 토큰 원문 행세를 하며 Apple 로 나간다.
+        // 못 푸는 것과 엉뚱한 값을 보내는 것은 다르다 — 앞은 해제를 건너뛰고, 뒤는 원인도 모른 채 실패한다.
+        assertTrue(cipherWith(KEY).decrypt("legacy-plaintext").isEmpty());
+    }
+
+    /**
+     * <b>회전해도 옛 값이 계속 풀린다.</b> 이 테스트가 이 설계의 이유다.
+     *
+     * <p>키와 버전을 하나만 들면, 버전을 v2 로 올리는 순간 {@code v1:} 값이 "접두어가 안 맞는 값" 이 되어
+     * 그대로 Apple 로 나가거나(옛 구현) 전부 못 푸는 값이 된다.
+     */
+    @Test
+    void 회전한_뒤에도_옛_버전_값이_풀린다() {
+        String oldSealed = cipherWith("v1", Map.of("v1", KEY)).encrypt("old-token").orElseThrow();
+
+        // v2 로 올리되 v1 키를 남겨 둔다 — 회전 직후의 실제 설정이다.
+        ProviderTokenCipher rotated = cipherWith("v2", Map.of("v1", KEY, "v2", OTHER_KEY));
+        String newSealed = rotated.encrypt("new-token").orElseThrow();
+
+        assertTrue(newSealed.startsWith("v2:"), "새 값은 새 버전으로 나가야 한다");
+        assertEquals("new-token", rotated.decrypt(newSealed).orElseThrow());
+        assertEquals("old-token", rotated.decrypt(oldSealed).orElseThrow(), "옛 값이 못 풀리면 해제가 영영 안 된다");
+    }
+
+    @Test
+    void 모르는_버전은_빈_값이다() {
+        // 옛 키를 설정에서 지운 뒤다. 그 값을 평문으로 되돌리면 안 된다.
+        String sealed = cipherWith("v1", Map.of("v1", KEY)).encrypt("token").orElseThrow();
+
+        assertTrue(cipherWith("v2", Map.of("v2", OTHER_KEY)).decrypt(sealed).isEmpty());
+    }
+
+    @Test
+    void 현재_버전의_키가_없으면_꺼진다() {
+        // v2 를 가리키는데 v2 키가 없다 — 설정을 반만 옮긴 상태다. 암호화를 하지 않는다.
+        ProviderTokenCipher cipher = cipherWith("v2", Map.of("v1", KEY));
+
+        assertFalse(cipher.enabled());
+        assertTrue(cipher.encrypt("token").isEmpty());
     }
 
     @Test
