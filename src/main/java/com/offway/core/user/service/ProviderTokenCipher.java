@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -45,9 +47,12 @@ import org.springframework.stereotype.Component;
  * <h2>키 버전을 값에 함께 적는다</h2>
  *
  * <p>{@code v1:base64(iv‖ciphertext‖tag)} 형태다. 회전하면 새 값은 {@code v2:} 로 나가고 옛 값은
- * {@code v1:} 로 남아 있어, 복호화가 어느 키로 풀지 값만 보고 정할 수 있다. 접두어가 없으면 그건 이 변경
- * 이전에 평문으로 들어간 값이라는 뜻이라 그대로 읽는다 — 지금 DB 에는 그런 행이 없지만(2026-08-25 초기화)
- * 판정을 값에 남겨 두면 나중에 되짚을 수 있다.
+ * {@code v1:} 로 남아, 복호화가 <b>값만 보고</b> 어느 키로 풀지 정한다. 그래서 설정이 버전별로 키를 든다
+ * ({@code AuthProperties.ProviderToken}) — 키를 하나만 들면 회전하는 순간 그 이전 토큰이 전부 못 풀린다.
+ *
+ * <p><b>모르는 형태는 빈 값으로 끝낸다.</b> 접두어가 없거나 모르는 버전이면 해제를 건너뛴다. 저장 값을
+ * 그대로 돌려주지 않는 것이 중요하다 — 그러면 {@code v1:base64...} 라는 문자열이 토큰 원문 행세를 하며
+ * Apple 로 나가고, 무엇이 잘못됐는지도 모른 채 실패한다.
  */
 @Slf4j
 @Component
@@ -64,28 +69,35 @@ public class ProviderTokenCipher {
     /** 인증 태그 길이(비트). 128 이 GCM 최대이고, 짧게 잡을 이유가 없다. */
     private static final int TAG_BITS = 128;
 
-    /** 현재 키 버전. 회전하면 이 값을 올리고 옛 버전 복호화 경로를 남긴다. */
-    private static final String CURRENT_VERSION = "v1";
-
     private static final String VERSION_SEPARATOR = ":";
 
     /** AES-256. 키가 이 길이가 아니면 설정이 잘못된 것이라 부팅 시점에 걸러야 한다. */
     private static final int KEY_BYTES = 32;
 
     private final SecureRandom random = new SecureRandom();
-    private final SecretKeySpec key;
+
+    /** 지금 암호화에 쓰는 버전. 저장 값의 접두어로 나간다. */
+    private final String currentVersion;
+
+    /** 버전 → 키. 회전해도 옛 버전이 남아 있어 그때 만든 값이 계속 풀린다. */
+    private final Map<String, SecretKeySpec> keys;
 
     public ProviderTokenCipher(AuthProperties properties) {
-        this.key = readKey(properties.providerToken().keyBase64());
-        if (key == null) {
+        AuthProperties.ProviderToken config = properties.providerToken();
+        this.currentVersion = config.currentVersion();
+        Map<String, SecretKeySpec> parsed = new LinkedHashMap<>();
+        config.keys().forEach((version, keyBase64) -> parsed.put(version, readKey(version, keyBase64)));
+        this.keys = Map.copyOf(parsed);
+        if (!enabled()) {
             // 값 자체는 절대 찍지 않는다. "왜 해제가 안 되는가" 를 나중에 물을 때 이 줄이 답이다.
-            log.warn("provider 토큰 암호화 키가 없습니다 — Apple 연결 해제용 토큰을 저장하지 않습니다(탈퇴는 정상)");
+            log.warn("provider 토큰 암호화 키가 없습니다(버전={}) — Apple 연결 해제용 토큰을 저장하지 않습니다(탈퇴는 정상)",
+                    currentVersion);
         }
     }
 
-    /** 키가 설정돼 있는가 — 없으면 이 기능 전체가 꺼진 것이다. */
+    /** 현재 버전의 키가 설정돼 있는가 — 없으면 이 기능 전체가 꺼진 것이다. */
     public boolean enabled() {
-        return key != null;
+        return keys.containsKey(currentVersion);
     }
 
     /**
@@ -94,6 +106,7 @@ public class ProviderTokenCipher {
      * @return 암호문. <b>키가 없거나 입력이 비면 빈 값</b> — 호출자는 저장을 건너뛴다
      */
     public Optional<String> encrypt(String plaintext) {
+        SecretKeySpec key = keys.get(currentVersion);
         if (key == null || plaintext == null || plaintext.isBlank()) {
             return Optional.empty();
         }
@@ -107,7 +120,7 @@ public class ProviderTokenCipher {
             byte[] out = new byte[iv.length + sealed.length];
             System.arraycopy(iv, 0, out, 0, iv.length);
             System.arraycopy(sealed, 0, out, iv.length, sealed.length);
-            return Optional.of(CURRENT_VERSION + VERSION_SEPARATOR + Base64.getEncoder().encodeToString(out));
+            return Optional.of(currentVersion + VERSION_SEPARATOR + Base64.getEncoder().encodeToString(out));
         } catch (GeneralSecurityException e) {
             // 암호화 실패를 삼키고 평문을 넣으면 이 변경이 무의미해진다. 저장을 포기하는 편이 낫다 —
             // 그 결과는 "해제할 토큰이 없음" 이고 이미 정상 경로다.
@@ -119,51 +132,59 @@ public class ProviderTokenCipher {
     /**
      * 저장된 값을 Apple 에 되돌려줄 원문으로 바꾼다.
      *
-     * <p>버전 접두어가 없으면 이 변경 이전의 평문이라 그대로 돌려준다. 복호화에 실패하면 빈 값이다 —
-     * 키를 바꿨는데 옛 값이 남아 있거나 값이 변조된 경우이고, 그때 해제를 건너뛰는 것이 맞다.
+     * <p><b>접두어가 가리키는 버전의 키로 푼다.</b> 회전 뒤에도 옛 값은 옛 키로 계속 풀린다 —
+     * 현재 버전으로만 판정하면 {@code v2} 로 올린 순간 {@code v1:} 값이 전부 못 읽는 값이 된다.
+     *
+     * <p><b>모르는 형태는 빈 값이다 — 평문으로 되돌리지 않는다.</b> 예전에는 접두어가 안 맞으면 저장 값을
+     * 그대로 돌려줬는데, 그러면 버전을 올린 순간 {@code v1:base64...} 라는 문자열이 <b>토큰 원문 행세를 하며</b>
+     * Apple 로 나간다. 못 푸는 것과 엉뚱한 값을 보내는 것은 다르다 — 앞은 해제를 건너뛰고, 뒤는 무엇이
+     * 잘못됐는지도 모른 채 실패한다.
      */
     public Optional<String> decrypt(String stored) {
         if (stored == null || stored.isBlank()) {
             return Optional.empty();
         }
-        if (!stored.startsWith(CURRENT_VERSION + VERSION_SEPARATOR)) {
-            return Optional.of(stored);
+        int mark = stored.indexOf(VERSION_SEPARATOR);
+        if (mark <= 0) {
+            log.warn("provider 토큰에 키 버전이 없습니다 — 연결 해제를 건너뜁니다");
+            return Optional.empty();
         }
+        String version = stored.substring(0, mark);
+        SecretKeySpec key = keys.get(version);
         if (key == null) {
-            log.warn("암호화된 provider 토큰이 있는데 키가 없습니다 — 연결 해제를 건너뜁니다");
+            // 회전 중에 옛 키를 설정에서 지웠거나, 아예 키가 없는 환경이다. 어느 쪽이든 풀 수 없다.
+            log.warn("provider 토큰 키 버전 {} 의 키가 없습니다 — 연결 해제를 건너뜁니다", version);
             return Optional.empty();
         }
         try {
-            byte[] raw = Base64.getDecoder().decode(stored.substring(CURRENT_VERSION.length() + 1));
+            byte[] raw = Base64.getDecoder().decode(stored.substring(mark + 1));
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, raw, 0, IV_BYTES));
             byte[] plain = cipher.doFinal(raw, IV_BYTES, raw.length - IV_BYTES);
             return Optional.of(new String(plain, StandardCharsets.UTF_8));
         } catch (GeneralSecurityException | IllegalArgumentException e) {
-            log.warn("provider 토큰 복호화 실패 — 연결 해제를 건너뜁니다 (사유={})", e.getClass().getSimpleName());
+            log.warn("provider 토큰 복호화 실패 — 연결 해제를 건너뜁니다 (버전={} 사유={})",
+                    version, e.getClass().getSimpleName());
             return Optional.empty();
         }
     }
 
     /**
-     * base64 키를 읽는다. 없으면 null(기능 꺼짐), <b>있는데 길이가 틀리면 예외</b>다.
+     * base64 키를 읽는다 — <b>길이가 틀리면 부팅에서 터진다</b>.
      *
      * <p>길이가 틀린 키를 조용히 무시하면 "설정했다고 믿는데 안 걸린" 상태가 된다 — 설정 실수는 부팅에서
-     * 드러나야 한다.
+     * 드러나야 한다. 어느 버전이 잘못됐는지 함께 적는다: 키가 여럿이면 그 정보 없이는 못 찾는다.
      */
-    private static SecretKeySpec readKey(String keyBase64) {
-        if (keyBase64 == null || keyBase64.isBlank()) {
-            return null;
-        }
+    private static SecretKeySpec readKey(String version, String keyBase64) {
         byte[] bytes;
         try {
             bytes = Base64.getDecoder().decode(keyBase64.trim());
         } catch (IllegalArgumentException e) {
-            throw new IllegalStateException("provider 토큰 암호화 키가 base64 가 아닙니다", e);
+            throw new IllegalStateException("provider 토큰 암호화 키(" + version + ")가 base64 가 아닙니다", e);
         }
         if (bytes.length != KEY_BYTES) {
-            throw new IllegalStateException(
-                    "provider 토큰 암호화 키는 " + KEY_BYTES + "바이트(AES-256)여야 합니다. 지금 " + bytes.length + "바이트");
+            throw new IllegalStateException("provider 토큰 암호화 키(" + version + ")는 " + KEY_BYTES
+                    + "바이트(AES-256)여야 합니다. 지금 " + bytes.length + "바이트");
         }
         return new SecretKeySpec(bytes, ALGORITHM);
     }
