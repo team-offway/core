@@ -89,6 +89,7 @@ class HubAttractionRefreshIntegrationTest {
 
     @Test
     void 전_지역을_순위대로_적재한다() {
+        noStoredMonths();
         hubAttractionClient.respond((legalCode, month) ->
                 List.of(item(1, "공산성", "관광지", "역사관광"), item(2, "산성시장", "관광지", "쇼핑")));
 
@@ -109,6 +110,7 @@ class HubAttractionRefreshIntegrationTest {
 
     @Test
     void 발행이_최대치까지_밀려도_그_달을_찾는다() {
+        noStoredMonths();
         // MAX_MONTHS_BACK 이 3이면 3개월 전 달까지 봐야 한다 — 경계를 빼면 그 달만 있는 시점에 갱신이 멈춘다.
         YearMonth target = YearMonth.of(2099, 4);
         YearMonth published = target.minusMonths(3);
@@ -212,6 +214,7 @@ class HubAttractionRefreshIntegrationTest {
 
     @Test
     void 빈_결과로_이전_값을_덮지_않는다() {
+        noStoredMonths();
         // 성공 코드에 빈 결과가 오는 API 다. 덮으면 그 지역 카드에서 대표 사진과 볼거리가 통째로 사라진다.
         YearMonth target = YearMonth.of(2099, 7);
         hubAttractionClient.respond((legalCode, month) -> List.of(item(1, "공산성", "관광지", "역사관광")));
@@ -227,6 +230,7 @@ class HubAttractionRefreshIntegrationTest {
 
     @Test
     void 조회가_실패해도_이전_값이_남는다() {
+        noStoredMonths();
         YearMonth target = YearMonth.of(2099, 9);
         hubAttractionClient.respond((legalCode, month) -> List.of(item(1, "공산성", "관광지", "역사관광")));
         refreshService.refresh(target);
@@ -241,6 +245,7 @@ class HubAttractionRefreshIntegrationTest {
 
     @Test
     void 미발행이면_이전_달로_물러선다() {
+        noStoredMonths();
         // 이번 달은 아직 집계 중이라 비어 있을 수 있다. 고정 지연을 가정하면 조용히 빈 결과가 된다.
         YearMonth target = YearMonth.of(2099, 11);
         YearMonth published = target.minusMonths(1);
@@ -255,6 +260,7 @@ class HubAttractionRefreshIntegrationTest {
 
     @Test
     void 그_달치를_이미_가진_지역은_외부를_부르지_않는다() {
+        noStoredMonths();
         // 이 배치가 매일 105콜을 태우던 이유다(#337). 원본은 월 단위 발행인데 이미 받은 달을 다시 물었다.
         YearMonth target = YearMonth.of(2098, 3);
         hubAttractionClient.respond((legalCode, month) -> List.of(item(1, "공산성", "관광지", "역사관광")));
@@ -268,6 +274,7 @@ class HubAttractionRefreshIntegrationTest {
 
     @Test
     void 더_앞선_달을_가진_지역도_다시_부르지_않는다() {
+        noStoredMonths();
         // 지역마다 발행월이 달라 목표월보다 앞선 달을 이미 받아 둔 지역이 생긴다. 같은지(==)만 보면
         // 그 지역이 매 회차 다시 대상이 되어, 스킵을 붙여 놓고도 호출이 안 준다.
         YearMonth target = YearMonth.of(2098, 5);
@@ -282,6 +289,7 @@ class HubAttractionRefreshIntegrationTest {
 
     @Test
     void 달이_바뀌면_다시_부른다() {
+        noStoredMonths();
         // 스킵이 영구적이면 원본이 새 달을 내도 영영 안 받는다. 월 1회 갱신이 실제로 도는지가 여기서 갈린다.
         YearMonth target = YearMonth.of(2098, 7);
         hubAttractionClient.respond((legalCode, month) -> List.of(item(1, "공산성", "관광지", "역사관광")));
@@ -324,6 +332,7 @@ class HubAttractionRefreshIntegrationTest {
 
     @Test
     void 숙박은_대표_사진감이_아니다() {
+        noStoredMonths();
         // 정선군 1위는 콘도, 2위는 카지노다. 데이터는 맞지만 지역 카드에 걸 그림은 아니다.
         hubAttractionClient.respond((legalCode, month) ->
                 List.of(item(1, "힐콘도", "숙박", "숙박"), item(2, "병방치 스카이워크", "관광지", "문화관광")));
