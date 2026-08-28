@@ -4,6 +4,8 @@ import com.offway.core.user.domain.AuthProvider;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -15,7 +17,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 앱이 등록됐는지 판별할 <b>REST API 키</b>가 필요하다 — 확인 방식이 다르니 설정도 같을 수 없다.
  */
 @ConfigurationProperties(prefix = "offway.auth")
-public record AuthProperties(Jwt jwt, Map<AuthProvider, Oidc> oidc, Apple apple) {
+public record AuthProperties(Jwt jwt, Map<AuthProvider, Oidc> oidc, Apple apple, ProviderToken providerToken) {
 
     public AuthProperties {
         if (jwt == null) {
@@ -24,6 +26,9 @@ public record AuthProperties(Jwt jwt, Map<AuthProvider, Oidc> oidc, Apple apple)
         oidc = oidc == null ? Map.of() : Map.copyOf(oidc);
         if (apple == null) {
             apple = new Apple(null, null, null);
+        }
+        if (providerToken == null) {
+            providerToken = new ProviderToken(null, null);
         }
     }
 
@@ -53,6 +58,50 @@ public record AuthProperties(Jwt jwt, Map<AuthProvider, Oidc> oidc, Apple apple)
      * @param keyId {@code .p8} 키의 식별자. JWT 헤더의 {@code kid}
      * @param privateKeyBase64 {@code .p8} 파일 전체를 base64 로. 개행이 환경변수에 섞이지 않게
      */
+    /**
+     * provider 갱신 토큰을 저장 전에 암호화할 키(#301).
+     *
+     * <p><b>없어도 부팅한다.</b> local 프로파일은 시크릿 없이 떠야 한다(로컬 실행성 불변식). 키가 없으면
+     * 암호화를 못 하므로 그 토큰을 <b>저장하지 않는다</b> — 평문으로 흘려 넣지 않는다. 결과는 "Apple 연결
+     * 해제만 건너뛰는 사용자" 이고 이미 지원되는 경로다.
+     *
+     * <p><b>키를 버전별로 든다.</b> 저장된 값에 {@code v1:} 처럼 버전이 붙어 있어, 복호화가 <b>값만 보고</b>
+     * 어느 키로 풀지 정한다. 회전은 새 버전을 더하고 {@link #currentVersion} 만 옮기면 된다 — 옛 값은 옛
+     * 키로 계속 풀린다. 키를 하나만 들면 회전하는 순간 그 이전 토큰이 전부 못 풀리는 값이 된다.
+     *
+     * @param currentVersion 지금 암호화에 쓸 키 버전. 비면 {@code v1}
+     * @param keys 버전 → AES-256 키(32바이트) base64. {@code openssl rand -base64 32} 로 만든다
+     */
+    public record ProviderToken(String currentVersion, Map<String, String> keys) {
+
+        /** 버전을 안 적었을 때의 기본. 첫 키가 이 이름으로 들어간다. */
+        private static final String DEFAULT_KEY_VERSION = "v1";
+
+        /** 값이 비어 있는 항목은 없는 것으로 본다 — 설정하지 않은 버전이 빈 문자열로 들어온다. */
+        public ProviderToken {
+            currentVersion = hasText(currentVersion) ? currentVersion.trim() : DEFAULT_KEY_VERSION;
+            keys = keys == null
+                    ? Map.of()
+                    : keys.entrySet().stream()
+                            .filter(entry -> hasText(entry.getValue()))
+                            .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
+        }
+
+        /** 지금 암호화에 쓸 키. 설정이 없으면 비어 있고, 그러면 암호화 자체를 하지 않는다. */
+        public Optional<String> currentKeyBase64() {
+            return Optional.ofNullable(keys.get(currentVersion));
+        }
+
+        /** 그 버전의 키 — 저장된 값의 접두어로 찾는다. 모르는 버전이면 비어 있다. */
+        public Optional<String> keyBase64Of(String version) {
+            return Optional.ofNullable(keys.get(version));
+        }
+
+        private static boolean hasText(String value) {
+            return value != null && !value.isBlank();
+        }
+    }
+
     public record Apple(String teamId, String keyId, String privateKeyBase64) {
 
         /** 셋이 다 있어야 Apple 과 이야기할 수 있다. 하나라도 없으면 연결 해제를 건너뛴다. */

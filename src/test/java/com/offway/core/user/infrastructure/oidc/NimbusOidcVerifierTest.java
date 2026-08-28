@@ -22,7 +22,7 @@ class NimbusOidcVerifierTest {
             value = AuthProvider.class,
             names = {"GOOGLE", "APPLE"})
     void 서명된_ID토큰을_주는_provider만_맡는다(AuthProvider provider) {
-        NimbusOidcVerifier verifier = new NimbusOidcVerifier(new AuthProperties(null, Map.of(), null));
+        NimbusOidcVerifier verifier = new NimbusOidcVerifier(new AuthProperties(null, Map.of(), null, null));
 
         assertTrue(verifier.supports(provider));
     }
@@ -30,7 +30,7 @@ class NimbusOidcVerifierTest {
     @Test
     void 카카오는_맡지_않는다() {
         // 액세스 토큰에는 서명된 신원이 없어 공개키로 확인할 것이 없다.
-        NimbusOidcVerifier verifier = new NimbusOidcVerifier(new AuthProperties(null, Map.of(), null));
+        NimbusOidcVerifier verifier = new NimbusOidcVerifier(new AuthProperties(null, Map.of(), null, null));
 
         assertFalse(verifier.supports(AuthProvider.KAKAO));
     }
@@ -41,7 +41,7 @@ class NimbusOidcVerifierTest {
             value = AuthProvider.class,
             names = {"GOOGLE", "APPLE"})
     void audience가_설정되지_않은_provider는_USER_002로_거부한다(AuthProvider provider) {
-        NimbusOidcVerifier verifier = new NimbusOidcVerifier(new AuthProperties(null, Map.of(), null));
+        NimbusOidcVerifier verifier = new NimbusOidcVerifier(new AuthProperties(null, Map.of(), null, null));
 
         UserException exception = assertThrows(UserException.class, () -> verifier.verify(provider, "any-token"));
 
@@ -53,6 +53,7 @@ class NimbusOidcVerifierTest {
         AuthProperties properties = new AuthProperties(
                 null,
                 Map.of(AuthProvider.GOOGLE, new AuthProperties.Oidc(List.of("google-web-client-id"), null)),
+                null,
                 null);
         NimbusOidcVerifier verifier = new NimbusOidcVerifier(properties);
 

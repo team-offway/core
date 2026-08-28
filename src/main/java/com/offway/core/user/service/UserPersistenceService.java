@@ -32,6 +32,7 @@ public class UserPersistenceService {
     private final UserRepository userRepository;
     private final UserIdentityRepository userIdentityRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final ProviderTokenCipher providerTokenCipher;
 
     /**
      * 검증된 provider 신원으로 사용자를 찾거나 만든다. 최초 로그인이 곧 가입이다.
@@ -82,16 +83,22 @@ public class UserPersistenceService {
     }
 
     /**
-     * provider 가 준 갱신 토큰을 신원 행에 남긴다(#287).
+     * provider 가 준 갱신 토큰을 <b>암호화해</b> 신원 행에 남긴다(#287·#301).
      *
      * <p>없는 신원이면 아무것도 하지 않는다 — 로그인 직후라 정상적으로는 늘 있지만, 없다고 예외를 던지면
      * 연결 해제를 위한 저장이 로그인을 깨뜨리는 셈이 된다.
+     *
+     * <p><b>암호화하지 못하면 저장하지 않는다.</b> 키가 없는 환경(local)이나 암호화 실패가 그렇다. 평문으로
+     * 흘려 넣으면 이 변경이 무의미해지고, 규약이 막는 조용한 실패가 된다. 결과는 "해제할 토큰이 없는
+     * 사용자" 이고 그건 이미 정상 경로다 — 탈퇴는 성공하고 Apple 연결 해제만 건너뛴다.
      */
     @Transactional
     public void rememberProviderToken(UUID userId, AuthProvider provider, String refreshToken, String clientId) {
-        userIdentityRepository
-                .findByUserIdAndProvider(userId, provider)
-                .ifPresent(identity -> identity.rememberProviderToken(refreshToken, clientId));
+        providerTokenCipher
+                .encrypt(refreshToken)
+                .ifPresent(sealed -> userIdentityRepository
+                        .findByUserIdAndProvider(userId, provider)
+                        .ifPresent(identity -> identity.rememberProviderToken(sealed, clientId)));
     }
 
     /** local 개발 로그인용 — provider 연결 없이 사용자만 만든다. */

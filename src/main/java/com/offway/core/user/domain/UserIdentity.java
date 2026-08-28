@@ -61,7 +61,7 @@ public class UserIdentity {
      * <p>null 이 정상이다 — Apple 이 아닌 provider 와, 이 컬럼이 생기기 전에 로그인한 사용자는 비어 있다.
      * 소급해서 채울 수 없다({@code authorizationCode} 는 1회용·5분). 재로그인하면 채워진다.
      *
-     * <h2>평문으로 둔다 — 그 판단의 근거</h2>
+     * <h2>암호화해 저장한다(#301)</h2>
      *
      * <p><b>해시할 수 없다.</b> 우리 refresh 토큰은 대조만 하면 되므로 해시해서 넣지만({@code hashRefreshToken}),
      * 이건 Apple 에 <b>원문 그대로 되돌려줘야</b> 해제가 된다.
@@ -70,11 +70,14 @@ public class UserIdentity {
      * {@code client_secret} 을 함께 요구하고, 그것은 우리 {@code .p8} 로 서명해야 만들어진다. 그 키는 DB 가 아니라
      * 환경변수·배포 시크릿에 있다 — <b>DB 나 백업만 새면 이 토큰은 쓸 수 없다.</b> 둘이 함께 새야 성립한다.
      *
-     * <p>그래서 지금은 접근 통제(DB 는 EC2 내부에서만 닿고 백업도 같은 경계)에 기대고 평문으로 둔다.
-     * <b>다만 방어를 하나 더 두는 것이 맞다</b> — 애플리케이션 레벨 암호화는 키 보관·회전을 어디에 둘지부터
-     * 정해야 해서 이 PR(심사 대응)의 범위와 다르다. <b>#301</b> 로 옮겼다.
+     * <p><b>그래도 한 겹을 더 둔다.</b> 위 논리는 "DB 와 호스트가 함께 뚫려야 한다" 인데, 그렇다고 DB 만
+     * 새는 경로가 없는 것은 아니다 — 운영 DB 를 고칠 때 {@code mysqldump} 를 받고 그 파일이 호스트 밖으로
+     * 옮겨지기도 한다. 덤프 한 장이 그 자체로는 쓸모없게 만드는 것이 이 암호화의 값이다.
+     *
+     * <p>그래서 이 칸에는 <b>암호문만</b> 들어간다({@code ProviderTokenCipher}). 키가 없는 환경에서는
+     * 평문으로 흘려 넣지 않고 <b>저장을 건너뛴다</b> — 그러면 해제만 안 되고 탈퇴는 그대로 성공한다.
      */
-    @Column(name = "provider_refresh_token", length = 512)
+    @Column(name = "provider_refresh_token", length = 1024)
     private String providerRefreshToken;
 
     /**

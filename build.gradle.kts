@@ -110,4 +110,13 @@ tasks.withType<Test> {
         environment("DATA_GO_KR_SERVICE_KEY", "")
         environment("TMAP_APP_KEY", "")
     }
+
+    // provider 갱신 토큰 암호화 키(#301) — 테스트 전용 고정값이다.
+    //
+    // **비워 두면 안 된다.** 키가 없으면 그 토큰을 아예 저장하지 않는 것이 설계라(평문으로 흘려 넣지
+    // 않으려는 것), Apple 연결 해제 통합 테스트가 "해제 시도 0건" 으로 죽는다. 그건 버그가 아니라
+    // 설정이 없다는 뜻인데, 단언만 보면 기능이 깨진 것처럼 읽힌다.
+    //
+    // 여기 값을 주면 저장→암호화→복호화→해제까지 실제 경로가 통째로 돈다. 운영 키와 무관한 32바이트다.
+    environment("PROVIDER_TOKEN_KEY_BASE64", "b2Zmd2F5LXRlc3Qtb25seS1rZXktMzJiLXh4eHh4eHg=")
 }
