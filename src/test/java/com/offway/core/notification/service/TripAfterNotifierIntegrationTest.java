@@ -182,7 +182,7 @@ class TripAfterNotifierIntegrationTest {
     /**
      * <b>이미 차감한 여행에도 보내지 않는다.</b>
      *
-     * <p>내 코스 카드에서 "연차 차감하기" 를 눌렀다면 그게 곧 "다녀왔다" 는 답이다 — {@code pending} 이
+     * <p>차감은 {@code VISITED} 로 답할 때만 생기므로(#288) 차감이 있다는 것은 곧 답이 있다는 뜻이다 — {@code pending} 이
      * 같은 이유로 걸러낸다. 조회 조건이 갈리면 모달이 안 뜨는 알림이 생긴다.
      */
     @Test

@@ -159,6 +159,15 @@ public interface CourseStorageApi {
             description = """
                     소유한 코스를 지운다. 하위 일정·슬롯도 함께 지워진다(hard delete).
 
+                    **이 코스로 깎았던 연차가 함께 돌아온다.** 차감 취소(`DELETE /courses/{courseId}/leave-deduction`)를
+                    따로 부를 필요가 없다 — 한 트랜잭션이라 "코스는 사라졌는데 연차는 깎인 채" 가 남지 않는다.
+                    그 상태는 코스가 없어 취소 API 로도 못 고친다.
+
+                    **여행 결과 답변도 함께 지워진다**(#327). 코스가 사라졌으니 답이 가리킬 대상도 없다.
+
+                    응답에 연차는 싣지 않는다. 삭제 뒤 화면은 목록으로 돌아가므로 그 자리에서 다시 읽는다 —
+                    차감 취소가 갱신된 연차를 돌려주는 것과 다른 점이다.
+
                     없는 코스와 남의 코스를 모두 404 로 답한다 — 403 으로 나누면 "그 ID 는 존재한다" 를
                     알려주는 셈이라 ID 를 훑어 남의 코스 존재를 확인할 수 있다.""")
     @ApiResponse(responseCode = "200", description = "삭제 성공 (data 는 null — 204 를 쓰지 않는다)")
@@ -175,7 +184,12 @@ public interface CourseStorageApi {
 
                     **멱등하다** — 차감된 적이 없어도 200 이다. "취소했다" 와 "원래 없었다" 는 사용자에게 같은 결과다.
 
-                    코스 자체를 지우면(`DELETE /courses/{courseId}`) 차감도 함께 되돌아가므로 따로 부를 필요가 없다.
+                    **여행 결과 답변도 함께 지운다**(#327) — 그래서 그 코스는 **"아직 답하지 않은" 상태로 돌아간다.**
+                    다음 홈 진입에 "다녀오셨나요?" 모달이 그 코스를 다시 묻고, 사용자는 `VISITED` 로 차감을
+                    복원하거나 `NOT_VISITED` 로 확정할 수 있다. 답변을 남겨두면 카드만 '미방문' 으로 바뀌고
+                    모달은 다시 묻지 않아, 차감할 길이 영영 없어진다.
+
+                    코스 자체를 지우면(`DELETE /courses/{courseId}`) 차감도 답변도 함께 사라지므로 따로 부를 필요가 없다.
 
                     **차감하는 API 는 이제 없다**(#288). 연차는 `POST /courses/{courseId}/trip-outcome` 에
                     `VISITED` 로 답할 때만 깎인다 — 여행을 다녀왔다는 사실이 차감의 유일한 근거다. 예전에는
@@ -195,8 +209,7 @@ public interface CourseStorageApi {
                     홈 진입 시 한 번 부른다. **여행이 끝났고**(종료일 < 오늘) **아직 답하지 않은** 코스를 준다.
                     비어 있으면 모달을 띄우지 않는다.
 
-                    종료 당일은 넣지 않는다 — 아직 여행 중일 수 있다. 내 코스 카드에서 이미 "연차 차감하기" 를
-                    눌렀다면 그게 곧 "다녀왔다" 는 답이므로 함께 빠진다. 여행 날짜 없이 저장된 코스는 지났는지
+                    종료 당일은 넣지 않는다 — 아직 여행 중일 수 있다. 여행 날짜 없이 저장된 코스는 지났는지
                     알 수 없어 대상이 아니다.
 
                     **모달은 이 응답 하나로 완성된다** — 지역명·여행 날짜·차감될 연차·지도에 찍을 좌표까지 들어
@@ -221,6 +234,10 @@ public interface CourseStorageApi {
                     이미 답한 여행은 409 다 — 조회 조건과 쓰기 조건이 어긋나면 모달이 묻지 않은 것에도 답이
                     들어와 연차가 잘못 움직인다.
 
+                    **다만 그 409 는 영구적이지 않다**(#327). 차감을 취소하면
+                    (`DELETE /courses/{courseId}/leave-deduction`) 답변이 지워져 "아직 답하지 않은" 상태로
+                    돌아가고, 그 코스는 다시 답을 받는다.
+
                     **여기가 연차를 깎는 유일한 자리다**(#288). 여행을 다녀왔다는 사실이 차감의 근거이므로,
                     답하기 전에는 어떤 경로로도 깎이지 않는다.
 
@@ -234,7 +251,7 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
     @ApiResponse(
             responseCode = "409",
-            description = "답할 수 없는 여행 — 아직 끝나지 않았거나(종료 당일 포함), 이미 답했거나, 내 코스 카드에서 이미 연차를 차감했음")
+            description = "답할 수 없는 여행 — 아직 끝나지 않았거나(종료 당일 포함), 이미 답했음")
     @ApiResponse(responseCode = "502", description = "공휴일 조회(특일정보) 실패로 차감 일수를 계산할 수 없음")
     ApiResponseBody<MyLeaveResponse> answerTripOutcome(UUID userId, long courseId, TripOutcomeRequest request);
 }

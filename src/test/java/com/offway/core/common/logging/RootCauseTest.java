@@ -158,6 +158,43 @@ class RootCauseTest {
         assertEquals("unknown", RootCause.label(null));
     }
 
+    @Test
+    void TMAP_400_은_에러코드와_사유가_잘리지_않고_남는다() {
+        // 이 단언이 곧 #334 의 완료 기준이다. 운영에서 cause=BadRequest 만 남아, 원인을 찾는 데
+        // 가설 여섯 개와 TMAP 실호출 210건이 들었다. 실제로 받은 본문 그대로 둔다(#335).
+        Throwable error = badRequest("{\"id\":\"400\",\"category\":\"tmap\",\"code\":\"1100\","
+                + "\"message\":\"요청 데이터 오류입니다. 파라미터를 확인해주세요."
+                + "([022011]출발지 조건에 맞는 링크가 존재하지 않습니다.)\"}");
+
+        String rendered = RootCause.of(error);
+
+        assertTrue(rendered.contains("1100"), "에러코드가 있어야 원인이 갈린다. 실제=" + rendered);
+        // 사유 문장은 본문 끝에 있다 — 길이 상한이 줄면 여기부터 잘려 진단이 조용히 죽는다.
+        assertTrue(rendered.contains("링크가 존재하지 않습니다"), "사유가 잘리면 안 된다. 실제=" + rendered);
+    }
+
+    @Test
+    void TMAP_의_두_실패는_에러코드로_구분된다() {
+        // 1100(도로 링크 없음)과 1009(한반도 범위 초과)는 처방이 다르다 — 전자는 그 장소를 코스에서
+        // 빼야 하고, 후자는 적재된 좌표 자체가 틀렸다. 둘 다 BadRequest 라 코드 없이는 못 가른다.
+        String outOfRange = RootCause.of(badRequest("{\"id\":\"400\",\"category\":\"tmap\",\"code\":\"1009\","
+                + "\"message\":\"입력 좌표 오류입니다. 입력된 좌표가 사용가능한 최소, 최대 범위를 넘는 경우입니다."
+                + "([022007][ER319] 출발지 좌표값이 규정된 범위(한반도)를 초과하였습니다.)\"}"));
+
+        assertTrue(outOfRange.contains("1009"), "실제=" + outOfRange);
+        assertTrue(outOfRange.contains("범위(한반도)를 초과"), "사유가 잘리면 안 된다. 실제=" + outOfRange);
+    }
+
+    /** 본문을 가진 400 응답 예외 — TMAP 이 실제로 주는 모양 그대로. */
+    private static WebClientResponseException badRequest(String body) {
+        return WebClientResponseException.create(
+                HttpStatus.BAD_REQUEST.value(),
+                "Bad Request",
+                HttpHeaders.EMPTY,
+                body.getBytes(StandardCharsets.UTF_8),
+                StandardCharsets.UTF_8);
+    }
+
     /** 본문을 가진 429 응답 예외 — 실제 외부가 주는 모양 그대로. */
     private static WebClientResponseException tooManyRequests(String body) {
         return WebClientResponseException.create(
