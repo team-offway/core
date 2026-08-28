@@ -3,6 +3,7 @@ package com.offway.core.transport.infrastructure.tmap;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.infrastructure.tmap.dto.TmapRoute;
 import java.time.Duration;
@@ -73,8 +74,10 @@ class TmapClientImpl implements TmapClient {
                     .block();
             return parse(response);
         } catch (Exception e) {
-            // 키·URL 은 로그에 남기지 않는다. 실패는 폴백으로 흡수.
-            log.warn("TMAP 경로 조회 실패 — 직선거리로 폴백 cause={}", e.getClass().getSimpleName());
+            // 실패는 폴백으로 흡수하되 **사유는 남긴다**. TMAP 은 거절 이유를 응답 본문의 code 로 주는데
+            // (1100 도로 링크 없음 · 1009 한반도 범위 초과) 예외 클래스명은 둘 다 BadRequest 라 못 가른다.
+            // 그 한 줄이 없어 원인을 찾는 데 실호출 210건이 들었다(#334). RootCause 가 키·URL 은 가린다.
+            log.warn("TMAP 경로 조회 실패 — 직선거리로 폴백 cause={}", RootCause.of(e));
             return Optional.empty();
         }
     }
@@ -123,7 +126,7 @@ class TmapClientImpl implements TmapClient {
                     .block();
             return parseOrder(response, points.size());
         } catch (Exception e) {
-            log.warn("TMAP 경유지 최적화 실패 — 직선거리 정렬로 폴백 cause={}", e.getClass().getSimpleName());
+            log.warn("TMAP 경유지 최적화 실패 — 직선거리 정렬로 폴백 cause={}", RootCause.of(e));
             return Optional.empty();
         }
     }

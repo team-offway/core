@@ -3,6 +3,7 @@ package com.offway.core.weather.infrastructure.kma;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.weather.domain.SigunguKey;
 import com.offway.core.weather.domain.TourClimateGrade;
 import com.offway.core.weather.domain.TourClimateIndex;
@@ -90,7 +91,7 @@ class TourClimateIndexClientImpl implements TourClimateIndexClient {
         try {
             return parse(call(builder));
         } catch (Exception e) {
-            log.warn("기상청 관광기후지수 조회 실패 — 지수 생략 cause={}", e.getClass().getSimpleName());
+            log.warn("기상청 관광기후지수 조회 실패 — 지수 생략 cause={}", RootCause.of(e));
             return Map.of();
         }
     }

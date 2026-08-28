@@ -3,6 +3,7 @@ package com.offway.core.trip.infrastructure.datalab;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.datalab.dto.HubAttractionItem;
 import java.net.URI;
@@ -79,7 +80,7 @@ class HubAttractionClientImpl implements HubAttractionClient {
             return parse(call(builder));
         } catch (Exception e) {
             // 쿼리스트링(키 포함)은 로그에 남기지 않는다.
-            log.warn("중심 관광지 조회 실패 legalCode={} cause={}", legalCode, e.getClass().getSimpleName());
+            log.warn("중심 관광지 조회 실패 legalCode={} cause={}", legalCode, RootCause.of(e));
             throw TourApiException.lookupFailed(e);
         }
     }

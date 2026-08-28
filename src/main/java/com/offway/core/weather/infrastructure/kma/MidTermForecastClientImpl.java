@@ -3,6 +3,7 @@ package com.offway.core.weather.infrastructure.kma;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.weather.domain.MidLandRegion;
 import com.offway.core.weather.domain.MidTermOutlook;
 import com.offway.core.weather.domain.MidTermOutlook.DayOutlook;
@@ -86,7 +87,7 @@ class MidTermForecastClientImpl implements MidTermForecastClient {
             return parse(call(builder), release.toLocalDate());
         } catch (Exception e) {
             log.warn("기상청 중기예보 조회 실패 — 날씨 생략 regId={} cause={}",
-                    region.regId(), e.getClass().getSimpleName());
+                    region.regId(), RootCause.of(e));
             return Optional.empty();
         }
     }
