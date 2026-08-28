@@ -31,8 +31,22 @@ ROWS = 100          # RegionPoiService.CANDIDATE_ROWS
 TIMEOUT_S = 30      # 앱의 6초보다 길게 — 꼬리를 잘라내면 분포를 못 본다
 
 # 콘텐츠가 많은 곳과 적은 곳을 섞는다(이슈 요구).
-PICKS = ["공주시", "태안군", "정선군", "의성군", "가평군",
-         "강화군", "남해군", "고성군", "영양군", "울릉군"]
+#
+# (시도, 시군구) 로 든다 — 시군구 이름만으로는 지역이 갈리지 않는다. 고성군은 강원(32:2)과
+# 경남(36:3) 둘 다 있어서, 이름만 키로 쓰면 뒤 행이 앞 행을 덮는다. 어느 고성군을 쟀는지
+# 모르면 같은 조건으로 다시 잴 수 없고, 다시 못 재는 숫자는 근거가 못 된다.
+PICKS = [
+    ("충청남도", "공주시"),
+    ("충청남도", "태안군"),
+    ("강원특별자치도", "정선군"),
+    ("경상북도", "의성군"),
+    ("경기도", "가평군"),
+    ("인천광역시", "강화군"),
+    ("경상남도", "남해군"),
+    ("경상남도", "고성군"),
+    ("경상북도", "영양군"),
+    ("경상북도", "울릉군"),
+]
 
 
 def secret_file():
@@ -95,11 +109,17 @@ def report(text):
 
 
 def regions():
+    """PICKS 를 마이그레이션의 areaCode·sigunguCode 로 옮긴다.
+
+    코드를 여기 박지 않는 이유 — 마이그레이션과 두 곳이 되면 어긋나고, 어긋난 코드로 잰 숫자는
+    우리 코드의 근거가 못 된다. 워크플로(diagnose.yml)도 이 함수를 그대로 불러 같은 대상을 잰다.
+    """
     text = io.open(MIG, encoding="utf-8").read()
     found = re.findall(
         r"area_code=(\d+), sigungu_code=(\d+) WHERE sido='([^']+)' AND sigungu='([^']+)'", text)
-    by_name = {name: (int(a), int(s), sido) for a, s, sido, name in found}
-    return [(n, *by_name[n]) for n in PICKS if n in by_name]
+    by_region = {(sido, name): (int(a), int(s)) for a, s, sido, name in found}
+    return [(sido, name, *by_region[(sido, name)]) for sido, name in PICKS
+            if (sido, name) in by_region]
 
 
 def call(key, area, sigungu, content_type):
@@ -131,7 +151,11 @@ def main():
     targets = regions()
     kinds = [("전체타입", None), ("맛집(39)", 39), ("숙박(32)", 32)]
     print(f"표본: {len(targets)}지역 × {len(kinds)}종류 × {REPEATS}회 = "
-          f"{len(targets) * len(kinds) * REPEATS}콜\n")
+          f"{len(targets) * len(kinds) * REPEATS}콜")
+    # 어느 지역을 쟀는지 시도까지 남긴다 — 같은 이름의 시군구가 있어 이름만으로는 재현이 안 된다.
+    for sido, name, area, sigungu in targets:
+        print(f"  {sido} {name} ({area}:{sigungu})")
+    print()
 
     samples = {label: [] for label, _ in kinds}
     sizes = {label: [] for label, _ in kinds}
@@ -139,7 +163,7 @@ def main():
 
     # 종류를 번갈아 부른다 — 같은 종류를 연달아 부르면 그 순간의 서버 상태가 한 종류에 몰린다.
     for attempt in range(REPEATS):
-        for name, area, sigungu, _sido in targets:
+        for _sido, name, area, sigungu in targets:
             for label, ctype in kinds:
                 ms, size, total, err = call(key, area, sigungu, ctype)
                 samples[label].append(ms)

@@ -125,14 +125,16 @@ jobs:
       - name: 서버에서 TourAPI 응답시간 분포 실측
         if: inputs.tour_latency_sample
         run: |
-          MIG=src/main/resources/db/migration/V20260724112101__add_region_geo_and_tour_codes.sql
-          # 콘텐츠가 많은 곳과 적은 곳을 섞는다. 로컬 스크립트의 PICKS 와 같은 목록이다.
-          # tail -1 인 이유: 고성군은 강원·경남 둘 다 있어 두 줄이 잡힌다. 로컬 스크립트는 dict 라
-          # 뒤 항목이 앞을 덮으므로, 여기서도 마지막 것을 골라야 같은 지역을 잰다.
-          TARGETS=$(for n in 공주시 태안군 정선군 의성군 가평군 강화군 남해군 고성군 영양군 울릉군; do
-            grep -oP "area_code=\d+, sigungu_code=\d+ WHERE sido='[^']+' AND sigungu='$n'" "$MIG" \
-              | tail -1 | sed -E 's/area_code=([0-9]+), sigungu_code=([0-9]+).*/\1:\2/'
-          done | tr '\n' ' ')
+          # 대상 지역을 로컬 스크립트에서 그대로 가져온다. 목록을 여기 옮겨 적으면 두 곳이 되어
+          # 어긋나고, 어긋난 대상으로 잰 두 숫자는 애초에 비교가 안 된다.
+          # (main() 은 __main__ 가드 뒤에 있어 import 만으로는 외부를 부르지 않는다.)
+          TARGETS=$(python3 -c "
+          import sys; sys.path.insert(0, 'scripts')
+          import measure_tour_latency as m
+          for sido, name, area, sigungu in m.regions():
+              print(f'{sido} {name} ({area}:{sigungu})', file=sys.stderr)
+          print(' '.join(f'{a}:{s}' for _, _, a, s in m.regions()))
+          ")
           echo "대상 지역(areaCode:sigunguCode): $TARGETS"
 
           OUT=$(ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
