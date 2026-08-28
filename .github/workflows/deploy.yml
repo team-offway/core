@@ -177,6 +177,8 @@ jobs:
           APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}
           APPLE_KEY_ID=${{ secrets.APPLE_KEY_ID }}
           APPLE_PRIVATE_KEY_BASE64=${{ secrets.APPLE_PRIVATE_KEY_BASE64 }}
+          PROVIDER_TOKEN_KEY_BASE64=${{ secrets.PROVIDER_TOKEN_KEY_BASE64 }}
+          PROVIDER_TOKEN_KEY_VERSION=${{ secrets.PROVIDER_TOKEN_KEY_VERSION }}
           FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}
           ENVEOF
           scp -i ~/.ssh/deploy_key env.prod \
