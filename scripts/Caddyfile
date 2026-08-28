@@ -1,0 +1,35 @@
+# api.offway.cloud 앞단 — TLS 종료 후 앱 컨테이너로 넘긴다 (#232).
+#
+# nginx + certbot 이 아니라 Caddy 인 이유는 움직이는 부품 수다. Caddy 는 인증서 발급·갱신을
+# 스스로 하고 실패해도 옛 인증서로 계속 서비스한다. certbot 은 cron·타이머·재적재 훅을 따로
+# 세워야 하고, 그중 하나만 어긋나도 만료일에 서비스가 통째로 죽는다.
+#
+# 앱은 같은 도커 네트워크(offway-net)에 있으므로 컨테이너 이름으로 부른다. 호스트 포트를
+# 거치지 않아, 나중에 앱을 127.0.0.1 에만 바인딩해도 이 경로는 그대로 산다.
+
+api.offway.cloud {
+	# 인증서 문제로 연락받을 주소. Let's Encrypt 가 만료 임박·발급 실패를 여기로 보낸다.
+	tls sevin@offway.cloud
+
+	reverse_proxy offway-core:8080 {
+		# 원 요청자 정보를 넘긴다 — 앱 로그에 프록시 IP 만 남으면 누가 불렀는지 알 수 없다.
+		header_up X-Real-IP {remote_host}
+	}
+
+	# 응답 헤더 — HTTPS 로 옮기는 김에 같이 세운다.
+	header {
+		# 브라우저가 이 도메인을 1년간 https 로만 부르게 한다. 앱(네이티브)에는 영향이 없지만
+		# 공유 링크가 이 도메인을 타면 그때부터 평문 시도가 사라진다.
+		Strict-Transport-Security "max-age=31536000"
+		# 서버 종류를 굳이 알리지 않는다.
+		-Server
+	}
+
+	# 접근 로그를 파일로 남긴다. 도커 로그로만 두면 컨테이너를 갈아끼울 때 사라진다.
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 50MiB
+			roll_keep 5
+		}
+	}
+}
