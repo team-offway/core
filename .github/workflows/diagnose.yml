@@ -28,6 +28,10 @@ on:
       until:
         description: "조사 종료일 YYYY-MM-DD (비우면 오늘)"
         default: ""
+      tour_latency_sample:
+        description: "TourAPI 응답시간 분포를 서버에서 잰다 — 일일 한도 1,000 중 120콜(12%)을 태운다"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-prod
@@ -42,6 +46,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 실측 대상 지역 코드를 마이그레이션에서 뽑기 위해서만 필요하다. 코드를 워크플로에 박으면
+      # 마이그레이션과 두 곳이 되어 어긋나고, 어긋난 코드로 잰 숫자는 우리 코드의 근거가 못 된다.
+      - name: 레포 체크아웃
+        if: inputs.tour_latency_sample
+        uses: actions/checkout@v7
+
       - name: AWS 자격증명 설정
         uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -101,6 +111,109 @@ jobs:
           echo "--- 컨테이너 안에서 같은 호출 ---"
           docker exec offway-core sh -c 'curl -s --max-time 25 "https://apis.data.go.kr/B551011/KorService2/areaBasedList2?serviceKey=$DATA_GO_KR_SERVICE_KEY&MobileOS=ETC&MobileApp=offway&_type=json&numOfRows=1&pageNo=1&areaCode=32&sigunguCode=11&contentTypeId=12" | head -c 400' 2>&1 || echo "(컨테이너에 curl 이 없을 수 있음)"
           REMOTE
+
+      # 응답시간 "분포" 를 서버에서 잰다(#238).
+      #
+      # 위 "서버에서 TourAPI 직접 호출" 과 목적이 다르다. 저건 1건으로 "닿는가" 를 묻고, 이건
+      # "꼬리가 얼마나 긴가" 를 묻는다. 그래서 태우는 한도도 자릿수가 다르다 — 1콜 대 120콜.
+      #
+      # scope 가 아니라 별도 스위치로 뺀 이유가 그 한도다. scope 에 얹으면 도달성만 보려는 실행까지
+      # 매번 12% 를 치른다. 기본값은 꺼짐이고, 켤 때 설명에 그 값이 숫자로 보인다.
+      #
+      # 개발 PC 에서 잰 값(scripts/measure_tour_latency.py)과 **같은 표본**이어야 비교가 된다 —
+      # 같은 10지역 × 3종류 × 4회, 같은 요청 모양(arrange=B · numOfRows=100).
+      - name: 서버에서 TourAPI 응답시간 분포 실측
+        if: inputs.tour_latency_sample
+        run: |
+          # 대상 지역을 로컬 스크립트에서 그대로 가져온다. 목록을 여기 옮겨 적으면 두 곳이 되어
+          # 어긋나고, 어긋난 대상으로 잰 두 숫자는 애초에 비교가 안 된다.
+          # (main() 은 __main__ 가드 뒤에 있어 import 만으로는 외부를 부르지 않는다.)
+          TARGETS=$(python3 -c "
+          import sys; sys.path.insert(0, 'scripts')
+          import measure_tour_latency as m
+          for sido, name, area, sigungu in m.regions():
+              print(f'{sido} {name} ({area}:{sigungu})', file=sys.stderr)
+          print(' '.join(f'{a}:{s}' for _, _, a, s in m.regions()))
+          ")
+          echo "대상 지역(areaCode:sigunguCode): $TARGETS"
+
+          OUT=$(ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "TARGETS='$TARGETS' bash -s" <<'REMOTE'
+          set -uo pipefail
+          K=$(grep '^DATA_GO_KR_SERVICE_KEY=' ~/offway/env.prod | cut -d= -f2-)
+          BASE="https://apis.data.go.kr/B551011/KorService2/areaBasedList2"
+          REPEATS=4
+          ROWS=100        # RegionPoiService.CANDIDATE_ROWS
+          MAXTIME=30      # 앱의 6초보다 길게 — 꼬리를 잘라내면 분포를 못 본다
+          TSV=$(mktemp); BODY=$(mktemp)
+          trap 'rm -f "$TSV" "$BODY" "$TSV".*' EXIT
+
+          for _ in $(seq 1 $REPEATS); do
+            for t in $TARGETS; do
+              area=${t%%:*}; sig=${t##*:}
+              # 종류를 번갈아 부른다 — 연달아 부르면 그 순간의 서버 상태가 한 종류에 몰린다.
+              for kind in all 39 32; do
+                ct=""; [ "$kind" != all ] && ct="&contentTypeId=$kind"
+                # serviceKey 를 재인코딩하지 않는다 — 앱의 build(true) 와 같아야 한다.
+                m=$(curl -s -o "$BODY" -w '%{time_total} %{size_download} %{http_code}' --max-time $MAXTIME \
+                  "$BASE?serviceKey=$K&MobileOS=ETC&MobileApp=offway&_type=json&arrange=B&numOfRows=$ROWS&areaCode=$area&sigunguCode=$sig$ct") \
+                  || m="$MAXTIME 0 000"
+                secs=${m%% *}; rest=${m#* }; size=${rest%% *}; http=${rest##* }
+                # resultCode 가 성공인데 결과가 비어 오는 경우가 흔하다 — http 만 보면 그걸 놓친다.
+                rc=$(sed -n 's/.*"resultCode":"\([0-9]*\)".*/\1/p' "$BODY" | head -1)
+                printf '%s\t%s\t%s\t%s\t%s\n' "$kind" "$secs" "$size" "$http" "${rc:-none}" >> "$TSV"
+              done
+            done
+          done
+
+          row() {
+            kind=$1
+            awk -F'\t' -v k="$kind" '$1==k {printf "%.0f\n", $2*1000}' "$TSV" | sort -n > "$TSV.$kind"
+            n=$(wc -l < "$TSV.$kind")
+            [ "$n" -eq 0 ] && { printf '%-5s %4s\n' "$kind" "표본없음"; return; }
+            q() { awk -v n="$n" -v p="$1" 'NR == int(p*(n-1)+1.5) {print; exit}' "$TSV.$kind"; }
+            mx=$(tail -1 "$TSV.$kind")
+            kb=$(awk -F'\t' -v k="$kind" '$1==k && $4=="200" {s+=$3; c++} END{printf "%.1f", (c?s/c/1024:0)}' "$TSV")
+            fail=$(awk -F'\t' -v k="$kind" '$1==k && ($4!="200" || $5!="0000")' "$TSV" | wc -l)
+            over=$(awk '$1>6000' "$TSV.$kind" | wc -l)
+            printf '%-5s %4d %7s %7s %7s %7s %7s %5d %6d\n' \
+              "$kind" "$n" "$(q 0.50)" "$(q 0.95)" "$(q 0.99)" "$mx" "$kb" "$fail" "$over"
+          }
+
+          echo "===SUMMARY==="
+          # 헤더를 ASCII 로 둔다 — printf 의 열 너비는 바이트 단위라, 한글 라벨을 쓰면 표시 폭과
+          # 어긋나 표가 밀린다. 뜻은 아래 범례 한 줄이 설명한다.
+          printf '%-5s %4s %7s %7s %7s %7s %7s %5s %6s\n' \
+            type n p50 p95 p99 max avgKB fail '>6s'
+          for kind in all 39 32; do row "$kind"; done
+          echo "(단위 ms · all=전체타입 39=맛집 32=숙박 · >6s=앱 timeout 을 넘긴 호출 수)"
+          echo "===END==="
+
+          echo "--- 6초를 넘긴 호출 (앱 timeout 이 끊는 구간) ---"
+          awk -F'\t' '$2*1000 > 6000 {printf "  %s %.0fms http=%s rc=%s\n", $1, $2*1000, $4, $5}' "$TSV" \
+            || true
+          echo "--- 실패한 호출 ---"
+          awk -F'\t' '$4!="200" || $5!="0000" {printf "  %s %.0fms http=%s rc=%s\n", $1, $2*1000, $4, $5}' "$TSV" \
+            || true
+          REMOTE
+          )
+          echo "$OUT"
+
+          # 태운 한도를 팀 채널에 남긴다 — 그 사실이 이 로그에만 있으면 팀은 "오늘 왜 한도가
+          # 줄었는지" 를 나중에 되짚을 수 없다. 웹훅 URL 은 러너에만 두고 EC2 로 내리지 않는다.
+          SUMMARY=$(printf '%s\n' "$OUT" | sed -n '/===SUMMARY===/,/===END===/p' | sed '1d;$d')
+          HOOK='${{ secrets.DISCORD_MEASURE_WEBHOOK_URL }}'
+          if [ -z "$HOOK" ]; then
+            echo "(DISCORD_MEASURE_WEBHOOK_URL 미설정 — 보고를 건너뛴다. 측정 결과는 위에 그대로 있다)"
+            exit 0
+          fi
+          MSG=$(printf '**TourAPI 실측(서버)** — 국문관광정보 **120콜** 소비 (일일 한도 1,000 의 12%%)\n표본: 10지역 × 3종류 × 4회 · `areaBasedList2` · EC2 도쿄\n```\n%s\n```\n<%s/actions/runs/%s>' \
+            "$SUMMARY" "${{ github.server_url }}/${{ github.repository }}" "${{ github.run_id }}")
+          # 보고 실패가 측정을 버리게 두지 않는다 — 표는 이미 위 로그에 남았다.
+          CODE=$(jq -n --arg c "$MSG" '{content:$c}' \
+            | curl -s -o /dev/null -w '%{http_code}' -X POST "$HOOK" \
+                -H 'Content-Type: application/json' --data @-) || CODE=000
+          echo "디스코드 보고 HTTP $CODE"
 
       - name: 앱 로그에서 외부 호출 실패 흔적
         if: inputs.scope != 'db'
