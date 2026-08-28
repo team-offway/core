@@ -3,6 +3,7 @@ package com.offway.core.trip.repository;
 import com.offway.core.trip.domain.HubAttraction;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Set;
 
 /** 중심 관광지 영속 port. 구현은 {@link HubAttractionRepositoryImpl}. */
 public interface HubAttractionRepository {
@@ -19,6 +20,9 @@ public interface HubAttractionRepository {
      * <p>부분 갱신하지 않는다 — 순위는 달마다 새로 매겨지므로, 옛 달의 항목이 남으면 순위가 중복되거나
      * 사라진 곳이 계속 보인다.
      */
+    /** 목표월(또는 그 이후) 자료를 이미 가진 지역 id — 이 지역은 외부를 부르지 않는다(#337). */
+    Set<Long> regionIdsFreshFrom(YearMonth baseYm);
+
     void replaceRegion(Long regionId, List<HubAttraction> attractions);
 
     long count();

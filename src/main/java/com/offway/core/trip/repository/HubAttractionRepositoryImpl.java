@@ -3,6 +3,8 @@ package com.offway.core.trip.repository;
 import com.offway.core.trip.domain.HubAttraction;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +27,12 @@ public class HubAttractionRepositoryImpl implements HubAttractionRepository {
             return List.of();
         }
         return jpaRepository.findByRegionIdInOrderByRegionIdAscHubRankAsc(regionIds);
+    }
+
+    @Override
+    public Set<Long> regionIdsFreshFrom(YearMonth baseYm) {
+        return jpaRepository.findRegionIdsWithBaseYmAtLeast(HubAttraction.toBaseYm(baseYm)).stream()
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     /**
