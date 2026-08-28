@@ -50,8 +50,17 @@ public record CourseRegenerateRequest(
 
     /** 재생성이 시도마다 씨앗만 바꿔 끼우므로, 여기서는 씨앗을 비워 둔 커맨드를 만든다. */
     public GenerateCourse toCommand() {
-        return new GenerateCourse(
-                regionId, travelDays, density, transport, originLat, originLng, travelDate,
-                startDayLeave, GenerateCourse.FIRST_SEED, excludePoiContentIds);
+        return GenerateCourse.builder()
+                .regionId(regionId)
+                .travelDays(travelDays)
+                .density(density)
+                .transport(transport)
+                .originLat(originLat)
+                .originLng(originLng)
+                .travelDate(travelDate)
+                .startDayLeave(startDayLeave)
+                .seed(GenerateCourse.FIRST_SEED)
+                .excludePoiContentIds(excludePoiContentIds)
+                .build();
     }
 }

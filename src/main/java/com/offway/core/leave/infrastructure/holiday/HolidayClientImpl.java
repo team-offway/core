@@ -3,6 +3,7 @@ package com.offway.core.leave.infrastructure.holiday;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.leave.domain.HolidayException;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -64,7 +65,7 @@ class HolidayClientImpl implements HolidayClient {
             return parse(body);
         } catch (Exception e) {
             // 쿼리스트링(키 포함)은 로그에 남기지 않는다. 사유·연월만.
-            log.warn("특일정보 조회 실패 year={} month={} cause={}", solYear, solMonth, e.getClass().getSimpleName());
+            log.warn("특일정보 조회 실패 year={} month={} cause={}", solYear, solMonth, RootCause.of(e));
             throw HolidayException.lookupFailed(e);
         }
     }

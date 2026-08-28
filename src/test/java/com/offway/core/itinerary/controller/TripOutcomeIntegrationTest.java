@@ -276,7 +276,10 @@ class TripOutcomeIntegrationTest {
     void 차감을_취소하면_다시_묻고_연차도_돌아온다() throws Exception {
         noHolidays();
         setTotalLeave(13.0);
-        long courseId = saveCourse(weekdayRun(-3, 1));
+        // 코스가 1박2일이므로 구간 길이도 2 여야 한다. 1 로 주면 시작일만 평일이 보장돼,
+        // 둘째 날이 주말인 날에 돌면 차감이 1 이고 평일인 날에 돌면 2 다 — 아래 단언이
+        // 실행 요일에 따라 갈린다(실제로 그렇게 이틀 뒤에 깨졌다).
+        long courseId = saveCourse(weekdayRun(-3, 2));
 
         answer(courseId, "VISITED").andExpect(status().isOk());
         pending().andExpect(jsonPath("$.data.trips.length()").value(0));
@@ -290,10 +293,10 @@ class TripOutcomeIntegrationTest {
                 .andExpect(jsonPath("$.data.trips.length()").value(1))
                 .andExpect(jsonPath("$.data.trips[0].courseId").value(courseId));
 
-        // 그리고 다시 답할 수 있다 — 409(이미 답함)로 막히지 않는다.
+        // 그리고 다시 답할 수 있다 — 409(이미 답함)로 막히지 않는다. 평일 2일이라 13 − 2 = 11.
         answer(courseId, "VISITED")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.remainingDays").value(12.0));
+                .andExpect(jsonPath("$.data.remainingDays").value(11.0));
     }
 
     /**

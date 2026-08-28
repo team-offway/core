@@ -29,6 +29,13 @@ public record RegionRecommendRequest(
         @Schema(description = "무드칩(선택) — SIGHT·STAY·EXPERIENCE·FOOD", example = "FOOD") Category mood) {
 
     public RecommendRegions toCommand() {
-        return new RecommendRegions(originLat, originLng, transport, maxReachMinutes, mood);
+        // 위도·경도를 이름으로 적는다 — 위치 인수면 둘이 뒤바뀌어도 컴파일이 통과한다(#300).
+        return RecommendRegions.builder()
+                .originLat(originLat)
+                .originLng(originLng)
+                .transport(transport)
+                .maxReachMinutes(maxReachMinutes)
+                .mood(mood)
+                .build();
     }
 }

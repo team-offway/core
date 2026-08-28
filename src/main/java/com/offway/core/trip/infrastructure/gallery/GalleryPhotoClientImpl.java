@@ -3,6 +3,7 @@ package com.offway.core.trip.infrastructure.gallery;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.gallery.dto.GalleryPhotoItem;
@@ -74,7 +75,7 @@ class GalleryPhotoClientImpl implements GalleryPhotoClient {
             return parse(call(builder));
         } catch (Exception e) {
             // 쿼리스트링(키 포함)은 로그에 남기지 않는다.
-            log.warn("관광사진 갤러리 조회 실패 pageNo={} cause={}", pageNo, e.getClass().getSimpleName());
+            log.warn("관광사진 갤러리 조회 실패 pageNo={} cause={}", pageNo, RootCause.of(e));
             throw TourApiException.lookupFailed(e);
         }
     }
