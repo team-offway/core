@@ -16,6 +16,7 @@ import ssl
 import statistics
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -34,14 +35,63 @@ PICKS = ["공주시", "태안군", "정선군", "의성군", "가평군",
          "강화군", "남해군", "고성군", "영양군", "울릉군"]
 
 
-def service_key():
-    secret = REPO / SECRET_NAME
-    if not secret.exists():
-        sys.exit(f"시크릿이 없다: {secret}")
+def secret_file():
+    """시크릿 파일을 찾는다 — <b>워크트리에서 돌려도 찾아야 한다</b>.
+
+    워크트리는 `<메인체크아웃>/.claude/worktrees/<이름>` 이라 스크립트 기준 레포 루트가 메인이 아니다.
+    시크릿은 gitignored 라 워크트리에는 복사되지 않으므로, 없으면 상위로 거슬러 올라가 찾는다.
+    """
+    for base in [REPO, *REPO.parents]:
+        candidate = base / SECRET_NAME
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def secret_value(name):
+    """gitignored 시크릿에서 한 줄을 읽는다. 값은 돌려주기만 하고 어디에도 찍지 않는다."""
+    secret = secret_file()
+    if secret is None:
+        return None
     for line in io.open(secret, encoding="utf-8"):
-        if line.startswith("DATA_GO_KR_SERVICE_KEY="):
+        if line.startswith(f"{name}="):
             return line.split("=", 1)[1].strip()
-    sys.exit("키 없음")
+    return None
+
+
+def service_key():
+    key = secret_value("DATA_GO_KR_SERVICE_KEY")
+    if not key:
+        sys.exit(f"DATA_GO_KR_SERVICE_KEY 가 없다 (찾은 시크릿: {secret_file() or SECRET_NAME})")
+    return key
+
+
+def report(text):
+    """소비한 한도를 팀 채널에 남긴다 — <b>보고 실패가 측정을 버리게 두지 않는다</b>.
+
+    실측은 사용자 몫과 같은 일일 한도를 태우는데, 그 사실이 돌린 사람 터미널에만 남으면 팀은
+    "오늘 왜 한도가 줄었는지" 를 나중에 되짚을 수 없다.
+    """
+    url = secret_value("DISCORD_MEASURE_WEBHOOK_URL")
+    if not url:
+        print("\n(웹훅 미설정 — 보고를 건너뛴다)")
+        return
+    payload = json.dumps({"content": text}).encode("utf-8")
+    # User-Agent 를 명시한다 — 파이썬 기본 UA 는 디스코드 앞단 Cloudflare 가 403(error code 1010)으로 막는다.
+    request = urllib.request.Request(url, data=payload, headers={
+        "Content-Type": "application/json",
+        "User-Agent": "offway-measure (+https://github.com/team-offway/core, #238)",
+    })
+    try:
+        with urllib.request.urlopen(request, timeout=10) as resp:
+            print(f"\n디스코드 보고 완료 (HTTP {resp.status})")
+    except urllib.error.HTTPError as e:
+        # 응답 status·본문만 남긴다. e.url 에는 토큰이 있으므로 예외 객체를 그대로 찍지 않는다.
+        print(f"\n디스코드 보고 실패 (HTTP {e.code}) {e.read().decode('utf-8', 'replace')[:200]}"
+              " — 측정 결과는 위에 그대로 있다")
+    except Exception as e:  # noqa: BLE001
+        # URL 은 찍지 않는다 — 예외 메시지에 섞여 나올 수 있어 클래스명만 남긴다.
+        print(f"\n디스코드 보고 실패 ({type(e).__name__}) — 측정 결과는 위에 그대로 있다")
 
 
 def regions():
@@ -101,18 +151,36 @@ def main():
                 print(f"  {attempt+1} {name:5s} {label:9s} {ms:7.0f}ms "
                       f"{size/1024:6.1f}KB total={total}{flag}")
 
-    print("\n" + "=" * 64)
-    print(f"{'종류':10s} {'n':>4s} {'p50':>7s} {'p95':>7s} {'p99':>7s} {'max':>7s} "
-          f"{'평균KB':>7s} {'실패':>4s} {'6초초과':>6s}")
+    header = (f"{'종류':10s} {'n':>4s} {'p50':>7s} {'p95':>7s} {'p99':>7s} {'max':>7s} "
+              f"{'평균KB':>7s} {'실패':>4s} {'6초초과':>6s}")
+    rows = []
     for label, _ in kinds:
         xs = sorted(samples[label])
         n = len(xs)
-        def q(p):
+
+        def q(p, xs=xs, n=n):
             return xs[min(n - 1, int(round(p * (n - 1))))]
+
         over = sum(1 for x in xs if x > 6000)
         avg_kb = (statistics.mean(sizes[label]) / 1024) if sizes[label] else 0
-        print(f"{label:10s} {n:4d} {q(.50):7.0f} {q(.95):7.0f} {q(.99):7.0f} {xs[-1]:7.0f} "
-              f"{avg_kb:7.1f} {fails[label]:4d} {over:6d}")
+        rows.append(f"{label:10s} {n:4d} {q(.50):7.0f} {q(.95):7.0f} {q(.99):7.0f} {xs[-1]:7.0f} "
+                    f"{avg_kb:7.1f} {fails[label]:4d} {over:6d}")
+
+    print("\n" + "=" * 64)
+    print(header)
+    for row in rows:
+        print(row)
+
+    calls = len(targets) * len(kinds) * REPEATS
+    report("\n".join([
+        f"**TourAPI 실측** — 국문관광정보 **{calls}콜** 소비 (일일 한도 1,000 의 {calls / 10:.0f}%)",
+        f"표본: {len(targets)}지역 × {len(kinds)}종류 × {REPEATS}회 · `areaBasedList2`",
+        "```",
+        header,
+        *rows,
+        "```",
+        "표본이 작으면 p99 는 사실상 최댓값이다 — 이 값만으로 timeout 상수를 정하지 않는다.",
+    ]))
 
 
 if __name__ == "__main__":
