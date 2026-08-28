@@ -47,8 +47,10 @@ start_and_wait() {
   # 포기하면 안 된다) 실패가 저절로 멈추지 않는다. 그대로 두면 아래 응답 확인으로 흘러가는데,
   # `docker run` 이 실패하는 가장 흔한 이유가 **8080 이 이미 물려 있는 것**이라 그때는 십중팔구
   # 무언가가 응답한다 — 우리 컨테이너는 없는데 "롤백 완료" 가 찍힌다.
+  # 바인딩은 배포와 **같아야 한다**(#232). 여기만 `-p 8080:8080` 으로 남으면 복구가 도는 순간
+  # 앱 포트가 다시 인터넷에 열린다 — 그것도 장애 대응 중이라 아무도 안 본다.
   if ! docker run -d --name "$CONTAINER" --network offway-net --restart unless-stopped \
-    --env-file "$APP/env.prod" -p 8080:8080 "$image" >&2; then
+    --env-file "$APP/env.prod" -p 127.0.0.1:8080:8080 "$image" >&2; then
     echo "컨테이너를 띄우지 못했습니다 — 이미지=$image" >&2
     return 1
   fi
