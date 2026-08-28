@@ -34,7 +34,11 @@ class PolicyMatchIntegrationTest {
     private static final String VOUCHER_SIDO = "전라남도";
     private static final String VOUCHER_SIGUNGU = "완도군";
 
-    /** 인구감소지역이고 비수도권이지만 반값여행 16곳에는 없다 — 숙박세일페스타만 붙어야 한다. */
+    /**
+     * 인구감소지역이고 비수도권이지만 반값여행 25곳에는 없다 — 숙박세일페스타만 붙어야 한다.
+     *
+     * <p>함평군이다. 참여 명단의 <b>함양군</b>(경남)과 한 글자 차이라 헷갈리기 쉽다(#345).
+     */
     private static final String NON_VOUCHER_SIDO = "전라남도";
     private static final String NON_VOUCHER_SIGUNGU = "함평군";
 
@@ -43,7 +47,7 @@ class PolicyMatchIntegrationTest {
     private static final String METRO_SIGUNGU = "가평군";
 
     /**
-     * 두 정책 기간이 <b>겹치는</b> 날짜. 반값여행 4/1~9/30 과 숙박세일페스타 6/11~8/31 의 교집합이다.
+     * 두 정책 기간이 <b>겹치는</b> 날짜. 반값여행 4/1~11/30 과 숙박세일페스타 6/11~8/31 의 교집합이다.
      *
      * <p>한쪽 기간만 보고 잡으면 다른 정책이 기간 밖이라 비어 나오고, 지역 판정이 검증되지 않은 채
      * "안 붙는다" 만 통과한다.
@@ -126,8 +130,9 @@ class PolicyMatchIntegrationTest {
     @Test
     void 운영기간_밖이면_매칭되지_않는다() {
         // 두 정책 다 끝난 뒤 — 기간 필터가 지역 판정과 따로 동작하는지 본다.
+        // 반값여행이 11-30 까지라 12월로 잡는다(#345). 10-01 은 이제 반값여행이 살아 있어 이 시나리오가 아니다.
         List<Policy> matched =
-                policyService.matchForRegion(regionId(VOUCHER_SIDO, VOUCHER_SIGUNGU), LocalDate.of(2026, 10, 1));
+                policyService.matchForRegion(regionId(VOUCHER_SIDO, VOUCHER_SIGUNGU), LocalDate.of(2026, 12, 1));
 
         assertTrue(matched.isEmpty(), "실제=" + matched.stream().map(Policy::getType).toList());
     }
@@ -135,7 +140,7 @@ class PolicyMatchIntegrationTest {
     @Test
     void 프로그램별_대상_지역_수가_시드와_맞는다() {
         // 숫자가 틀어지면 시드 SQL 의 조인이나 지역 시드가 바뀐 것이다.
-        assertEquals(16, regionTagRepository.countByTag(RegionTagType.REGIONAL_VOUCHER), "반값여행 시범사업 16곳");
+        assertEquals(25, regionTagRepository.countByTag(RegionTagType.REGIONAL_VOUCHER), "반값여행 참여 25곳");
         assertEquals(85, regionTagRepository.countByTag(RegionTagType.STAY_FESTA), "비수도권 인구감소지역 85곳");
         assertEquals(89, regionTagRepository.countByTag(RegionTagType.POPULATION_DECLINE), "행안부 고시 89곳");
     }
