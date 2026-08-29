@@ -2,7 +2,9 @@ package com.offway.core.transport.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -50,6 +52,33 @@ class CoordinateKeyTest {
     void 자릿수가_DB_컬럼과_같다() {
         assertEquals(CoordinateKey.SCALE, CoordinateKey.of(37.5, 127.5).lat().scale());
         assertEquals(CoordinateKey.SCALE, CoordinateKey.of(37.5, 127.5).lng().scale());
+    }
+
+    /**
+     * {@code of(...)} 를 우회하는 길이 실제로 있다 — DB 에서 읽은 {@code BigDecimal} 로 직접 만드는 경로가
+     * 엔티티와 리포지토리 어댑터 양쪽에 있다. 드라이버가 자릿수를 다르게 주면 {@code Set} 조회가 조용히
+     * 아무것도 못 찾으므로, 정규화는 팩토리가 아니라 <b>생성자</b>가 해야 한다.
+     */
+    @Test
+    void 생성자로_직접_만들어도_자릿수가_맞춰진다() {
+        CoordinateKey direct = new CoordinateKey(new BigDecimal("37.5"), new BigDecimal("127.5"));
+
+        assertEquals(CoordinateKey.SCALE, direct.lat().scale());
+        assertEquals(CoordinateKey.of(37.5, 127.5), direct);
+    }
+
+    @Test
+    void 자릿수가_더_긴_값도_생성자가_접는다() {
+        CoordinateKey direct =
+                new CoordinateKey(new BigDecimal("37.50000004"), new BigDecimal("127.50000004"));
+
+        assertEquals(CoordinateKey.of(37.5, 127.5), direct);
+    }
+
+    @Test
+    void 좌표가_null_이면_만들어지지_않는다() {
+        assertThrows(NullPointerException.class, () -> new CoordinateKey(null, new BigDecimal("127.5")));
+        assertThrows(NullPointerException.class, () -> new CoordinateKey(new BigDecimal("37.5"), null));
     }
 
     @Test
