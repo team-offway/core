@@ -1,6 +1,8 @@
 package com.offway.core.user.config;
 
 import com.offway.core.common.exception.CommonErrorCode;
+import com.offway.core.common.logging.LogAttributes;
+import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.user.domain.UserErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
@@ -51,7 +53,8 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
     /** 이 접두어로 시작하는 경로만 우리 API 다. 나머지 401 은 스캐너 소음으로 본다. */
     private static final String API_PATH_PREFIX = "/api/";
 
-    private static final String BEARER_PREFIX = "Bearer ";
+    /** 사유가 없을 때의 표기 — 빈 칸으로 두면 "사유 없음" 과 "칸이 밀렸다" 가 구분되지 않는다. */
+    private static final String NO_REASON = "-";
 
     private final ObjectMapper objectMapper;
 
@@ -61,7 +64,7 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
             throws IOException {
         logAttempt(request);
         // 앱이 access 토큰을 들고 왔는데 통과하지 못했다 — 만료됐거나 위조다. 재발급하라는 신호를 준다.
-        if (bearerPresented(request)) {
+        if (AuthScheme.of(request) == AuthScheme.BEARER) {
             SecurityErrorResponder.write(objectMapper, response, UserErrorCode.INVALID_ACCESS_TOKEN);
             return;
         }
@@ -71,13 +74,13 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
         SecurityErrorResponder.write(objectMapper, response, CommonErrorCode.UNAUTHORIZED);
     }
 
-    private static boolean bearerPresented(HttpServletRequest request) {
-        return hasBearerScheme(request.getHeader(HttpHeaders.AUTHORIZATION));
-    }
-
     /**
      * 게이트를 뚫으려는 시도를 나중에라도 파악할 수 있게 흔적을 남긴다. 자격증명은 절대 남기지 않는다 — 오타로
      * 비밀번호가 username 자리에 들어오는 일이 흔하고, 그게 그대로 로그에 박힌다. 토큰도 마찬가지다.
+     *
+     * <p><b>이 줄이 그 요청에 대해 남는 전부다.</b> 401 은 {@code RequestLoggingFilter} 보다 앞선 보안
+     * 필터에서 끝나 요청 줄이 아예 찍히지 않는다 — 그래서 신원 단서(수단·사유·출발지)를 요청 줄에
+     * 맡기지 못하고 여기에 직접 싣는다(#41).
      *
      * <p>레벨은 info 다: 401 은 클라이언트 계약 위반이라 서버 입장에서는 정상 흐름이다(로깅 규약). 우리 API
      * 경로가 아닌 401 은 debug 다. 공인 IP 에 붙은 서버라 {@code /Login}·{@code /wp-admin} 같은 스캐너가 쉬지
@@ -86,19 +89,45 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
     private static void logAttempt(HttpServletRequest request) {
         String path = request.getRequestURI();
         if (path.startsWith(API_PATH_PREFIX)) {
-            log.info("인증 실패 — 401 method={} path={}", request.getMethod(), path);
+            log.info(
+                    "인증 실패 — 401 method={} path={} scheme={} reason={} ip={}",
+                    request.getMethod(),
+                    path,
+                    AuthScheme.of(request).label(),
+                    rejectionReason(request),
+                    clientIp(request));
         } else {
-            log.debug("인증 실패(비 API 경로) — 401 method={} path={}", request.getMethod(), path);
+            log.debug(
+                    "인증 실패(비 API 경로) — 401 method={} path={} ip={}",
+                    request.getMethod(),
+                    path,
+                    clientIp(request));
         }
     }
 
     /**
-     * {@code Authorization} 이 Bearer 인지 — <b>대소문자를 구분하지 않는다</b>.
+     * Bearer 를 왜 거절했는지 — {@link JwtAuthenticationFilter} 가 요청에 실어 둔 값(#41).
      *
-     * <p>HTTP 인증 scheme 은 규격상 대소문자를 가리지 않는다(RFC 7235). {@code startsWith("Bearer ")} 로 보면
-     * {@code bearer <token>} 을 들고 온 클라이언트가 토큰을 안 보낸 것으로 취급돼, 고칠 데가 없는데 401 을 받는다.
+     * <p>{@code JwtValidationException}(만료)과 {@code BadJwtException}(서명 불일치)은 대응이 정반대다. 앞은
+     * 앱이 재발급하면 끝나는 정상 흐름이고, 뒤는 우리 키로 서명되지 않은 토큰이라 위조 시도다. 사유 칸이
+     * 없으면 둘이 같은 401 로 뭉쳐 어느 쪽이 늘고 있는지 알 수 없다.
+     *
+     * <p>토큰을 안 들고 온 요청에는 값이 없다 — 그때는 {@code scheme=none} 이 이미 그 사실을 말한다.
      */
-    private static boolean hasBearerScheme(String header) {
-        return header != null && header.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length());
+    private static String rejectionReason(HttpServletRequest request) {
+        Object reason = request.getAttribute(LogAttributes.TOKEN_REJECTION);
+        return reason instanceof String found ? found : NO_REASON;
     }
+
+    /**
+     * 출발지 주소.
+     *
+     * <p><b>{@code X-Forwarded-For} 를 읽지 않는다.</b> 지금 앞에 프록시가 없어 앱이 EC2 의 8080 을 직접
+     * 부른다 — 그 상태에서 XFF 를 믿으면 <b>누구나 헤더 한 줄로 출발지를 위조</b>할 수 있어, 신원을 남기려던
+     * 칸이 거짓을 남기는 칸이 된다. 프록시가 앞에 서는 날(#232) 그때 신뢰 경계와 함께 다시 본다.
+     */
+    private static String clientIp(HttpServletRequest request) {
+        return SensitiveParams.forLog(request.getRemoteAddr());
+    }
+
 }

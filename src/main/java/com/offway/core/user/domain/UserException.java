@@ -34,6 +34,17 @@ public final class UserException extends BaseException {
         return new UserException(UserErrorCode.INVALID_ACCESS_TOKEN);
     }
 
+    /**
+     * access 토큰 거절 — <b>원인을 달아서</b>(#41).
+     *
+     * <p>사유는 응답에 담지 않는다(어디까지 맞췄는지 알려줄 이유가 없다). 대신 cause 로 들고 다녀서 로그에
+     * "만료됐다" 와 "서명이 안 맞는다" 를 가를 수 있게 한다 — 앞은 앱이 재발급하면 그만이고 뒤는 위조
+     * 시도라 대응이 정반대다. 사유 없이 401 만 세면 그 둘이 한 덩어리로 섞인다.
+     */
+    public static UserException invalidAccessToken(Throwable cause) {
+        return new UserException(UserErrorCode.INVALID_ACCESS_TOKEN, cause);
+    }
+
     /** provider JWKS 조회 실패 — 외부 의존성 장애라 502. */
     public static UserException oidcProviderUnavailable(Throwable cause) {
         return new UserException(UserErrorCode.OIDC_PROVIDER_UNAVAILABLE, cause);

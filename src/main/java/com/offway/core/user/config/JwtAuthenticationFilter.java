@@ -1,5 +1,7 @@
 package com.offway.core.user.config;
 
+import com.offway.core.common.logging.LogAttributes;
+import com.offway.core.common.logging.RootCause;
 import com.offway.core.user.domain.UserException;
 import com.offway.core.user.service.TokenIssuer;
 import jakarta.servlet.FilterChain;
@@ -41,12 +43,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String accessToken = resolveToken(request);
         if (accessToken != null) {
-            authenticate(accessToken);
+            authenticate(accessToken, request);
         }
         filterChain.doFilter(request, response);
     }
 
-    private void authenticate(String accessToken) {
+    private void authenticate(String accessToken, HttpServletRequest request) {
         try {
             UUID userId = tokenIssuer.parseAccessToken(accessToken);
             SecurityContextHolder.getContext()
@@ -55,6 +57,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             userId, null, List.of(new SimpleGrantedAuthority(APP_USER_AUTHORITY))));
         } catch (UserException exception) {
             SecurityContextHolder.clearContext();
+            // **여기서 로그를 찍지 않는다.** 이 필터는 실패해도 통과시키고 401 은 인가 단계가 만든다 —
+            // 여기서도 찍으면 실패 하나가 두 줄이 되는데, 경로·출발지는 그쪽 줄에만 있다. 사유만 요청에
+            // 실어 넘겨 401 한 줄로 합친다(#41).
+            request.setAttribute(LogAttributes.TOKEN_REJECTION, RootCause.label(exception));
         }
     }
 

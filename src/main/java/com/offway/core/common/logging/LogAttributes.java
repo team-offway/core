@@ -16,12 +16,27 @@ public final class LogAttributes {
     public static final String TRACE_ID = "traceId";
 
     /**
-     * MDC 키 — 요청을 보낸 주체.
+     * MDC 키 — 요청을 보낸 주체(#41).
      *
-     * <p>지금은 임시 Basic 계정 이름 하나뿐이라(#122) 값이 늘 같지만, OAuth 로 실사용자가 들어오면 이 자리가
-     * 사용자 id 가 된다. 그때 로그 형식을 다시 바꾸지 않으려고 자리를 미리 잡아둔다.
+     * <p><b>요청이 시작될 때 넣는다.</b> 예전에는 응답을 다 쓴 뒤 {@code finally} 에서 넣어, 정작 그 요청
+     * 중에 난 로그(외부 호출 실패 warn, 예외 스택)에는 붙지 않았다 — 요청 줄 한 줄에만 있는 값이라
+     * MDC 에 둘 이유가 없던 셈이다. traceId 를 MDC 에 둔 이유가 여기에도 그대로 적용된다.
+     *
+     * <p>값은 <b>짧은 앞자리</b>다. 사용자 식별자가 UUID(36자)라 그대로 매 줄에 박으면 정작 읽어야 할
+     * 경로·메시지가 밀려난다. 전문이 필요한 자리는 로그인 성공 줄 하나뿐이고, 거기서는 전문을 남긴다.
+     *
+     * <p>Bearer 가 아닌 요청(Basic·비인증)도 이 자리를 쓴다 — 무엇으로 들어왔는지가 곧 신원이다.
      */
     public static final String USER_ID = "userId";
+
+    /**
+     * 요청 속성 키 — Bearer 토큰을 <b>왜</b> 거절했는지(만료·서명 불일치·형식 오류).
+     *
+     * <p>토큰을 푸는 곳과 401 을 쓰는 곳이 다르다. 푸는 쪽은 사유를 알지만 어느 경로·누구인지 모르고,
+     * 쓰는 쪽은 그 반대다. 사유를 요청에 실어 넘겨 <b>401 한 줄에 둘을 합친다</b> — 나눠 찍으면 두 줄이
+     * 되는데, 401 경로에는 추적 id 조차 없어(보안 필터가 요청 로깅 필터보다 앞이다) 다시 묶을 수단이 없다.
+     */
+    public static final String TOKEN_REJECTION = "offway.log.tokenRejection";
 
     public static final String EXTERNAL_CALLS = "offway.log.externalCalls";
     public static final String REQUEST_SUMMARY = "offway.log.requestSummary";
