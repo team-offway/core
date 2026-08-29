@@ -1,6 +1,8 @@
 package com.offway.core.trip.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.curation.domain.Surface;
+import com.offway.core.curation.service.CurationService;
 import com.offway.core.trip.controller.dto.RegionDetailResponse;
 import com.offway.core.trip.service.RegionDetailService;
 import lombok.RequiredArgsConstructor;
@@ -15,10 +17,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class RegionDetailController implements RegionDetailApi {
 
     private final RegionDetailService regionDetailService;
+    private final CurationService curationService;
 
     @Override
     @GetMapping("/{regionId}")
     public ApiResponseBody<RegionDetailResponse> detail(@PathVariable Long regionId) {
-        return ApiResponseBody.ok(RegionDetailResponse.from(regionDetailService.detail(regionId)));
+        return ApiResponseBody.ok(RegionDetailResponse.from(
+                regionDetailService.detail(regionId), curationService.linksOn(Surface.REGION)));
     }
 }

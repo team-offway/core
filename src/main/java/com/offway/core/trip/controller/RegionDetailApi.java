@@ -26,6 +26,11 @@ public interface RegionDetailApi {
                     것의 이름으로 만든 문장이다. 재료가 없는 지역은 `null` 이라 그 칸을 접으면 된다.
 
                     **외부 API 를 부르지 않는다.** 장소 풀은 월 1회 배치가 미리 채워 두고 여기서는 DB 만 읽는다.
+
+
+                    **`curatedLinks`** — 외부 페이지로 나가는 창구(#341). 누르면 웹뷰로 그 사이트가 열린다.
+                    이 화면에 켜져 있고 오늘이 노출 기간 안인 것만 정렬 순으로 담기고, 없으면 **빈 목록**이다.
+                    `description`·`thumbnailUrl` 은 `null` 일 수 있다 — 그 줄과 이미지를 그리지 않으면 된다.
                     """)
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "401", description = "인증 필요")

@@ -1,10 +1,13 @@
 package com.offway.core.trip.controller.dto;
 
 import com.offway.core.common.logging.LogSummary;
+import com.offway.core.curation.controller.dto.CuratedLinkResponse;
+import com.offway.core.curation.domain.CuratedLink;
 import com.offway.core.trip.domain.PoiContentType;
 import com.offway.core.trip.domain.PoiIntro;
 import com.offway.core.trip.service.dto.PoiDetail;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.List;
 import java.util.function.Function;
 
 /**
@@ -35,6 +38,8 @@ import java.util.function.Function;
  * @param mapSearchUrl 지도 검색 링크(인허가·국가유산만. 관광 API 콘텐츠는 null)
  * @param benefit 장소 단위 혜택 문구(단정 가능한 것만. 없으면 null)
  * @param catchphrase 구석구석 캐치프레이즈(감성 한 줄, 없으면 null)
+ * @param curatedLinks 외부 페이지로 나가는 창구(#341). 장소 상세에 켜진 것만, 정렬 순으로.
+ *     없으면 빈 목록이다 — 위 블록들과 달리 null 이 아니다
  */
 public record PoiDetailResponse(
         String contentId,
@@ -61,7 +66,8 @@ public record PoiDetailResponse(
         @Schema(description = "이 장소에서 쓸 수 있는 혜택(#172). 단정할 수 있는 것만 — 지금은 숙박세일페스타(숙소)뿐이다. "
                 + "관광 API 콘텐츠는 지역을 알 수 없어 비어 있다.",
                 example = "숙박 할인", nullable = true) String benefit,
-        @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase)
+        @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase,
+        List<CuratedLinkResponse> curatedLinks)
         implements LogSummary {
 
     /** 예: {@code 완도타워 전망대(관광지)}. id 는 경로에 이미 있으므로 되풀이하지 않는다. */
@@ -122,7 +128,7 @@ public record PoiDetailResponse(
         return LOG_FORMAT.formatted(title, typeLabel);
     }
 
-    public static PoiDetailResponse from(PoiDetail poi) {
+    public static PoiDetailResponse from(PoiDetail poi, List<CuratedLink> curatedLinks) {
         PoiIntro intro = poi.intro();
         PoiContentType type = PoiContentType.from(poi.contentTypeId()).orElse(null);
         return new PoiDetailResponse(
@@ -148,7 +154,8 @@ public record PoiDetailResponse(
                         it -> new Stay(it.checkIn(), it.checkOut(), it.roomCount(), it.reservation())),
                 poi.mapSearchUrl(),
                 poi.benefit(),
-                poi.catchphrase());
+                poi.catchphrase(),
+                CuratedLinkResponse.of(curatedLinks));
     }
 
     /** 그 카테고리일 때만 블록을 만든다. 보조정보 자체가 없으면(우리 DB 출처) 어떤 블록도 안 만든다. */

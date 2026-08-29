@@ -1,6 +1,8 @@
 package com.offway.core.itinerary.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.curation.domain.Surface;
+import com.offway.core.curation.service.CurationService;
 import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.itinerary.service.CourseStorageService;
 import lombok.RequiredArgsConstructor;
@@ -24,10 +26,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class PublicCourseController implements PublicCourseApi {
 
     private final CourseStorageService courseStorageService;
+    private final CurationService curationService;
 
     @Override
     @GetMapping("/{shareToken}")
     public ApiResponseBody<CourseResponse> shared(@PathVariable String shareToken) {
-        return ApiResponseBody.ok(CourseResponse.publicView(courseStorageService.findShared(shareToken)));
+        return ApiResponseBody.ok(CourseResponse.publicView(
+                courseStorageService.findShared(shareToken), curationService.linksOn(Surface.COURSE)));
     }
 }

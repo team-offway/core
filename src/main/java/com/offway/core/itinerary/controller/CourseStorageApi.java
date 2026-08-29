@@ -110,7 +110,11 @@ public interface CourseStorageApi {
 
                     응답에 `shareToken` 이 실린다. 아직 링크가 없는 코스면 **이 조회가 발급해서 내려준다** —
                     그래야 저장 응답을 놓친 코스(앱 재설치·기기 변경)도 공유할 수 있다. 코스당 한 번뿐이고
-                    두 번째부터는 같은 토큰이 나간다.""")
+                    두 번째부터는 같은 토큰이 나간다.
+
+                    **`curatedLinks`** — 외부 페이지로 나가는 창구(#341). 누르면 웹뷰로 그 사이트가 열린다.
+                    코스 화면에 켜져 있고 오늘이 노출 기간 안인 것만 정렬 순으로 담기고, 없으면 **빈 목록**이다.
+                    `description`·`thumbnailUrl` 은 `null` 일 수 있다 — 그 줄과 이미지를 그리지 않으면 된다.""")
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")

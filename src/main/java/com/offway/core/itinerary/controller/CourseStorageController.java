@@ -1,6 +1,8 @@
 package com.offway.core.itinerary.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.curation.domain.Surface;
+import com.offway.core.curation.service.CurationService;
 import com.offway.core.common.response.PageResponse;
 import com.offway.core.itinerary.service.TripOutcomeService;
 import com.offway.core.itinerary.controller.dto.TripOutcomeRequest;
@@ -40,13 +42,15 @@ public class CourseStorageController implements CourseStorageApi {
     private final CourseStorageService courseStorageService;
     private final CourseLeaveDeductionService courseLeaveDeductionService;
     private final TripOutcomeService tripOutcomeService;
+    private final CurationService curationService;
 
     @Override
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponseBody<CourseResponse> save(
             @LoginUser UUID userId, @Valid @RequestBody CourseSaveRequest request) {
-        return ApiResponseBody.created(CourseResponse.from(courseStorageService.save(request.toCourse(userId))));
+        return ApiResponseBody.created(CourseResponse.from(
+                courseStorageService.save(request.toCourse(userId)), curationService.linksOn(Surface.COURSE)));
     }
 
     @Override
@@ -71,7 +75,8 @@ public class CourseStorageController implements CourseStorageApi {
     @Override
     @GetMapping("/{courseId}")
     public ApiResponseBody<CourseResponse> course(@LoginUser UUID userId, @PathVariable long courseId) {
-        return ApiResponseBody.ok(CourseResponse.from(courseStorageService.get(userId, courseId)));
+        return ApiResponseBody.ok(CourseResponse.from(
+                courseStorageService.get(userId, courseId), curationService.linksOn(Surface.COURSE)));
     }
 
     @Override
@@ -81,7 +86,8 @@ public class CourseStorageController implements CourseStorageApi {
             @PathVariable long courseId,
             @Valid @RequestBody CourseUpdateRequest request) {
         return ApiResponseBody.ok(CourseResponse.from(
-                courseStorageService.changeTravelDate(userId, courseId, request.travelDate())));
+                courseStorageService.changeTravelDate(userId, courseId, request.travelDate()),
+                curationService.linksOn(Surface.COURSE)));
     }
 
     @Override
