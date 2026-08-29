@@ -26,7 +26,10 @@ public enum CurationErrorCode implements ErrorCode {
     CHIP_TEXT_TOO_LONG("CURATION-004", ErrorCategory.BAD_REQUEST, "칩 문구가 너무 깁니다."),
 
     /** 내릴 화면을 하나도 고르지 않음 — 아무 데도 안 나가는 항목이 만들어진다. */
-    SURFACE_REQUIRED("CURATION-005", ErrorCategory.BAD_REQUEST, "노출할 화면을 하나 이상 골라야 합니다.");
+    SURFACE_REQUIRED("CURATION-005", ErrorCategory.BAD_REQUEST, "노출할 화면을 하나 이상 골라야 합니다."),
+
+    /** 어드민이 없는 항목을 열거나 고치려 함(#342). 이미 지운 것을 다른 탭에서 누르면 여기 닿는다. */
+    LINK_NOT_FOUND("CURATION-006", ErrorCategory.NOT_FOUND, "요청한 큐레이션 링크를 찾을 수 없습니다.");
 
     private final String code;
     private final ErrorCategory category;

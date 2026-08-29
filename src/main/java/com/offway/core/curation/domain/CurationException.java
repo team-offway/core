@@ -34,4 +34,9 @@ public final class CurationException extends BaseException {
     public static CurationException surfaceRequired() {
         return new CurationException(CurationErrorCode.SURFACE_REQUIRED);
     }
+
+    /** 그 id 의 링크가 없다. */
+    public static CurationException linkNotFound() {
+        return new CurationException(CurationErrorCode.LINK_NOT_FOUND);
+    }
 }
