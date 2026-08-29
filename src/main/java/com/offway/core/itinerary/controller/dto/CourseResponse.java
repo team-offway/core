@@ -135,7 +135,7 @@ public record CourseResponse(
                         generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()))
                 .shareToken(generated.shareToken())
                 .firstDayChange(generated.firstDayChange() == null ? null : generated.firstDayChange().name())
-                .curatedLinks(CuratedLinkResponse.of(curatedLinks))
+                .curatedLinks(CuratedLinkResponse.from(curatedLinks))
                 // 차감 정보는 소유자 조회에서만 뜻이 있다. 생성(아직 저장 전)·공개 공유는 이 경로로 오며,
                 // 그때는 값이 없다는 사실 자체가 정확한 답이다. 빌더라 적지 않으면 그대로 null 이다.
                 .build();

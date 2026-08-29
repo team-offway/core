@@ -3,6 +3,7 @@ package com.offway.core.curation.controller.dto;
 import com.offway.core.curation.domain.CuratedLink;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import lombok.Builder;
 
 /**
  * 큐레이션 링크 항목 — API 계약(#341).
@@ -19,6 +20,7 @@ import java.util.List;
  * @param linkUrl 누르면 웹뷰로 열 주소. 언제나 {@code https}
  * @param thumbnailUrl 썸네일. <b>없으면 null</b> — 앱이 기본 이미지를 쓴다
  */
+@Builder
 public record CuratedLinkResponse(
         @Schema(example = "3") long id,
         @Schema(example = "2026 대한민국 숙박세일 페스타") String title,
@@ -27,18 +29,23 @@ public record CuratedLinkResponse(
         @Schema(example = "https://ktostay.visitkorea.or.kr") String linkUrl,
         @Schema(example = "https://ktostay.visitkorea.or.kr/thumb.jpg", nullable = true) String thumbnailUrl) {
 
+    /**
+     * 빌더로 조립하는 이유 — <b>title 부터 thumbnailUrl 까지 다섯이 전부 {@code String}</b> 이라, 위치
+     * 인수로 두면 순서가 뒤바뀌어도 컴파일이 통과한다. 칩에 링크 주소가 뜨는 식으로 화면에서야 드러난다.
+     */
     public static CuratedLinkResponse from(CuratedLink link) {
-        return new CuratedLinkResponse(
-                link.getId(),
-                link.getTitle(),
-                link.getChipText(),
-                link.getDescription(),
-                link.getLinkUrl(),
-                link.getThumbnailUrl());
+        return CuratedLinkResponse.builder()
+                .id(link.getId())
+                .title(link.getTitle())
+                .chipText(link.getChipText())
+                .description(link.getDescription())
+                .linkUrl(link.getLinkUrl())
+                .thumbnailUrl(link.getThumbnailUrl())
+                .build();
     }
 
     /** 네 응답이 같은 줄을 반복하지 않도록 목록 변환을 여기 둔다. */
-    public static List<CuratedLinkResponse> of(List<CuratedLink> links) {
+    public static List<CuratedLinkResponse> from(List<CuratedLink> links) {
         return links.stream().map(CuratedLinkResponse::from).toList();
     }
 }

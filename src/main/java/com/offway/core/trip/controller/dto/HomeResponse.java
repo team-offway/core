@@ -33,7 +33,7 @@ public record HomeResponse(
                 CategoryResponse.of(result.categoryCounts()).categories(),
                 result.places().stream().map(PlaceCard::from).toList(),
                 result.regions().stream().map(RegionCard::from).toList(),
-                CuratedLinkResponse.of(curatedLinks));
+                CuratedLinkResponse.from(curatedLinks));
     }
 
     /**

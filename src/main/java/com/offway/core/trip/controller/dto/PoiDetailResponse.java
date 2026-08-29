@@ -155,7 +155,7 @@ public record PoiDetailResponse(
                 poi.mapSearchUrl(),
                 poi.benefit(),
                 poi.catchphrase(),
-                CuratedLinkResponse.of(curatedLinks));
+                CuratedLinkResponse.from(curatedLinks));
     }
 
     /** 그 카테고리일 때만 블록을 만든다. 보조정보 자체가 없으면(우리 DB 출처) 어떤 블록도 안 만든다. */

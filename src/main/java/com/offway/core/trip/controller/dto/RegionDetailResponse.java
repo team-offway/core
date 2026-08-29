@@ -38,7 +38,7 @@ public record RegionDetailResponse(
                 detail.photos(),
                 detail.benefit() == null ? null : Benefit.from(detail.benefit()),
                 detail.highlightSpots().stream().map(HighlightSpot::from).toList(),
-                CuratedLinkResponse.of(curatedLinks));
+                CuratedLinkResponse.from(curatedLinks));
     }
 
     /**
