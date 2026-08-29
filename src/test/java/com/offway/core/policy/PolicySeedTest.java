@@ -61,8 +61,17 @@ class PolicySeedTest {
         Policy voucher = seeded(VOUCHER_ID, PolicyType.REGIONAL_VOUCHER);
 
         assertTrue(voucher.isActiveOn(LocalDate.of(2026, 5, 15)));
-        assertFalse(voucher.isActiveOn(LocalDate.of(2026, 10, 1)), "사업 종료 후");
+        // 바깥 경계는 지자체별 여행 구간 105개를 전수로 뽑아 잡은 값이다(#345). 예전 09-30 은 두 달
+        // 일렀다 — 10월에도 영천(~11.30)·태안(~11.1)·고흥(~10.31)이 진행 중이다.
+        assertTrue(voucher.isActiveOn(LocalDate.of(2026, 10, 1)), "10월에도 진행하는 지자체가 있다");
+        assertTrue(voucher.isActiveOn(LocalDate.of(2026, 11, 30)), "마지막 날도 유효하다");
+        assertFalse(voucher.isActiveOn(LocalDate.of(2026, 12, 1)), "사업 종료 후");
         assertFalse(voucher.isActiveOn(LocalDate.of(2026, 3, 31)), "사업 시작 전");
+
+        // 시작 경계도 같은 실측(4.7)이다. 04-01 은 첫 seed 의 어림값이었고 어느 공고에도 없다 —
+        // 그 엿새 동안은 여행을 받는 지자체가 없어, 뱃지를 눌러 들어가도 신청할 곳이 없다.
+        assertFalse(voucher.isActiveOn(LocalDate.of(2026, 4, 6)), "가장 이른 지자체도 아직 안 연다");
+        assertTrue(voucher.isActiveOn(LocalDate.of(2026, 4, 7)), "첫날도 유효하다");
     }
 
     @Test

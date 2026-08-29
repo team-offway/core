@@ -222,10 +222,11 @@
   "id": 1, "type": "REGIONAL_VOUCHER",
   "name": "지역사랑 휴가지원(반값여행)",
   "badgeText": "여행경비 50% 환급",
-  "benefitDetail": "여행경비의 50%를 지역화폐로 환급 · 1인 최대 10만원(청년 70%)",
-  "period": { "start": "2026-04-01", "end": "2026-08-31" },
-  "target": "전 국민(거주지와 다른 지역 여행 시)",
-  "applyUrl": null,
+  "benefitDetail": "여행경비의 50%를 지역화폐로 환급 · 1인 최대 10만원, 2인 이상 20만원, 가족 5인까지 50만원 · 청년(19~34세)은 70%로 최대 14만원",
+  "period": { "start": "2026-04-07", "end": "2026-11-30" },
+  "periodNote": "지자체별로 신청·여행 기간이 다릅니다. 신청 전 대상 지역 공고를 확인하세요.",
+  "target": "18세 이상 국민(사전 신청 필수)",
+  "applyUrl": "https://korean.visitkorea.or.kr/dgtourcard/tour50.do",
   "regions": [
     { "regionId": 42, "name": "완도군 · 전라남도", "imageUrl": null }
   ]

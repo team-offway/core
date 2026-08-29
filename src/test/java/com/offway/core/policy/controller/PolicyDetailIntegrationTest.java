@@ -22,18 +22,21 @@ class PolicyDetailIntegrationTest {
     private MockMvc mockMvc;
 
     @Test
-    void 반값여행_상세는_되는_지역_16곳만_반환한다() throws Exception {
-        // 예전에는 89곳을 돌려줬다. 실제 시범사업은 16곳뿐이라, 그 목록을 보고 계획한 73곳 사용자는
-        // 사전 신청 단계에서야 대상이 아님을 알게 된다(#217).
+    void 반값여행_상세는_되는_지역_25곳만_반환한다() throws Exception {
+        // 예전에는 89곳을 돌려줬다. 실제 대상만 돌려줘야 그 목록을 보고 계획한 사용자가 사전 신청
+        // 단계에서 대상이 아님을 알게 되는 일이 없다(#217).
+        //
+        // 16곳으로 시작해 25곳이 됐다(#345). 늘어난 것을 못 따라가면 거짓 뱃지가 아니라 거짓 음성이 된다 —
+        // 받을 수 있는 50% 환급을 모르고 지나간다. 이 숫자가 틀어지면 시드가 공고와 어긋난 것이다.
         mockMvc.perform(get("/api/v1/policies/{id}", 1))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.id").value(1))
                 .andExpect(jsonPath("$.data.type").value("REGIONAL_VOUCHER"))
                 .andExpect(jsonPath("$.data.badgeText").value("여행경비 50% 환급"))
-                .andExpect(jsonPath("$.data.period.start").value("2026-04-01"))
-                .andExpect(jsonPath("$.data.period.end").value("2026-09-30"))
-                .andExpect(jsonPath("$.data.regions.length()").value(16))
+                .andExpect(jsonPath("$.data.period.start").value("2026-04-07"))
+                .andExpect(jsonPath("$.data.period.end").value("2026-11-30"))
+                .andExpect(jsonPath("$.data.regions.length()").value(25))
                 .andExpect(jsonPath("$.data.regions[?(@.name == '완도군 · 전라남도')]", hasSize(1)))
                 .andExpect(jsonPath("$.data.regions[?(@.name == '가평군 · 경기도')]", hasSize(0)));
     }
