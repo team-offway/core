@@ -1,5 +1,7 @@
 package com.offway.core.trip.controller.dto;
 
+import com.offway.core.curation.controller.dto.CuratedLinkResponse;
+import com.offway.core.curation.domain.CuratedLink;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
@@ -13,21 +15,25 @@ import java.util.List;
  * <p><b>섹션이 둘이다.</b> 시안의 위쪽은 장소 카드({@code recommendedPlaces}), 아래쪽은 지역 카드
  * ({@code recommendedRegions})다. 이름만으로 어느 섹션 것인지 드러나지 않아 여기 적어 둔다 —
  * 아래 것을 위 섹션에 쓰다가 제목에 지역명이 두 번 나온 적이 있다(#305).
+ *
+ * @param curatedLinks 외부 페이지로 나가는 창구(#341). 홈에 켜진 것만, 정렬 순으로. 없으면 <b>빈 목록</b>이다
  */
 public record HomeResponse(
         User user,
         List<CategoryResponse.Item> filters,
         List<PlaceCard> recommendedPlaces,
-        List<RegionCard> recommendedRegions) {
+        List<RegionCard> recommendedRegions,
+        List<CuratedLinkResponse> curatedLinks) {
 
     private static final String GUEST_NAME = "게스트";
 
-    public static HomeResponse from(HomeResult result) {
+    public static HomeResponse from(HomeResult result, List<CuratedLink> curatedLinks) {
         return new HomeResponse(
                 new User(GUEST_NAME, result.remainingLeaveDays()),
                 CategoryResponse.of(result.categoryCounts()).categories(),
                 result.places().stream().map(PlaceCard::from).toList(),
-                result.regions().stream().map(RegionCard::from).toList());
+                result.regions().stream().map(RegionCard::from).toList(),
+                CuratedLinkResponse.from(curatedLinks));
     }
 
     /**

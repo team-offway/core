@@ -26,7 +26,13 @@ public interface PoiApi {
 
                     우리 DB 에서 온 장소(`LIC-`·`HER-` 접두어)는 보조정보가 없어 모든 블록이 null 이다. 
 
-                    대신 `mapSearchUrl` 이 실린다 — 영업시간·사진을 우리가 못 주므로 지도 검색으로 넘긴다.""")
+                    대신 `mapSearchUrl` 이 실린다 — 영업시간·사진을 우리가 못 주므로 지도 검색으로 넘긴다.
+
+
+                    **`curatedLinks`** — 외부 페이지로 나가는 창구(#341). 누르면 웹뷰로 그 사이트가 열린다.
+                    이 화면에 켜져 있고 오늘이 노출 기간 안인 것만 정렬 순으로 담기고, 없으면 **빈 목록**이다.
+                    `description`·`thumbnailUrl` 은 `null` 일 수 있다 — 그 줄과 이미지를 그리지 않으면 된다.
+                    """)
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "404", description = "요청한 장소를 관광정보에서 찾을 수 없음")
     @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")

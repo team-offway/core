@@ -1,7 +1,9 @@
 package com.offway.core.itinerary.controller.dto;
 
+import com.offway.core.curation.domain.CuratedLink;
 import com.offway.core.itinerary.service.dto.RegeneratedCourse;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.List;
 
 /**
  * 코스 재생성 응답(#114) — 새 코스와, 그것이 <b>정말 달라졌는지</b>.
@@ -20,9 +22,9 @@ public record CourseRegenerateResponse(
                 boolean differentFromPrevious,
         @Schema(description = "직전 코스와 겹친 볼거리 비율 (맛집·숙소는 후보가 적어 세지 않는다)", example = "0.25") double overlapRatio) {
 
-    public static CourseRegenerateResponse from(RegeneratedCourse regenerated) {
+    public static CourseRegenerateResponse from(RegeneratedCourse regenerated, List<CuratedLink> curatedLinks) {
         return new CourseRegenerateResponse(
-                CourseResponse.from(regenerated.course()),
+                CourseResponse.from(regenerated.course(), curatedLinks),
                 regenerated.seed(),
                 regenerated.differentFromPrevious(),
                 regenerated.overlapRatio());

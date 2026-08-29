@@ -1,6 +1,8 @@
 package com.offway.core.trip.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.curation.domain.Surface;
+import com.offway.core.curation.service.CurationService;
 import com.offway.core.trip.controller.dto.AccessibilityResponse;
 import com.offway.core.trip.controller.dto.PoiDetailResponse;
 import com.offway.core.trip.service.PoiAccessibilityService;
@@ -18,11 +20,13 @@ public class PoiController implements PoiApi {
 
     private final PoiDetailService poiDetailService;
     private final PoiAccessibilityService poiAccessibilityService;
+    private final CurationService curationService;
 
     @Override
     @GetMapping("/{contentId}")
     public ApiResponseBody<PoiDetailResponse> detail(@PathVariable String contentId) {
-        return ApiResponseBody.ok(PoiDetailResponse.from(poiDetailService.detail(contentId)));
+        return ApiResponseBody.ok(PoiDetailResponse.from(
+                poiDetailService.detail(contentId), curationService.linksOn(Surface.POI)));
     }
 
     @Override
