@@ -34,7 +34,7 @@ class PolicyDetailIntegrationTest {
                 .andExpect(jsonPath("$.data.id").value(1))
                 .andExpect(jsonPath("$.data.type").value("REGIONAL_VOUCHER"))
                 .andExpect(jsonPath("$.data.badgeText").value("여행경비 50% 환급"))
-                .andExpect(jsonPath("$.data.period.start").value("2026-04-01"))
+                .andExpect(jsonPath("$.data.period.start").value("2026-04-07"))
                 .andExpect(jsonPath("$.data.period.end").value("2026-11-30"))
                 .andExpect(jsonPath("$.data.regions.length()").value(25))
                 .andExpect(jsonPath("$.data.regions[?(@.name == '완도군 · 전라남도')]", hasSize(1)))
