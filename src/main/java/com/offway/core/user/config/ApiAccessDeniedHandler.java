@@ -25,6 +25,9 @@ import tools.jackson.databind.ObjectMapper;
 @RequiredArgsConstructor
 public class ApiAccessDeniedHandler implements AccessDeniedHandler {
 
+    /** 인증 컨텍스트가 비었을 때의 표기 — 403 은 원래 "누구인지 아는" 실패라 여기 닿으면 그 자체가 이상 신호다. */
+    private static final String UNKNOWN_PRINCIPAL = "none";
+
     private final ObjectMapper objectMapper;
 
     @Override
@@ -49,6 +52,6 @@ public class ApiAccessDeniedHandler implements AccessDeniedHandler {
                 "권한 없음 — 403 method={} path={} principal={}",
                 request.getMethod(),
                 request.getRequestURI(),
-                authentication == null ? "none" : SensitiveParams.forLog(authentication.getName()));
+                authentication == null ? UNKNOWN_PRINCIPAL : SensitiveParams.forLog(authentication.getName()));
     }
 }

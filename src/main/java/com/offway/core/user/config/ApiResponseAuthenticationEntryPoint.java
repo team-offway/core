@@ -53,10 +53,8 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
     /** 이 접두어로 시작하는 경로만 우리 API 다. 나머지 401 은 스캐너 소음으로 본다. */
     private static final String API_PATH_PREFIX = "/api/";
 
-    private static final String BEARER_PREFIX = "Bearer ";
-
-    /** Basic 인지 가리는 데만 쓴다 — 값은 읽지 않는다. */
-    private static final String BASIC_PREFIX = "Basic ";
+    /** 사유가 없을 때의 표기 — 빈 칸으로 두면 "사유 없음" 과 "칸이 밀렸다" 가 구분되지 않는다. */
+    private static final String NO_REASON = "-";
 
     private final ObjectMapper objectMapper;
 
@@ -66,7 +64,7 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
             throws IOException {
         logAttempt(request);
         // 앱이 access 토큰을 들고 왔는데 통과하지 못했다 — 만료됐거나 위조다. 재발급하라는 신호를 준다.
-        if (bearerPresented(request)) {
+        if (AuthScheme.of(request) == AuthScheme.BEARER) {
             SecurityErrorResponder.write(objectMapper, response, UserErrorCode.INVALID_ACCESS_TOKEN);
             return;
         }
@@ -74,10 +72,6 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, BASIC_CHALLENGE);
         // 실패 사유(비밀번호 틀림·계정 없음)는 응답에 담지 않는다 — 계정 존재 여부를 알려주는 셈이 된다.
         SecurityErrorResponder.write(objectMapper, response, CommonErrorCode.UNAUTHORIZED);
-    }
-
-    private static boolean bearerPresented(HttpServletRequest request) {
-        return hasBearerScheme(request.getHeader(HttpHeaders.AUTHORIZATION));
     }
 
     /**
@@ -99,7 +93,7 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
                     "인증 실패 — 401 method={} path={} scheme={} reason={} ip={}",
                     request.getMethod(),
                     path,
-                    scheme(request),
+                    AuthScheme.of(request).label(),
                     rejectionReason(request),
                     clientIp(request));
         } else {
@@ -122,24 +116,7 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
      */
     private static String rejectionReason(HttpServletRequest request) {
         Object reason = request.getAttribute(LogAttributes.TOKEN_REJECTION);
-        return reason instanceof String found ? found : "-";
-    }
-
-    /**
-     * 무엇을 들고 왔는지 — 자격증명 자체는 절대 싣지 않고 <b>수단만</b> 남긴다.
-     *
-     * <p>이 한 칸이 401 의 성격을 가른다. {@code bearer} 면 우리 앱이 만료·위조된 토큰을 들고 온 것이라 앱을
-     * 봐야 하고, {@code none} 이면 자격증명 없이 두드린 것이라 대개 스캐너다.
-     */
-    private static String scheme(HttpServletRequest request) {
-        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (header == null || header.isBlank()) {
-            return "none";
-        }
-        if (hasBearerScheme(header)) {
-            return "bearer";
-        }
-        return header.regionMatches(true, 0, BASIC_PREFIX, 0, BASIC_PREFIX.length()) ? "basic" : "other";
+        return reason instanceof String found ? found : NO_REASON;
     }
 
     /**
@@ -153,13 +130,4 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
         return SensitiveParams.forLog(request.getRemoteAddr());
     }
 
-    /**
-     * {@code Authorization} 이 Bearer 인지 — <b>대소문자를 구분하지 않는다</b>.
-     *
-     * <p>HTTP 인증 scheme 은 규격상 대소문자를 가리지 않는다(RFC 7235). {@code startsWith("Bearer ")} 로 보면
-     * {@code bearer <token>} 을 들고 온 클라이언트가 토큰을 안 보낸 것으로 취급돼, 고칠 데가 없는데 401 을 받는다.
-     */
-    private static boolean hasBearerScheme(String header) {
-        return header != null && header.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length());
-    }
 }
