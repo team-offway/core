@@ -4,10 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.transport.domain.Coordinate;
-import com.offway.core.transport.domain.CoordinateKey;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -24,13 +24,13 @@ class CandidatePoolTest {
     private static final Coordinate A = new Coordinate(37.10, 127.10);
     private static final Coordinate B = new Coordinate(37.20, 127.20);
 
-    private static Set<CoordinateKey> blocked(Coordinate... points) {
-        Set<CoordinateKey> keys = new HashSet<>();
-        for (Coordinate point : points) {
-            keys.add(CoordinateKey.of(point));
-        }
-        return keys;
+    private static Predicate<Coordinate> blocked(Coordinate... points) {
+        Set<Coordinate> blocked = new HashSet<>(List.of(points));
+        return blocked::contains;
     }
+
+    /** 아무것도 안 막는 술어 — "차단이 없으면 그대로" 를 읽기 쉽게 쓰려고 이름을 준다. */
+    private static final Predicate<Coordinate> NOTHING_BLOCKED = point -> false;
 
     // ── ① 경로를 못 만드는 좌표 ────────────────────────────────────────────
 
@@ -56,7 +56,7 @@ class CandidatePoolTest {
     void 차단_목록이_비면_아무것도_빼지_않는다() {
         List<Coordinate> pool = List.of(A, GWIMOK, B);
 
-        assertEquals(List.of(0, 1, 2), CandidatePool.usable(pool, Set.of(), 0));
+        assertEquals(List.of(0, 1, 2), CandidatePool.usable(pool, NOTHING_BLOCKED, 0));
     }
 
     @Test
@@ -71,12 +71,12 @@ class CandidatePoolTest {
     void 같은_좌표의_후보는_하나만_남는다() {
         List<Coordinate> pool = List.of(ALPENSIA, ALPENSIA, ALPENSIA, ALPENSIA);
 
-        assertEquals(1, CandidatePool.usable(pool, Set.of(), 0).size());
+        assertEquals(1, CandidatePool.usable(pool, NOTHING_BLOCKED, 0).size());
     }
 
     @Test
     void 다른_좌표는_그대로_다_남는다() {
-        assertEquals(List.of(0, 1, 2), CandidatePool.usable(List.of(A, B, GWIMOK), Set.of(), 0));
+        assertEquals(List.of(0, 1, 2), CandidatePool.usable(List.of(A, B, GWIMOK), NOTHING_BLOCKED, 0));
     }
 
     /** 남는 자리의 순서는 입력 순서를 따른다 — 뒤에 붙는 정렬·군집이 기대하는 성질이다. */
@@ -84,7 +84,7 @@ class CandidatePoolTest {
     void 남은_것들의_상대_순서가_유지된다() {
         List<Coordinate> pool = List.of(B, ALPENSIA, A, ALPENSIA);
 
-        List<Integer> usable = CandidatePool.usable(pool, Set.of(), 0);
+        List<Integer> usable = CandidatePool.usable(pool, NOTHING_BLOCKED, 0);
 
         assertEquals(List.of(0, 1, 2), usable);
     }
@@ -98,7 +98,7 @@ class CandidatePoolTest {
         List<Coordinate> pool = List.of(ALPENSIA, ALPENSIA, ALPENSIA);
 
         Set<Integer> picked = LongStream.range(0, 3)
-                .mapToObj(seed -> CandidatePool.usable(pool, Set.of(), seed).getFirst())
+                .mapToObj(seed -> CandidatePool.usable(pool, NOTHING_BLOCKED, seed).getFirst())
                 .collect(HashSet::new, HashSet::add, HashSet::addAll);
 
         assertEquals(Set.of(0, 1, 2), picked, "무리 크기만큼의 씨앗이면 후보를 전부 훑어야 한다");
@@ -110,7 +110,7 @@ class CandidatePoolTest {
     void 어떤_씨앗이든_유효한_후보를_고른다(long seed) {
         List<Coordinate> pool = List.of(ALPENSIA, ALPENSIA, A);
 
-        List<Integer> usable = CandidatePool.usable(pool, Set.of(), seed);
+        List<Integer> usable = CandidatePool.usable(pool, NOTHING_BLOCKED, seed);
 
         assertEquals(2, usable.size());
         assertTrue(usable.getFirst() >= 0 && usable.getFirst() <= 1, "실제=" + usable.getFirst());

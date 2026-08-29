@@ -3,6 +3,8 @@ package com.offway.core.itinerary.service;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.itinerary.service.dto.RegeneratedCourse;
+import com.offway.core.transport.domain.CoordinateKey;
+import com.offway.core.transport.service.UnroutableCoordinateService;
 import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.dto.RegionPois;
 import java.util.Set;
@@ -50,6 +52,7 @@ public class CourseRegenerationService {
 
     private final CourseGenerationService courseGenerationService;
     private final RegionPoiService regionPoiService;
+    private final UnroutableCoordinateService unroutableCoordinateService;
 
     /**
      * 직전 코스와 다른 코스를 만든다.
@@ -64,17 +67,21 @@ public class CourseRegenerationService {
     public RegeneratedCourse regenerate(GenerateCourse command, Long requestedSeed, Long previousSeed) {
         // 후보는 한 번만 모은다. collect 는 캐시가 없어 호출마다 TourAPI 를 세 번 부른다.
         RegionPois pois = regionPoiService.collect(command.regionId());
+        // 차단 좌표도 한 번만 읽는다(#335). 씨앗 판정이 시도마다 selectedSightIds 를 부르는데,
+        // 그 안에서 읽으면 한 요청 안에서 안 바뀌는 값을 시도 횟수만큼 다시 조회한다.
+        Set<CoordinateKey> blocked = unroutableCoordinateService.blockedPoints();
         long previous = previousSeed != null ? previousSeed : GenerateCourse.FIRST_SEED;
-        Set<String> previousSights = courseGenerationService.selectedSightIds(command.withSeed(previous), pois);
+        Set<String> previousSights =
+                courseGenerationService.selectedSightIds(command.withSeed(previous), pois, blocked);
 
         long chosen = requestedSeed != null
                 ? requestedSeed
-                : seedMostDifferentFrom(command, pois, previousSights, previous);
+                : seedMostDifferentFrom(command, pois, previousSights, previous, blocked);
 
         // 외부를 타는 조립은 여기 한 번뿐이다 — 보통 생성 한 번과 같은 비용이다.
         GeneratedCourse built = courseGenerationService.generate(command.withSeed(chosen), pois);
-        double overlap = overlapRatio(courseGenerationService.selectedSightIds(command.withSeed(chosen), pois),
-                previousSights);
+        double overlap = overlapRatio(
+                courseGenerationService.selectedSightIds(command.withSeed(chosen), pois, blocked), previousSights);
         boolean different = overlap < MAX_OVERLAP_RATIO;
         if (!different) {
             // degrade 는 info 로 남긴다 — 응답까지 전달되는 사용자 가시 결과라 요청 완료 줄이 대신해주지 못한다.
@@ -97,15 +104,16 @@ public class CourseRegenerationService {
      * 바뀌고, 그때마다 새 후보열이 나온다. 달라지는 축은 난수가 아니라 직전 씨앗이다.
      */
     private long seedMostDifferentFrom(
-            GenerateCourse command, RegionPois pois, Set<String> previousSights, long previous) {
+            GenerateCourse command, RegionPois pois, Set<String> previousSights, long previous,
+            Set<CoordinateKey> blocked) {
         RandomGenerator random = new SplittableRandom(previous);
         long bestSeed = GenerateCourse.FIRST_SEED;
         double bestOverlap = Double.MAX_VALUE;
 
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             long seed = random.nextLong();
-            double overlap =
-                    overlapRatio(courseGenerationService.selectedSightIds(command.withSeed(seed), pois), previousSights);
+            double overlap = overlapRatio(
+                    courseGenerationService.selectedSightIds(command.withSeed(seed), pois, blocked), previousSights);
             if (overlap < bestOverlap) {
                 bestSeed = seed;
                 bestOverlap = overlap;

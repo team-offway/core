@@ -151,9 +151,16 @@ public class CourseGenerationService {
      * 그날 몫을 태울 수 있다.
      *
      * <p>순서는 담지 않는다. 사용자가 "다른 코스" 로 느끼는 것은 <b>어디를 가느냐</b>이지 순서가 아니다.
+     *
+     * <p><b>{@link #generate} 와 같은 후보 필터를 쓴다</b>(#335). 여기만 거르지 않으면 판정이 실제 코스에
+     * 없는 장소를 세어, "충분히 다르다" 는 답과 화면에 뜨는 코스가 어긋난다. 같은 좌표를 접는 규칙은 특히
+     * 씨앗에 따라 <b>어느 것이 남는지가 달라지므로</b>, 여기서 빠지면 판정이 실제와 더 크게 벌어진다.
+     *
+     * <p>차단 좌표를 <b>인자로 받는</b> 이유는 이 메서드가 씨앗마다 불리기 때문이다. 안에서 읽으면 재생성
+     * 한 번에 같은 조회가 시도 횟수만큼 반복된다 — 한 요청 안에서 안 바뀌는 값이다.
      */
-    public Set<String> selectedSightIds(GenerateCourse command, RegionPois pois) {
-        List<PoiCandidate> pool = exclude(pois.sights(), command.excludePoiContentIds());
+    public Set<String> selectedSightIds(GenerateCourse command, RegionPois pois, Set<CoordinateKey> blocked) {
+        List<PoiCandidate> pool = usable(pois.sights(), command, blocked);
         if (pool.isEmpty()) {
             return Set.of();
         }
@@ -193,7 +200,10 @@ public class CourseGenerationService {
     private static List<PoiCandidate> usable(
             List<PoiCandidate> pool, GenerateCourse command, Set<CoordinateKey> blocked) {
         List<PoiCandidate> remaining = exclude(pool, command.excludePoiContentIds());
-        return reorder(remaining, CandidatePool.usable(coords(remaining), blocked, command.seed()));
+        return reorder(
+                remaining,
+                CandidatePool.usable(coords(remaining), point -> blocked.contains(CoordinateKey.of(point)),
+                        command.seed()));
     }
 
     /** 대중교통 코스의 출발지→지역 열차 접근. 출발·지역 좌표의 최근접 역으로 해석한다. */

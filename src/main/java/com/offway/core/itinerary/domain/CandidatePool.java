@@ -1,12 +1,11 @@
 package com.offway.core.itinerary.domain;
 
 import com.offway.core.transport.domain.Coordinate;
-import com.offway.core.transport.domain.CoordinateKey;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * 후보 풀에서 <b>코스에 실제로 쓸 수 있는 것만</b> 남긴다(#335).
@@ -36,18 +35,25 @@ public final class CandidatePool {
      * <p>같은 좌표에서 <b>어느 것을 남길지는 씨앗이 정한다.</b> 늘 첫 번째를 남기면 재생성(#114)이 같은
      * 자리에서 다른 가게를 못 뽑아 "다른 코스" 가 그만큼 좁아진다.
      *
+     * <p>차단 여부를 <b>집합이 아니라 술어로</b> 받는다. 그 판정은 TMAP 이 무엇을 거절했는지 아는
+     * transport 의 몫이고, 저장 자릿수를 맞추는 키 규격도 그쪽에 있다. 여기는 "빼라고 하면 뺀다" 까지만
+     * 알면 되므로, 판정 방식이 바뀌어도 이 클래스는 그대로다.
+     *
+     * <p>같은 좌표를 묶는 데는 {@link Coordinate} 를 그대로 쓴다. 한 풀 안에서 비교하는 것이라 값이 같으면
+     * 같은 자리이고, 저장·조회를 오갈 때 생기는 자릿수 문제와는 무관하다.
+     *
      * @param points 후보 좌표(호출부 리스트와 같은 순서)
-     * @param blocked 경로를 못 만드는 좌표. 비어 있으면 ① 은 아무것도 안 한다
+     * @param blocked 경로를 못 만드는 좌표인가. 항상 거짓이면 ① 은 아무것도 안 한다
      * @param seed 같은 좌표 무리에서 하나를 고르는 씨앗
      */
-    public static List<Integer> usable(List<Coordinate> points, Set<CoordinateKey> blocked, long seed) {
-        Map<CoordinateKey, List<Integer>> sharing = new LinkedHashMap<>();
+    public static List<Integer> usable(List<Coordinate> points, Predicate<Coordinate> blocked, long seed) {
+        Map<Coordinate, List<Integer>> sharing = new LinkedHashMap<>();
         for (int i = 0; i < points.size(); i++) {
-            CoordinateKey key = CoordinateKey.of(points.get(i));
-            if (blocked.contains(key)) {
+            Coordinate point = points.get(i);
+            if (blocked.test(point)) {
                 continue;
             }
-            sharing.computeIfAbsent(key, ignored -> new ArrayList<>()).add(i);
+            sharing.computeIfAbsent(point, ignored -> new ArrayList<>()).add(i);
         }
         return sharing.values().stream().map(indexes -> pick(indexes, seed)).toList();
     }
