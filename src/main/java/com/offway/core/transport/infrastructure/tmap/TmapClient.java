@@ -1,7 +1,7 @@
 package com.offway.core.transport.infrastructure.tmap;
 
 import com.offway.core.transport.domain.Coordinate;
-import com.offway.core.transport.infrastructure.tmap.dto.TmapRoute;
+import com.offway.core.transport.infrastructure.tmap.dto.CarRouteResult;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,8 +13,13 @@ import java.util.Optional;
  */
 public interface TmapClient {
 
-    /** 출발→목적지 자동차 실측 경로(소요시간·거리). 키 없음·실패 시 빈 Optional. */
-    Optional<TmapRoute> carRoute(Coordinate origin, Coordinate destination);
+    /**
+     * 출발→목적지 자동차 실측 경로(소요시간·거리).
+     *
+     * <p>실패는 <b>사유별로 갈라서</b> 돌려준다({@link CarRouteResult}). 좌표가 도로에 안 붙는 것과 타임아웃은
+     * 상위가 해야 할 일이 다르다 — 앞은 기억해서 다음 코스에서 빼고, 뒤는 그냥 폴백한다(#335).
+     */
+    CarRouteResult carRoute(Coordinate origin, Coordinate destination);
 
     /**
      * 자동차 경유지 순서 최적화(routeOptimization10) — 방문 지점들을 실도로 기준 최단 동선으로 재정렬한다. 첫 지점을 출발,
