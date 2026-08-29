@@ -2,17 +2,22 @@ package com.offway.core.itinerary.controller;
 
 import com.jayway.jsonpath.JsonPath;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.TrainAvailability;
 import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.transport.infrastructure.tago.StubTrainInfoClient;
 import com.offway.core.transport.infrastructure.tago.TrainInfoClient;
+import com.offway.core.transport.domain.UnroutableReason;
+import com.offway.core.transport.repository.UnroutableProbeJpaRepository;
 import com.offway.core.transport.service.TrainRouteService;
+import com.offway.core.transport.service.UnroutableCoordinateService;
 import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
@@ -60,6 +65,12 @@ class CourseGenerateIntegrationTest {
     @Autowired
     private TrainRouteService trainRouteService;
 
+    @Autowired
+    private UnroutableCoordinateService unroutableCoordinateService;
+
+    @Autowired
+    private UnroutableProbeJpaRepository unroutableProbeJpaRepository;
+
     @TestConfiguration
     static class StubConfig {
 
@@ -85,6 +96,15 @@ class CourseGenerateIntegrationTest {
     @AfterEach
     void resetWeatherStub() {
         weatherClient.reset(); // 공유 컨텍스트 — 앞 테스트가 세팅한 예보가 다음 테스트로 새지 않게
+    }
+
+    /**
+     * 이 클래스는 트랜잭션 롤백이 없다(코스 생성이 쓰기 경로가 아니라 굳이 걸지 않았다). 차단 좌표만은
+     * <b>DB 에 남는 쓰기</b>라, 지우지 않으면 다음 테스트의 후보에서 조용히 장소가 빠진다.
+     */
+    @AfterEach
+    void clearUnroutableProbes() {
+        unroutableProbeJpaRepository.deleteAll();
     }
 
     /**
@@ -500,6 +520,89 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.days[1].travelMinutesFromPrevDay").isNumber())
                 // 슬롯 규칙은 그대로다 — 하루 첫 슬롯의 앞 거리는 여전히 없다(FE 가 이걸로 하루 시작을 가른다).
                 .andExpect(jsonPath("$.data.days[1].items[0].distanceFromPrevMeters").doesNotExist());
+    }
+
+    // ── 경로를 못 만드는 좌표 · 같은 좌표 중복 (#335) ────────────────────────
+
+    /** PACKED 1일이면 필요 볼거리가 6곳이라, 네 곳짜리 풀은 <b>전부</b> 쓰인다 — 빠지면 그건 우리가 뺀 것이다. */
+    private static final String ONE_DAY_BODY = """
+            { "regionId": 1, "travelDays": 1, "density": "PACKED", "transport": "CAR",
+              "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-05-01" }""";
+
+    private static TourPoiResult sights(TourPoi... items) {
+        List<TourPoi> all = new ArrayList<>(List.of(items));
+        all.add(poi("f0", 39, 35.11, 129.04));
+        all.add(poi("f1", 39, 35.12, 129.05));
+        return new TourPoiResult(all, all.size());
+    }
+
+    private static List<String> contentIdsOf(String response) {
+        return JsonPath.read(response, "$.data.days[*].items[*].poiContentId");
+    }
+
+    private String generateOneDay() throws Exception {
+        return mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(ONE_DAY_BODY))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+    }
+
+    /**
+     * 도로에 안 붙는 좌표는 코스에서 빠진다.
+     *
+     * <p>안 빼면 그 코스는 방문 순서와 이동시간이 조용히 <b>직선거리</b>로 떨어진다. 200 으로 정상 응답하므로
+     * 사용자는 산을 직선으로 넘는 시간을 보면서도 틀린 값인지 알 방법이 없다.
+     */
+    @Test
+    void 경로를_못_만드는_좌표는_코스에_안_들어간다() throws Exception {
+        Coordinate unroutable = new Coordinate(35.13, 129.06);
+        // 서로 다른 짝으로 두 번 — 그래야 "옆에 있었을 뿐인 좌표" 와 갈린다.
+        unroutableCoordinateService.report(
+                new Coordinate(35.90, 129.90), unroutable, UnroutableReason.NO_ROAD_LINK);
+        unroutableCoordinateService.report(
+                unroutable, new Coordinate(35.95, 129.95), UnroutableReason.NO_ROAD_LINK);
+        tourApiClient.respond(() -> sights(
+                poi("s0", 12, 35.10, 129.03),
+                poi("s1", 12, 35.11, 129.04),
+                poi("s2", 12, 35.12, 129.05),
+                poi("s3", 12, unroutable.lat(), unroutable.lng())));
+
+        List<String> contentIds = contentIdsOf(generateOneDay());
+
+        assertFalse(contentIds.contains("s3"), "차단된 좌표의 장소가 실렸다: " + contentIds);
+        assertTrue(contentIds.containsAll(List.of("s0", "s1", "s2")), "실제=" + contentIds);
+    }
+
+    /** 짝이 하나뿐이면 아직 차단하지 않는다 — 그 옆에 있었을 뿐인 멀쩡한 장소를 함께 빼면 안 된다. */
+    @Test
+    void 한_번만_걸린_좌표는_아직_코스에_남는다() throws Exception {
+        Coordinate suspect = new Coordinate(35.13, 129.06);
+        unroutableCoordinateService.report(
+                new Coordinate(35.90, 129.90), suspect, UnroutableReason.NO_ROAD_LINK);
+        tourApiClient.respond(() -> sights(
+                poi("s0", 12, 35.10, 129.03),
+                poi("s3", 12, suspect.lat(), suspect.lng())));
+
+        assertTrue(contentIdsOf(generateOneDay()).contains("s3"));
+    }
+
+    /**
+     * 같은 좌표의 장소가 여럿 뽑히면 화면에 <b>"이동 0분" 슬롯이 연속</b>으로 뜬다(운영 코스 67, 평창
+     * 3일차에 넷이 그랬다). 지오코딩 오류가 아니라 실제 집합체라 데이터를 고칠 일이 아니다.
+     */
+    @Test
+    void 같은_좌표의_볼거리는_한_코스에_하나만_들어간다() throws Exception {
+        tourApiClient.respond(() -> sights(
+                poi("s0", 12, 35.10, 129.03),
+                poi("a1", 12, 37.6541478, 128.652815),
+                poi("a2", 12, 37.6541478, 128.652815),
+                poi("a3", 12, 37.6541478, 128.652815)));
+
+        List<String> contentIds = contentIdsOf(generateOneDay());
+
+        long alpensia = contentIds.stream().filter(id -> id.startsWith("a")).count();
+        assertEquals(1, alpensia, "같은 좌표에서 하나만 남아야 한다. 실제=" + contentIds);
     }
 
     /** 지역 1(부산광역시 동구)의 시도. */

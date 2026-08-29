@@ -2,6 +2,7 @@ package com.offway.core.itinerary.service;
 
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseNeeds;
+import com.offway.core.itinerary.domain.CandidatePool;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.DayStart;
 import com.offway.core.itinerary.domain.GeoCluster;
@@ -16,10 +17,12 @@ import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.transport.domain.CoordinateKey;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.transport.service.RouteOptimizer;
 import com.offway.core.transport.service.RouteTimeProvider;
 import com.offway.core.transport.service.TrainAccessService;
+import com.offway.core.transport.service.UnroutableCoordinateService;
 import com.offway.core.transport.service.TravelTimeProvider;
 import com.offway.core.transport.service.dto.TrainAccess;
 import com.offway.core.trip.service.RegionPoiService;
@@ -33,7 +36,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Map;
-import java.util.LinkedHashMap;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -62,6 +64,7 @@ public class CourseGenerationService {
     private final OpeningHoursProvider openingHoursProvider;
     private final RegionRepository regionRepository;
     private final TrainAccessService trainAccessService;
+    private final UnroutableCoordinateService unroutableCoordinateService;
 
     public GeneratedCourse generate(GenerateCourse command) {
         // ① POI 수집 (trip)
@@ -77,9 +80,11 @@ public class CourseGenerationService {
     public GeneratedCourse generate(GenerateCourse command, RegionPois pois) {
 
         // ①' "이 장소 말고" — 재생성이 지정한 장소를 후보에서 뺀다(#114). 빈 집합이면 그대로다.
-        List<PoiCandidate> sightPool = exclude(pois.sights(), command.excludePoiContentIds());
-        List<PoiCandidate> foodPool = exclude(pois.foods(), command.excludePoiContentIds());
-        List<PoiCandidate> stayPool = exclude(pois.stays(), command.excludePoiContentIds());
+        // ①'' 경로를 못 만드는 좌표를 빼고(#335), 같은 좌표는 풀마다 하나만 남긴다.
+        Set<CoordinateKey> blocked = unroutableCoordinateService.blockedPoints();
+        List<PoiCandidate> sightPool = usable(pois.sights(), command, blocked);
+        List<PoiCandidate> foodPool = usable(pois.foods(), command, blocked);
+        List<PoiCandidate> stayPool = usable(pois.stays(), command, blocked);
 
         // ④ 필요 개수 (밀도×일수)
         CourseNeeds needs = CourseNeeds.of(command.density(), command.travelDays());
@@ -146,9 +151,16 @@ public class CourseGenerationService {
      * 그날 몫을 태울 수 있다.
      *
      * <p>순서는 담지 않는다. 사용자가 "다른 코스" 로 느끼는 것은 <b>어디를 가느냐</b>이지 순서가 아니다.
+     *
+     * <p><b>{@link #generate} 와 같은 후보 필터를 쓴다</b>(#335). 여기만 거르지 않으면 판정이 실제 코스에
+     * 없는 장소를 세어, "충분히 다르다" 는 답과 화면에 뜨는 코스가 어긋난다. 같은 좌표를 접는 규칙은 특히
+     * 씨앗에 따라 <b>어느 것이 남는지가 달라지므로</b>, 여기서 빠지면 판정이 실제와 더 크게 벌어진다.
+     *
+     * <p>차단 좌표를 <b>인자로 받는</b> 이유는 이 메서드가 씨앗마다 불리기 때문이다. 안에서 읽으면 재생성
+     * 한 번에 같은 조회가 시도 횟수만큼 반복된다 — 한 요청 안에서 안 바뀌는 값이다.
      */
-    public Set<String> selectedSightIds(GenerateCourse command, RegionPois pois) {
-        List<PoiCandidate> pool = exclude(pois.sights(), command.excludePoiContentIds());
+    public Set<String> selectedSightIds(GenerateCourse command, RegionPois pois, Set<CoordinateKey> blocked) {
+        List<PoiCandidate> pool = usable(pois.sights(), command, blocked);
         if (pool.isEmpty()) {
             return Set.of();
         }
@@ -174,6 +186,24 @@ public class CourseGenerationService {
             return pool;
         }
         return pool.stream().filter(poi -> !excluded.contains(poi.contentId())).toList();
+    }
+
+    /**
+     * 실제로 코스에 쓸 수 있는 후보만 — 재생성 제외(#114) → 경로 불가 좌표 제외 · 같은 좌표 접기(#335).
+     *
+     * <p>뒤 둘은 좌표만 보는 계산이라 {@link CandidatePool} 이 소유한다. 여기서는 후보 타입을 그 인덱스로
+     * 되돌리기만 한다.
+     *
+     * <p><b>풀 사이에는 접지 않는다.</b> 시장 좌표에서 볼거리 하나와 맛집 하나가 함께 나오는 것은
+     * 자연스럽고, 그때의 "이동 0분" 은 틀린 값이 아니라 사실이다.
+     */
+    private static List<PoiCandidate> usable(
+            List<PoiCandidate> pool, GenerateCourse command, Set<CoordinateKey> blocked) {
+        List<PoiCandidate> remaining = exclude(pool, command.excludePoiContentIds());
+        return reorder(
+                remaining,
+                CandidatePool.usable(coords(remaining), point -> blocked.contains(CoordinateKey.of(point)),
+                        command.seed()));
     }
 
     /** 대중교통 코스의 출발지→지역 열차 접근. 출발·지역 좌표의 최근접 역으로 해석한다. */

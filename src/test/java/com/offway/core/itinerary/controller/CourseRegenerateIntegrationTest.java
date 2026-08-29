@@ -7,7 +7,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
 import com.jayway.jsonpath.JsonPath;
+import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.transport.domain.UnroutableReason;
+import com.offway.core.transport.repository.UnroutableProbeJpaRepository;
+import com.offway.core.transport.service.UnroutableCoordinateService;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
@@ -50,6 +56,21 @@ class CourseRegenerateIntegrationTest {
 
     @Autowired
     private StubTourApiClient tourApiClient;
+
+    @Autowired
+    private UnroutableCoordinateService unroutableCoordinateService;
+
+    @Autowired
+    private UnroutableProbeJpaRepository unroutableProbeJpaRepository;
+
+    /**
+     * 이 클래스는 트랜잭션 롤백이 없다(재생성이 쓰기 경로가 아니라 굳이 걸지 않았다). 차단 좌표만은 DB 에
+     * 남는 쓰기라, 지우지 않으면 다음 테스트의 후보에서 조용히 장소가 빠진다.
+     */
+    @org.junit.jupiter.api.AfterEach
+    void clearUnroutableProbes() {
+        unroutableProbeJpaRepository.deleteAll();
+    }
 
     @TestConfiguration
     static class StubConfig {
@@ -192,6 +213,54 @@ class CourseRegenerateIntegrationTest {
                 ((Number) JsonPath.read(once, "$.data.seed")).longValue(),
                 ((Number) JsonPath.read(twice, "$.data.seed")).longValue(),
                 "고른 씨앗까지 같아야 한다 — 여기가 흔들리면 코스가 같은 것도 우연이다");
+    }
+
+    // ── 후보 필터가 재생성 경로에도 걸린다 (#335) ──────────────────────────
+
+    /** 볼거리 하나를 이 좌표에 두고 차단한다 — 다른 후보와 겹치지 않는 자리다. */
+    private static final Coordinate UNROUTABLE = new Coordinate(36.90, 128.90);
+
+    /** 같은 점에 몰린 볼거리 — 알펜시아 리조트(운영 코스 67 3일차가 그랬다). */
+    private static final Coordinate SAME_SPOT = new Coordinate(37.6541478, 128.652815);
+
+    private static TourPoiResult poisPlus(List<TourPoi> extra) {
+        List<TourPoi> items = new ArrayList<>(pois(SCARCE_SIGHTS).items());
+        items.addAll(extra);
+        return new TourPoiResult(items, items.size());
+    }
+
+    private void block(Coordinate point) {
+        // 서로 다른 짝으로 두 번 — 그래야 "옆에 있었을 뿐인 좌표" 와 갈린다.
+        unroutableCoordinateService.report(new Coordinate(35.90, 129.90), point, UnroutableReason.NO_ROAD_LINK);
+        unroutableCoordinateService.report(point, new Coordinate(35.95, 129.95), UnroutableReason.NO_ROAD_LINK);
+    }
+
+    /**
+     * 재생성의 씨앗 판정({@code selectedSightIds})과 실제 조립이 <b>같은 후보</b>를 봐야 한다. 판정만 거르지
+     * 않으면 실제 코스에 없는 장소를 세어, "충분히 다르다" 는 답과 화면에 뜨는 코스가 어긋난다.
+     *
+     * <p>여기서는 사용자에게 보이는 쪽을 잠근다 — 차단된 좌표의 장소가 재생성 코스에 없다는 것.
+     * {@code overlapRatio} 숫자 자체는 단언하지 않는다(의도적 생략): 그러려면 판정 로직을 테스트가 다시
+     * 구현해야 하고, 그러면 계약이 아니라 구현을 베끼는 테스트가 된다.
+     */
+    @Test
+    void 차단된_좌표는_재생성_코스에도_안_들어간다() throws Exception {
+        block(UNROUTABLE);
+        tourApiClient.respond(() -> poisPlus(List.of(poi("bad", 12, UNROUTABLE.lat(), UNROUTABLE.lng()))));
+
+        assertFalse(placesOf(call(REGENERATE, ""), "course.").contains("bad"));
+    }
+
+    @Test
+    void 같은_좌표의_볼거리는_재생성_코스에도_하나만_들어간다() throws Exception {
+        tourApiClient.respond(() -> poisPlus(List.of(
+                poi("a0", 12, SAME_SPOT.lat(), SAME_SPOT.lng()),
+                poi("a1", 12, SAME_SPOT.lat(), SAME_SPOT.lng()),
+                poi("a2", 12, SAME_SPOT.lat(), SAME_SPOT.lng()))));
+
+        List<String> places = placesOf(call(REGENERATE, ""), "course.");
+
+        assertEquals(1, places.stream().filter(id -> id.startsWith("a")).count(), "실제=" + places);
     }
 
     @Test

@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.infrastructure.tmap.TmapClient;
-import com.offway.core.transport.infrastructure.tmap.dto.TmapRoute;
+import com.offway.core.transport.infrastructure.tmap.dto.CarRouteResult;
 import com.offway.core.transport.service.RouteOptimizer;
 import java.util.HashSet;
 import java.util.List;
@@ -21,8 +21,8 @@ class TmapRouteOptimizerTest {
     private static TmapClient orderStub(Optional<List<Integer>> order) {
         return new TmapClient() {
             @Override
-            public Optional<TmapRoute> carRoute(Coordinate origin, Coordinate destination) {
-                return Optional.empty();
+            public CarRouteResult carRoute(Coordinate origin, Coordinate destination) {
+                return CarRouteResult.Unavailable.instance();
             }
 
             @Override

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.transport.domain.UnroutableReason;
+import com.offway.core.transport.infrastructure.tmap.dto.CarRouteResult;
 import com.offway.core.transport.infrastructure.tmap.dto.TmapRoute;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -21,6 +23,7 @@ import org.springframework.stereotype.Component;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 /**
  * TMAP 자동차 경로 adapter (SK 오픈API {@code /tmap/routes}). 인증은 {@code appKey} 헤더.
@@ -55,9 +58,9 @@ class TmapClientImpl implements TmapClient {
     }
 
     @Override
-    public Optional<TmapRoute> carRoute(Coordinate origin, Coordinate destination) {
+    public CarRouteResult carRoute(Coordinate origin, Coordinate destination) {
         if (!props.tmap().hasKey()) {
-            return Optional.empty();
+            return CarRouteResult.Unavailable.instance();
         }
         try {
             String body = requestBody(origin, destination);
@@ -72,14 +75,54 @@ class TmapClientImpl implements TmapClient {
                     .bodyToMono(String.class)
                     .timeout(TIMEOUT)
                     .block();
-            return parse(response);
+            return parse(response)
+                    .<CarRouteResult>map(CarRouteResult.Found::new)
+                    .orElseGet(CarRouteResult.Unavailable::instance);
         } catch (Exception e) {
             // 실패는 폴백으로 흡수하되 **사유는 남긴다**. TMAP 은 거절 이유를 응답 본문의 code 로 주는데
             // (1100 도로 링크 없음 · 1009 한반도 범위 초과) 예외 클래스명은 둘 다 BadRequest 라 못 가른다.
             // 그 한 줄이 없어 원인을 찾는 데 실호출 210건이 들었다(#334). RootCause 가 키·URL 은 가린다.
             log.warn("TMAP 경로 조회 실패 — 직선거리로 폴백 cause={}", RootCause.of(e));
-            return Optional.empty();
+            // 그 code 를 로그로만 흘리지 않고 판정에 쓴다(#335). 좌표 탓이면 상위가 기억해 다음 코스에서 뺀다.
+            return rejectionOf(e)
+                    .<CarRouteResult>map(CarRouteResult.Rejected::new)
+                    .orElseGet(CarRouteResult.Unavailable::instance);
         }
+    }
+
+    /**
+     * 응답 본문의 {@code code} 가 <b>좌표 탓</b>인 사유인지 본다.
+     *
+     * <p>본문이 없거나(타임아웃·연결 실패) 모르는 code 면 빈 값이다 — 그때는 일시적 실패로 다뤄 아무것도
+     * 기억하지 않는다. <b>모르는 것을 좌표 탓으로 몰면 멀쩡한 장소가 영구히 사라진다.</b>
+     *
+     * <p>본문 모양이 바뀔 수 있어 {@code error.code} 와 최상위 {@code code} 를 둘 다 본다. 문자열로도
+     * 숫자로도 오므로 {@code asText} 로 읽는다.
+     */
+    private Optional<UnroutableReason> rejectionOf(Throwable error) {
+        return responseBodyOf(error).flatMap(body -> {
+            try {
+                JsonNode root = objectMapper.readTree(body);
+                JsonNode code = root.path("error").path("code");
+                if (code.isMissingNode()) {
+                    code = root.path("code");
+                }
+                return UnroutableReason.fromTmapCode(code.asText(null));
+            } catch (Exception parseFailure) {
+                return Optional.empty();
+            }
+        });
+    }
+
+    /** 체인 전체를 뒤진다 — WebClient 예외는 Reactive 예외로 감싸여 오므로 맨 끝만 보면 껍데기를 만난다. */
+    private static Optional<String> responseBodyOf(Throwable error) {
+        for (Throwable cause = error; cause != null && cause != cause.getCause(); cause = cause.getCause()) {
+            if (cause instanceof WebClientResponseException response
+                    && !response.getResponseBodyAsString().isBlank()) {
+                return Optional.of(response.getResponseBodyAsString());
+            }
+        }
+        return Optional.empty();
     }
 
     private String requestBody(Coordinate origin, Coordinate destination) throws Exception {
