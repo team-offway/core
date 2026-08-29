@@ -2,6 +2,7 @@ package com.offway.core.user.config;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 
+import com.offway.core.user.domain.AccountRole;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -33,7 +34,10 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 public final class TestLogins {
 
     /** {@code SecurityConfig.APP_USER_ROLE} 에 대응하는 권한 이름 — 필터와 같은 값이어야 한다. */
-    private static final String APP_USER_AUTHORITY = "ROLE_USER";
+    private static final String APP_USER_AUTHORITY = AccountRole.USER.authority();
+
+    /** 백오피스 권한(#342). 화이트리스트에 있는 계정만 이 권한을 얹은 토큰을 받는다. */
+    private static final String ADMIN_AUTHORITY = AccountRole.ADMIN.authority();
 
     private TestLogins() {}
 
@@ -41,6 +45,20 @@ public final class TestLogins {
     public static RequestPostProcessor loginAs(UUID userId) {
         return authentication(new UsernamePasswordAuthenticationToken(
                 userId, null, List.of(new SimpleGrantedAuthority(APP_USER_AUTHORITY))));
+    }
+
+    /**
+     * 어드민으로 로그인한 요청(#342).
+     *
+     * <p><b>{@code ROLE_USER} 를 함께 준다.</b> 어드민도 앱을 그대로 쓰는 사람이라 발급되는 토큰에 둘 다
+     * 실린다({@code AuthService.ADMIN_ROLES}). 여기서 ADMIN 만 주면 실제로 나가지 않는 모양을 테스트가
+     * 통과시키게 된다.
+     */
+    public static RequestPostProcessor loginAsAdmin(UUID userId) {
+        return authentication(new UsernamePasswordAuthenticationToken(
+                userId,
+                null,
+                List.of(new SimpleGrantedAuthority(APP_USER_AUTHORITY), new SimpleGrantedAuthority(ADMIN_AUTHORITY))));
     }
 
     /**
