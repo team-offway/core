@@ -21,19 +21,22 @@ class CuratedLinkTest {
     private static final LocalDate ENDS = LocalDate.of(2026, 8, 31);
 
     /** 상시가 아닌 기본 링크 — 각 테스트가 자기가 검사할 값만 바꿔 만든다. */
+    private static CuratedLink.CuratedLinkBuilder valid() {
+        return CuratedLink.builder()
+                .title("2026 대한민국 숙박세일 페스타")
+                .chipText("숙박 3만원 할인")
+                .linkUrl("https://ktostay.visitkorea.or.kr")
+                .endsOn(ENDS)
+                .surfaces(Set.of(Surface.HOME));
+    }
+
     private static CuratedLink link(LocalDate startsOn, LocalDate endsOn, Set<Surface> surfaces, boolean published) {
-        return CuratedLink.create(
-                "2026 대한민국 숙박세일 페스타",
-                "숙박 3만원 할인",
-                null,
-                "https://ktostay.visitkorea.or.kr",
-                null,
-                startsOn,
-                endsOn,
-                false,
-                surfaces,
-                0,
-                published);
+        return valid()
+                .startsOn(startsOn)
+                .endsOn(endsOn)
+                .surfaces(surfaces)
+                .published(published)
+                .build();
     }
 
     /** 어느 사유로 거절됐는지까지 본다 — 예외 타입만 보면 다른 규칙에 걸려도 초록이 뜬다. */
@@ -51,28 +54,48 @@ class CuratedLinkTest {
         "http://ktostay.visitkorea.or.kr",
         "javascript:alert(1)",
         "ktostay.visitkorea.or.kr",
-        "HTTPS://ktostay.visitkorea.or.kr",
         "//ktostay.visitkorea.or.kr",
     })
     void https_가_아닌_주소는_거절한다(String url) {
         assertEquals(
                 CurationErrorCode.INSECURE_LINK_URL,
-                errorCodeOf(() -> CuratedLink.create(
-                        "제목", "칩", null, url, null, null, ENDS, false, Set.of(Surface.HOME), 0, true)));
+                errorCodeOf(() -> valid().linkUrl(url).build()));
+    }
+
+    /**
+     * 접두어 비교로는 못 잡던 것들이다. 스킴만 맞고 <b>갈 곳이 없는</b> 주소라, 앱에서 칩은 보이는데 눌러도
+     * 아무 일이 안 일어난다 — 거절보다 나쁜 상태다.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "https://",
+        "https:///path",
+        "https://  /path",
+    })
+    void 스킴만_맞고_주소가_없으면_거절한다(String url) {
+        assertEquals(
+                CurationErrorCode.INSECURE_LINK_URL,
+                errorCodeOf(() -> valid().linkUrl(url).build()));
+    }
+
+    /** RFC 3986 의 scheme 은 대소문자를 구분하지 않는다. 정상 주소를 거절하면 어드민이 이유를 못 찾는다. */
+    @Test
+    void 스킴이_대문자여도_정상_https_주소다() {
+        assertEquals(
+                "HTTPS://ktostay.visitkorea.or.kr",
+                valid().linkUrl("HTTPS://ktostay.visitkorea.or.kr").build().getLinkUrl());
     }
 
     @Test
     void 썸네일도_https_가_아니면_거절한다() {
         assertEquals(
                 CurationErrorCode.INSECURE_LINK_URL,
-                errorCodeOf(() -> CuratedLink.create(
-                        "제목", "칩", null, "https://a.example", "http://a.example/t.jpg",
-                        null, ENDS, false, Set.of(Surface.HOME), 0, true)));
+                errorCodeOf(() -> valid().thumbnailUrl("http://a.example/t.jpg").build()));
     }
 
     @Test
     void 썸네일은_없어도_된다() {
-        assertEquals(null, link(null, ENDS, Set.of(Surface.HOME), true).getThumbnailUrl());
+        assertEquals(null, valid().build().getThumbnailUrl());
     }
 
     // ── 기간 규칙 (#217 의 교훈) ────────────────────────────────────────────
@@ -90,8 +113,7 @@ class CuratedLinkTest {
 
     @Test
     void 상시면_종료일이_없어도_된다() {
-        CuratedLink always = CuratedLink.create(
-                "제목", "칩", null, "https://a.example", null, null, null, true, Set.of(Surface.HOME), 0, true);
+        CuratedLink always = valid().endsOn(null).alwaysOn(true).build();
 
         assertTrue(always.activeOn(LocalDate.of(2030, 12, 31)));
         assertTrue(always.activeOn(LocalDate.of(2020, 1, 1)));
@@ -140,19 +162,14 @@ class CuratedLinkTest {
 
         assertEquals(
                 CurationErrorCode.CHIP_TEXT_TOO_LONG,
-                errorCodeOf(() -> CuratedLink.create(
-                        "제목", tooLong, null, "https://a.example", null,
-                        null, ENDS, false, Set.of(Surface.HOME), 0, true)));
+                errorCodeOf(() -> valid().chipText(tooLong).build()));
     }
 
     @Test
     void 칩_문구가_경계_길이면_통과한다() {
         String exact = "가".repeat(CuratedLink.MAX_CHIP_TEXT_LENGTH);
 
-        assertEquals(exact, CuratedLink.create(
-                        "제목", exact, null, "https://a.example", null,
-                        null, ENDS, false, Set.of(Surface.HOME), 0, true)
-                .getChipText());
+        assertEquals(exact, valid().chipText(exact).build().getChipText());
     }
 
     /** 면을 하나도 안 고르면 아무 데도 안 나가는 항목이 만들어진다. 저장 시점에 막는다. */

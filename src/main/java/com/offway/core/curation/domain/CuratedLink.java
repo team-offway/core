@@ -6,10 +6,13 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.LocalDate;
 import java.util.Objects;
 import java.util.Set;
 import lombok.AccessLevel;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -33,7 +36,8 @@ public class CuratedLink {
     /** 칩에 들어가는 문구라 길면 잘린다. 화면이 감당하는 길이를 도메인이 안다. */
     public static final int MAX_CHIP_TEXT_LENGTH = 30;
 
-    private static final String HTTPS_SCHEME = "https://";
+    /** RFC 3986 의 scheme 은 대소문자를 구분하지 않는다 — 비교도 그렇게 한다. */
+    private static final String HTTPS_SCHEME = "https";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -90,6 +94,14 @@ public class CuratedLink {
     @Column(nullable = false)
     private boolean published;
 
+    /**
+     * <b>빌더로 연다.</b> 처음에는 검증이 본체라는 이유로 static 팩토리를 뒀는데, 그건 빌더와 배타적이지
+     * 않다 — Lombok 빌더는 이 생성자를 그대로 호출하므로 검증이 똑같이 돈다. 반면 위치 인수는 실제로
+     * 위험하다: 인자 열하나 중 문자열이 다섯이고, <b>{@code alwaysOn} 과 {@code published} 가 붙어 있는
+     * boolean 둘</b>이다. 이 둘이 뒤바뀌면 만들다 만 항목이 앱에 나가거나 기간이 있는 항목이 영구 노출로
+     * 굳는데, 컴파일은 통과한다.
+     */
+    @Builder
     private CuratedLink(
             String title,
             String chipText,
@@ -114,28 +126,6 @@ public class CuratedLink {
         this.surfaces = requireSurfaces(surfaces);
         this.displayOrder = displayOrder;
         this.published = published;
-    }
-
-    /**
-     * 조립이라 빌더가 아니라 팩토리인 이유 — <b>인자가 열하나이고 그중 문자열이 다섯이라</b> 위치 인수로는
-     * 뒤바뀌어도 컴파일이 통과한다(#300 과 같은 판단). 다만 여기서는 <b>검증이 함께 도는 것</b>이 본체라
-     * 이름 있는 static 팩토리로 둔다 — 빌더로 열면 {@code build()} 를 안 부르고 필드만 채우는 길이 생긴다.
-     */
-    public static CuratedLink create(
-            String title,
-            String chipText,
-            String description,
-            String linkUrl,
-            String thumbnailUrl,
-            LocalDate startsOn,
-            LocalDate endsOn,
-            boolean alwaysOn,
-            Set<Surface> surfaces,
-            int displayOrder,
-            boolean published) {
-        return new CuratedLink(
-                title, chipText, description, linkUrl, thumbnailUrl,
-                startsOn, endsOn, alwaysOn, surfaces, displayOrder, published);
     }
 
     /** 이 링크가 오늘 그 면에 나가는가 — 게시됐고, 기간 안이고, 그 면이 켜져 있어야 한다. */
@@ -166,13 +156,34 @@ public class CuratedLink {
     /**
      * 웹뷰가 임의 주소를 여는 통로가 된다. 등록자가 개발진뿐이라 위험은 낮지만, <b>오타 하나가 앱에서
      * 엉뚱한 페이지를 여는 것</b>은 막아야 한다. {@code http}·{@code javascript:} 등을 스킴에서 끊는다.
+     *
+     * <p><b>접두어 비교가 아니라 {@link URI} 로 판정한다.</b> {@code startsWith("https://")} 는 두 방향으로
+     * 틀렸다 — 호스트가 없는 {@code https://} 나 {@code https:///path} 를 통과시키고(앱이 눌러도 아무 데도
+     * 못 간다), 반대로 스킴 대소문자를 구분해 <b>정상 주소인</b> {@code HTTPS://…} 를 거절했다. scheme 은
+     * RFC 3986 에서 대소문자를 구분하지 않는다.
+     *
+     * <p>파싱 자체가 안 되는 값도 거절한다. 공백이나 인코딩 안 된 문자가 섞인 주소는 웹뷰에서 어차피
+     * 안 열리므로, 등록 시점에 돌려보내는 편이 낫다.
      */
     private static String requireHttps(String url) {
         String value = requireText(url, "링크 주소");
-        if (!value.startsWith(HTTPS_SCHEME)) {
+        URI uri = parse(value);
+        if (!HTTPS_SCHEME.equalsIgnoreCase(uri.getScheme()) || isBlank(uri.getHost())) {
             throw CurationException.insecureLinkUrl();
         }
         return value;
+    }
+
+    private static URI parse(String value) {
+        try {
+            return new URI(value);
+        } catch (URISyntaxException e) {
+            throw CurationException.insecureLinkUrl();
+        }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private static String requireHttpsOrNull(String url) {
@@ -218,6 +229,6 @@ public class CuratedLink {
     }
 
     private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.strip();
+        return isBlank(value) ? null : value.strip();
     }
 }

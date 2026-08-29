@@ -13,8 +13,8 @@ import com.offway.core.common.exception.ErrorCode;
  */
 public enum CurationErrorCode implements ErrorCode {
 
-    /** 링크 주소가 https 가 아님 — 웹뷰가 임의 스킴을 여는 통로가 된다. */
-    INSECURE_LINK_URL("CURATION-001", ErrorCategory.BAD_REQUEST, "링크 주소는 https 로 시작해야 합니다."),
+    /** 링크 주소가 https 가 아니거나 host 가 없음 — 웹뷰가 임의 스킴을 열거나, 눌러도 아무 데도 못 간다. */
+    INSECURE_LINK_URL("CURATION-001", ErrorCategory.BAD_REQUEST, "링크 주소가 올바르지 않습니다. https 주소를 넣어 주세요."),
 
     /** 상시 노출이 아닌데 종료일이 없음 — 비워 두면 영구 노출로 굳는다. */
     END_DATE_REQUIRED("CURATION-002", ErrorCategory.BAD_REQUEST, "상시 노출이 아니면 종료일을 지정해야 합니다."),
