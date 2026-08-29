@@ -1,6 +1,7 @@
 package com.offway.core.user.service;
 
 import com.offway.core.common.logging.RootCause;
+import com.offway.core.user.domain.AccountRole;
 import com.offway.core.user.domain.AuthProvider;
 import com.offway.core.user.infrastructure.apple.AppleAccountLink;
 import java.util.List;
@@ -8,11 +9,14 @@ import java.util.Optional;
 import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.UserException;
 import com.offway.core.user.infrastructure.social.SocialIdentityResolver;
+import com.offway.core.user.repository.AdminAccountRepository;
+import com.offway.core.user.repository.UserIdentityRepository;
 import com.offway.core.user.service.dto.AuthenticatedUser;
 import com.offway.core.user.service.dto.IssuedToken;
 import com.offway.core.user.service.dto.SocialLoginCommand;
 import com.offway.core.user.service.dto.TokenRotation;
 import java.time.Instant;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,10 +33,18 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class AuthService {
 
+    /** 로그인한 모두가 갖는 역할. */
+    private static final Set<AccountRole> APP_USER_ONLY = Set.of(AccountRole.USER);
+
+    /** 화이트리스트에 있는 계정 — <b>일반 권한을 빼앗지 않고 얹는다.</b> 어드민도 앱을 그대로 쓴다. */
+    private static final Set<AccountRole> ADMIN_ROLES = Set.of(AccountRole.USER, AccountRole.ADMIN);
+
     private final SocialIdentityResolver socialIdentityResolver;
     private final UserPersistenceService userPersistenceService;
     private final AppleAccountLink appleAccountLink;
     private final TokenIssuer tokenIssuer;
+    private final AdminAccountRepository adminAccountRepository;
+    private final UserIdentityRepository userIdentityRepository;
 
     /**
      * provider 토큰으로 신원을 확인해 로그인시킨다. 처음 보는 신원이면 그대로 가입 처리된다.
@@ -57,7 +69,7 @@ public class AuthService {
         log.info(
                 "로그인 성공 userId={} provider={} 신규가입={}",
                 user.userId(), identity.provider(), user.newUser());
-        return issueTokens(user);
+        return issueTokens(user, rolesOf(identity.provider(), identity.providerUserId()));
     }
 
     /**
@@ -92,7 +104,9 @@ public class AuthService {
                 now);
         return switch (rotation) {
             case TokenRotation.Rotated(UUID userId) -> new IssuedToken(
-                    tokenIssuer.issueAccessToken(userId),
+                    // 재발급마다 화이트리스트를 다시 본다(#342). 토큰에 역할을 박아 두므로, 여기서 다시
+                    // 보지 않으면 어드민에서 뺀 사람이 refresh 가 살아 있는 60일 내내 어드민으로 남는다.
+                    tokenIssuer.issueAccessToken(userId, rolesOf(userId)),
                     nextRefreshToken,
                     tokenIssuer.accessTokenSeconds(),
                     false);
@@ -138,7 +152,8 @@ public class AuthService {
      * 경로 자체가 열리지 않는다.
      */
     public IssuedToken devLogin(String nickname) {
-        return issueTokens(new AuthenticatedUser(userPersistenceService.createUser(nickname), true));
+        // 개발 로그인은 provider 연결을 만들지 않아 화이트리스트에 걸릴 수 없다 — 늘 일반 사용자다.
+        return issueTokens(new AuthenticatedUser(userPersistenceService.createUser(nickname), true), APP_USER_ONLY);
     }
 
     /**
@@ -199,16 +214,38 @@ public class AuthService {
                 .orElse(configured);
     }
 
-    private IssuedToken issueTokens(AuthenticatedUser user) {
+    private IssuedToken issueTokens(AuthenticatedUser user, Set<AccountRole> roles) {
         Instant now = Instant.now();
         String refreshToken = tokenIssuer.generateRefreshToken();
         userPersistenceService.saveRefreshToken(
                 user.userId(), tokenIssuer.hashRefreshToken(refreshToken), tokenIssuer.refreshTokenExpiry(now));
         return new IssuedToken(
-                tokenIssuer.issueAccessToken(user.userId()),
+                tokenIssuer.issueAccessToken(user.userId(), roles),
                 refreshToken,
                 tokenIssuer.accessTokenSeconds(),
                 user.newUser());
+    }
+
+    /**
+     * 이 provider 계정이 백오피스를 쓸 수 있는가(#342).
+     *
+     * <p>로그인은 평소대로 소셜로 하고 <b>역할만 올린다.</b> 어드민용 별도 로그인을 만들지 않는 이유는,
+     * 그것이 곧 두 번째 자격증명 체계가 되어 지켜야 할 자리가 하나 더 늘기 때문이다.
+     */
+    private Set<AccountRole> rolesOf(AuthProvider provider, String subject) {
+        return adminAccountRepository.find(provider, subject).isPresent() ? ADMIN_ROLES : APP_USER_ONLY;
+    }
+
+    /**
+     * 재발급 경로용 — 토큰에는 subject 가 없어 신원을 한 번 더 읽는다.
+     *
+     * <p>개발 로그인 사용자는 신원이 없다. 그때는 일반 사용자로 본다 — 없는 것을 어드민으로 볼 이유가 없다.
+     */
+    private Set<AccountRole> rolesOf(UUID userId) {
+        return userIdentityRepository
+                .findFirstByUserId(userId)
+                .map(identity -> rolesOf(identity.getProvider(), identity.getProviderUserId()))
+                .orElse(APP_USER_ONLY);
     }
 
     /**

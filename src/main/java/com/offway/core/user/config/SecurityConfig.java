@@ -1,5 +1,6 @@
 package com.offway.core.user.config;
 
+import com.offway.core.user.domain.AccountRole;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpMethod;
@@ -77,7 +78,17 @@ public class SecurityConfig {
      * <p>Basic 사용자에게는 주지 않는다. 브라우저가 자동으로 붙이는 자격증명으로는 쓰기를 못 하게 하려는 것이고,
      * 그것이 CSRF 토큰 없이 무상태 API 를 지키는 방법이다.
      */
-    private static final String APP_USER_ROLE = "USER";
+    private static final String APP_USER_ROLE = AccountRole.USER.roleName();
+
+    /**
+     * 백오피스 — <b>읽기까지</b> 이 역할을 요구한다(#342).
+     *
+     * <p>GET 을 아래 "나머지 읽기" 규칙에 맡기면 Basic 으로 열려, 팀 밖에서 <b>미공개 항목</b>이 보인다.
+     * 어드민 목록에는 아직 게시하지 않은 것과 기간이 지난 것이 전부 들어 있다.
+     */
+    private static final String ADMIN_PATH_PATTERN = "/api/v1/admin/**";
+
+    private static final String ADMIN_ROLE = AccountRole.ADMIN.roleName();
 
     /**
      * <b>소유자가 있는 데이터</b> — 내 코스 · 연차 · 알림 · 푸시 토큰. 읽기든 쓰기든 Bearer 를 요구한다(#280).
@@ -123,6 +134,10 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(CREDENTIAL_ISSUING_PATHS)
                         .permitAll()
+                        // 백오피스는 읽기·쓰기 모두 ADMIN. 아래 GET 규칙보다 **앞**에 둬야 Basic 으로
+                        // 미공개 항목이 새지 않는다 — 순서가 곧 규칙이다.
+                        .requestMatchers(ADMIN_PATH_PATTERN)
+                        .hasRole(ADMIN_ROLE)
                         // 소유자가 있는 데이터는 읽기도 Bearer 만. Basic 은 principal 이 없어 대상을 정할 수 없다.
                         .requestMatchers(USER_OWNED_PATHS)
                         .hasRole(APP_USER_ROLE)
