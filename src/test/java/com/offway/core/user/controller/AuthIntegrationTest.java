@@ -1,11 +1,15 @@
 package com.offway.core.user.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.jayway.jsonpath.JsonPath;
 import com.offway.core.common.exception.BaseException;
 import com.offway.core.user.domain.AuthProvider;
@@ -28,6 +32,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -510,6 +515,42 @@ class AuthIntegrationTest {
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
+    }
+
+    /**
+     * 로그인 성공은 <b>사용자 식별자가 로그에 나타나는 유일한 자리</b>다(#41).
+     *
+     * <p>로그인 요청은 아직 인증 전이라 다른 줄에는 {@code anon} 으로 찍힌다. 이 줄이 없으면 "이 사람이
+     * 언제 들어왔나" 에 답할 수단이 아예 없다 — 계정 문의가 들어왔을 때 정작 필요한 것이 그것이다.
+     *
+     * <p>다른 줄은 앞 8자만 찍으므로, 그 앞자리로 이 줄을 찾아와 전체 값을 얻는 구조다. 그래서 여기서는
+     * <b>전문</b>이어야 한다.
+     */
+    @Test
+    void 로그인_성공은_사용자_식별자를_전문으로_남긴다() throws Exception {
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+        Logger logger = (Logger) LoggerFactory.getLogger(AuthService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        String body;
+        try {
+            body = mockMvc.perform(callback("google", "any-id-token"))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        UUID userId = tokenIssuer.parseAccessToken(JsonPath.read(body, "$.data.accessToken"));
+        String line = appender.list.stream()
+                .map(ILoggingEvent::getFormattedMessage)
+                .filter(message -> message.startsWith("로그인 성공"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("로그인 성공 로그가 없습니다"));
+        assertTrue(line.contains("userId=" + userId), line);
+        assertTrue(line.contains("신규가입=true"), line);
     }
 
     private static MockHttpServletRequestBuilder callback(String provider, String accessToken) {

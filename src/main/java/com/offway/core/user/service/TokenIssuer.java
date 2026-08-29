@@ -85,7 +85,9 @@ public class TokenIssuer {
             Jwt jwt = decoder.decode(accessToken);
             return UUID.fromString(jwt.getSubject());
         } catch (JwtException | IllegalArgumentException | NullPointerException exception) {
-            throw UserException.invalidAccessToken();
+            // 원인을 달아 던진다 — 여기서 로그를 찍지 않는 이유는, 이 시점엔 어느 요청인지·누구인지를
+            // 모르기 때문이다. 그건 필터가 알고, 필터가 한 줄로 합쳐 남긴다(#41).
+            throw UserException.invalidAccessToken(exception);
         }
     }
 

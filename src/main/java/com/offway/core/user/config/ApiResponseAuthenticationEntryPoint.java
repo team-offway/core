@@ -1,6 +1,8 @@
 package com.offway.core.user.config;
 
 import com.offway.core.common.exception.CommonErrorCode;
+import com.offway.core.common.logging.LogAttributes;
+import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.user.domain.UserErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
@@ -53,6 +55,9 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
 
     private static final String BEARER_PREFIX = "Bearer ";
 
+    /** Basic 인지 가리는 데만 쓴다 — 값은 읽지 않는다. */
+    private static final String BASIC_PREFIX = "Basic ";
+
     private final ObjectMapper objectMapper;
 
     @Override
@@ -79,6 +84,10 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
      * 게이트를 뚫으려는 시도를 나중에라도 파악할 수 있게 흔적을 남긴다. 자격증명은 절대 남기지 않는다 — 오타로
      * 비밀번호가 username 자리에 들어오는 일이 흔하고, 그게 그대로 로그에 박힌다. 토큰도 마찬가지다.
      *
+     * <p><b>이 줄이 그 요청에 대해 남는 전부다.</b> 401 은 {@code RequestLoggingFilter} 보다 앞선 보안
+     * 필터에서 끝나 요청 줄이 아예 찍히지 않는다 — 그래서 신원 단서(수단·사유·출발지)를 요청 줄에
+     * 맡기지 못하고 여기에 직접 싣는다(#41).
+     *
      * <p>레벨은 info 다: 401 은 클라이언트 계약 위반이라 서버 입장에서는 정상 흐름이다(로깅 규약). 우리 API
      * 경로가 아닌 401 은 debug 다. 공인 IP 에 붙은 서버라 {@code /Login}·{@code /wp-admin} 같은 스캐너가 쉬지
      * 않고 두드리는데, 그걸 info 로 두면 정작 봐야 할 사용자 요청 로그가 그 사이에 묻힌다.
@@ -86,10 +95,62 @@ public class ApiResponseAuthenticationEntryPoint implements AuthenticationEntryP
     private static void logAttempt(HttpServletRequest request) {
         String path = request.getRequestURI();
         if (path.startsWith(API_PATH_PREFIX)) {
-            log.info("인증 실패 — 401 method={} path={}", request.getMethod(), path);
+            log.info(
+                    "인증 실패 — 401 method={} path={} scheme={} reason={} ip={}",
+                    request.getMethod(),
+                    path,
+                    scheme(request),
+                    rejectionReason(request),
+                    clientIp(request));
         } else {
-            log.debug("인증 실패(비 API 경로) — 401 method={} path={}", request.getMethod(), path);
+            log.debug(
+                    "인증 실패(비 API 경로) — 401 method={} path={} ip={}",
+                    request.getMethod(),
+                    path,
+                    clientIp(request));
         }
+    }
+
+    /**
+     * Bearer 를 왜 거절했는지 — {@link JwtAuthenticationFilter} 가 요청에 실어 둔 값(#41).
+     *
+     * <p>{@code JwtValidationException}(만료)과 {@code BadJwtException}(서명 불일치)은 대응이 정반대다. 앞은
+     * 앱이 재발급하면 끝나는 정상 흐름이고, 뒤는 우리 키로 서명되지 않은 토큰이라 위조 시도다. 사유 칸이
+     * 없으면 둘이 같은 401 로 뭉쳐 어느 쪽이 늘고 있는지 알 수 없다.
+     *
+     * <p>토큰을 안 들고 온 요청에는 값이 없다 — 그때는 {@code scheme=none} 이 이미 그 사실을 말한다.
+     */
+    private static String rejectionReason(HttpServletRequest request) {
+        Object reason = request.getAttribute(LogAttributes.TOKEN_REJECTION);
+        return reason instanceof String found ? found : "-";
+    }
+
+    /**
+     * 무엇을 들고 왔는지 — 자격증명 자체는 절대 싣지 않고 <b>수단만</b> 남긴다.
+     *
+     * <p>이 한 칸이 401 의 성격을 가른다. {@code bearer} 면 우리 앱이 만료·위조된 토큰을 들고 온 것이라 앱을
+     * 봐야 하고, {@code none} 이면 자격증명 없이 두드린 것이라 대개 스캐너다.
+     */
+    private static String scheme(HttpServletRequest request) {
+        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (header == null || header.isBlank()) {
+            return "none";
+        }
+        if (hasBearerScheme(header)) {
+            return "bearer";
+        }
+        return header.regionMatches(true, 0, BASIC_PREFIX, 0, BASIC_PREFIX.length()) ? "basic" : "other";
+    }
+
+    /**
+     * 출발지 주소.
+     *
+     * <p><b>{@code X-Forwarded-For} 를 읽지 않는다.</b> 지금 앞에 프록시가 없어 앱이 EC2 의 8080 을 직접
+     * 부른다 — 그 상태에서 XFF 를 믿으면 <b>누구나 헤더 한 줄로 출발지를 위조</b>할 수 있어, 신원을 남기려던
+     * 칸이 거짓을 남기는 칸이 된다. 프록시가 앞에 서는 날(#232) 그때 신뢰 경계와 함께 다시 본다.
+     */
+    private static String clientIp(HttpServletRequest request) {
+        return SensitiveParams.forLog(request.getRemoteAddr());
     }
 
     /**

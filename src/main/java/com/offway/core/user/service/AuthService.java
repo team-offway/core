@@ -45,11 +45,35 @@ public class AuthService {
      * 오히려 남의 데이터를 자기 계정에 붙일 수 있는 통로였다.
      */
     public IssuedToken login(SocialLoginCommand command) {
-        SocialIdentity identity = socialIdentityResolver.resolve(command.provider(), command.credential());
+        SocialIdentity identity = resolveIdentity(command);
         AuthenticatedUser user = findOrCreateUser(identity, command);
         // 기기를 잇던 단계(linkDevice)는 사라졌다(#280) — 소유가 이 사용자라 이어 둘 것이 없다.
         rememberProviderLink(user.userId(), identity, command.authorizationCode());
+        // **성공도 남긴다**(#41). 실패만 찍히면 로그는 "무엇이 잘못됐나" 에만 답하고 "이 사람이 언제
+        // 들어왔나" 에는 답하지 못한다 — 계정 문의가 들어왔을 때 정작 필요한 건 후자다.
+        //
+        // 식별자를 **전문으로** 남기는 유일한 자리다. 다른 줄은 로그 패턴이 앞 8자만 찍으므로, 그 앞자리로
+        // 이 줄을 찾아오면 전체 값을 얻는다.
+        log.info(
+                "로그인 성공 userId={} provider={} 신규가입={}",
+                user.userId(), identity.provider(), user.newUser());
         return issueTokens(user);
+    }
+
+    /**
+     * provider 신원을 확인한다 — <b>실패한 쪽에도 흔적을 남기고</b> 그대로 다시 던진다(#41).
+     *
+     * <p>여기서 실패하면 사용자 식별자가 아직 없다. 신원 확인 자체가 실패한 것이라 계정이 특정되지 않아,
+     * 남는 단서는 <b>어느 provider 로 시도했는가</b>뿐이다. provider 별 검증기도 사유를 남기지만 그쪽은
+     * 이 줄과 추적 id 로 묶인다.
+     */
+    private SocialIdentity resolveIdentity(SocialLoginCommand command) {
+        try {
+            return socialIdentityResolver.resolve(command.provider(), command.credential());
+        } catch (RuntimeException e) {
+            log.info("로그인 실패 provider={} cause={}", command.provider(), RootCause.label(e));
+            throw e;
+        }
     }
 
     /**
@@ -83,7 +107,13 @@ public class AuthService {
                 log.info("회전 직후 같은 refresh 가 다시 왔습니다 — 재시도로 보고 이 요청만 거절합니다");
                 throw UserException.invalidRefreshToken();
             }
-            case TokenRotation.Invalid ignored -> throw UserException.invalidRefreshToken();
+            case TokenRotation.Invalid ignored -> {
+                // 조용히 401 을 내리지 않는다(#41) — 이 갈래는 "없는 토큰·만료·이미 폐기됨" 이 전부 모이는
+                // 자리라, 로그가 없으면 앱이 로그아웃 루프에 빠졌을 때 그 사실 자체가 서버에 안 보인다.
+                // 토큰 원문·해시는 남기지 않는다(그것만 있으면 세션을 이어받을 수 있다).
+                log.info("refresh 토큰 거절 — 없거나 만료·폐기된 토큰입니다");
+                throw UserException.invalidRefreshToken();
+            }
         };
     }
 
@@ -96,6 +126,9 @@ public class AuthService {
             throw UserException.invalidAccessToken();
         }
         userPersistenceService.revokeAllRefreshTokens(userId, Instant.now());
+        // 세션을 끊은 사실을 남긴다(#41). "왜 갑자기 로그아웃됐나" 는 실제로 들어오는 문의이고, 그 답은
+        // 본인이 눌렀는지(이 줄) 아니면 탈취 의심으로 우리가 끊었는지(위 Reused 줄) 로 갈린다.
+        log.info("로그아웃 — 사용자 토큰 전체 폐기 userId={}", userId);
     }
 
     /**

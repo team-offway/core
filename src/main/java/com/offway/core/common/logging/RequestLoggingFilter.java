@@ -7,9 +7,11 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.HexFormat;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -40,7 +42,15 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     private static final Set<String> SKIPPED_PREFIXES =
             Set.of("/actuator", "/swagger-ui", "/v3/api-docs", "/favicon.ico");
 
-    private static final String ANONYMOUS = "anonymous";
+    private static final String ANONYMOUS = "anon";
+
+    /**
+     * 로그에 남길 사용자 식별자 앞자리 수(#41).
+     *
+     * <p>UUID 라 8자면 사실상 유일하다 — 같은 앞자리를 가진 둘을 만나려면 수만 개가 필요한데 우리 사용자
+     * 수는 그 근처도 아니다. 로그 패턴이 이 폭({@code %-8.8X}) 을 전제로 칸을 잡는다.
+     */
+    private static final int USER_ID_PREFIX_LENGTH = 8;
     /** 추적 id 길이(hex). 한 번에 살아 있는 요청 수가 많지 않아 6자면 눈으로 구분하기에 충분하다. */
     private static final int TRACE_ID_BYTES = 3;
     private static final double NANOS_PER_SECOND = 1_000_000_000.0;
@@ -78,21 +88,21 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         long startedAt = System.nanoTime();
 
         MDC.put(LogAttributes.TRACE_ID, newTraceId());
+        // **요청이 시작될 때 넣는다**(#41). 예전에는 응답을 다 쓴 뒤 finally 에서 넣어, 정작 그 요청 중에
+        // 난 로그에는 붙지 않았다 — 그러면 MDC 에 둘 이유가 없다. 이 필터는 보안 필터보다 뒤라 인증
+        // 컨텍스트가 이미 채워져 있어, 여기서 읽으면 Bearer·Basic 이 모두 잡힌다.
+        MDC.put(LogAttributes.USER_ID, currentUser());
         try {
             chain.doFilter(request, response);
         } finally {
-            // 사용자는 인증 필터가 채운 뒤에야 알 수 있어 여기서 넣는다. 요청 줄에 함께 실리도록
-            // 로그를 찍기 전에 넣고, 아래 clear 로 같은 스레드의 다음 요청에 새지 않게 한다.
-            MDC.put(LogAttributes.USER_ID, currentUser());
             double seconds = (System.nanoTime() - startedAt) / NANOS_PER_SECOND;
             log.info(
-                    "{} {} {}{} {}s {}{}{}",
+                    "{} {} {}{} {}s{}{}",
                     response.getStatus(),
                     METHOD_FORMAT.formatted(method),
                     path,
                     params.isEmpty() ? "" : PARAMS_FORMAT.formatted(params),
                     SECONDS_FORMAT.formatted(seconds),
-                    currentUser(),
                     summaries(request),
                     recorder.isEmpty() ? "" : EXTERNAL_CALLS_FRAGMENT_FORMAT.formatted(recorder.summary()));
             // **반드시 지운다.** 톰캣은 스레드를 재사용하므로, 안 지우면 다음 요청이 앞 요청의 추적 id 를
@@ -135,11 +145,35 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         return value instanceof String text ? text : null;
     }
 
+    /**
+     * 요청을 보낸 주체 — Bearer 면 사용자 식별자 <b>앞자리</b>, Basic 이면 계정 이름, 아니면 {@value #ANONYMOUS}.
+     *
+     * <p><b>UUID 를 통째로 싣지 않는다.</b> 36자가 매 줄에 박히면 정작 읽어야 할 경로·메시지가 밀려난다.
+     * 앞자리 {@value #USER_ID_PREFIX_LENGTH} 자면 로그끼리 묶고 DB 에서 {@code LIKE 'xxxxxxxx%'} 로 되짚기에
+     * 충분하다 — 전문이 필요한 자리는 로그인 성공 줄 하나뿐이고 거기서는 전문을 남긴다.
+     *
+     * <p>Basic 계정 이름은 자르지 않는다. 이미 짧고, 앞자리만 남기면 어느 계정인지 오히려 알 수 없어진다.
+     */
     private static String currentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()) {
+        // **익명 토큰도 '인증됨' 이다.** Spring Security 는 비인증 요청에 AnonymousAuthenticationToken 을
+        // 끼워 넣는데 그 isAuthenticated() 가 true 라, 그것만 보면 principal 이름("anonymousUser")이
+        // 신원 칸에 실린다 — 실제로 로그에 `mousUser`(패턴 폭에 잘린 값)로 찍혔다.
+        if (authentication == null
+                || !authentication.isAuthenticated()
+                || authentication instanceof AnonymousAuthenticationToken) {
             return ANONYMOUS;
         }
+        // Bearer 로 들어온 요청은 principal 이 UUID 다(JwtAuthenticationFilter 가 넣는다).
+        if (authentication.getPrincipal() instanceof UUID userId) {
+            return shortId(userId);
+        }
         return authentication.getName();
+    }
+
+    /** UUID 앞자리 — 하이픈 앞 첫 마디가 그대로 이 길이다. */
+    private static String shortId(UUID userId) {
+        String text = userId.toString();
+        return text.length() <= USER_ID_PREFIX_LENGTH ? text : text.substring(0, USER_ID_PREFIX_LENGTH);
     }
 }
