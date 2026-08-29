@@ -33,6 +33,11 @@ public interface HomeApi {
                     **access 토큰이 아닌 자격증명으로도 200 이다.** 홈은 소유 데이터 전용 경로가 아니라
                     403 으로 끊지 않는다 — 대신 주인을 못 정하므로 `remainingLeaveDays` 만 `null` 로 나가고
                     카드는 그대로 채워진다. 로그인 앞 화면이 통째로 비지 않게 하려는 것이다.
+
+
+                    **`curatedLinks`** — 외부 페이지로 나가는 창구(#341). 누르면 웹뷰로 그 사이트가 열린다.
+                    이 화면에 켜져 있고 오늘이 노출 기간 안인 것만 정렬 순으로 담기고, 없으면 **빈 목록**이다.
+                    `description`·`thumbnailUrl` 은 `null` 일 수 있다 — 그 줄과 이미지를 그리지 않으면 된다.
                     """)
     @ApiResponse(
             responseCode = "200",

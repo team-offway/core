@@ -1,6 +1,8 @@
 package com.offway.core.itinerary.controller.dto;
 
 import com.offway.core.common.logging.LogSummary;
+import com.offway.core.curation.controller.dto.CuratedLinkResponse;
+import com.offway.core.curation.domain.CuratedLink;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
@@ -36,6 +38,8 @@ import java.util.Map;
  * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근. <b>null 은 오류가 아니다</b> — 자차 코스이거나,
  *     출발지 없이 저장된 코스(저장 요청에 {@code originLat}·{@code originLng} 를 안 보낸 경우)다. 저장 코스도
  *     출발지가 있으면 조회 시점에 다시 계산해 채운다(#187)
+ * @param curatedLinks 외부 페이지로 나가는 창구(#341). 코스 상세에 켜진 것만, 정렬 순으로.
+ *     <b>없으면 빈 목록</b>이라 아래 NON_NULL 규칙과 무관하게 키가 항상 있다
  */
 /**
  * 값이 없는 선택 필드는 내려보내지 않는다.
@@ -91,7 +95,8 @@ public record CourseResponse(
                                 + "0 과 구분해야 한다. 0 은 '확정했고 깎을 평일이 없었다' 는 뜻이다",
                         example = "1.25",
                         nullable = true)
-                Double consumedLeaveDays) implements LogSummary {
+                Double consumedLeaveDays,
+        List<CuratedLinkResponse> curatedLinks) implements LogSummary {
 
     /**
      * 예: {@code 정선군 코스 3일 26슬롯}.
@@ -104,7 +109,7 @@ public record CourseResponse(
     /** 지역명이 없는 코스(슬롯이 비었거나 지역 조회 실패)에 쓸 대체 표기. */
     private static final String UNKNOWN_REGION = "지역미상";
 
-    public static CourseResponse from(GeneratedCourse generated) {
+    public static CourseResponse from(GeneratedCourse generated, List<CuratedLink> curatedLinks) {
         Course course = generated.course();
         return CourseResponse.builder()
                 // 저장된 코스만 값, 생성만 된 코스는 null
@@ -130,6 +135,7 @@ public record CourseResponse(
                         generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()))
                 .shareToken(generated.shareToken())
                 .firstDayChange(generated.firstDayChange() == null ? null : generated.firstDayChange().name())
+                .curatedLinks(CuratedLinkResponse.from(curatedLinks))
                 // 차감 정보는 소유자 조회에서만 뜻이 있다. 생성(아직 저장 전)·공개 공유는 이 경로로 오며,
                 // 그때는 값이 없다는 사실 자체가 정확한 답이다. 빌더라 적지 않으면 그대로 null 이다.
                 .build();
@@ -140,8 +146,8 @@ public record CourseResponse(
      *
      * <p>앱이 상세를 열 때마다 목록을 병행 조회해 요약의 차감 여부를 찾아 채우던 것을 없애려는 것이다.
      */
-    public static CourseResponse from(OwnedCourse owned) {
-        return from(owned.course()).toBuilder()
+    public static CourseResponse from(OwnedCourse owned, List<CuratedLink> curatedLinks) {
+        return from(owned.course(), curatedLinks).toBuilder()
                 .leaveDeducted(owned.deducted())
                 .consumedLeaveDays(owned.consumedLeaveDays())
                 .build();
@@ -156,10 +162,10 @@ public record CourseResponse(
      *
      * <p>{@code @JsonInclude(NON_NULL)} 이라 두 필드는 응답에서 <b>키 자체가 사라진다</b>.
      */
-    public static CourseResponse publicView(GeneratedCourse generated) {
+    public static CourseResponse publicView(GeneratedCourse generated, List<CuratedLink> curatedLinks) {
         // 빼는 것만 적는다 — 나머지는 그대로 흐른다. 위치 기반으로 전부 다시 나열하면 필드가 하나 끼는
         // 순간 값이 조용히 옆칸으로 밀리는데, 인접 필드가 같은 타입이면 컴파일도 통과한다.
-        return from(generated).toBuilder()
+        return from(generated, curatedLinks).toBuilder()
                 .courseId(null) // 내부 순번을 공개하지 않는다
                 .shareToken(null) // 이미 URL 에 있다
                 .firstDayChange(null) // 날짜 수정은 소유자만 한다

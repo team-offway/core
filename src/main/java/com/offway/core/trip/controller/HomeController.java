@@ -1,6 +1,8 @@
 package com.offway.core.trip.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
+import com.offway.core.curation.domain.Surface;
+import com.offway.core.curation.service.CurationService;
 import com.offway.core.trip.controller.dto.HomeResponse;
 import com.offway.core.trip.service.HomeService;
 import com.offway.core.user.config.LoginUser;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class HomeController implements HomeApi {
 
     private final HomeService homeService;
+    private final CurationService curationService;
 
     /**
      * 홈은 <b>access 토큰 없이도 뜬다</b> — 지역 둘러보기가 로그인 앞에 있는 화면이라 소유자를 요구하지 않는다.
@@ -28,6 +31,7 @@ public class HomeController implements HomeApi {
     @Override
     @GetMapping
     public ApiResponseBody<HomeResponse> home(@LoginUser UUID userId) {
-        return ApiResponseBody.ok(HomeResponse.from(homeService.home(userId)));
+        return ApiResponseBody.ok(
+                HomeResponse.from(homeService.home(userId), curationService.linksOn(Surface.HOME)));
     }
 }

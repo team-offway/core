@@ -16,7 +16,9 @@ public interface CourseGenerateApi {
     @Operation(
             summary = "코스 자동 생성",
             description = "지역·일수·밀도·이동수단으로 날짜별 타임라인(관광·식사·숙박 슬롯 + 이동시간 + 지도 좌표)과 적용 혜택을 만든다."
-                    + " 동선은 이동수단 기반 최근접 정렬(자차 기준 interim)로 배치한다.")
+                    + " 동선은 이동수단 기반 최근접 정렬(자차 기준 interim)로 배치한다."
+                    + " `curatedLinks` 는 코스 화면에 켜진 외부 링크(#341) — 없으면 빈 목록이고,"
+                    + " description·thumbnailUrl 은 null 일 수 있다.")
     @ApiResponse(responseCode = "200", description = "생성 성공")
     @ApiResponse(
             responseCode = "400",

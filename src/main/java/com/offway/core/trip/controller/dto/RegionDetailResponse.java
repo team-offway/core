@@ -1,5 +1,7 @@
 package com.offway.core.trip.controller.dto;
 
+import com.offway.core.curation.controller.dto.CuratedLinkResponse;
+import com.offway.core.curation.domain.CuratedLink;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.trip.service.dto.HomeResult;
 import com.offway.core.trip.service.dto.RegionDetail;
@@ -16,6 +18,8 @@ import java.util.List;
  * @param photos 대표 이미지. 지금은 최대 한 장이고, 없으면 <b>빈 목록</b>이다(null 이 아니다)
  * @param highlightSpots 매력 포인트 장소 — <b>사진 있는 것만</b> 담긴다. 사진 없는 항목이 섞이면 가로
  *     목록 중간에 회색 판이 낀다. 그 지역에 사진 있는 장소가 적으면 목록도 짧다
+ * @param curatedLinks 외부 페이지로 나가는 창구(#341). 지역 상세에 켜진 것만, 정렬 순으로.
+ *     없으면 <b>빈 목록</b>이다
  */
 public record RegionDetailResponse(
         @Schema(example = "1") long regionId,
@@ -23,16 +27,18 @@ public record RegionDetailResponse(
         @Schema(example = "금수사와 정공단이 있는 곳", nullable = true) String overview,
         List<String> photos,
         @Schema(nullable = true) Benefit benefit,
-        List<HighlightSpot> highlightSpots) {
+        List<HighlightSpot> highlightSpots,
+        List<CuratedLinkResponse> curatedLinks) {
 
-    public static RegionDetailResponse from(RegionDetail detail) {
+    public static RegionDetailResponse from(RegionDetail detail, List<CuratedLink> curatedLinks) {
         return new RegionDetailResponse(
                 detail.regionId(),
                 detail.sigungu() + " · " + detail.sido(),
                 detail.overview(),
                 detail.photos(),
                 detail.benefit() == null ? null : Benefit.from(detail.benefit()),
-                detail.highlightSpots().stream().map(HighlightSpot::from).toList());
+                detail.highlightSpots().stream().map(HighlightSpot::from).toList(),
+                CuratedLinkResponse.from(curatedLinks));
     }
 
     /**
