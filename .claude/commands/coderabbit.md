@@ -1,4 +1,4 @@
-현재 브랜치 PR 의 CodeRabbit 리뷰를 처리한다 — 인라인 review thread 와 review body 의 nitpick 을 모두 조회해 평가하고, accept·reject 를 reply·resolve 로 남긴다.
+현재 브랜치 PR 의 CodeRabbit 리뷰를 처리한다 — 인라인 review thread 와 review body 의 nitpick 을 모두 조회해 평가하고, accept·reject 를 reply·resolve 로 남긴다. **reject 는 닫기 전에 사용자에게 선택을 받는다.**
 
 > **실행 환경**: 셸 블록은 **Bash 도구**로 실행한다.
 
@@ -115,6 +115,8 @@ gh api graphql -f query='
 
 CodeRabbit 이 자동 resolve 하는 경우가 있어 `isResolved` 확인 후 분기한다.
 
+**reject 한 thread 는 여기서 바로 닫지 않는다** — 아래 규칙대로 사용자에게 먼저 묻고, 답을 받은 뒤에 이 mutation 을 쓴다.
+
 ```bash
 gh api graphql -f query='
   mutation($t: ID!) {
@@ -130,12 +132,35 @@ gh api graphql -f query='
 |---|---|---|---|---|---|
 | **accept** | O | O | fix commit hash | O | — |
 | **defer** | O | X (범위 밖) | 사유 + 추적처 | **O** | **만들거나 보강** |
-| **reject** | X | — | reject 사유 | X | — |
+| **reject** | X | — | reject 사유 + 되돌릴 여지 | **사용자 확인 후 O** | — |
+
+**셋 다 결국 resolve 한다.** 이 레포는 conversation 이 전부 해소돼야 머지할 수 있어, thread 하나가 남으면 PR 이 거기서 멈춘다. 다만 **reject 는 닫기 전에 사용자에게 묻는다** (아래).
 
 - **accept**: reply 에 fix commit hash 명기 (예: "Accepted. Fixed in `371b5ba`."). 자동 resolve 안 됐으면 resolve 까지.
 - **제안과 다르게 고쳤으면 그 이유를 적는다.** 지적은 맞지만 제안된 해법이 좁을 때가 있다 — 왜 다른 방식을 택했는지 남겨야 리뷰어가 재평가할 수 있다.
-- **reject**: reply 에 reject 이유 (예: "테스트 규약의 '셋업 hook 으로 stub 상태를 미리 채우지 않는다' 와 충돌"). **resolve 하지 않는다** — 사용자가 검토할 기회를 보존한다.
+- **reject**: reply 에 reject 이유 (예: "테스트 규약의 '셋업 hook 으로 stub 상태를 미리 채우지 않는다' 와 충돌").
 - 한 thread 가 여러 commit 으로 해소됐으면 해시를 모두 명기한다.
+
+### reject — 닫기 전에 사용자에게 보여준다
+
+**reject 를 열어 두지 않는다.** 예전 규칙은 "사용자가 검토할 기회를 보존한다" 며 열어 뒀는데, 그 목적은 맞지만 수단이 틀렸다 — 열어 둔 thread 는 기록이 아니라 **차단**이다. 실제로 PR #351 에서 reject 2건이 머지를 막았다.
+
+**그렇다고 조용히 닫지도 않는다.** reject 는 셋 중 유일하게 *판단*이 갈리는 갈래다. accept 는 고친 것이고 defer 는 추적처가 남지만, reject 는 "안 고친다" 로 끝나므로 그 판단이 맞는지 볼 사람이 필요하다.
+
+**그래서 `AskUserQuestion` 으로 선택을 받는다.** reject 사유를 요약해 보여주고, 답을 받은 뒤에 움직인다.
+
+- 채팅에 **reject 대상과 사유를 짧게** 정리한다(thread 당 한두 줄).
+- `AskUserQuestion` single-select 로 묻는다. 옵션은 이 셋:
+  - **reject 하고 resolve** (Recommended) — 판단을 그대로 두고 닫는다
+  - **지적을 받아들여 고친다** — accept 로 전환해 코드를 고치고 resolve
+  - **열어 둔다** — 사용자가 직접 더 볼 때. 머지가 막힌다는 점을 함께 알린다
+- reject 가 여럿이면 **thread 마다 한 질문**으로 나눈다(한 질문에 4개 옵션 한도라 묶으면 사유가 뭉개진다).
+
+reply 말미에는 되돌릴 여지를 남긴다. 닫되 못 박지 않는다.
+
+```
+판단이 다르시면 그쪽을 따르겠습니다. resolve 합니다.
+```
 
 ### defer — 맞는 지적을 후속으로 넘길 때
 
