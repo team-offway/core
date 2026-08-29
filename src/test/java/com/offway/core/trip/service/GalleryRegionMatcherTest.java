@@ -31,7 +31,7 @@ class GalleryRegionMatcherTest {
             region(4L, "대구광역시", "남구"),
             region(5L, "강원특별자치도", "고성군"),
             region(6L, "경상남도", "고성군"),
-            region(7L, "전라남도", "완도군"),
+            region(7L, "전남광주통합특별시", "완도군"),
             region(8L, "충청남도", "공주시"),
             region(9L, "전북특별자치도", "장수군"));
 

@@ -11,7 +11,7 @@ class SidoNameTest {
     @ParameterizedTest
     @CsvSource({
         "강원특별자치도,강원",
-        "전라남도,전남",
+        "전남광주통합특별시,전남",
         "경상북도,경북",
         "부산광역시,부산",
         "전북특별자치도,전북"

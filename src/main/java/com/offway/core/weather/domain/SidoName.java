@@ -27,6 +27,7 @@ public final class SidoName {
             Map.entry("전라북도", "전북"),
             Map.entry("전북특별자치도", "전북"),
             Map.entry("전라남도", "전남"),
+            Map.entry("전남광주통합특별시", "전남"),
             Map.entry("경상북도", "경북"),
             Map.entry("경상남도", "경남"),
             Map.entry("제주특별자치도", "제주"));

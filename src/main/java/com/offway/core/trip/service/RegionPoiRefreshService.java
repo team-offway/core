@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -111,6 +112,15 @@ public class RegionPoiRefreshService {
     private static final int ROWS_PER_CALL = 100;
 
     /**
+     * 시도 통째 0건을 경고하기 시작하는 최소 지역 수(#347).
+     *
+     * <p>1곳뿐인 시도가 마침 비었을 때 "통째로 비었다" 고 말하면 과장이 된다. 우리 89곳에서 지역이 1곳인
+     * 시도는 없지만, 로컬 예산({@code regions-per-run})으로 잘라 돌 때는 시도당 1곳만 남는 회차가 생긴다.
+     */
+    private static final int MIN_SIDO_FOR_WIPEOUT_WARN = 2;
+
+
+    /**
      * 외부가 콘텐츠 타입을 안 줬을 때 넣는 값.
      *
      * <p>TourAPI 의 유효한 타입은 12·14·15·25·28·32·38·39 라 {@code 0} 은 그중 어느 것도 아니다. 즉
@@ -177,13 +187,21 @@ public class RegionPoiRefreshService {
         int filled = 0;
         int skipped = 0;
         int failed = 0;
+        // 시도별로 "받아온 곳 / 시도한 곳" 을 센다 — 한 시도가 통째로 0건인 패턴을 잡으려는 것이다(#347).
+        Map<String, int[]> bySido = new TreeMap<>();
         for (Region region : regions) {
             if (regionPoiRepository.hasFresh(region.getId(), baseYm)) {
                 skipped++;
                 continue;
             }
+            int[] tally = bySido.computeIfAbsent(region.getSido(), sido -> new int[2]);
+            tally[1]++;
             try {
-                filled += fill(region, baseYm) ? 1 : 0;
+                boolean got = fill(region, baseYm);
+                filled += got ? 1 : 0;
+                if (got) {
+                    tally[0]++;
+                }
             } catch (RuntimeException e) {
                 // 한 지역의 실패로 나머지를 버리지 않는다. 다만 조용히 넘기지도 않는다.
                 failed++;
@@ -191,6 +209,7 @@ public class RegionPoiRefreshService {
                         region.getId(), e.getClass().getSimpleName());
             }
         }
+        warnWipedOutSido(bySido);
         // 셋을 함께 남겨야 "이미 최신이라 안 불렀다" 와 "대상이 없다" 와 "실패했다" 가 로그만으로 갈린다.
         log.info("지역 장소 풀 갱신 baseYm={} 대상={}곳 새로 채움={}곳 이미 최신={}곳 실패={}곳",
                 baseYm, regions.size(), filled, skipped, failed);
@@ -252,6 +271,30 @@ public class RegionPoiRefreshService {
      */
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+
+    /**
+     * 한 시도가 <b>통째로</b> 0건이면 남긴다 — 지역 하나가 빈 것과 뜻이 다르다(#347).
+     *
+     * <p>지역별 warn 은 이미 있지만 89줄에 흩어져 나와 <b>패턴이 안 보인다.</b> "전남 16곳이 한꺼번에 0건" 은
+     * 그 지역에 장소가 없다는 뜻이 아니라 <b>우리가 보내는 지역코드가 더 이상 안 통한다</b>는 뜻일 수 있다.
+     * 행정구역이 개편돼 전남 법정코드가 {@code 46xxx → 12xxx} 로 바뀌었고, 외부가 새 코드로 옮기는 날
+     * 우리 조회는 예외 없이 <b>빈 결과</b>가 된다 — 폴백이 흡수해 아무 흔적도 안 남는다.
+     *
+     * <p>한도 소진·외부 장애도 같은 모양으로 나타나므로 이 한 줄이 셋을 함께 잡는다.
+     *
+     * <p><b>시도한 곳이 둘 이상일 때만</b> 센다. 한 곳뿐인 시도가 마침 비면 "통째로" 라는 말이 과장이 된다.
+     */
+    private void warnWipedOutSido(Map<String, int[]> bySido) {
+        bySido.forEach((sido, tally) -> {
+            int got = tally[0];
+            int tried = tally[1];
+            if (got == 0 && tried >= MIN_SIDO_FOR_WIPEOUT_WARN) {
+                log.warn("지역 장소 풀 — {} {}곳이 전부 0건입니다. 외부 지역코드 개편·한도 소진·장애를 의심하세요",
+                        sido, tried);
+            }
+        });
     }
 
     private static RegionPoi toRegionPoi(long regionId, TourPoi poi, YearMonth baseYm, LocalDateTime now) {

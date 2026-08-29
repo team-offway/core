@@ -36,7 +36,7 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
      */
     public record Item(
             long regionId,
-            @Schema(example = "완도군 · 전라남도") String name,
+            @Schema(example = "완도군 · 전남광주통합특별시") String name,
             @Schema(example = "160") int reachMinutes,
             CrowdLevel crowdLevel,
             @Schema(

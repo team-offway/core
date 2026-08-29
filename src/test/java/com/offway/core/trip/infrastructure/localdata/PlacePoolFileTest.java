@@ -40,7 +40,7 @@ class PlacePoolFileTest {
     private static final Pattern SEED_ROW = Pattern.compile("\\('([^']+)','([^']+)'");
 
     /** 같은 곳을 가리키는 다른 시도 표기 — 생성 스크립트의 SIDO_ALIASES 와 같아야 한다. */
-    private static final Map<String, String> SIDO_ALIASES = Map.of("전남광주통합특별시", "전라남도");
+    private static final Map<String, String> SIDO_ALIASES = Map.of("전라남도", "전남광주통합특별시");
 
     private static final int REGION_COUNT = 89;
 

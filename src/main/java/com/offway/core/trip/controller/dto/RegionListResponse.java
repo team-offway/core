@@ -37,7 +37,7 @@ public record RegionListResponse(List<Item> regions) implements LogSummary {
      */
     public record Item(
             long regionId,
-            @Schema(example = "완도군 · 전라남도") String name,
+            @Schema(example = "완도군 · 전남광주통합특별시") String name,
             CrowdLevel crowdLevel,
             @Schema(
                             example = "http://tong.visitkorea.or.kr/cms/resource/83/1234583_image2_1.jpg",

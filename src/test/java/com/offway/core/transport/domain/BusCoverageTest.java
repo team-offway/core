@@ -44,7 +44,7 @@ class BusCoverageTest {
         "강원특별자치도, 평창군",
         "강원특별자치도, 영월군",
         "강원특별자치도, 삼척시",
-        "전라남도, 화순군",
+        "전남광주통합특별시, 화순군",
     })
     void 목록에_없는_시군구는_커버되지_않는다(String sido, String sigungu) {
         assertFalse(COVERAGE.covers(sido, sigungu));
