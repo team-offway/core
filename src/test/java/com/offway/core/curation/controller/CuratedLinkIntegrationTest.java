@@ -20,6 +20,7 @@ import com.offway.core.trip.domain.HeritageGroup;
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -53,6 +54,14 @@ class CuratedLinkIntegrationTest {
     private static final String COURSE_URL = "/api/v1/courses/{courseId}";
 
     private static final String LINK_TITLES = "$.data.curatedLinks[*].title";
+
+    /**
+     * <b>서비스와 같은 시간대로 오늘을 잡는다.</b> {@code CurationService} 는 {@code Asia/Seoul} 로 기간을
+     * 판정하는데, 여기서 시스템 기본 시간대로 "어제" 를 만들면 두 시간대의 날짜가 갈리는 시간대(KST 오전
+     * 09시 이전)에 그 "어제" 가 서비스 기준으로는 아직 오늘이라 만료 링크가 살아 있게 된다. 그러면 테스트가
+     * 하루 중 몇 시간에만 깨진다.
+     */
+    private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
     /** 정선(16) 당일치기 — 코스 상세를 열려면 저장된 코스가 하나 필요하다. */
     private static final String COURSE_BODY =
@@ -124,10 +133,16 @@ class CuratedLinkIntegrationTest {
     /** 기간이 지난 것을 계속 내리면 눌러 들어가도 끝난 행사다 — policy 가 덴 자리다(#217). */
     @Test
     void 기간이_지난_링크는_실리지_않는다() throws Exception {
-        LocalDate yesterday = LocalDate.now().minusDays(1);
-        save(CuratedLink.create(
-                "끝난 축제", "지난 행사", null, "https://festival.example", null,
-                yesterday.minusDays(30), yesterday, false, Set.of(Surface.REGION), 0, true));
+        LocalDate yesterday = LocalDate.now(SERVICE_ZONE).minusDays(1);
+        save(CuratedLink.builder()
+                .title("끝난 축제")
+                .chipText("지난 행사")
+                .linkUrl("https://festival.example")
+                .startsOn(yesterday.minusDays(30))
+                .endsOn(yesterday)
+                .surfaces(Set.of(Surface.REGION))
+                .published(true)
+                .build());
 
         mockMvc.perform(get(REGION_URL, anyRegionId()).with(loginAs(UUID.randomUUID())))
                 .andExpect(status().isOk())
@@ -136,10 +151,16 @@ class CuratedLinkIntegrationTest {
 
     @Test
     void 아직_시작하지_않은_링크는_실리지_않는다() throws Exception {
-        LocalDate tomorrow = LocalDate.now().plusDays(1);
-        save(CuratedLink.create(
-                "다음 달 축제", "곧 시작", null, "https://festival.example", null,
-                tomorrow, tomorrow.plusDays(30), false, Set.of(Surface.REGION), 0, true));
+        LocalDate tomorrow = LocalDate.now(SERVICE_ZONE).plusDays(1);
+        save(CuratedLink.builder()
+                .title("다음 달 축제")
+                .chipText("곧 시작")
+                .linkUrl("https://festival.example")
+                .startsOn(tomorrow)
+                .endsOn(tomorrow.plusDays(30))
+                .surfaces(Set.of(Surface.REGION))
+                .published(true)
+                .build());
 
         mockMvc.perform(get(REGION_URL, anyRegionId()).with(loginAs(UUID.randomUUID())))
                 .andExpect(status().isOk())
@@ -207,9 +228,15 @@ class CuratedLinkIntegrationTest {
     /** 기간 판정과 무관하게 늘 보이는 링크 — 각 테스트가 자기가 볼 조건만 바꿔 만든다. */
     private static CuratedLink link(
             String title, String chipText, String description, Set<Surface> surfaces, boolean published) {
-        return CuratedLink.create(
-                title, chipText, description, "https://tour.jeonnam.go.kr", null,
-                null, null, true, surfaces, 0, published);
+        return CuratedLink.builder()
+                .title(title)
+                .chipText(chipText)
+                .description(description)
+                .linkUrl("https://tour.jeonnam.go.kr")
+                .alwaysOn(true)
+                .surfaces(surfaces)
+                .published(published)
+                .build();
     }
 
     /** 어느 지역이든 좋다 — 이 테스트가 보는 것은 지역 내용이 아니라 함께 실리는 링크다. */
