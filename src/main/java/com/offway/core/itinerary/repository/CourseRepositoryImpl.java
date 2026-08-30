@@ -23,6 +23,11 @@ public class CourseRepositoryImpl implements CourseRepository {
     }
 
     @Override
+    public List<Course> findByIds(List<Long> ids) {
+        return ids.isEmpty() ? List.of() : courseJpaRepository.findAllById(ids);
+    }
+
+    @Override
     public Optional<Course> findById(Long id) {
         return courseJpaRepository.findById(id);
     }
