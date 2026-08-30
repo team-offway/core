@@ -4,6 +4,7 @@ import com.offway.core.notification.domain.Notification;
 import com.offway.core.notification.domain.NotificationType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
+import lombok.Builder;
 
 /**
  * 알림 한 건(#263).
@@ -23,6 +24,7 @@ import java.time.LocalDateTime;
  * @param read 읽었는지
  * @param createdAt 알림이 만들어진 시각(KST)
  */
+@Builder
 public record NotificationResponse(
         long id,
         NotificationType type,
@@ -31,13 +33,19 @@ public record NotificationResponse(
         boolean read,
         LocalDateTime createdAt) {
 
+    /**
+     * 빌더로 조립하는 이유 — 필드가 여섯이고 <b>앞으로 더 는다</b>(#357 이 알림 id 를 붙일 자리를 보고
+     * 있다). 위치 인수는 같은 타입이 이웃할 때 조용히 어긋나는데, 그 조합은 필드가 늘면서 생긴다 —
+     * 지금 안 겹친다고 두면 겹치는 날 컴파일이 아무 말도 안 한다.
+     */
     public static NotificationResponse from(Notification notification, String regionName) {
-        return new NotificationResponse(
-                notification.getId(),
-                notification.getType(),
-                notification.getCourseId(),
-                regionName,
-                notification.isRead(),
-                notification.getCreatedAt());
+        return NotificationResponse.builder()
+                .id(notification.getId())
+                .type(notification.getType())
+                .courseId(notification.getCourseId())
+                .regionName(regionName)
+                .read(notification.isRead())
+                .createdAt(notification.getCreatedAt())
+                .build();
     }
 }

@@ -166,29 +166,38 @@ class NotificationIntegrationTest {
     /** 정선군(16) — 짧은 이름은 {@code 정선} 이다. */
     private static final long JEONGSEON_REGION_ID = 16L;
 
-    /** 코스를 하나 심고 그 id 를 준다. 알림이 가리킬 대상이라 내용은 최소로 둔다. */
-    private long persistedCourse(long regionId) {
+    /** 코스를 하나 심는다. 알림이 가리킬 대상이라 내용은 최소로 둔다. */
+    private Course persistedCourse(long regionId) {
         Slot slot = Slot.of(1, TimeOfDay.MORNING, SlotKind.SIGHT, "region-name-test", 12,
                 "지역명 테스트 장소", 37.38, 128.66, 0, SlotDisplay.none());
-        return courseRepository
-                .save(Course.of(regionId, Density.RELAXED, TransportMode.CAR,
-                        List.of(DaySchedule.of(1, List.of(slot))), LocalDate.now(), 1, StartDayLeave.FULL_DAY))
-                .getId();
+        return courseRepository.save(Course.of(regionId, Density.RELAXED, TransportMode.CAR,
+                List.of(DaySchedule.of(1, List.of(slot))), LocalDate.now(), 1, StartDayLeave.FULL_DAY));
     }
 
     /**
      * 앱이 <b>'정선 여행' 다녀오셨나요?</b> 를 그릴 수 있게 지역명을 함께 준다.
      *
      * <p>안 주면 앱이 알림마다 코스를 조회해야 하는데, 알림 다섯 건이면 요청 다섯 번이다.
+     *
+     * <p><b>코스는 이 테스트가 치운다.</b> 이 클래스는 롤백이 없다 — 알림은 주인을 매번 새로 만들어
+     * 남아도 무해하지만, 코스는 주인이 없어({@code userId} 가 null) 다른 배치 테스트의 조회에 걸릴 수
+     * 있다. {@code @AfterEach} 로 코스를 통째로 지우면 <b>같은 컨테이너를 쓰는 다른 클래스의 코스까지</b>
+     * 지우므로, 내가 만든 것만 {@code finally} 에서 지운다.
      */
     @Test
     void 코스가_있으면_문장에_넣을_지역명을_함께_준다() throws Exception {
         String owner = newOwner();
-        given(owner, persistedCourse(JEONGSEON_REGION_ID), 0);
+        Course course = persistedCourse(JEONGSEON_REGION_ID);
+        try {
+            given(owner, course.getId(), 0);
 
-        mockMvc.perform(get(URL).with(as(owner)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.notifications[0].regionName").value("정선"));
+            mockMvc.perform(get(URL).with(as(owner)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.notifications[0].regionName").value("정선"));
+        } finally {
+            // 단언이 실패해도 치운다 — 실패한 테스트가 다음 실행까지 오염시키면 원인이 두 배로 헷갈린다.
+            courseRepository.delete(course);
+        }
     }
 
     /**
