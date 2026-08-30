@@ -158,7 +158,7 @@ gh api graphql -f query='
 
 reply 말미에는 되돌릴 여지를 남긴다. 닫되 못 박지 않는다.
 
-```
+```text
 판단이 다르시면 그쪽을 따르겠습니다. resolve 합니다.
 ```
 
@@ -182,7 +182,7 @@ gh pr list --state all --search "<핵심어>" --limit 20 --json number,title,sta
 
 reply 는 이렇게 닫는다.
 
-```
+```text
 지적 자체는 맞습니다. 다만 이 PR 이 만든 것도, 바꾸는 것도 아닙니다.
 (근거 — diff 에 없다 / 다른 PR 이 만들었다 / 한 도메인만 고치면 경계가 는다)
 
