@@ -2,6 +2,9 @@ package com.offway.core.curation.repository;
 
 import com.offway.core.curation.domain.CuratedLink;
 import java.util.List;
+import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 /** 도메인이 의존하는 port. 구현은 {@link CuratedLinkRepositoryImpl}. */
 public interface CuratedLinkRepository {
@@ -14,4 +17,26 @@ public interface CuratedLinkRepository {
      * 조용히 틀린다. 게시된 행이 수십 건 규모라 전부 읽어 도메인이 판정하는 편이 싸고 정확하다.
      */
     List<CuratedLink> findAllPublished();
+
+    /**
+     * 어드민 목록 — <b>게시 여부·기간과 무관하게 전부</b>(#342).
+     *
+     * <p>앱 조회({@link #findAllPublished})와 달리 거르지 않는다. 만들다 만 것과 기간이 지난 것을 못 보면
+     * 어드민이 고칠 수가 없다.
+     */
+    Page<CuratedLink> findAll(Pageable pageable);
+
+    Optional<CuratedLink> findById(long id);
+
+    CuratedLink save(CuratedLink link);
+
+    /**
+     * 지우고 <b>지운 행 수</b>를 돌려준다.
+     *
+     * <p>{@code void} 로 두면 "없어서 못 지웠다" 와 "지웠다" 가 구분되지 않아, 호출부가 미리 조회해 확인해야
+     * 한다. 그 두 문장 사이에 다른 어드민이 같은 항목을 지우면 404 여야 할 요청이 200 으로 나간다.
+     *
+     * @return 지운 행 수. 없었으면 0
+     */
+    int deleteById(long id);
 }

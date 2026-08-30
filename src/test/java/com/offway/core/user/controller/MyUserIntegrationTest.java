@@ -9,10 +9,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.offway.core.user.domain.AuthProvider;
+import com.offway.core.user.domain.AccountRole;
 import com.offway.core.user.domain.User;
 import com.offway.core.user.repository.UserJpaRepository;
 import com.offway.core.user.service.TokenIssuer;
 import com.offway.core.user.infrastructure.social.StubSocialIdentityVerifier;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -107,7 +109,7 @@ class MyUserIntegrationTest {
     @Test
     void 소셜_연결이_없는_계정은_provider가_null_로_실린다() throws Exception {
         User withoutIdentity = userJpaRepository.save(User.withNickname("연결없는사용자"));
-        String accessToken = tokenIssuer.issueAccessToken(withoutIdentity.getId());
+        String accessToken = tokenIssuer.issueAccessToken(withoutIdentity.getId(), Set.of(AccountRole.USER));
 
         mockMvc.perform(me(accessToken))
                 .andExpect(status().isOk())

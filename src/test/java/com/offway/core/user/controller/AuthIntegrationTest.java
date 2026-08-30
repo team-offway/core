@@ -543,7 +543,7 @@ class AuthIntegrationTest {
             logger.detachAppender(appender);
         }
 
-        UUID userId = tokenIssuer.parseAccessToken(JsonPath.read(body, "$.data.accessToken"));
+        UUID userId = tokenIssuer.parseAccessToken(JsonPath.read(body, "$.data.accessToken")).userId();
         String line = appender.list.stream()
                 .map(ILoggingEvent::getFormattedMessage)
                 .filter(message -> message.startsWith("로그인 성공"))
