@@ -95,6 +95,17 @@ public class CuratedLink {
     private boolean published;
 
     /**
+     * 마지막으로 고친 어드민의 label(#342).
+     *
+     * <p>배포 없이 값을 고칠 수 있게 되면 <b>누가 언제 바꿨는지가 유일한 추적 수단</b>이 된다. seed SQL
+     * 시절에는 git blame 이 그 역할을 했다.
+     *
+     * <p>seed 로 들어온 행은 null 이다 — 사람이 고친 적이 없다는 뜻이고, 그것도 정보다.
+     */
+    @Column(name = "updated_by", length = 100)
+    private String updatedBy;
+
+    /**
      * <b>빌더로 연다.</b> 처음에는 검증이 본체라는 이유로 static 팩토리를 뒀는데, 그건 빌더와 배타적이지
      * 않다 — Lombok 빌더는 이 생성자를 그대로 호출하므로 검증이 똑같이 돈다. 반면 위치 인수는 실제로
      * 위험하다: 인자 열하나 중 문자열이 다섯이고, <b>{@code alwaysOn} 과 {@code published} 가 붙어 있는
@@ -113,7 +124,56 @@ public class CuratedLink {
             boolean alwaysOn,
             Set<Surface> surfaces,
             int displayOrder,
-            boolean published) {
+            boolean published,
+            String updatedBy) {
+        apply(title, chipText, description, linkUrl, thumbnailUrl,
+                startsOn, endsOn, alwaysOn, surfaces, displayOrder, published, updatedBy);
+    }
+
+    /**
+     * 어드민이 고친 값으로 갈아 끼운다(#342) — <b>부분 수정이 아니라 전체 교체</b>다.
+     *
+     * <p>필드별로 "보낸 것만 바꾸는" 방식을 쓰지 않는다. 기간 규칙(상시가 아니면 종료일 필수)처럼
+     * <b>여러 필드가 함께 봐야 성립하는 불변식</b>이 있어, 한 필드만 바꾸면 나머지와 어긋난 상태가
+     * 만들어진다. 화면도 폼 전체를 들고 있으므로 전부 받는 편이 자연스럽다.
+     *
+     * <p>검증은 생성자와 <b>같은 코드</b>를 탄다({@code apply}). 만들 때는 막고 고칠 때는 통과하는 값이
+     * 생기면, 어드민이 저장 한 번으로 불변식을 우회하게 된다.
+     */
+    public void update(
+            String title,
+            String chipText,
+            String description,
+            String linkUrl,
+            String thumbnailUrl,
+            LocalDate startsOn,
+            LocalDate endsOn,
+            boolean alwaysOn,
+            Set<Surface> surfaces,
+            int displayOrder,
+            boolean published,
+            String updatedBy) {
+        apply(title, chipText, description, linkUrl, thumbnailUrl,
+                startsOn, endsOn, alwaysOn, surfaces, displayOrder, published, updatedBy);
+    }
+
+    /**
+     * 만들 때와 고칠 때가 <b>같은 코드를 탄다.</b> 두 벌로 두면 한쪽에만 규칙을 더하게 되고, 그러면
+     * 어드민이 저장 한 번으로 불변식을 우회한다.
+     */
+    private void apply(
+            String title,
+            String chipText,
+            String description,
+            String linkUrl,
+            String thumbnailUrl,
+            LocalDate startsOn,
+            LocalDate endsOn,
+            boolean alwaysOn,
+            Set<Surface> surfaces,
+            int displayOrder,
+            boolean published,
+            String updatedBy) {
         this.title = requireText(title, "제목");
         this.chipText = requireChipText(chipText);
         this.description = blankToNull(description);
@@ -126,6 +186,7 @@ public class CuratedLink {
         this.surfaces = requireSurfaces(surfaces);
         this.displayOrder = displayOrder;
         this.published = published;
+        this.updatedBy = blankToNull(updatedBy);
     }
 
     /** 이 링크가 오늘 그 면에 나가는가 — 게시됐고, 기간 안이고, 그 면이 켜져 있어야 한다. */
