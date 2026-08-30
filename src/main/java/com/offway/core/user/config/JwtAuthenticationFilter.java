@@ -2,8 +2,10 @@ package com.offway.core.user.config;
 
 import com.offway.core.common.logging.LogAttributes;
 import com.offway.core.common.logging.RootCause;
+import com.offway.core.user.domain.AccountRole;
 import com.offway.core.user.domain.UserException;
 import com.offway.core.user.service.TokenIssuer;
+import com.offway.core.user.service.dto.AuthenticatedAccount;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,9 +34,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
-    /** {@code SecurityConfig.APP_USER_ROLE} 에 대응하는 권한 이름. Spring 이 역할 앞에 붙이는 접두어를 포함한다. */
-    private static final String APP_USER_AUTHORITY = "ROLE_USER";
-
     private final TokenIssuer tokenIssuer;
 
     @Override
@@ -50,11 +49,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private void authenticate(String accessToken, HttpServletRequest request) {
         try {
-            UUID userId = tokenIssuer.parseAccessToken(accessToken);
+            AuthenticatedAccount account = tokenIssuer.parseAccessToken(accessToken);
             SecurityContextHolder.getContext()
                     // 역할을 여기서 준다 — 상태를 바꾸는 요청은 이것을 요구해 Basic 으로는 닿지 못한다(CSRF).
+                    // 백오피스 권한도 같은 자리에서 온다(#342). 토큰이 실어 온 것만 주고, 여기서 DB 를
+                    // 다시 보지 않는다 — 모든 요청이 조회를 하나 더 하게 된다.
                     .setAuthentication(new UsernamePasswordAuthenticationToken(
-                            userId, null, List.of(new SimpleGrantedAuthority(APP_USER_AUTHORITY))));
+                            account.userId(), null, authorities(account)));
         } catch (UserException exception) {
             SecurityContextHolder.clearContext();
             // **여기서 로그를 찍지 않는다.** 이 필터는 실패해도 통과시키고 401 은 인가 단계가 만든다 —
@@ -62,6 +63,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // 실어 넘겨 401 한 줄로 합친다(#41).
             request.setAttribute(LogAttributes.TOKEN_REJECTION, RootCause.label(exception));
         }
+    }
+
+    /** {@code principal} 은 {@code @LoginUser} 가 푸는 값이라 그대로 userId 를 둔다 — 역할만 권한으로 옮긴다. */
+    private static List<SimpleGrantedAuthority> authorities(AuthenticatedAccount account) {
+        return account.roles().stream()
+                .map(AccountRole::authority)
+                .map(SimpleGrantedAuthority::new)
+                .toList();
     }
 
     private static String resolveToken(HttpServletRequest request) {
