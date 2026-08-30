@@ -210,4 +210,62 @@ class CuratedLinkTest {
     void 기간이_지났으면_게시했어도_안_보인다() {
         assertFalse(link(STARTS, ENDS, Set.of(Surface.HOME), true).visibleOn(Surface.HOME, ENDS.plusDays(1)));
     }
+
+    // ── 어드민 수정 (#342) ────────────────────────────────────────────────
+
+    /** 어드민이 고치면 <b>전체가 갈린다</b> — 부분 갱신이 아니다. */
+    @Test
+    void 수정하면_모든_값이_새_값으로_바뀐다() {
+        CuratedLink link = valid().build();
+
+        link.update("새 제목", "새 칩", "새 부제", "https://new.example", "https://new.example/t.jpg",
+                STARTS, ENDS, false, Set.of(Surface.COURSE, Surface.POI), 7, true, "박세빈");
+
+        assertEquals("새 제목", link.getTitle());
+        assertEquals("새 칩", link.getChipText());
+        assertEquals("새 부제", link.getDescription());
+        assertEquals("https://new.example", link.getLinkUrl());
+        assertEquals("https://new.example/t.jpg", link.getThumbnailUrl());
+        assertEquals(Set.of(Surface.COURSE, Surface.POI), link.surfacesOf());
+        assertEquals(7, link.getDisplayOrder());
+        assertTrue(link.isPublished());
+        assertEquals("박세빈", link.getUpdatedBy());
+    }
+
+    /** 비운 값은 <b>지워진다</b>. 부분 갱신이면 옛 부제가 남아, 화면에서 지운 줄이 계속 나간다. */
+    @Test
+    void 수정에서_비운_값은_지워진다() {
+        CuratedLink link = valid().description("옛 부제").thumbnailUrl("https://old.example/t.jpg").build();
+
+        link.update("제목", "칩", null, "https://a.example", null,
+                null, ENDS, false, Set.of(Surface.HOME), 0, false, "박세빈");
+
+        assertEquals(null, link.getDescription());
+        assertEquals(null, link.getThumbnailUrl());
+    }
+
+    /**
+     * <b>만들 때 막히는 값은 고칠 때도 막혀야 한다.</b> 한쪽만 검사하면 어드민이 저장 한 번으로 불변식을
+     * 우회한다 — 만들 때 https 를 강제하고 수정에서 놓치면 http 주소가 앱에 나간다.
+     */
+    @Test
+    void 수정도_생성과_같은_규칙을_받는다() {
+        CuratedLink link = valid().build();
+
+        assertEquals(CurationErrorCode.INSECURE_LINK_URL, errorCodeOf(() -> link.update(
+                "제목", "칩", null, "http://a.example", null,
+                null, ENDS, false, Set.of(Surface.HOME), 0, true, "박세빈")));
+        assertEquals(CurationErrorCode.END_DATE_REQUIRED, errorCodeOf(() -> link.update(
+                "제목", "칩", null, "https://a.example", null,
+                STARTS, null, false, Set.of(Surface.HOME), 0, true, "박세빈")));
+        assertEquals(CurationErrorCode.SURFACE_REQUIRED, errorCodeOf(() -> link.update(
+                "제목", "칩", null, "https://a.example", null,
+                null, ENDS, false, Set.of(), 0, true, "박세빈")));
+    }
+
+    /** seed 로 들어온 행은 사람이 손댄 적이 없다 — null 이 그 사실을 말한다. */
+    @Test
+    void 고친_사람을_안_적으면_null_이다() {
+        assertEquals(null, valid().build().getUpdatedBy());
+    }
 }
