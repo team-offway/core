@@ -38,7 +38,7 @@ public enum NotificationType {
      * <p>서버가 여행 날짜를 들고 있어 판단에 외부가 필요 없고, 알림을 받는 시점(전날)이 사용자가 할 일
      * (짐 싸기)과 맞는다.
      */
-    TRIP_TOMORROW("알림", "내일은 여행을 떠나는 날이에요. 짐은 다 챙기셨나요?"),
+    TRIP_TOMORROW("내일은 여행을 떠나는 날이에요. 짐은 다 챙기셨나요?"),
 
     /**
      * 여행이 끝났다 — 연차를 기록해 달라(#302).
@@ -50,24 +50,29 @@ public enum NotificationType {
      * <p>추가 기준을 둘 다 만족한다 — 서버가 여행 날짜를 들고 있고({@code Course}), 같은 판단을 하는 코드가
      * 이미 있다({@code TripOutcomeService.pending()}).
      */
-    TRIP_AFTER("알림", "여행, 다녀오셨나요? 연차를 사용했다면 기록해 주세요.");
+    TRIP_AFTER("여행, 다녀오셨나요? 연차를 사용했다면 기록해 주세요.");
 
-    private final String bannerTitle;
+    /**
+     * 잠금화면·알림센터에 뜨는 제목 — <b>종류와 무관하게 하나다.</b>
+     *
+     * <p>제목 칸이 말하는 것은 "무슨 알림인지" 가 아니라 <b>"어디서 온 알림인지"</b> 다. 무엇에 관한
+     * 알림인지는 본문이 말하고, 앱도 알림함에서 같은 말을 쓴다 — 배너와 목록이 다르게 말하면 사용자는
+     * 두 개의 알림으로 읽는다.
+     *
+     * <p>그래서 종류마다 받지 않고 여기 한 번만 적는다. 나중에 제목이 달라야 하는 종류가 생기면 그때
+     * 생성자로 내린다 — 지금 미리 열어 두면 값이 전부 같은 칸을 종류마다 반복해 적게 된다.
+     */
+    private static final String BANNER_TITLE = "알림";
+
     private final String bannerBody;
 
-    NotificationType(String bannerTitle, String bannerBody) {
-        this.bannerTitle = bannerTitle;
+    NotificationType(String bannerBody) {
         this.bannerBody = bannerBody;
     }
 
-    /**
-     * 잠금화면·알림센터에 뜨는 제목.
-     *
-     * <p>앱이 알림함에 쓰는 것과 같은 말이다 — 배너와 목록이 다른 문구를 말하면 사용자는 두 개의 알림으로
-     * 읽는다.
-     */
+    /** 잠금화면·알림센터에 뜨는 제목. */
     public String bannerTitle() {
-        return bannerTitle;
+        return BANNER_TITLE;
     }
 
     /**

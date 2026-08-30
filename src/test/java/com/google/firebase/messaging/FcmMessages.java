@@ -19,6 +19,14 @@ import java.util.Map;
  */
 public final class FcmMessages {
 
+    /**
+     * {@code wrapForTransport} 의 URL 인코딩 여부 — <b>끈다.</b>
+     *
+     * <p>켜면 한글 문구가 퍼센트 인코딩돼 나와, 우리가 실은 문장을 그대로 찾을 수 없다. 여기서 보려는 것은
+     * 전송 규격이 아니라 <b>어떤 값을 실었는가</b>다.
+     */
+    private static final boolean NO_URL_ENCODE = false;
+
     private FcmMessages() {
     }
 
@@ -31,7 +39,7 @@ public final class FcmMessages {
      */
     public static String transportJsonOf(Message message) {
         try {
-            return GsonFactory.getDefaultInstance().toString(message.wrapForTransport(false));
+            return GsonFactory.getDefaultInstance().toString(message.wrapForTransport(NO_URL_ENCODE));
         } catch (IOException e) {
             throw new IllegalStateException("FCM 메시지를 직렬화하지 못했습니다", e);
         }
