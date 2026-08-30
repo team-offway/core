@@ -240,6 +240,17 @@ public class AuthService {
      * 재발급 경로용 — 토큰에는 subject 가 없어 신원을 한 번 더 읽는다.
      *
      * <p>개발 로그인 사용자는 신원이 없다. 그때는 일반 사용자로 본다 — 없는 것을 어드민으로 볼 이유가 없다.
+     *
+     * <h2>어드민은 <b>사람</b> 단위다 — 로그인 세션 단위가 아니다</h2>
+     *
+     * <p>{@code findFirstByUserId} 로 신원을 하나 집는다. 지금은 사용자당 신원이 하나뿐이라(다른 provider
+     * 로 로그인하면 {@code register} 가 <b>새 사용자</b>를 만든다 — 매칭 키가 provider+sub 이고 계정을
+     * 잇는 경로가 없다) 고를 것이 없다.
+     *
+     * <p>나중에 계정 연결이 생겨 한 사용자에 신원이 여럿 달리면 <b>그때도 이 기준이 맞다.</b> 그 신원들은
+     * 같은 사람이고, 그중 하나가 화이트리스트에 있으면 그 사람은 어드민이다 — 어느 provider 로 로그인했는지는
+     * 권한의 근거가 아니다. 감사 흔적을 남기는 {@code AdminAccountService.labelOf(userId)} 도 같은 기준으로
+     * 본다. 재발급만 세션 기준으로 바꾸면 "누가 어드민인가" 와 "누가 고쳤나" 가 서로 다른 답을 낸다.
      */
     private Set<AccountRole> rolesOf(UUID userId) {
         return userIdentityRepository
