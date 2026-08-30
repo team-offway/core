@@ -4,6 +4,7 @@ import static com.offway.core.user.config.TestLogins.loginAs;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -12,9 +13,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.offway.core.notification.domain.Notification;
+import com.offway.core.itinerary.domain.Course;
+import com.offway.core.itinerary.domain.DaySchedule;
+import com.offway.core.itinerary.domain.Density;
+import com.offway.core.itinerary.domain.Slot;
+import com.offway.core.itinerary.domain.SlotDisplay;
+import com.offway.core.itinerary.domain.SlotKind;
+import com.offway.core.itinerary.domain.TimeOfDay;
+import com.offway.core.itinerary.repository.CourseRepository;
+import com.offway.core.leave.domain.StartDayLeave;
+import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.notification.domain.NotificationType;
 import com.offway.core.notification.repository.NotificationRepository;
 import com.offway.core.user.config.WithLoginUser;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -78,6 +90,9 @@ class NotificationIntegrationTest {
 
     @Autowired
     private NotificationRepository notificationRepository;
+
+    @Autowired
+    private CourseRepository courseRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -144,6 +159,61 @@ class NotificationIntegrationTest {
                 // 코스와 무관한 알림은 courseId 가 비어 나간다 — 앱이 이동을 걸지 않는 신호다.
                 .andExpect(jsonPath("$.data.notifications[1].courseId").doesNotExist())
                 .andExpect(jsonPath("$.data.unreadCount").value(3));
+    }
+
+    // ── 지역명 (#356) ─────────────────────────────────────────────────────
+
+    /** 정선군(16) — 짧은 이름은 {@code 정선} 이다. */
+    private static final long JEONGSEON_REGION_ID = 16L;
+
+    /** 코스를 하나 심고 그 id 를 준다. 알림이 가리킬 대상이라 내용은 최소로 둔다. */
+    private long persistedCourse(long regionId) {
+        Slot slot = Slot.of(1, TimeOfDay.MORNING, SlotKind.SIGHT, "region-name-test", 12,
+                "지역명 테스트 장소", 37.38, 128.66, 0, SlotDisplay.none());
+        return courseRepository
+                .save(Course.of(regionId, Density.RELAXED, TransportMode.CAR,
+                        List.of(DaySchedule.of(1, List.of(slot))), LocalDate.now(), 1, StartDayLeave.FULL_DAY))
+                .getId();
+    }
+
+    /**
+     * 앱이 <b>'정선 여행' 다녀오셨나요?</b> 를 그릴 수 있게 지역명을 함께 준다.
+     *
+     * <p>안 주면 앱이 알림마다 코스를 조회해야 하는데, 알림 다섯 건이면 요청 다섯 번이다.
+     */
+    @Test
+    void 코스가_있으면_문장에_넣을_지역명을_함께_준다() throws Exception {
+        String owner = newOwner();
+        given(owner, persistedCourse(JEONGSEON_REGION_ID), 0);
+
+        mockMvc.perform(get(URL).with(as(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.notifications[0].regionName").value("정선"));
+    }
+
+    /**
+     * 알림은 코스가 지워져도 남는다({@code Notification} 이 raw ID 로 참조하는 이유). 그때 지역명은
+     * <b>키를 빼지 않고 null</b> 이다 — 앱이 지역명 없는 문구로 되돌리는 신호다.
+     */
+    @Test
+    void 코스가_지워졌으면_지역명은_null_이다() throws Exception {
+        String owner = newOwner();
+        given(owner, 999_999_999L, 0);
+
+        mockMvc.perform(get(URL).with(as(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.notifications[0].regionName", nullValue()));
+    }
+
+    /** 코스와 무관한 알림도 마찬가지다 — 가리킬 코스가 없으니 지역도 없다. */
+    @Test
+    void 코스가_없는_알림도_지역명은_null_이다() throws Exception {
+        String owner = newOwner();
+        given(owner, null, 0);
+
+        mockMvc.perform(get(URL).with(as(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.notifications[0].regionName", nullValue()));
     }
 
     @Test
