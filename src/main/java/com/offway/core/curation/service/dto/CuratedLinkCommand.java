@@ -4,6 +4,7 @@ import com.offway.core.curation.domain.CuratedLink;
 import com.offway.core.curation.domain.Surface;
 import java.time.LocalDate;
 import java.util.Set;
+import lombok.Builder;
 
 /**
  * 어드민이 만들거나 고치는 큐레이션 링크 한 건(#342) — 내부 command.
@@ -12,7 +13,12 @@ import java.util.Set;
  * 여러 필드가 함께 봐야 성립하는 불변식이 있어, 한 필드만 바꾸면 나머지와 어긋난 상태가 만들어진다.
  *
  * <p>값 검증은 여기서 하지 않는다. 도메인 생성자가 최후의 보루이고, 여기서 한 번 더 하면 규칙이 두 곳이 된다.
+ *
+ * <p><b>빌더로 조립한다.</b> 필드가 열하나이고 그중 문자열이 다섯, 그리고 {@code alwaysOn}·{@code published}
+ * 가 붙어 있는 boolean 둘이다 — 뒤바뀌면 만들다 만 항목이 앱에 나가거나 기간이 있는 항목이 영구 노출로
+ * 굳는데 컴파일은 통과한다. {@code CuratedLink} 와 같은 이유다.
  */
+@Builder
 public record CuratedLinkCommand(
         String title,
         String chipText,

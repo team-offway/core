@@ -69,17 +69,18 @@ public record AdminCuratedLinkRequest(
     private static final boolean DEFAULT_PUBLISHED = false;
 
     public CuratedLinkCommand toCommand() {
-        return new CuratedLinkCommand(
-                title,
-                chipText,
-                description,
-                linkUrl,
-                thumbnailUrl,
-                startsOn,
-                endsOn,
-                alwaysOn != null ? alwaysOn : DEFAULT_ALWAYS_ON,
-                surfaces,
-                displayOrder != null ? displayOrder : DEFAULT_DISPLAY_ORDER,
-                published != null ? published : DEFAULT_PUBLISHED);
+        return CuratedLinkCommand.builder()
+                .title(title)
+                .chipText(chipText)
+                .description(description)
+                .linkUrl(linkUrl)
+                .thumbnailUrl(thumbnailUrl)
+                .startsOn(startsOn)
+                .endsOn(endsOn)
+                .alwaysOn(alwaysOn != null ? alwaysOn : DEFAULT_ALWAYS_ON)
+                .surfaces(surfaces)
+                .displayOrder(displayOrder != null ? displayOrder : DEFAULT_DISPLAY_ORDER)
+                .published(published != null ? published : DEFAULT_PUBLISHED)
+                .build();
     }
 }
