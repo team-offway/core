@@ -7,6 +7,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
+import java.util.List;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -27,6 +28,9 @@ public class Region {
 
     @Column(nullable = false, length = 40)
     private String sigungu;
+
+    /** 알림 문구가 쓰는 짧은 이름에서 떼는 접미사. <b>{@code 구} 는 넣지 않는다</b> — 아래 참고. */
+    private static final List<String> TRIMMABLE_SUFFIXES = List.of("군", "시");
 
     @Column(name = "notice_date", nullable = false)
     private LocalDate noticeDate;
@@ -71,4 +75,29 @@ public class Region {
      */
     @Column(name = "legal_code", nullable = false, length = 5)
     private String legalCode;
+
+    /**
+     * 문장에 넣을 짧은 지명 — {@code 정선군} → {@code 정선}(#356).
+     *
+     * <p>알림 문구가 <b>'정선 여행'</b> 처럼 읽혀야 하는데 {@code 정선군 여행} 은 어색하다. 그래서 접미사를
+     * 떼는데, <b>{@code 구} 는 떼지 않는다.</b>
+     *
+     * <p>89곳 중 다섯이 자치구다(남구·동구·서구 둘·영도구). 무턱대고 한 글자를 떼면 {@code 동구} 가
+     * {@code 동}, {@code 남구} 가 {@code 남} 이 된다 — 지명이 아니게 된다. {@code 영도구} 만 {@code 영도} 로
+     * 말이 되는데, 그 하나를 위해 나머지 넷을 깨뜨릴 이유가 없다. {@code 동구 여행} 은 그대로도 읽힌다.
+     *
+     * <p><b>서버가 다듬어 내려보내는 이유</b> — 앱이 접미사를 떼면 그 다섯 곳에서 같은 함정을 밟는다.
+     * 어느 이름이 자치구인지는 이 표를 가진 쪽만 안다.
+     *
+     * <p>시도는 붙이지 않는다. {@code #348} 로 전남 16곳이 {@code 전남광주통합특별시} 가 되면서 시도까지
+     * 붙은 이름은 15자가 됐다 — 배너 한 줄에 들어가지 않는다.
+     */
+    public String shortName() {
+        for (String suffix : TRIMMABLE_SUFFIXES) {
+            if (sigungu.length() > suffix.length() && sigungu.endsWith(suffix)) {
+                return sigungu.substring(0, sigungu.length() - suffix.length());
+            }
+        }
+        return sigungu;
+    }
 }

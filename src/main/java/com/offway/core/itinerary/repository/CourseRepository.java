@@ -55,6 +55,14 @@ public interface CourseRepository {
      */
     Optional<Course> findById(Long id);
 
+    /**
+     * 여러 코스를 한 번에 — 알림 목록이 지역명을 채울 때 쓴다(#356).
+     *
+     * <p>한 건씩 읽으면 알림 20건이 조회 20번이 된다. 그리고 <b>없는 id 는 그냥 빠진다</b> — 알림은 코스가
+     * 지워져도 남으므로(raw ID 참조) 못 찾는 것이 정상이고, 호출부가 그때 지역명을 비운다.
+     */
+    List<Course> findByIds(List<Long> ids);
+
     /** 애그리거트 통째 삭제. 하위(DaySchedule·Slot)는 cascade·orphanRemoval 로 함께 지워진다. */
     void delete(Course course);
 

@@ -1,13 +1,22 @@
 package com.offway.core.notification.service;
 
 import com.offway.core.common.response.Paging;
+import com.offway.core.itinerary.domain.Course;
+import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.notification.domain.Notification;
 import com.offway.core.notification.domain.NotificationException;
 import com.offway.core.notification.repository.NotificationRepository;
 import com.offway.core.notification.service.dto.MyNotifications;
+import com.offway.core.region.domain.Region;
+import com.offway.core.region.repository.RegionRepository;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -31,6 +40,8 @@ public class NotificationService {
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
     private final NotificationRepository notificationRepository;
+    private final CourseRepository courseRepository;
+    private final RegionRepository regionRepository;
 
     /**
      * 소유자의 알림 한 페이지 + 안읽음 전체 수.
@@ -39,12 +50,49 @@ public class NotificationService {
      * 상한이 없으면 오래 쓴 사용자의 목록 한 번이 계속 커진다. 기본값·상한은 {@link Paging} 이 소유한다.
      *
      * <p><b>안읽음 수는 따로 센다.</b> 배지가 쓰는 값이라 페이지 안에서 세면 첫 페이지 크기에서 멈춘다.
+     *
+     * <p><b>지역명을 함께 채운다</b>(#356). 안 주면 앱이 알림마다 코스를 조회해야 하는데, 알림 다섯 건이면
+     * 요청 다섯 번이고 지워진 코스는 404 라 그 알림만 지역명이 빈다.
      */
     @Transactional(readOnly = true)
     public MyNotifications myNotifications(UUID userId, Integer page, Integer size) {
         UUID owner = Notification.requireOwner(userId);
         Page<Notification> found = notificationRepository.findByOwner(owner, Paging.of(page, size));
-        return MyNotifications.of(found, notificationRepository.countUnread(owner));
+        return MyNotifications.of(
+                found, regionNamesOf(found.getContent()), notificationRepository.countUnread(owner));
+    }
+
+    /**
+     * 이 페이지의 알림들이 가리키는 코스의 지역명 — <b>한 페이지에 조회 두 번</b>이다.
+     *
+     * <p>알림마다 코스를 읽으면 스무 건짜리 페이지가 조회 스무 번이 된다. 코스를 한 번에 읽고, 거기서 나온
+     * 지역도 한 번에 읽는다.
+     *
+     * <p><b>못 찾은 것은 지도에 넣지 않는다.</b> 코스가 지워진 알림이 그렇다 — 알림은 코스가 사라져도 남고,
+     * 응답에서 {@code null} 이 되어 앱이 지역명 없는 문구로 되돌린다.
+     */
+    private Map<Long, String> regionNamesOf(List<Notification> notifications) {
+        List<Long> courseIds = notifications.stream()
+                .map(Notification::getCourseId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (courseIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Course> courses = courseRepository.findByIds(courseIds);
+        Map<Long, String> nameByRegionId = regionRepository
+                .findByIds(courses.stream().map(Course::getRegionId).distinct().toList())
+                .stream()
+                .collect(Collectors.toMap(Region::getId, Region::shortName));
+        Map<Long, String> byCourseId = new HashMap<>();
+        for (Course course : courses) {
+            String name = nameByRegionId.get(course.getRegionId());
+            if (name != null) {
+                byCourseId.put(course.getId(), name);
+            }
+        }
+        return byCourseId;
     }
 
     /**
