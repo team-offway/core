@@ -40,7 +40,7 @@ public class CuratedLinkRepositoryImpl implements CuratedLinkRepository {
     }
 
     @Override
-    public void deleteById(long id) {
-        curatedLinkJpaRepository.deleteById(id);
+    public int deleteById(long id) {
+        return curatedLinkJpaRepository.deleteByIdReturningCount(id);
     }
 }

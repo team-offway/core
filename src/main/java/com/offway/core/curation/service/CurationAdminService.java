@@ -72,13 +72,16 @@ public class CurationAdminService {
      *
      * <p>없는 것을 지우라는 요청을 200 으로 넘기지 않는다. 어드민 화면은 목록을 들고 있어서, 다른 탭에서
      * 이미 지운 항목을 누르면 여기 닿는다. 조용히 성공시키면 화면이 낡은 목록을 그대로 믿는다.
+     *
+     * <p><b>확인과 삭제를 한 문장으로 한다.</b> 미리 조회해 확인하면 그 사이에 다른 어드민이 같은 항목을
+     * 지웠을 때 404 여야 할 요청이 200 으로 나간다 — 어드민이 둘이면 실제로 겹치는 순간이 있다. 지운 행
+     * 수가 곧 답이다.
      */
     @Transactional
     public void delete(long id, UUID adminUserId) {
-        if (curatedLinkRepository.findById(id).isEmpty()) {
+        if (curatedLinkRepository.deleteById(id) == 0) {
             throw CurationException.linkNotFound();
         }
-        curatedLinkRepository.deleteById(id);
         log.info("큐레이션 링크 삭제 id={} by={}", id, labelOf(adminUserId));
     }
 

@@ -160,6 +160,24 @@ class AdminCuratedLinkIntegrationTest {
     }
 
     /**
+     * 두 번째 삭제가 404 다 — <b>어드민이 둘일 때 실제로 겹치는 순간</b>이 이 모양이다.
+     *
+     * <p>미리 조회해 확인하고 지우면 그 두 문장 사이에 다른 어드민이 같은 항목을 지웠을 때 404 여야 할
+     * 요청이 200 으로 나간다. 지운 행 수가 곧 답이라 그 틈이 없다.
+     */
+    @Test
+    void 같은_항목을_두_번_지우면_두_번째는_404_다() throws Exception {
+        UUID admin = UUID.randomUUID();
+        long id = create(admin);
+
+        mockMvc.perform(delete(ONE_URL, id).with(loginAsAdmin(admin))).andExpect(status().isOk());
+
+        mockMvc.perform(delete(ONE_URL, id).with(loginAsAdmin(admin)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CURATION-006"));
+    }
+
+    /**
      * 없는 것을 지우라는 요청을 200 으로 넘기지 않는다. 어드민 화면은 목록을 들고 있어서, 다른 탭에서 이미
      * 지운 항목을 누르면 여기 닿는다 — 조용히 성공시키면 화면이 낡은 목록을 그대로 믿는다.
      */

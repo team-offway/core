@@ -30,6 +30,13 @@ public interface CuratedLinkRepository {
 
     CuratedLink save(CuratedLink link);
 
-    /** 없으면 아무것도 하지 않는다 — 있는지 확인하는 것은 서비스의 몫이다. */
-    void deleteById(long id);
+    /**
+     * 지우고 <b>지운 행 수</b>를 돌려준다.
+     *
+     * <p>{@code void} 로 두면 "없어서 못 지웠다" 와 "지웠다" 가 구분되지 않아, 호출부가 미리 조회해 확인해야
+     * 한다. 그 두 문장 사이에 다른 어드민이 같은 항목을 지우면 404 여야 할 요청이 200 으로 나간다.
+     *
+     * @return 지운 행 수. 없었으면 0
+     */
+    int deleteById(long id);
 }
