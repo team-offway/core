@@ -3,6 +3,7 @@ package com.offway.core.notification.service.dto;
 import com.offway.core.notification.domain.NotificationType;
 import java.util.Objects;
 import java.util.UUID;
+import lombok.Builder;
 
 /**
  * 푸시로 내보낼 알림 하나(#270) — 소유자와 내용만.
@@ -17,6 +18,7 @@ import java.util.UUID;
  *     이 값이 있어야 한다. {@code courseId} 로는 대신할 수 없다 — 한 코스에 여러 종류의 알림이 달려
  *     어느 것을 읽음 처리할지 정할 수 없다
  */
+@Builder
 public record PushTarget(UUID userId, NotificationType type, Long courseId, Long notificationId) {
 
     public PushTarget {

@@ -128,7 +128,7 @@ class PushDispatcherIntegrationTest {
         long notificationId = saveNotification(owner, NotificationType.TRIP_TOMORROW, 20L);
         pushSender.respondWith(t -> PushResult.SENT);
 
-        pushDispatcher.dispatch(List.of(new PushTarget(owner, NotificationType.TRIP_TOMORROW, 20L, notificationId)));
+        pushDispatcher.dispatch(List.of(target(owner, 20L, notificationId)));
 
         assertEquals(notificationId, pushSender.messageTo(token).notificationId());
     }
@@ -144,7 +144,7 @@ class PushDispatcherIntegrationTest {
         saveNotification(owner, NotificationType.TRIP_AFTER, 21L);
         pushSender.respondWith(t -> PushResult.SENT);
 
-        pushDispatcher.dispatch(List.of(new PushTarget(owner, NotificationType.TRIP_TOMORROW, 21L, notificationId)));
+        pushDispatcher.dispatch(List.of(target(owner, 21L, notificationId)));
 
         assertEquals(2, pushSender.messageTo(token).badge(), "안 읽은 두 건이 배지로 나가야 한다");
     }
@@ -161,7 +161,7 @@ class PushDispatcherIntegrationTest {
         long notificationId = saveNotification(owner, NotificationType.TRIP_TOMORROW, 22L);
         pushSender.respondWith(t -> PushResult.SENT);
 
-        pushDispatcher.dispatch(List.of(new PushTarget(owner, NotificationType.TRIP_TOMORROW, 22L, notificationId)));
+        pushDispatcher.dispatch(List.of(target(owner, 22L, notificationId)));
 
         assertEquals(1, pushSender.messageTo(phone).badge());
         assertEquals(pushSender.messageTo(phone).badge(), pushSender.messageTo(tablet).badge());
@@ -211,7 +211,17 @@ class PushDispatcherIntegrationTest {
 
     /** 발송 대상 하나 — 알림 id 는 저장 없이도 되는 시나리오라 코스 id 에서 만든다. */
     private PushTarget target(UUID owner, Long courseId) {
-        return new PushTarget(owner, NotificationType.TRIP_TOMORROW, courseId, courseId);
+        return target(owner, courseId, courseId);
+    }
+
+    /** 코스와 알림을 따로 주는 대상 — 둘 다 Long 이라 이름을 붙여 조립한다. */
+    private PushTarget target(UUID owner, Long courseId, Long notificationId) {
+        return PushTarget.builder()
+                .userId(owner)
+                .type(NotificationType.TRIP_TOMORROW)
+                .courseId(courseId)
+                .notificationId(notificationId)
+                .build();
     }
 
     /** 안 읽은 알림을 실제로 하나 남긴다 — 배지는 DB 를 세어 나오는 값이라 진짜 행이 있어야 한다. */

@@ -44,7 +44,12 @@ class FcmPushSenderTest {
 
     /** 코스와 배지를 뺀 기본 내용 — 각 테스트가 필요한 것만 바꿔 쓴다. */
     private static PushMessage push(NotificationType type, Long courseId, Integer badge) {
-        return new PushMessage(type, courseId, NOTIFICATION_ID, badge);
+        return PushMessage.builder()
+                .type(type)
+                .courseId(courseId)
+                .notificationId(NOTIFICATION_ID)
+                .badge(badge)
+                .build();
     }
 
     /** 키 없는 환경을 만들 때 부르면 안 되는 자리에 남기는 말. */

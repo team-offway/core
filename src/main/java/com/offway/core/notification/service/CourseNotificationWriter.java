@@ -70,8 +70,12 @@ public class CourseNotificationWriter {
                                 .courseId(course.getId())
                                 .createdAt(now)
                                 .build())
-                        .ifPresent(notificationId ->
-                                created.add(new PushTarget(course.getUserId(), type, course.getId(), notificationId)));
+                        .ifPresent(notificationId -> created.add(PushTarget.builder()
+                                .userId(course.getUserId())
+                                .type(type)
+                                .courseId(course.getId())
+                                .notificationId(notificationId)
+                                .build()));
             } catch (DataIntegrityViolationException e) {
                 // 조회와 삽입 사이에 다른 실행이 같은 것을 넣었다. 유니크 키가 막아 준 것이고 결과는
                 // "이미 있음" 과 같으므로 실패로 세지 않는다.

@@ -2,13 +2,18 @@ package com.offway.core.notification.infrastructure.push;
 
 import com.offway.core.notification.domain.NotificationType;
 import java.util.Objects;
+import lombok.Builder;
 
 /**
  * 한 기기에 실어 보낼 내용(#357).
  *
  * <p><b>왜 인자를 늘리지 않고 묶었나.</b> {@link PushSender#send} 는 원래 종류와 코스 id 둘만 받았는데,
- * 여기에 알림 id 와 배지까지 붙으면 <b>비슷하게 생긴 nullable 인자 넷</b>이 나란히 선다. 그 자리에서는
- * 둘을 맞바꿔도 컴파일이 통과하고, 잘못 실린 값은 실기기에서만 드러난다.
+ * 여기에 알림 id 와 배지까지 붙으면 <b>비슷하게 생긴 nullable 인자 넷</b>이 나란히 선다.
+ *
+ * <p><b>묶는 것만으로는 그 위험이 안 없어진다.</b> {@code courseId} 와 {@code notificationId} 가 둘 다
+ * {@code Long} 이라, 위치로 넘기면 record 생성자에서 그대로 맞바꿀 수 있다. 그러면 앱이 엉뚱한 알림을
+ * 읽음 처리하는데 컴파일도 테스트도 아무 말을 안 한다 — 실기기에서만 드러난다. 그래서 조립은
+ * {@code builder()} 로만 한다.
  *
  * <p>문구는 여기 없다. 배너에 뭐라고 뜨는지는 {@link NotificationType} 이 알고 있고 어댑터가 거기서
  * 읽는다(#355) — 호출부가 문구를 들고 다니면 같은 말이 여러 곳에 생긴다.
@@ -19,6 +24,7 @@ import java.util.Objects;
  * @param badge 앱 아이콘에 그릴 안 읽은 개수. <b>모르면 null</b> 이고, 그때는 싣지 않아 앱이 직전 값을
  *     그대로 둔다 — 세는 데 실패했다고 0 을 보내면 안 읽은 알림이 있는데 배지가 지워진다
  */
+@Builder
 public record PushMessage(NotificationType type, Long courseId, Long notificationId, Integer badge) {
 
     public PushMessage {

@@ -111,8 +111,14 @@ public class PushDispatcher {
         inFlight.acquireUninterruptibly();
         try {
             PushTarget target = delivery.target();
-            PushMessage message = new PushMessage(
-                    target.type(), target.courseId(), target.notificationId(), badges.get(target.userId()));
+            // 이름을 붙여 조립한다. courseId 와 notificationId 가 둘 다 Long 이라 위치로 넘기면 맞바꿔도
+            // 컴파일이 통과하고, 그러면 앱이 엉뚱한 알림을 읽음 처리한다.
+            PushMessage message = PushMessage.builder()
+                    .type(target.type())
+                    .courseId(target.courseId())
+                    .notificationId(target.notificationId())
+                    .badge(badges.get(target.userId()))
+                    .build();
             return new Delivered(delivery.token(), pushSender.send(delivery.token(), message));
         } finally {
             inFlight.release();
