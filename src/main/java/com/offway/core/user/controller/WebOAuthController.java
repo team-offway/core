@@ -2,6 +2,7 @@ package com.offway.core.user.controller;
 
 import com.offway.core.common.exception.BaseException;
 import com.offway.core.common.logging.RootCause;
+import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.user.domain.OAuthState;
 import com.offway.core.user.domain.WebLoginFailure;
 import com.offway.core.user.service.WebOAuthService;
@@ -145,8 +146,10 @@ public class WebOAuthController implements WebOAuthApi {
             return Optional.of(WebLoginFailure.NOT_CONFIGURED);
         }
         if (error != null && !error.isBlank()) {
-            // 카카오가 준 사유를 그대로 남긴다 — 사용자 입력이 아니라 카카오가 정한 값 집합이다.
-            log.info("카카오가 로그인을 되돌려보냈다 reason={}", error);
+            // **카카오가 준 값이라고 믿지 않는다.** 이 경로는 누구나 직접 부를 수 있어, 이 파라미터는
+            // 카카오가 정한 값 집합이 아니라 임의의 사용자 입력이다. 개행이 섞이면 로그 한 줄이 여러
+            // 줄로 쪼개져 가짜 로그 줄을 지어낼 수 있다(CWE-117).
+            log.info("카카오가 로그인을 되돌려보냈다 reason={}", SensitiveParams.forLog(error));
             return Optional.of(WebLoginFailure.DENIED);
         }
         if (stateCookie == null || stateCookie.isBlank() || !new OAuthState(stateCookie).matches(state)) {
