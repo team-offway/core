@@ -48,6 +48,10 @@ class BaseExceptionTest {
         private TestException(ErrorCode errorCode, Throwable cause) {
             super(errorCode, cause);
         }
+
+        private TestException(ErrorCode errorCode, Throwable cause, boolean stackTraceUseful) {
+            super(errorCode, cause, stackTraceUseful);
+        }
     }
 
     @Test
@@ -91,5 +95,19 @@ class BaseExceptionTest {
     @Test
     void errorCode가_null이면_생성에_실패한다() {
         assertThrows(NullPointerException.class, () -> new TestException(null));
+    }
+
+    @Test
+    void 스택트레이스는_기본적으로_유용하다고_본다() {
+        BaseException exception = new TestException(TestErrorCode.EXTERNAL_FAILED, new RuntimeException("read timeout"));
+
+        org.junit.jupiter.api.Assertions.assertTrue(exception.stackTraceUseful());
+    }
+
+    @Test
+    void 캐시가_이미_로그로_남긴_실패는_스택트레이스가_유용하지_않다고_표시할_수_있다() {
+        BaseException exception = new TestException(TestErrorCode.EXTERNAL_FAILED, null, false);
+
+        org.junit.jupiter.api.Assertions.assertFalse(exception.stackTraceUseful());
     }
 }

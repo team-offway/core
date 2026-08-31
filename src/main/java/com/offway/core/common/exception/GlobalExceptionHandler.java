@@ -31,13 +31,21 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     /**
      * 도메인 커스텀 예외 — status·code·detail 을 {@link ErrorCode} 에서 파생한다.
      *
-     * <p>4xx 는 클라이언트 계약 위반이라 서버 입장에서 정상 흐름(info, 스택 없음). 5xx(외부 의존성 실패 등)는 조치 대상이라 스택과 함께 warn.
+     * <p>4xx 는 클라이언트 계약 위반이라 서버 입장에서 정상 흐름(info, 스택 없음). 5xx(외부 의존성 실패 등)는 조치
+     * 대상이라 warn 인데, 스택트레이스는 {@link BaseException#stackTraceUseful()} 이 붙일지 정한다 — 캐시가 이미
+     * 로그로 남긴 실패를 재사용하는 합성 예외처럼 매번 같은 모양의 스택은 진단 정보가 없어 붙이지 않는다(#362).
+     * 어느 쪽이든 code·status 는 한 줄에 남아 발생 건수는 그대로 셀 수 있다.
      */
     @ExceptionHandler(BaseException.class)
     public ResponseEntity<ApiResponseBody<Void>> handleBaseException(BaseException exception) {
         ErrorCode errorCode = exception.errorCode();
         if (exception.httpStatus().is5xxServerError()) {
-            log.warn("도메인 예외(5xx) code={} status={}", errorCode.code(), exception.httpStatus().value(), exception);
+            if (exception.stackTraceUseful()) {
+                log.warn("도메인 예외(5xx) code={} status={}", errorCode.code(), exception.httpStatus().value(), exception);
+            } else {
+                log.warn("도메인 예외(5xx, 캐시된 실패 재사용) code={} status={}",
+                        errorCode.code(), exception.httpStatus().value());
+            }
         } else {
             log.info("도메인 예외 code={} status={}", errorCode.code(), exception.httpStatus().value());
         }
