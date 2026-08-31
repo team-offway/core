@@ -2,6 +2,7 @@ package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.OpeningHours;
+import com.offway.core.trip.domain.IntroRetrySchedule;
 import com.offway.core.trip.domain.PoiIntro;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -85,7 +86,7 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
      * {@code DISTINCT} 는 두 줄을 주는데, {@code poi_intro} 는 콘텐츠당 한 행이라 예산만 두 번 쓴다.
      */
     @Override
-    public List<ContentRef> findMissing(int limit, LocalDateTime emptyRetryBefore) {
+    public List<ContentRef> findMissing(int limit, LocalDateTime now) {
         return jdbcTemplate.query("""
                 SELECT s.poi_content_id,
                        MAX(s.poi_content_type_id) AS content_type_id,
@@ -94,13 +95,12 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
                 FROM slot s
                 LEFT JOIN poi_intro p ON p.content_id = s.poi_content_id
                 WHERE s.poi_content_type_id IS NOT NULL
-                  AND (p.content_id IS NULL
-                       OR (p.fetched_at < ? AND %s))
+                  AND (p.content_id IS NULL OR p.next_retry_at <= ?)
                 GROUP BY s.poi_content_id
                 ORDER BY never_fetched DESC, newest_slot_id DESC
                 LIMIT ?
-                """.formatted(allColumnsNull()),
-                (rs, rowNum) -> ContentRef.of(rs.getString(1), rs.getInt(2)), emptyRetryBefore, limit);
+                """,
+                (rs, rowNum) -> ContentRef.of(rs.getString(1), rs.getInt(2)), now, limit);
     }
 
     /**
@@ -116,7 +116,7 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
      * 안 나오고 화면에 나올 장소는 안 받는다.
      */
     @Override
-    public List<ContentRef> findMissingForCards(int limit, int perCategory, LocalDateTime emptyRetryBefore) {
+    public List<ContentRef> findMissingForCards(int limit, int perCategory, LocalDateTime now) {
         return jdbcTemplate.query("""
                 SELECT content_id, content_type_id, category
                 FROM (
@@ -128,21 +128,21 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
                     FROM region_poi rp
                     LEFT JOIN poi_intro p ON p.content_id = rp.content_id
                     WHERE rp.image_url IS NOT NULL AND rp.image_url <> ''
-                      AND (p.content_id IS NULL OR (p.fetched_at < ? AND %s))
+                      AND (p.content_id IS NULL OR p.next_retry_at <= ?)
                 ) ranked
                 -- 순위를 매긴 **뒤** 상세 없는 타입을 뺀다. 매기기 전에 빼면 홈이 고르는 집합과
                 -- 순위가 갈려, 받아 둔 장소가 화면에 안 나오고 화면에 나올 장소는 안 받는다.
                 WHERE rank_in_chip <= ? AND content_type_id <> ?
                 ORDER BY never_fetched DESC, content_id
                 LIMIT ?
-                """.formatted(allColumnsNull()),
+                """,
                 (rs, rowNum) -> new ContentRef(
                         rs.getString("content_id"),
                         rs.getInt("content_type_id"),
                         // 모르는 이름이면 null 이다. 칩은 로그·집계에만 쓰이므로 그 한 건 때문에
                         // 배치를 세울 이유가 없다 — valueOf 였다면 예외로 전부 멈춘다.
                         Category.byName(rs.getString("category")).orElse(null)),
-                emptyRetryBefore, perCategory, TYPE_WITHOUT_INTRO, limit);
+                now, perCategory, TYPE_WITHOUT_INTRO, limit);
     }
 
     @Override
@@ -152,18 +152,24 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
         for (int start = 0; start < rows.size(); start += BATCH_SIZE) {
             List<Map.Entry<ContentRef, PoiIntro>> chunk =
                     rows.subList(start, Math.min(start + BATCH_SIZE, rows.size()));
+            // 이번에 저장할 행들이 **지금까지 몇 번 비었는지** 한 번에 읽는다(#368). 배치 안에서 한 건씩
+            // 읽으면 저장 한 회차가 조회 수백 번이 된다.
+            Map<String, Integer> attemptsBefore = emptyAttemptsOf(
+                    chunk.stream().map(entry -> entry.getKey().contentId()).toList());
             int[] result = jdbcTemplate.batchUpdate("""
                     INSERT INTO poi_intro (content_id, content_type_id, use_time, rest_date, parking, fee,
                                            signature_menu, menus, check_in, check_out, room_count, reservation,
-                                           experience_guide, fetched_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                           experience_guide, fetched_at, empty_attempts, next_retry_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON DUPLICATE KEY UPDATE use_time = VALUES(use_time), rest_date = VALUES(rest_date),
                                             parking = VALUES(parking), fee = VALUES(fee),
                                             signature_menu = VALUES(signature_menu), menus = VALUES(menus),
                                             check_in = VALUES(check_in), check_out = VALUES(check_out),
                                             room_count = VALUES(room_count), reservation = VALUES(reservation),
                                             experience_guide = VALUES(experience_guide),
-                                            fetched_at = VALUES(fetched_at)
+                                            fetched_at = VALUES(fetched_at),
+                                            empty_attempts = VALUES(empty_attempts),
+                                            next_retry_at = VALUES(next_retry_at)
                     """, chunk, chunk.size(), (ps, entry) -> {
                 PoiIntro intro = entry.getValue();
                 ps.setString(1, entry.getKey().contentId());
@@ -180,12 +186,43 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
                 ps.setString(12, intro.reservation());
                 ps.setString(13, intro.experienceGuide());
                 ps.setObject(14, fetchedAt);
+                // 값이 왔으면 재시도가 끝난다 — 횟수를 0 으로 되돌리고 다음 시각을 비운다. 그 행은
+                // 인덱스에서도 빠져 앞으로 일감 스캔 대상이 아니다.
+                if (!intro.isEmpty()) {
+                    ps.setInt(15, 0);
+                    ps.setObject(16, null);
+                    return;
+                }
+                int attempts = attemptsBefore.getOrDefault(entry.getKey().contentId(), 0) + 1;
+                ps.setInt(15, attempts);
+                ps.setObject(16, IntroRetrySchedule.nextRetryAt(attempts, fetchedAt));
             })[0];
             for (int count : result) {
                 saved += count < 0 ? 1 : count;
             }
         }
         return saved;
+    }
+
+    /**
+     * 이 콘텐츠들이 <b>지금까지 연속으로 몇 번 비었는지</b>. 처음 보는 것은 결과에 없다(0 으로 읽는다).
+     *
+     * <p>다음 재시도 간격을 정하려면 이 값이 필요하다. 규칙 자체는 {@link IntroRetrySchedule} 이 소유한다 —
+     * SQL 안에서 계산하면 같은 규칙이 자바와 SQL 두 곳에 생기고, 둘이 갈리는 날 조용히 어긋난다.
+     */
+    private Map<String, Integer> emptyAttemptsOf(List<String> contentIds) {
+        if (contentIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Integer> attempts = new HashMap<>();
+        jdbcTemplate.query(
+                "SELECT content_id, empty_attempts FROM poi_intro WHERE content_id IN ("
+                        + placeholders(contentIds) + ")",
+                rs -> {
+                    attempts.put(rs.getString(1), rs.getInt(2));
+                },
+                contentIds.toArray());
+        return attempts;
     }
 
     @Override
@@ -199,7 +236,10 @@ public class PoiIntroRepositoryImpl implements PoiIntroRepository {
     }
 
     /**
-     * "이 행은 아직 아무것도 못 받았다" 를 SQL 로 — 재시도 대상 판정이다.
+     * 지금 저장돼 있는 행이 비었는지 — <b>다음 재시도 간격을 정할 때</b> 쓴다(#368).
+     *
+     * <p>예전에는 일감 쿼리가 이 조건을 직접 썼다. 지금은 {@code next_retry_at} 이 그 답을 들고 있어
+     * 쿼리가 계산 없이 인덱스를 탄다.
      *
      * <p>컬럼 목록에서 만들어 <b>새 칸이 늘 때 자동으로 따라온다.</b> 손으로 나열하면 컬럼을 더한 사람이
      * 이 조건을 빠뜨리고, 그러면 값이 하나만 있는 행도 영원히 재시도 대상이 된다.

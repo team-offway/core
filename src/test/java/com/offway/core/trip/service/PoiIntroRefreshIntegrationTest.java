@@ -131,7 +131,7 @@ class PoiIntroRefreshIntegrationTest {
         String contentId = persistSlotNeedingHours(12);
         PoiIntroRepository.ContentRef ref = PoiIntroRepository.ContentRef.of(contentId, 12);
         poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().build()),
-                LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL).minusDays(1));
+                afterFirstRetryWindow());
 
         assertTrue(workListContentIds().contains(contentId), "재시도 기간이 지난 빈 행은 다시 물어야 한다");
 
@@ -199,9 +199,54 @@ class PoiIntroRefreshIntegrationTest {
      * <p>하루 예산이 아니라 상한 없는 목록을 본다 — 예산으로 자르면 다른 테스트가 남긴 슬롯이 앞자리를
      * 차지했을 때 "일감에 없다" 가 참인지 잘려나간 것인지 구분되지 않는다.
      */
+    /**
+     * <b>연달아 비면 다음 차례가 멀어진다</b>(#368).
+     *
+     * <p>예전에는 간격이 7일로 고정이라, 원본에 값이 없는 장소를 <b>영원히 7일마다</b> 다시 물었다. 그런
+     * 장소가 2,000건이면 매일 286건이 나가고 줄지 않는다 — 관광정보 한도의 30%가 제자리걸음에 나갔다.
+     */
+    @Test
+    void 두_번째로_빈_행은_같은_기간이_지나도_아직_일감이_아니다() {
+        String contentId = persistSlotNeedingHours(12);
+        PoiIntroRepository.ContentRef ref = PoiIntroRepository.ContentRef.of(contentId, 12);
+
+        // 1회차 — 7일 창이 지나 일감이 된다.
+        poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().build()), afterFirstRetryWindow());
+        assertTrue(workListContentIds().contains(contentId), "첫 빈 행은 7일 뒤 다시 물어야 한다");
+
+        // 2회차 — 또 비었다. 이제 간격이 14일이라 같은 8일로는 차례가 안 온다.
+        poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().build()), afterFirstRetryWindow());
+
+        assertFalse(workListContentIds().contains(contentId),
+                "두 번째 빈 행은 간격이 벌어져 아직 일감이 아니어야 한다");
+    }
+
+    /** 값이 오면 재시도가 끝난다 — 그 뒤로는 아무리 시간이 지나도 다시 묻지 않는다. */
+    @Test
+    void 값이_채워지면_재시도_대상에서_영영_빠진다() {
+        String contentId = persistSlotNeedingHours(12);
+        PoiIntroRepository.ContentRef ref = PoiIntroRepository.ContentRef.of(contentId, 12);
+        poiIntroRepository.upsertAll(Map.of(ref, PoiIntro.builder().build()), afterFirstRetryWindow());
+
+        poiIntroRepository.upsertAll(
+                Map.of(ref, PoiIntro.builder().useTime("09:00~18:00").build()),
+                LocalDateTime.now().minusYears(5));
+
+        assertFalse(workListContentIds().contains(contentId), "값이 있는 행은 다시 물을 이유가 없다");
+    }
+
+    /**
+     * 처음 빈 응답의 재시도 창(7일)을 넘긴 시각(#368).
+     *
+     * <p>백오프는 <b>받은 시각</b>에서부터 센다. 그때 받았다고 적으면 지금은 이미 때가 지난 것이 된다.
+     */
+    private static LocalDateTime afterFirstRetryWindow() {
+        return LocalDateTime.now().minusDays(8);
+    }
+
     private List<String> workListContentIds() {
         return poiIntroRepository
-                .findMissing(WHOLE_WORK_LIST, LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL))
+                .findMissing(WHOLE_WORK_LIST, LocalDateTime.now())
                 .stream()
                 .map(PoiIntroRepository.ContentRef::contentId)
                 .toList();
@@ -296,7 +341,7 @@ class PoiIntroRefreshIntegrationTest {
         regionPoiRepository.replaceRegion(regionId, List.of(cardPoi(regionId, "wl-empty", Category.FOOD)));
         poiIntroRepository.upsertAll(
                 Map.of(PoiIntroRepository.ContentRef.of("wl-empty", 39), PoiIntro.builder().build()),
-                LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL).minusDays(1));
+                afterFirstRetryWindow());
 
         assertTrue(cardWorkListContentIds(5).contains("wl-empty"), "재시도 기간이 지난 빈 행을 다시 물어야 한다");
     }
@@ -315,7 +360,7 @@ class PoiIntroRefreshIntegrationTest {
         poiIntroRepository.upsertAll(
                 Map.of(PoiIntroRepository.ContentRef.of(contentId, 39),
                         PoiIntro.builder().signatureMenu("갈치조림정식").build()),
-                LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL).minusDays(1));
+                afterFirstRetryWindow());
 
         assertFalse(workListContentIds().contains(contentId),
                 "운영시간이 없어도 다른 값을 받았으면 다시 물으면 안 된다");
@@ -351,8 +396,7 @@ class PoiIntroRefreshIntegrationTest {
 
     private List<String> cardWorkListContentIds(int perCategory) {
         return poiIntroRepository
-                .findMissingForCards(500, perCategory,
-                        LocalDateTime.now().minus(PoiIntroRefreshService.EMPTY_RETRY_INTERVAL))
+                .findMissingForCards(500, perCategory, LocalDateTime.now())
                 .stream()
                 .map(PoiIntroRepository.ContentRef::contentId)
                 .toList();
