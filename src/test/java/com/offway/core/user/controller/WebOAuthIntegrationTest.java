@@ -101,6 +101,27 @@ class WebOAuthIntegrationTest {
     }
 
     @Test
+    void 슬래시_없는_주소로도_열린다() throws Exception {
+        // 사람이 주소창에 치는 것은 보통 슬래시 없는 쪽이다. 여기서 갈리면 "어제는 됐는데" 가 된다.
+        mockMvc.perform(get("/admin")).andExpect(status().isOk());
+    }
+
+    @Test
+    void 화면은_정적_자산을_절대_경로로_가리킨다() throws Exception {
+        // 진입 주소가 /admin 이면 브라우저 주소는 슬래시 없이 남는다(forward 라 그렇다). 그때 상대 경로
+        // "style.css" 는 /style.css 로 풀려 404 가 되고, 초기 화면이 전부 hidden 이라 **빈 화면**이 뜬다.
+        // 절대 경로면 두 진입 주소가 같은 파일을 집는다.
+        String html = mockMvc.perform(get("/admin/index.html"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertTrue(html.contains("\"/admin/style.css\""), "스타일이 절대 경로여야 한다");
+        assertTrue(html.contains("\"/admin/app.js\""), "스크립트가 절대 경로여야 한다");
+    }
+
+    @Test
     void 백오피스_데이터는_토큰_없이_열리지_않는다() throws Exception {
         // 화면을 연 대가로 데이터까지 열리면 안 된다 — 이 목록에는 미공개 항목이 들어 있다.
         mockMvc.perform(get(ADMIN_API_URL)).andExpect(status().isUnauthorized());
