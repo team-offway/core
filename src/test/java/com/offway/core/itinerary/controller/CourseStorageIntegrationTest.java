@@ -416,11 +416,23 @@ class CourseStorageIntegrationTest {
                 .andExpect(jsonPath("$.data.days.length()").value(2));
     }
 
-    /** 정선(16) 근처로 도착하는 열차 — 저장 코스에서 다시 계산될 때 쓰인다. */
+    /**
+     * 정선(16) 근처로 도착하는 열차 — 저장 코스에서 다시 계산될 때 쓰인다.
+     *
+     * <p><b>출발이 09:00 이라야 한다.</b> 예전에는 06:00 이었는데 기본 출발시각(연차 = 08:00)보다 일러
+     * {@code fastestDepartingFrom} 이 걸러냈다 — 이름은 "열차가 온다" 인데 실제로는 <b>그날 탈 수 있는 편이
+     * 없는</b> 경로를 검증하고 있었다(#97 에서 발견).
+     */
     private void trainArrives() {
         trainInfoClient.respond(() -> new TrainAvailability.Available(List.of(TrainLeg.of("KTX",
-                LocalDateTime.of(2026, 9, 11, 6, 0),
-                LocalDateTime.of(2026, 9, 11, 8, 30)))));
+                LocalDateTime.of(2026, 9, 11, 9, 0),
+                LocalDateTime.of(2026, 9, 11, 11, 30)))));
+        trainRouteService.evictCache();
+    }
+
+    /** 역은 있는데 그날 탈 편이 없는 상황 — 도착 지점을 무엇으로 잡는지가 갈리는 자리다(#97). */
+    private void trainDoesNotRun() {
+        trainInfoClient.respond(TrainAvailability.NoServiceOnDate::new);
         trainRouteService.evictCache();
     }
 
@@ -443,7 +455,32 @@ class CourseStorageIntegrationTest {
 
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.trainAccess.toStation").value("정선"));
+                .andExpect(jsonPath("$.data.trainAccess.toStation").value("정선"))
+                // 새 필드도 같은 값을 담는다 — 옛 필드를 걷어낼 때 화면이 비지 않게(#97)
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("TRAIN"))
+                .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("열차"))
+                .andExpect(jsonPath("$.data.transitAccess.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"));
+    }
+
+    @Test
+    void 그날_탈_열차가_없으면_더_가까운_버스_터미널을_도착_지점으로_잡는다() throws Exception {
+        // 예전에는 역이 그날 안 다녀도 역 좌표를 동선 기준점으로 썼다. 정선은 터미널이 읍내에 있어
+        // 역보다 가깝다 — 먼 역을 기준으로 잡으면 지역 반대편부터 코스를 짠다(#97 · #127).
+        //
+        // 고속인지 시외인지는 여기서 중요하지 않다. 정선에는 둘 다 있고(시드 기준 좌표가 조금 다르다)
+        // 코스가 알고 싶은 것은 "어디에 내리는가" 하나다. 지금 시드에서는 고속 쪽이 더 가깝다.
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
+                .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("고속버스"))
+                .andExpect(jsonPath("$.data.transitAccess.status").value("POINT_ONLY"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"))
+                // 옛 필드는 열차만 담기로 했다 — 버스로 가는 코스에 "역 없음" 을 내리면 화면이 "못 간다" 고 말한다
+                .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
     }
 
     @Test

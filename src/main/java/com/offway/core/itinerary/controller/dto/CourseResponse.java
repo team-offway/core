@@ -13,7 +13,8 @@ import com.offway.core.itinerary.service.dto.OwnedCourse;
 import lombok.Builder;
 import com.offway.core.itinerary.service.dto.SlotHours;
 import com.offway.core.policy.domain.PolicyType;
-import com.offway.core.transport.service.dto.TrainAccess;
+import com.offway.core.transport.domain.TransitMode;
+import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.weather.domain.DailyWeather;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -38,6 +39,8 @@ import java.util.Map;
  * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근. <b>null 은 오류가 아니다</b> — 자차 코스이거나,
  *     출발지 없이 저장된 코스(저장 요청에 {@code originLat}·{@code originLng} 를 안 보낸 경우)다. 저장 코스도
  *     출발지가 있으면 조회 시점에 다시 계산해 채운다(#187)
+ * @param transitAccess 대중교통 코스일 때 지역 도착 정보(#97) — 무엇을 타고 어디에 내리는가. {@code trainAccess} 를
+ *     대체한다. 열차가 아닌 수단(버스·여객선)으로 닿는 지역은 여기에만 값이 있다
  * @param curatedLinks 외부 페이지로 나가는 창구(#341). 코스 상세에 켜진 것만, 정렬 순으로.
  *     <b>없으면 빈 목록</b>이라 아래 NON_NULL 규칙과 무관하게 키가 항상 있다
  */
@@ -66,8 +69,18 @@ public record CourseResponse(
                 String transport,
         List<Day> days,
         List<Benefit> benefits,
-        @Schema(description = "대중교통 코스의 출발지→지역 열차 접근 (자차·저장 코스는 null)", nullable = true)
+        @Schema(
+                        description = "대중교통 코스의 출발지→지역 열차 접근 (자차·저장 코스는 null). "
+                                + "**deprecated — transitAccess 로 옮겨간다(#97)**. "
+                                + "열차로 가는 코스에만 실린다. 버스·여객선으로 가는 코스는 여기가 null 이고 "
+                                + "transitAccess 에만 값이 있다",
+                        nullable = true)
                 TrainAccessResponse trainAccess,
+        @Schema(
+                        description = "대중교통 코스의 지역 도착 정보(#97) — 열차·고속버스·시외버스·여객선을 한 모양으로. "
+                                + "trainAccess 를 대체한다 (자차·저장 코스는 null)",
+                        nullable = true)
+                TransitAccessResponse transitAccess,
         @Schema(
                         description = "공유 링크 토큰. 공유 URL 은 /c/{shareToken}. "
                                 + "소유자 응답(저장·상세·여행 날짜 수정)에 실리고, "
@@ -131,8 +144,8 @@ public record CourseResponse(
                                 slotBenefits(generated)))
                         .toList())
                 .benefits(generated.benefits().stream().map(Benefit::from).toList())
-                .trainAccess(
-                        generated.trainAccess() == null ? null : TrainAccessResponse.from(generated.trainAccess()))
+                .trainAccess(TrainAccessResponse.from(generated.trainAccess()))
+                .transitAccess(TransitAccessResponse.from(generated.trainAccess()))
                 .shareToken(generated.shareToken())
                 .firstDayChange(generated.firstDayChange() == null ? null : generated.firstDayChange().name())
                 .curatedLinks(CuratedLinkResponse.from(curatedLinks))
@@ -397,6 +410,12 @@ public record CourseResponse(
     /**
      * 출발지→지역 열차 접근.
      *
+     * <p><b>deprecated — {@link TransitAccessResponse} 로 옮겨간다(#97).</b> 열차 말고도 고속버스·시외버스·
+     * 여객선으로 닿는 지역이 있는데 이 모양은 그것을 담지 못한다. 필드명(Station)부터 열차를 전제한다.
+     *
+     * <p>당분간 둘 다 내려보낸다. 이쪽은 <b>열차로 가는 코스에만</b> 실린다 — 버스·여객선으로 닿는 지역에서
+     * "역 없음" 을 그대로 내리면 화면이 "갈 수 없다" 고 말하는데 실제로는 갈 수 있기 때문이다.
+     *
      * @param status AVAILABLE(운행 있음) · NO_STATION(역 없음, 열차로 못 감) · NO_SERVICE_ON_DATE(그날 미운행) · UNAVAILABLE(조회 실패)
      * @param fromStation 출발역명(없으면 null)
      * @param toStation 도착역명(없으면 null)
@@ -410,14 +429,58 @@ public record CourseResponse(
             @Schema(example = "KTX", nullable = true) String trainType,
             @Schema(example = "150", nullable = true) Integer durationMinutes) {
 
-        static TrainAccessResponse from(TrainAccess access) {
+        /** 열차 결과가 아니면 {@code null} — 옛 필드는 열차만 담기로 한 계약이다. */
+        static TrainAccessResponse from(RegionAccess access) {
+            if (access == null || access.mode() != TransitMode.TRAIN) {
+                return null;
+            }
             boolean hasTrain = access.fastest() != null;
             return new TrainAccessResponse(
                     access.status().name(),
-                    access.fromStation(),
-                    access.toStation(),
+                    access.fromName(),
+                    access.toName(),
                     hasTrain ? access.fastest().trainType() : null,
                     hasTrain ? access.fastest().durationMinutes() : null);
+        }
+    }
+
+    /**
+     * 지역 도착 정보(#97) — 무엇을 타고 어디에 내리는가. 열차·고속버스·시외버스·여객선을 <b>한 모양으로</b> 담는다.
+     *
+     * <p>수단이 더 늘어도 응답 모양이 안 변하게 {@code mode} 로 가른다. 필드명에서 Station 을 걷은 것도 같은
+     * 이유다 — 도착 지점은 역일 수도, 터미널일 수도, 항구일 수도 있다.
+     *
+     * @param mode TRAIN · EXPRESS_BUS · INTERCITY_BUS · FERRY
+     * @param modeLabel 화면에 그대로 쓸 한글 수단명(열차·고속버스·시외버스·여객선)
+     * @param status AVAILABLE(운행 편 있음, 도착 시각까지 앎) · POINT_ONLY(도착 지점만 앎) ·
+     *     NO_STATION(닿는 지점 없음) · NO_SERVICE_ON_DATE(그날 미운행) · UNAVAILABLE(조회 실패)
+     * @param fromPlace 출발 지점명(역·터미널·항구, 없으면 null)
+     * @param toPlace 도착 지점명(없으면 null)
+     * @param vehicleType 운행 편의 등급(AVAILABLE 일 때만, 예: KTX)
+     * @param durationMinutes 소요시간(분, AVAILABLE 일 때만)
+     */
+    public record TransitAccessResponse(
+            @Schema(example = "INTERCITY_BUS") String mode,
+            @Schema(example = "시외버스") String modeLabel,
+            @Schema(example = "POINT_ONLY") String status,
+            @Schema(example = "동서울", nullable = true) String fromPlace,
+            @Schema(example = "정선", nullable = true) String toPlace,
+            @Schema(example = "KTX", nullable = true) String vehicleType,
+            @Schema(example = "150", nullable = true) Integer durationMinutes) {
+
+        static TransitAccessResponse from(RegionAccess access) {
+            if (access == null) {
+                return null;
+            }
+            boolean hasLeg = access.fastest() != null;
+            return new TransitAccessResponse(
+                    access.mode().name(),
+                    access.mode().label(),
+                    access.status().name(),
+                    access.fromName(),
+                    access.toName(),
+                    hasLeg ? access.fastest().trainType() : null,
+                    hasLeg ? access.fastest().durationMinutes() : null);
         }
     }
 

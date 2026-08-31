@@ -3,7 +3,7 @@ package com.offway.core.transport.service;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.Station;
 import com.offway.core.transport.domain.TrainAvailability;
-import com.offway.core.transport.service.dto.TrainAccess;
+import com.offway.core.transport.service.dto.RegionAccess;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Optional;
@@ -13,7 +13,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * 지역까지의 열차 접근 조회 — transport 가 itinerary(코스)에 노출하는 공개 서비스. 출발 좌표·목적지 지역·날짜로 "열차로 어떻게
- * 가나"를 {@link TrainAccess}(있음/역없음/그날없음/조회불가)로 준다.
+ * 가나"를 {@link RegionAccess}(있음/역없음/그날없음/조회불가)로 준다.
  *
  * <p>역 해석({@link TrainStationResolver})과 열차 조회({@link TrainRouteService})를 조립할 뿐, 캐시·폴백은 각 하위
  * 서비스가 담당한다. 출발지·목적지 좌표에서 각각 최근접 역을 찾고, 어느 쪽이든 근교에 역이 없으면 {@code NO_STATION} — 오지
@@ -36,7 +36,7 @@ public class TrainAccessService {
      * @param notBefore 집을 나서는 시각. 이 시각 이후에 떠나는 편만 고른다 — 반차를 내고 12시에 나서는 사용자에게
      *     새벽 첫차를 잡아주면 첫날 일정이 지킬 수 없는 약속이 된다(#138)
      */
-    public TrainAccess accessTo(
+    public RegionAccess accessTo(
             double originLat, double originLng, double destLat, double destLng, LocalDate date, LocalTime notBefore) {
         Optional<Station> from = stationResolver.nearest(originLat, originLng);
         Optional<Station> to = stationResolver.nearest(destLat, destLng);
@@ -44,7 +44,7 @@ public class TrainAccessService {
             // 오지 인구감소지역엔 흔한 정상 결과라 warn 이 아니다. 다만 어느 쪽이 없었는지는 남긴다.
             log.debug("열차 접근 불가 — 근교 역 없음 출발역={} 도착역={}",
                     from.map(Station::name).orElse("없음"), to.map(Station::name).orElse("없음"));
-            return TrainAccess.noStation(from.map(Station::name).orElse(null), to.map(Station::name).orElse(null));
+            return RegionAccess.noStation(from.map(Station::name).orElse(null), to.map(Station::name).orElse(null));
         }
         String fromName = from.get().name();
         String toName = to.get().name();
@@ -53,22 +53,22 @@ public class TrainAccessService {
         TrainAvailability availability = trainRouteService.fastestTrain(from.get().id(), to.get().id(), date);
         return switch (availability) {
             case TrainAvailability.Available a -> a.fastestDepartingFrom(notBefore)
-                    .map(leg -> TrainAccess.available(fromName, toName, toPoint, leg))
+                    .map(leg -> RegionAccess.available(fromName, toName, toPoint, leg))
                     .orElseGet(() -> {
                         // 그날 운행은 있는데 이 시각 이후 편이 없다 — 막차가 지났다. 사용자에게는 "그날 열차가
                         // 없음" 과 같은 결과라 같은 상태로 답한다. 다만 이유가 달라 로그로 가른다.
                         log.debug("출발 시각 이후 열차 없음 — {}→{} date={} notBefore={}", fromName, toName, date, notBefore);
-                        return TrainAccess.noServiceOnDate(fromName, toName, toPoint);
+                        return RegionAccess.noServiceOnDate(fromName, toName, toPoint);
                     });
             case TrainAvailability.NoServiceOnDate n -> {
                 // 조회는 성공했고 그날 운행이 없을 뿐 — 정상 흐름이다.
                 log.debug("열차 미운행 — {}→{} date={}", fromName, toName, date);
-                yield TrainAccess.noServiceOnDate(fromName, toName, toPoint);
+                yield RegionAccess.noServiceOnDate(fromName, toName, toPoint);
             }
             case TrainAvailability.Unavailable u -> {
                 // 외부 실패다. 이것만 warn 이라야 "역이 없다" 와 구분해 장애를 찾을 수 있다.
                 log.warn("열차 조회 실패 — 접근 정보 없이 코스를 내립니다 {}→{} date={}", fromName, toName, date);
-                yield TrainAccess.unavailable(fromName, toName, toPoint);
+                yield RegionAccess.unavailable(fromName, toName, toPoint);
             }
         };
     }

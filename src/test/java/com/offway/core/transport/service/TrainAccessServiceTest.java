@@ -11,7 +11,7 @@ import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.transport.domain.TrainStation;
 import com.offway.core.transport.infrastructure.tago.StubTrainInfoClient;
 import com.offway.core.transport.repository.TrainStationRepository;
-import com.offway.core.transport.service.dto.TrainAccess;
+import com.offway.core.transport.service.dto.RegionAccess;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -57,7 +57,7 @@ class TrainAccessServiceTest {
         StubTrainInfoClient stub = new StubTrainInfoClient();
         stub.respond(TrainAvailability.NoServiceOnDate::new);
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
+        RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(new Coordinate(JEONGSEON_LAT, JEONGSEON_LNG), access.arrivalPoint().orElseThrow());
         assertTrue(access.arrivalAt().isEmpty(), "운행을 못 찾았으면 도착 시각은 모른다");
@@ -68,7 +68,7 @@ class TrainAccessServiceTest {
         StubTrainInfoClient stub = new StubTrainInfoClient();
         stub.respond(TrainAvailability.Unavailable::new);
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
+        RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(new Coordinate(JEONGSEON_LAT, JEONGSEON_LNG), access.arrivalPoint().orElseThrow());
     }
@@ -78,9 +78,9 @@ class TrainAccessServiceTest {
         // 태평양 한가운데 — 50㎞ 안에 역이 없다. 이때만 도착 지점이 비어 코스가 출발지 기준으로 돌아간다.
         StubTrainInfoClient stub = new StubTrainInfoClient();
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, 20.0, 150.0, DATE, DEPART_AT);
+        RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, 20.0, 150.0, DATE, DEPART_AT);
 
-        assertEquals(TrainAccess.Status.NO_STATION, access.status());
+        assertEquals(RegionAccess.Status.NO_STATION, access.status());
         assertTrue(access.arrivalPoint().isEmpty());
     }
 
@@ -89,7 +89,7 @@ class TrainAccessServiceTest {
         StubTrainInfoClient stub = new StubTrainInfoClient();
         stub.respond(() -> new TrainAvailability.Available(List.of(ktx())));
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
+        RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(LocalDateTime.of(2026, 5, 1, 9, 30), access.arrivalAt().orElseThrow());
     }
@@ -99,11 +99,11 @@ class TrainAccessServiceTest {
         StubTrainInfoClient stub = new StubTrainInfoClient();
         stub.respond(() -> new TrainAvailability.Available(List.of(ktx())));
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
+        RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
-        assertEquals(TrainAccess.Status.AVAILABLE, access.status());
-        assertEquals("서울", access.fromStation());
-        assertEquals("정선", access.toStation());
+        assertEquals(RegionAccess.Status.AVAILABLE, access.status());
+        assertEquals("서울", access.fromName());
+        assertEquals("정선", access.toName());
         assertEquals(150, access.fastest().durationMinutes());
     }
 
@@ -115,11 +115,11 @@ class TrainAccessServiceTest {
         });
 
         // 제주 좌표 — 마스터의 어느 육지 역과도 50km 밖
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, 33.4996, 126.5312, DATE, DEPART_AT);
+        RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, 33.4996, 126.5312, DATE, DEPART_AT);
 
-        assertEquals(TrainAccess.Status.NO_STATION, access.status());
-        assertEquals("서울", access.fromStation());
-        assertEquals(null, access.toStation());
+        assertEquals(RegionAccess.Status.NO_STATION, access.status());
+        assertEquals("서울", access.fromName());
+        assertEquals(null, access.toName());
     }
 
     @Test
@@ -127,10 +127,10 @@ class TrainAccessServiceTest {
         StubTrainInfoClient stub = new StubTrainInfoClient();
         stub.respond(TrainAvailability.NoServiceOnDate::new);
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
+        RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
-        assertEquals(TrainAccess.Status.NO_SERVICE_ON_DATE, access.status());
-        assertEquals("정선", access.toStation());
+        assertEquals(RegionAccess.Status.NO_SERVICE_ON_DATE, access.status());
+        assertEquals("정선", access.toName());
     }
 
     @Test
@@ -138,11 +138,11 @@ class TrainAccessServiceTest {
         StubTrainInfoClient stub = new StubTrainInfoClient();
         stub.respond(TrainAvailability.Unavailable::new);
 
-        TrainAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
+        RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
-        assertEquals(TrainAccess.Status.UNAVAILABLE, access.status());
-        assertEquals("서울", access.fromStation());
-        assertEquals("정선", access.toStation());
+        assertEquals(RegionAccess.Status.UNAVAILABLE, access.status());
+        assertEquals("서울", access.fromName());
+        assertEquals("정선", access.toName());
     }
 
     @Test
@@ -152,7 +152,7 @@ class TrainAccessServiceTest {
         StubTrainInfoClient stub = new StubTrainInfoClient();
         stub.respond(() -> new TrainAvailability.Available(List.of(ktx()))); // 07:00 출발
 
-        TrainAccess access = service(stub)
+        RegionAccess access = service(stub)
                 .accessTo(
                         SEOUL_LAT,
                         SEOUL_LNG,
@@ -161,7 +161,7 @@ class TrainAccessServiceTest {
                         DATE,
                         StartDayLeave.QUARTER_DAY.departureTime());
 
-        assertEquals(TrainAccess.Status.NO_SERVICE_ON_DATE, access.status());
+        assertEquals(RegionAccess.Status.NO_SERVICE_ON_DATE, access.status());
         assertTrue(access.arrivalAt().isEmpty(), "탈 수 없는 편의 도착 시각을 주면 안 된다");
     }
 
@@ -173,7 +173,7 @@ class TrainAccessServiceTest {
                 ktx(), // 07:00 출발 — 종일 기준으로도 걸러진다
                 TrainLeg.of("KTX", LocalDateTime.of(2026, 5, 1, 9, 0), LocalDateTime.of(2026, 5, 1, 11, 30)))));
 
-        TrainAccess access = service(stub)
+        RegionAccess access = service(stub)
                 .accessTo(
                         SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE,
                         StartDayLeave.FULL_DAY.departureTime());
@@ -189,7 +189,7 @@ class TrainAccessServiceTest {
                 TrainLeg.of("무궁화", LocalDateTime.of(2026, 5, 1, 9, 0), LocalDateTime.of(2026, 5, 1, 14, 0)),
                 TrainLeg.of("KTX", LocalDateTime.of(2026, 5, 1, 11, 0), LocalDateTime.of(2026, 5, 1, 13, 0)))));
 
-        TrainAccess access = service(stub)
+        RegionAccess access = service(stub)
                 .accessTo(
                         SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE,
                         StartDayLeave.FULL_DAY.departureTime());

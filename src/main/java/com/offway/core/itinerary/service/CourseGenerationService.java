@@ -21,10 +21,10 @@ import com.offway.core.transport.domain.CoordinateKey;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.transport.service.RouteOptimizer;
 import com.offway.core.transport.service.RouteTimeProvider;
-import com.offway.core.transport.service.TrainAccessService;
+import com.offway.core.transport.service.RegionAccessService;
 import com.offway.core.transport.service.UnroutableCoordinateService;
 import com.offway.core.transport.service.TravelTimeProvider;
-import com.offway.core.transport.service.dto.TrainAccess;
+import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.service.dto.RegionPois;
@@ -63,7 +63,7 @@ public class CourseGenerationService {
     private final CourseWeatherProvider courseWeatherProvider;
     private final OpeningHoursProvider openingHoursProvider;
     private final RegionRepository regionRepository;
-    private final TrainAccessService trainAccessService;
+    private final RegionAccessService regionAccessService;
     private final UnroutableCoordinateService unroutableCoordinateService;
 
     public GeneratedCourse generate(GenerateCourse command) {
@@ -106,7 +106,7 @@ public class CourseGenerationService {
 
         // 대중교통이면 출발지→지역 열차 접근을 여기서 조회한다(자차는 TMAP 실측이라 불필요). 부가 정보라 실패해도 코스는 그대로.
         // 슬롯 배치보다 앞서야 한다 — 동선의 기준점과 1일차 시작 시간대가 이 결과에서 나온다(#127).
-        TrainAccess trainAccess =
+        RegionAccess trainAccess =
                 command.transport() == TransportMode.TRANSIT ? trainAccessFor(command, region) : null;
 
         // ⑤⑦ interim: 기준점 최근접 정렬(동선) → 하루씩 순서대로 슬라이스하면 가까운 곳끼리 묶인다
@@ -207,11 +207,11 @@ public class CourseGenerationService {
     }
 
     /** 대중교통 코스의 출발지→지역 열차 접근. 출발·지역 좌표의 최근접 역으로 해석한다. */
-    private TrainAccess trainAccessFor(GenerateCourse command, Region region) {
+    private RegionAccess trainAccessFor(GenerateCourse command, Region region) {
         if (region == null) {
             return null;
         }
-        return trainAccessService.accessTo(
+        return regionAccessService.accessTo(
                 command.originLat(), command.originLng(),
                 region.getLat(), region.getLng(), command.travelDate(),
                 command.startDayLeave().departureTime());
@@ -225,7 +225,7 @@ public class CourseGenerationService {
      *
      * <p>역이 없거나(오지) 접근 조회가 실패해 도착 지점을 모르면 출발지로 되돌아간다 — 이전과 같은 동작이라 회귀가 없다.
      */
-    private static Coordinate regionAnchor(GenerateCourse command, TrainAccess trainAccess) {
+    private static Coordinate regionAnchor(GenerateCourse command, RegionAccess trainAccess) {
         Coordinate origin = new Coordinate(command.originLat(), command.originLng());
         if (trainAccess == null) {
             return origin;
@@ -243,7 +243,7 @@ public class CourseGenerationService {
      * <p>역 없음·그날 운행 없음·조회 실패는 여전히 하루 전부다. 모르는 것을 늦은 도착으로 단정하면 조회 실패가
      * 조용히 코스를 깎는다 — degrade 가 정상처럼 보이는 최악의 형태다.
      */
-    private DayStart firstDayStart(GenerateCourse command, Region region, TrainAccess trainAccess) {
+    private DayStart firstDayStart(GenerateCourse command, Region region, RegionAccess trainAccess) {
         if (trainAccess == null) {
             return carFirstDayStart(command, region);
         }

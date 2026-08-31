@@ -195,7 +195,7 @@
 - **Base 공통**: `https://apis.data.go.kr/1613000/...` (serviceKey 가 URL 에 실리므로 **HTTPS 필수** — 평문 전송 금지) · 응답 래퍼 `resultCode`/`items>item[]`
 - **한도**: 무료, 개발계정 일 10,000건
 
-> **⚠️ 경로 명명 — 서비스마다 다르다**: data.go.kr TAGO 는 서비스마다 base·op casing 이 제각각이다. 버스류는 `...InqireService` + **소문자** op(`getCtyCodeList`)다. **열차는 실측 확정**: 짧은 base(`TrainInfo`) + **대문자 G** op(`GetStrtpntAlocFndTrainInfo`). 고속버스·시외버스·지하철은 **아직 추정**(열차와 같은 규칙일 것으로 보이나 실호출 미확인). 틀린 조합은 게이트웨이가 `404 "API not found"` — 404 의 태반이 미구독이 아니라 **경로·casing 오타**였다.
+> **⚠️ 경로 명명 — 서비스마다 다르다**: data.go.kr TAGO 는 서비스마다 base·op casing 이 제각각이다. 버스류는 `...InqireService` + **소문자** op(`getCtyCodeList`)다. **열차·고속버스·시외버스·여객선은 실측 확정**: 짧은 base + **대문자 G** op. 긴 base(`...Service`) + 소문자 조합은 `400 NO_OPENAPI_SERVICE_ERROR` 다(2026-08-31 실호출). 지하철은 아직 추정. 틀린 조합은 게이트웨이가 `404 "API not found"` — 404 의 태반이 미구독이 아니라 **경로·casing 오타**였다.
 
 | 서비스 | 데이터셋 | base | 핵심 op / 필드 | 비고 |
 |---|---|---|---|---|
@@ -204,12 +204,17 @@
 | 버스노선정보 | 15098529 | `BusRouteInfoInqireService` ✅ | 노선·경유정류소(소문자) | 200 |
 | 버스위치정보 | 15098531 | `BusLcInfoInqireService` ✅ | 실시간 차량 위치(소문자) | 200 |
 | **열차정보** | 15098552 | **`TrainInfo`** ✅ | **`GetStrtpntAlocFndTrainInfo`(대문자 G)** · `GetCtyCodeList` · `GetCtyAcctoTrainSttnList` | **200 실호출·KTX 확인.** SRT 미포함 |
-| 고속버스정보 | 15098522 | `ExpBusInfo`(추정) | `GetExpBusTrminlList`(대문자 추정) | 열차와 같은 규칙 예상 |
-| 시외버스정보 | 15098541 | `SuburbsBusInfo`(추정) | (대문자 추정) | ⚠️ **당일 배차만** |
+| **고속버스정보** | 15098522 | **`ExpBusInfo`** ✅ | **`GetExpBusTrminlList`**(터미널 453) · `GetStrtpntAlocFndExpbusInfo` | ⚠️ **오늘~+2일 배차만** |
+| **시외버스정보** | 15098541 | **`SuburbsBusInfo`** ✅ | **`GetSuberbsBusTrminlList`**(터미널 341) · `GetStrtpntAlocFndSuberbsBusInfo` | ⚠️ **오늘~+2일 배차만.** 목록이 `cityName`(소재지)을 준다 |
+| **국내선박운항정보** | 15098523 | **`DmstcShipNvgInfo`** ✅ | **`GetPortList`**(항구 749) · `GetShipOpratInfoList` | ⚠️ **오늘~+7일 운항만.** 육상보다 넓다 |
 | 지하철정보 | — | `SubwayInfo`(추정) | (대문자 추정) | 도시 내 |
 
 - **응답 필드(열차)**: `items.item[]` (단건이면 `item` 객체 하나) · `traingradename`(KTX·ITX-새마을·무궁화) · `depplandtime`/`arrplandtime`(`yyyyMMddHHmmss`) · `trainno`. 미운행이면 `items:""`(빈 문자열).
 - **역/정류소/터미널 ID**는 각 목록 op(`GetCtyCodeList` → `GetCtyAcctoTrainSttnList` 등)으로 선조회. 예: 서울 `NAT010000` · 부산 `NAT014445`.
+- **응답 필드(고속·시외버스)**: `routeId` · `depPlaceNm`/`arrPlaceNm` · `depPlandTime`/`arrPlandTime` · `charge` · `gradeNm`(우등 등).
+- **응답 필드(여객선)**: 항구 목록 `nodeId`(예: `SEA43113` 울릉_도동) · `nodeNm` / 운항 `depPlaceNm`·`arrPlaceNm`·`depPlandTime`·`arrPlandTime`·`charge`·`vihicleNm`(선명). 운항 조회는 `depNodeId` 필수.
+- **⚠️ 시각 자릿수가 서비스마다 다르다** (2026-08-31 실호출): **시외버스는 14자리**(`20260831070000`), 고속버스는 12자리(`202607301000`). 같은 계열이라고 파서를 공유하면 깨진다 — 앞 12자리만 읽거나 자릿수를 분기한다.
+- **소요시간은 편차가 없다** (2026-08-31 실측): 동서울→정선 시외버스 7편이 전부 **150분·28,600원·우등**. 포항→울릉_도동 여객선 140분·171,500원. **시간표는 못 저장해도 소요시간은 한 번 재서 재사용할 수 있다** — 조회창이 +2일(여객선 +7일)뿐인 제약을 이 성질로 우회한다(#107 · #97).
 - **OffWay 용도**: 반차·퇴근후 모드 도착시각, 교통수단별 동선.
 
 #### ⚠️ 시내버스 커버리지 — 전국이 아니다 (실호출 확인 2026-07-31)
@@ -280,7 +285,7 @@
 ## 4. "모든 걸 미리 준비" 실행 제약 (설계에 반영)
 
 - **SRT 공공API 없음** → SRT 시간표는 제외하거나 별도 처리. KTX는 TAGO로.
-- **시외버스 미래날짜 조회 불가**(당일만) → 미래 일정은 "예상 소요시간"으로 근사, 실시간은 당일에.
+- **버스 미래날짜 조회 불가**(고속·시외 모두 오늘~+2일, 여객선 오늘~+7일) → 미래 일정은 **저장해 둔 소요시간**으로 답하고, 실시간은 당일에. 소요시간이 편차 없이 일정하다는 실측이 근거다(위 TAGO 절).
 - **TMAP 24h 저장 제한** → 경로 결과는 단기 캐시(≤24h)만. 영구 저장 금지.
 - **개발계정 한도**(TourAPI/빅데이터 1,000/일, TMAP 최적화 50/일) → 대량 사전적재는 배치·페이징·운영계정 전환 고려.
 - **지역코드 불일치**(TourAPI sigunguCode ↔ 빅데이터 코드 ↔ 인구감소지역 지명) → **지명 기준 매핑 테이블**을 먼저 구축(마스터 데이터).
