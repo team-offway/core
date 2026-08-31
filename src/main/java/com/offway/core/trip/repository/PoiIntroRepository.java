@@ -31,10 +31,11 @@ public interface PoiIntroRepository {
      *
      * <p>타입이 없는 슬롯(이 기능 이전 코스·우리 DB 출처)은 제외한다 — 타입 없이는 detailIntro2 를 못 부른다.
      *
-     * @param emptyRetryBefore 이 시각보다 오래된 <b>빈 행</b>은 다시 일감이 된다. 빈 응답은 실패와 결과가
-     *     같으므로 영구 캐시로 굳히지 않는다(#157). 재시도 간격은 호출자(배치)가 정한다
+     * @param now 지금. <b>다시 물을 때가 된 빈 행</b>도 함께 일감이 된다 — 빈 응답은 실패와 결과가 같아
+     *     영구 캐시로 굳히지 않는다(#157). 언제가 "때" 인지는 행이 스스로 들고 있다({@code next_retry_at}),
+     *     간격 규칙은 {@code IntroRetrySchedule} 이 소유한다(#368)
      */
-    List<ContentRef> findMissing(int limit, LocalDateTime emptyRetryBefore);
+    List<ContentRef> findMissing(int limit, LocalDateTime now);
 
     /**
      * 콘텐츠 id 로 <b>보조정보 전체</b>를 찾는다 — 홈 카드 부제가 쓴다(#305).
@@ -57,10 +58,10 @@ public interface PoiIntroRepository {
      * 19건이 빈 응답이었다. 부르면 콜만 쓰고 아무것도 안 담긴다.
      *
      * @param perCategory 지역·칩마다 몇 건까지 — 이 값이 회차당 콜 수를 정한다
-     * @param emptyRetryBefore 이 시각보다 오래된 <b>빈 행</b>은 다시 일감이 된다. 외부가 나중에 채우면
-     *     그때 따라 채워지라고 두는 문이다
+     * @param now 지금. 다시 물을 때가 된 빈 행도 함께 일감이 된다 — 외부가 나중에 채우면 그때 따라
+     *     채워지라고 두는 문이다(#368)
      */
-    List<ContentRef> findMissingForCards(int limit, int perCategory, LocalDateTime emptyRetryBefore);
+    List<ContentRef> findMissingForCards(int limit, int perCategory, LocalDateTime now);
 
     /**
      * 받은 것을 넣는다. 같은 콘텐츠를 다시 받으면 덮어쓴다.

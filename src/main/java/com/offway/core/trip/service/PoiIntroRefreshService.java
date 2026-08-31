@@ -67,18 +67,6 @@ public class PoiIntroRefreshService {
     private static final Duration MIN_INTERVAL = Duration.ofDays(1);
 
     /**
-     * 빈 응답을 다시 물어보기까지 기다리는 기간 — <b>빈 값은 캐시가 아니라 재시도 대기다</b>.
-     *
-     * <p>"값이 없다" 는 실패와 결과가 같다. 영구 저장으로 굳히면 원본이 나중에 운영시간을 채워도 우리는 영영
-     * 모른다. 그렇다고 매 회차 다시 물으면 하루 예산({@value #DAILY_BUDGET})을 빈 콘텐츠가 다 먹고, 새로
-     * 생긴 코스의 장소가 차례를 못 받는다.
-     *
-     * <p>7일로 둔 근거 — 원본을 채우는 것은 지자체 정보 갱신이라 일 단위로 바뀌지 않는다. 빈 것 하나가
-     * 쓰는 예산이 매일 재시도의 1/7 로 줄고, 원본이 채워지면 늦어도 일주일 안에 화면에 반영된다.
-     */
-    static final Duration EMPTY_RETRY_INTERVAL = Duration.ofDays(7);
-
-    /**
      * 홈 카드용으로 지역·칩마다 받아 둘 건수(#305).
      *
      * <p>홈이 칩마다 그만큼만 보여주므로 더 받아도 화면에 안 나온다. 이 값이 곧 회차당 콜 수를 정한다 —
@@ -124,18 +112,16 @@ public class PoiIntroRefreshService {
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
         // 로컬은 한 회차에 몇 건만 채운다(#254) — 자세한 이유는 BatchBudgetProperties.
         int budget = batchBudget.limits(DAILY_BUDGET) ? batchBudget.regionsPerRun() : DAILY_BUDGET;
-        LocalDateTime retryBefore = now.minus(EMPTY_RETRY_INTERVAL);
-
         // 코스 슬롯이 먼저다 — 사용자가 방금 만들어 지금 보고 있는 장소다. 홈 카드는 그 뒤 순서로도
         // 며칠 안에 찬다. 반대로 두면 새 코스의 운영시간이 홈 뒤에 밀린다.
-        int used = fill(poiIntroRepository.findMissing(budget, retryBefore), now, "코스 장소");
+        int used = fill(poiIntroRepository.findMissing(budget, now), now, "코스 장소");
 
         int left = budget - used;
         if (left <= 0) {
             log.info("홈 카드 부제 — 이번 회차 예산을 코스 장소가 다 썼습니다(예산 {}건)", budget);
             return;
         }
-        fill(poiIntroRepository.findMissingForCards(left, CARDS_PER_CATEGORY, retryBefore), now, "홈 카드 부제");
+        fill(poiIntroRepository.findMissingForCards(left, CARDS_PER_CATEGORY, now), now, "홈 카드 부제");
     }
 
     /**
@@ -169,7 +155,7 @@ public class PoiIntroRefreshService {
             }
             if (intro == null || intro.isEmpty()) {
                 // 빈 행으로 남긴다 — 매 회차 다시 물으면 예산을 태우기 때문이다. 다만 캐시가 아니라
-                // 재시도 대기다: fetched_at 이 EMPTY_RETRY_INTERVAL 을 넘기면 다시 일감이 된다.
+                // 재시도 대기다: next_retry_at 이 되면 다시 일감이 된다. 물을수록 그 간격이 벌어진다(#368).
                 empty++;
                 fetched.put(ref, PoiIntro.builder().build());
                 continue;
@@ -180,8 +166,9 @@ public class PoiIntroRefreshService {
         int saved = poiIntroRepository.upsertAll(fetched, now);
         if (failed > 0 || empty > 0) {
             // 빈 응답도 warn 이다. info 로 묻으면 "적재 성공" 처럼 보여, 화면이 왜 비는지 아무도 모른 채 굳는다.
-            log.warn("{} 적재 {}건(대상 {}) — 실패 {}건·값없음 {}건({} 뒤 재시도), 저장 누계 {}건",
-                    label, saved, missing.size(), failed, empty, EMPTY_RETRY_INTERVAL, poiIntroRepository.count());
+            // 재시도 시점은 행마다 다르다(#368) — 계속 비는 장소일수록 다음 차례가 멀어진다.
+            log.warn("{} 적재 {}건(대상 {}) — 실패 {}건·값없음 {}건(간격을 늘려 재시도), 저장 누계 {}건",
+                    label, saved, missing.size(), failed, empty, poiIntroRepository.count());
         } else {
             log.info("{} 적재 {}건(대상 {}) — 저장 누계 {}건",
                     label, saved, missing.size(), poiIntroRepository.count());
