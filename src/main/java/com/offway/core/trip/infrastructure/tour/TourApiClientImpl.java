@@ -78,6 +78,14 @@ class TourApiClientImpl implements TourApiClient {
      * 닿지 않는다 — 느려졌을 때만 끊는 안전망이다.
      */
     private static final Duration RETRY_TOTAL_TIMEOUT = Duration.ofSeconds(8);
+
+    /**
+     * 재시도분을 셀 때 건너뛰는 시도 번호 — 0번째(최초 호출)는 실호출 직전에 이미 셌다(#365).
+     *
+     * <p>이 값이 0 이 되면 평범한 호출이 두 번 세어져, 고치려던 것과 정반대로 어긋난다.
+     */
+    private static final int FIRST_RETRY_ATTEMPT = 1;
+
     private static final String MOBILE_OS = "ETC";
     private static final String MOBILE_APP = "offway";
     private static final Set<String> SUCCESS_CODES = Set.of("0000", "00");
@@ -264,7 +272,7 @@ class TourApiClientImpl implements TourApiClient {
      * <p>그래서 스케줄러 스레드에서는 <b>세기만</b> 하고, 부른 스레드로 돌아와 적는다.
      */
     private void recordRetries(int attempts) {
-        for (int retried = 1; retried < attempts; retried++) {
+        for (int retried = FIRST_RETRY_ATTEMPT; retried < attempts; retried++) {
             callRecorder.record(ExternalApi.TOUR_API);
         }
     }
