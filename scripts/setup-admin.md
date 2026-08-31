@@ -5,10 +5,12 @@
 
 | # | 무엇 | 담당 | 없으면 |
 |---|---|---|---|
-| 1 | 카카오 개발자 콘솔에 웹 플랫폼·Redirect URI 등록 | 사람 | 로그인 버튼이 카카오에서 거절된다(`KOE006`) |
-| 2 | 운영에 `KAKAO_WEB_REDIRECT_URI` 주입 | 배포 | 로그인이 `localhost` 로 되돌아와 아무도 못 들어온다 |
-| 3 | 한 번 로그인해 사용자 ID 확인 | 사람 | 다음 단계의 값을 알 수 없다 |
-| 4 | 최초 어드민 마이그레이션 | 코드 | 로그인은 되지만 목록이 전부 `403` |
+| 1 | 카카오 개발자 콘솔에 웹 플랫폼·Redirect URI 등록 | **사람** | 로그인 버튼이 카카오에서 거절된다(`KOE006`) |
+| 2 | 한 번 로그인해 사용자 ID 확인 | **사람** | 다음 단계의 값을 알 수 없다 |
+| 3 | 최초 어드민 마이그레이션 | 코드 | 로그인은 되지만 목록이 전부 `403` |
+
+운영 환경변수는 **배포 워크플로우가 이미 넣는다**(`.github/workflows/deploy.yml`). 사람이 할 일은 1번과
+2번뿐이다.
 
 ---
 
@@ -23,7 +25,7 @@
 | 앱 설정 > **플랫폼** > Web | 사이트 도메인에 `https://api.offway.cloud` 추가 |
 | 제품 설정 > **카카오 로그인** | 활성화 ON (앱에서 쓰고 있으면 이미 켜져 있다) |
 | 제품 설정 > 카카오 로그인 > **Redirect URI** | 아래 둘을 등록 |
-| 제품 설정 > 카카오 로그인 > 보안 > **Client Secret** | 선택 — 켜면 4번 항목 참고 |
+| 제품 설정 > 카카오 로그인 > 보안 > **Client Secret** | 선택 — 켜면 아래 '환경변수' 절 참고 |
 
 Redirect URI 는 **경로 한 글자까지 정확히 일치**해야 한다. 카카오가 인가 단계와 토큰 교환 단계에서 두 번
 대조한다.
@@ -44,28 +46,28 @@ http://localhost:8080/api/v1/auth/oauth2/kakao/callback
 
 ---
 
-## 2. 운영 환경변수
+### 환경변수는 배포가 넣는다
+
+`deploy.yml` 이 `env.prod` 에 직접 적는다 — **비밀이 아니라 공개 주소**라 secret 으로 둘 이유가 없고,
+레포에 있어야 카카오 콘솔에 등록한 값과 대조할 수 있다.
 
 ```bash
 KAKAO_WEB_REDIRECT_URI=https://api.offway.cloud/api/v1/auth/oauth2/kakao/callback
+KAKAO_CLIENT_SECRET=${{ secrets.KAKAO_CLIENT_SECRET }}   # 안 켰으면 빈 값이고, 그러면 안 싣는다
 ```
 
-**기본값이 로컬 주소**(`http://localhost:8080/...`)라 이걸 안 넣으면 운영에서 로그인이 localhost 로
-되돌아간다. 개발자가 설정 없이 로컬에서 시험할 수 있게 기본값을 둔 대가라, 배포 때 반드시 덮어쓴다.
+기본값이 로컬 주소(`http://localhost:8080/...`)라 이 줄이 없으면 운영에서 로그인이 localhost 로
+되돌아간다. 개발자가 설정 없이 로컬에서 시험할 수 있게 기본값을 둔 대가라, 배포가 덮어쓴다.
 
-Client Secret 을 켰다면 함께 넣는다. **안 켰으면 넣지 않는다** — 콘솔에서 안 켠 앱에 이 값을 보내면
-오히려 거절된다.
-
-```bash
-KAKAO_CLIENT_SECRET=...   # 켠 경우에만
-```
-
-이 둘이 비어도 **부팅은 막히지 않는다.** 웹 로그인만 비활성이 되고 앱 로그인·나머지 기능은 그대로다
+**둘이 비어도 부팅은 막히지 않는다.** 웹 로그인만 비활성이 되고 앱 로그인·나머지 기능은 그대로다
 (로컬 실행성 불변식).
+
+로컬에서 카카오 로그인을 시험하려면 `application-secret.properties` 에 `KAKAO_REST_API_KEY` 와
+`KAKAO_APP_ID` 만 채우면 된다. 콜백 주소는 기본값이 이미 로컬이다.
 
 ---
 
-## 3. 사용자 ID 확인
+## 2. 사용자 ID 확인
 
 `https://api.offway.cloud/admin/` 을 열고 **카카오로 로그인**을 누른다.
 
@@ -82,14 +84,14 @@ provider 와 식별자를 스스로 꺼낸다.
 
 ---
 
-## 4. 최초 어드민 마이그레이션
+## 3. 최초 어드민 마이그레이션
 
 아무도 어드민이 아니면 아무도 어드민을 추가할 수 없다. 그래서 첫 한 명만 마이그레이션이 넣는다.
 
 `src/main/resources/db/migration/V{타임스탬프}__grant_first_admin.sql`:
 
 ```sql
--- 최초 어드민 (#343). 3번에서 확인한 사용자 ID 를 넣는다.
+-- 최초 어드민 (#343). 2번에서 확인한 사용자 ID 를 넣는다.
 --
 -- 값을 직접 박지 않고 user_identity 에서 꺼내는 이유:
 --   (a) provider 와 sub 를 사람이 옮겨 적다 틀릴 여지를 없앤다
@@ -99,7 +101,7 @@ provider 와 식별자를 스스로 꺼낸다.
 INSERT INTO admin_account (provider, provider_user_id, label)
 SELECT ui.provider, ui.provider_user_id, '박세빈'
   FROM user_identity ui
- WHERE ui.user_id = UNHEX(REPLACE('<3번에서 복사한 사용자 ID>', '-', ''))
+ WHERE ui.user_id = UNHEX(REPLACE('<2번에서 복사한 사용자 ID>', '-', ''))
  LIMIT 1;
 ```
 
@@ -120,7 +122,7 @@ SELECT ui.provider, ui.provider_user_id, '박세빈'
 # 화면이 인증 없이 열린다 (HTML 에는 비밀이 없다)
 curl -s -o /dev/null -w '%{http_code}\n' https://api.offway.cloud/admin/
 
-# 데이터는 잠겨 있다 — 토큰 없이 403
+# 데이터는 잠겨 있다 — 토큰이 아예 없으면 401, 어드민이 아닌 토큰이면 403
 curl -s -o /dev/null -w '%{http_code}\n' https://api.offway.cloud/api/v1/admin/curated-links
 
 # 로그인 시작이 카카오로 보낸다
@@ -128,7 +130,7 @@ curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' \
   https://api.offway.cloud/api/v1/auth/oauth2/kakao
 ```
 
-마지막 줄이 `localhost` 를 가리키면 2번이 빠진 것이다.
+마지막 줄이 `localhost` 를 가리키면 배포 환경변수가 안 들어간 것이다.
 
 ---
 
