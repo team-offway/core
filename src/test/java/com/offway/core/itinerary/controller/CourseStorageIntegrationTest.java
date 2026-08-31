@@ -654,6 +654,59 @@ class CourseStorageIntegrationTest {
         mockMvc.perform(get(URL + "/{id}", courseId)).andExpect(status().isOk()); // 자리 만들기
     }
 
+    private static String carBody(boolean withOrigin) {
+        String origin = withOrigin ? "\"originLat\": 37.5547, \"originLng\": 126.9707," : "";
+        return """
+                { "regionId": 16, "density": "PACKED", "transport": "CAR",
+                  "travelDate": "2026-09-11", %s "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":0}
+                  ]}
+                ]}""".formatted(origin);
+    }
+
+    @Test
+    void 자차_코스에도_도착_안내가_실린다() throws Exception {
+        // 예전에는 대중교통에만 만들어 자차는 카드가 통째로 비었다. 그런데 같은 계산을 이미 하고 있었다 —
+        // 후보지역 추천이 그 지역까지의 도달시간을 답하고, 사용자는 그 숫자를 보고 지역을 골랐다(#379).
+        long courseId = save(carBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("CAR"))
+                .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("자차"))
+                // 자차는 역·터미널이 아니라 지역 자체가 도착지다. 여기가 비면 화면이 카드를 접는다.
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"))
+                .andExpect(jsonPath("$.data.transitAccess.durationMinutes").isNumber())
+                .andExpect(jsonPath("$.data.transitAccess.distanceKm").isNumber())
+                // 자차로 가기로 한 사람에게 "시외버스로도 갈 수 있다" 를 늘어놓지 않는다
+                .andExpect(jsonPath("$.data.transitAccess.alternatives").isEmpty())
+                // 옛 필드는 열차만 담기로 했다 — 자차가 여기 실리면 화면이 "역 없음" 으로 읽는다
+                .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
+    }
+
+    @Test
+    void 출발지를_모르는_자차_코스는_도착_안내가_없다() throws Exception {
+        // 이 필드가 생기기 전에 저장된 코스가 이 경우다. 어디서 출발했는지 모르면 몇 분 걸리는지도 모른다.
+        long courseId = save(carBody(false));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess").doesNotExist())
+                .andExpect(jsonPath("$.data.days.length()").value(1));
+    }
+
+    @Test
+    void 대중교통_코스에도_출발지에서_내리는_곳까지의_거리가_실린다() throws Exception {
+        // 화면이 "약 2시간 29분 · 200km" 로 소요시간 옆에 붙인다. 세 수단이 같은 카드라 여기서도 필요하다.
+        trainArrives();
+        long courseId = save(transitBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.distanceKm").isNumber());
+    }
+
     @Test
     void 출발지_없이_저장된_코스는_열차_접근이_비고_그게_오류가_아니다() throws Exception {
         // 이 필드가 생기기 전에 저장된 코스가 이 경우다. 근거가 없으니 지어내지 않는다.

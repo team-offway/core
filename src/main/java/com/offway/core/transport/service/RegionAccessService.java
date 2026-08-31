@@ -5,6 +5,7 @@ import com.offway.core.transport.domain.Port;
 import com.offway.core.transport.domain.RegionArrival;
 import com.offway.core.transport.domain.Terminal;
 import com.offway.core.transport.domain.TransitMode;
+import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.transport.service.dto.TransitOption;
 import java.time.LocalDate;
@@ -44,6 +45,7 @@ public class RegionAccessService {
     private final BusTerminalResolver busTerminalResolver;
     private final FerryPortResolver ferryPortResolver;
     private final TransitDurationService transitDurationService;
+    private final TravelTimeProvider travelTimeProvider;
 
     /**
      * 출발 좌표에서 목적지 좌표(지역)까지, 해당 날짜의 대중교통 접근.
@@ -67,7 +69,34 @@ public class RegionAccessService {
             chosen = chosen.withDuration(
                     durationOf(chosen.mode(), originLat, originLng, destTerminal, destPort).orElse(null));
         }
-        return chosen.withAlternatives(alternativesTo(chosen, train, destTerminal, destPort));
+        return chosen.withDistanceKm(distanceKm(new Coordinate(originLat, originLng), chosen.arrivalPoint()))
+                .withAlternatives(alternativesTo(chosen, train, destTerminal, destPort));
+    }
+
+    /**
+     * 자차로 지역까지(#379). 도착 지점이 <b>지역 그 자체</b>라 역·터미널을 해석할 것이 없다.
+     *
+     * <p>예전에는 자차 코스에 이 값을 아예 만들지 않아 화면의 교통 카드가 통째로 비었다. 그런데 <b>같은
+     * 계산을 이미 하고 있었다</b> — 후보지역 추천이 그 지역까지의 도달시간을 답하고, 사용자는 그 숫자를 보고
+     * 지역을 골랐다. 코스 상세에서만 그 값이 사라지던 셈이다.
+     *
+     * <p>이동시간 조회는 캐시를 탄다. 같은 (출발지, 지역) 조합이면 코스 안에서 다시 부르지 않는다.
+     */
+    public RegionAccess carAccessTo(String regionName, double originLat, double originLng, double destLat, double destLng) {
+        Coordinate origin = new Coordinate(originLat, originLng);
+        Coordinate destination = new Coordinate(destLat, destLng);
+        int minutes = travelTimeProvider.reachMinutes(origin, destination, TransportMode.CAR);
+        return RegionAccess.car(regionName, destination, minutes, distanceKm(origin, Optional.of(destination)));
+    }
+
+    /**
+     * 출발지에서 도착 지점까지의 거리(#379) — 지점을 못 찾았으면 빈 값이다.
+     *
+     * <p><b>직선거리다.</b> 실제 주행거리를 알려면 경로 조회가 한 건 더 나가는데, 화면이 소요시간 옆에 붙이는
+     * 곁가지 값 하나 때문에 외부 한도를 태울 이유가 없다. 이미 도착 지점을 고를 때 재고 있는 계산이다.
+     */
+    private static Integer distanceKm(Coordinate origin, Optional<Coordinate> arrival) {
+        return arrival.map(point -> (int) Math.round(origin.haversineKmTo(point))).orElse(null);
     }
 
     /**
@@ -122,7 +151,8 @@ public class RegionAccessService {
                     ferryPortResolver.nearest(originLat, originLng)
                             .flatMap(departure -> transitDurationService.minutesFor(
                                     mode, departure.code(), arrival.code(), now)));
-            case TRAIN -> Optional.empty();
+            // 구간 표를 쓰지 않는 둘. 열차는 실제 시각을 직접 답하고, 자차는 구간이 없다(#379).
+            case TRAIN, CAR -> Optional.empty();
         };
     }
 }

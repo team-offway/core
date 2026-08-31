@@ -10,6 +10,7 @@ import java.time.LocalTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import lombok.Builder;
 
 /**
  * 지역까지의 대중교통 접근 결과 — transport 가 itinerary(코스)에 주는 값. 상태를 구분해 UI 가 정확히 안내하게 한다.
@@ -30,10 +31,14 @@ import java.util.Optional;
  * @param toName 도착 지점명(없으면 null)
  * @param toPoint 도착 지점 좌표(해석됐으면 non-null) — 지역 안 동선의 기준점
  * @param fastest 가장 빠른 운행 편({@link Status#AVAILABLE} 일 때만, 아니면 null)
- * @param durationMinutes 저장해 둔 구간 소요시간(분, 버스·여객선만 — 모르면 null). 시간표를 못 묻는
- *     수단이라 <b>시각 대신 이것으로</b> 도착 시각을 만든다(#107)
+ * @param durationMinutes 소요시간(분, 모르면 null). 버스·여객선은 저장해 둔 구간 측정값에서, 자차는
+ *     출발지→지역 이동시간에서 온다. 시간표를 못 묻는 수단이라 <b>시각 대신 이것으로</b> 도착 시각을
+ *     만든다(#107 · #379)
+ * @param distanceKm 출발지에서 도착 지점까지의 직선거리(㎞, 모르면 null). 화면이 "약 2시간 29분 · 200km"
+ *     로 소요시간 옆에 붙인다(#379). 실제 주행거리가 아니라 직선거리다
  * @param alternatives 대표 말고 이 지역에 닿는 다른 수단들. 없으면 빈 목록이다
  */
+@Builder(toBuilder = true)
 public record RegionAccess(
         TransitMode mode,
         Status status,
@@ -42,6 +47,7 @@ public record RegionAccess(
         Coordinate toPoint,
         TrainLeg fastest,
         Integer durationMinutes,
+        Integer distanceKm,
         List<TransitOption> alternatives) {
 
     public RegionAccess {
@@ -52,7 +58,12 @@ public record RegionAccess(
     }
 
     public enum Status {
-        /** 운행 편 있음 — 도착 지점과 <b>시각</b>을 둘 다 안다. */
+        /**
+         * 갈 수 있고 <b>언제 닿는지도</b> 안다.
+         *
+         * <p>근거는 수단마다 다르다 — 열차는 실제 운행 편에서, 자차는 출발 시각에 이동시간을 얹어
+         * 안다(#379). 버스·여객선은 시간표를 못 물어 여기 오지 않는다({@link #POINT_ONLY}).
+         */
         AVAILABLE,
         /** 출발지·지역 어느 쪽에도 닿는 지점이 없어 대중교통으로 갈 수 없음. */
         NO_STATION,
@@ -112,32 +123,84 @@ public record RegionAccess(
         if (Objects.equals(durationMinutes, minutes)) {
             return this;
         }
-        return new RegionAccess(mode, status, fromName, toName, toPoint, fastest, minutes, alternatives);
+        return toBuilder().durationMinutes(minutes).build();
+    }
+
+    /** 출발지에서 도착 지점까지의 거리를 얹은 사본(#379). 지점을 고른 뒤라야 잴 수 있어 따로 붙인다. */
+    public RegionAccess withDistanceKm(Integer km) {
+        if (Objects.equals(distanceKm, km)) {
+            return this;
+        }
+        return toBuilder().distanceKm(km).build();
     }
 
     /** 대안 목록을 얹은 사본. 대표를 고른 뒤 나머지를 붙이는 자리다. */
     public RegionAccess withAlternatives(List<TransitOption> others) {
-        return new RegionAccess(mode, status, fromName, toName, toPoint, fastest, durationMinutes, others);
+        return toBuilder().alternatives(others).build();
     }
 
     public static RegionAccess available(String fromName, String toName, Coordinate toPoint, TrainLeg fastest) {
-        return new RegionAccess(TransitMode.TRAIN, Status.AVAILABLE, fromName, toName, toPoint, fastest, null, List.of());
+        return RegionAccess.builder()
+                .mode(TransitMode.TRAIN)
+                .status(Status.AVAILABLE)
+                .fromName(fromName)
+                .toName(toName)
+                .toPoint(toPoint)
+                .fastest(fastest)
+                .build();
+    }
+
+    /**
+     * 자차로 지역까지(#379). 도착 지점이 <b>지역 그 자체</b>라 역·터미널을 해석할 것이 없다.
+     *
+     * <p>출발 지점명은 담지 않는다 — 서버는 출발지를 <b>좌표로만</b> 받아 그곳을 뭐라고 부르는지 모른다.
+     * 지어내느니 비워 두고, 화면이 아는 이름을 쓰게 한다.
+     *
+     * <p>상태가 {@link Status#AVAILABLE} 인 이유는 <b>언제 닿는지를 알기 때문</b>이다. 열차처럼 운행 편이
+     * 있어서가 아니라, 자차는 나서는 시각에 이동시간을 얹으면 그대로 도착 시각이 된다.
+     */
+    public static RegionAccess car(String regionName, Coordinate region, int durationMinutes, Integer distanceKm) {
+        Objects.requireNonNull(region, "지역 좌표는 null 일 수 없습니다.");
+        return RegionAccess.builder()
+                .mode(TransitMode.CAR)
+                .status(Status.AVAILABLE)
+                .toName(regionName)
+                .toPoint(region)
+                .durationMinutes(durationMinutes)
+                .distanceKm(distanceKm)
+                .build();
     }
 
     /** 닿는 지점 자체가 없는 경우 — 도착 지점도 없다. */
     public static RegionAccess noStation(String fromName, String toName) {
-        return new RegionAccess(TransitMode.TRAIN, Status.NO_STATION, fromName, toName, null, null, null, List.of());
+        return RegionAccess.builder()
+                .mode(TransitMode.TRAIN)
+                .status(Status.NO_STATION)
+                .fromName(fromName)
+                .toName(toName)
+                .build();
     }
 
     /** 지점은 해석됐으나 그날 운행이 없는 경우 — 시각은 모르지만 <b>지점은 안다</b>. */
     public static RegionAccess noServiceOnDate(String fromName, String toName, Coordinate toPoint) {
-        return new RegionAccess(
-                TransitMode.TRAIN, Status.NO_SERVICE_ON_DATE, fromName, toName, toPoint, null, null, List.of());
+        return RegionAccess.builder()
+                .mode(TransitMode.TRAIN)
+                .status(Status.NO_SERVICE_ON_DATE)
+                .fromName(fromName)
+                .toName(toName)
+                .toPoint(toPoint)
+                .build();
     }
 
     /** 지점은 해석됐으나 조회가 실패한 경우 — 해석된 지점명·좌표는 그대로 담는다(해석과 조회는 별개). */
     public static RegionAccess unavailable(String fromName, String toName, Coordinate toPoint) {
-        return new RegionAccess(TransitMode.TRAIN, Status.UNAVAILABLE, fromName, toName, toPoint, null, null, List.of());
+        return RegionAccess.builder()
+                .mode(TransitMode.TRAIN)
+                .status(Status.UNAVAILABLE)
+                .fromName(fromName)
+                .toName(toName)
+                .toPoint(toPoint)
+                .build();
     }
 
     /**
@@ -177,7 +240,11 @@ public record RegionAccess(
 
     public static RegionAccess pointOnly(RegionArrival arrival) {
         Objects.requireNonNull(arrival, "도착 지점은 null 일 수 없습니다.");
-        return new RegionAccess(
-                arrival.mode(), Status.POINT_ONLY, null, arrival.name(), arrival.point(), null, null, List.of());
+        return RegionAccess.builder()
+                .mode(arrival.mode())
+                .status(Status.POINT_ONLY)
+                .toName(arrival.name())
+                .toPoint(arrival.point())
+                .build();
     }
 }
