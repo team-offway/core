@@ -7,10 +7,13 @@
 |---|---|---|---|
 | 1 | 카카오 개발자 콘솔에 웹 플랫폼·Redirect URI 등록 | **사람** | 로그인 버튼이 카카오에서 거절된다(`KOE006`) |
 | 2 | 한 번 로그인해 사용자 ID 확인 | **사람** | 다음 단계의 값을 알 수 없다 |
-| 3 | 최초 어드민 마이그레이션 | 코드 | 로그인은 되지만 목록이 전부 `403` |
+| 3 | 어드민 명단에 넣기 (DB 직접) | **사람** | 로그인은 되지만 목록이 전부 `403` |
 
-운영 환경변수는 **배포 워크플로우가 이미 넣는다**(`.github/workflows/deploy.yml`). 사람이 할 일은 1번과
-2번뿐이다.
+운영 환경변수는 **배포 워크플로우가 이미 넣는다**(`.github/workflows/deploy.yml`). 셋 다 사람이 하는
+일이고, 코드 쪽에 남은 일은 없다.
+
+> **1번·3번은 끝났다**(2026-08-31 ~ 09-01). Client Secret 을 켜 두고 `KAKAO_CLIENT_SECRET` 을 GitHub
+> 시크릿에 등록했으며, 최초 3명도 명단에 들어갔다 — 아래 기록 참고.
 
 ---
 
@@ -79,40 +82,88 @@ KAKAO_CLIENT_SECRET=${{ secrets.KAKAO_CLIENT_SECRET }}   # 안 켰으면 빈 값
 ```
 
 **이 값은 우리 `users.id` 다** — 카카오 회원번호가 아니다. 회원번호를 화면에 띄우지 않는 이유는 다음
-단계가 그것을 직접 필요로 하지 않기 때문이다. 아래 마이그레이션이 이 ID 로 `user_identity` 를 찾아
+단계가 그것을 직접 필요로 하지 않기 때문이다. 아래 쿼리가 이 ID 로 `user_identity` 를 찾아
 provider 와 식별자를 스스로 꺼낸다.
 
 ---
 
-## 3. 최초 어드민 마이그레이션
+## 3. 명단에 넣기
 
-아무도 어드민이 아니면 아무도 어드민을 추가할 수 없다. 그래서 첫 한 명만 마이그레이션이 넣는다.
+**마이그레이션으로 넣지 않는다.** 한 번 만들었다가 접었다(PR #374).
 
-`src/main/resources/db/migration/V{타임스탬프}__grant_first_admin.sql`:
+- 마이그레이션의 값어치는 "DB 를 새로 만들어도 재현된다" 인데 **여기서는 성립하지 않는다.** 운영에만
+  있는 UUID 로 조인하므로 다른 DB 에서는 언제나 0행이고, 운영 DB 를 새로 말아도 그 사람들은 새 UUID 로
+  다시 가입한다. 스키마 변경이 아니라 운영 데이터 한 번 넣기였다.
+- **어드민 명단은 바뀌는 데이터다.** 적용된 `V__` 는 수정도 삭제도 못 하는데(checksum), 나중에 누굴
+  빼면 그 파일이 남아 현재 상태와 다른 말을 한다. 관리 화면이 없어 어차피 표를 직접 고치게 되므로,
+  첫 번째만 마이그레이션이면 일관성도 없다.
 
-```sql
--- 최초 어드민 (#343). 2번에서 확인한 사용자 ID 를 넣는다.
---
--- 값을 직접 박지 않고 user_identity 에서 꺼내는 이유:
---   (a) provider 와 sub 를 사람이 옮겨 적다 틀릴 여지를 없앤다
---   (b) 그 사용자가 없는 환경(로컬·테스트)에서는 0행이 들어가 아무 일도 일어나지 않는다
---
--- user_id 는 BINARY(16) 이라 문자열과 바로 비교되지 않는다. 하이픈을 떼고 UNHEX 로 맞춘다.
-INSERT INTO admin_account (provider, provider_user_id, label)
-SELECT ui.provider, ui.provider_user_id, '박세빈'
-  FROM user_identity ui
- WHERE ui.user_id = UNHEX(REPLACE('<2번에서 복사한 사용자 ID>', '-', ''))
- LIMIT 1;
+그래서 **DB 에 직접 넣고, 절차와 기록을 여기 남긴다.** 이 문서가 마이그레이션이 하던 역할을 대신한다.
+
+### 접속
+
+```bash
+ssh -i ~/.ssh/piki-new/offway-tokyo.pem ubuntu@$(dig +short api.offway.cloud | tail -1)
 ```
 
-**넣은 뒤에는 다시 로그인해야 한다.** 역할이 토큰에 실려 있어, 이미 발급된 토큰은 명단이 바뀌어도
-그대로다. 반대 방향도 같다 — 명단에서 뺀 사람은 토큰이 만료될 때까지 어드민으로 남는다(재발급 시점에
-다시 대조하므로 최대 access 토큰 수명만큼이다).
+> 키는 AWS 키페어 **`offway-tokyo`**(ap-northeast-1) 다. `~/.ssh/config` 의 `team3` 는 **없어진 서울
+> 인스턴스**(`3.37.172.220`)를 가리키므로 그걸 믿지 않는다. 실제 서버는 도쿄 리전이고, 사용자는
+> `ubuntu` 다.
 
-### 두 번째부터
+### 넣기
 
-첫 한 명이 생기면 그 뒤로는 마이그레이션이 필요 없다. 같은 표에 행을 더하면 되고, 그 사람도 한 번
-로그인해 `user_identity` 에 흔적을 남긴 뒤여야 한다.
+```bash
+cd ~/offway
+DBU=$(grep -E "^DB_USERNAME=" env.prod | cut -d= -f2-)
+DBP=$(grep -E "^DB_PASSWORD=" env.prod | cut -d= -f2-)
+DBNAME=$(grep -E "^DB_URL=" env.prod | cut -d= -f2- | sed -E 's|\?.*$||' | sed -E 's|.*/||')
+docker exec -i offway-mysql mysql --default-character-set=utf8mb4 -u"$DBU" -p"$DBP" "$DBNAME"
+```
+
+```sql
+-- 2번에서 확인한 사용자 ID 와, 감사 흔적에 남길 이름을 짝지어 넣는다.
+--
+-- provider 와 회원번호를 직접 박지 않고 user_identity 에서 꺼낸다 — 화면이 알려주는 값은 users.id 이고
+-- 이 표의 키는 provider+sub 라, 사람이 회원번호를 따로 찾아 옮겨 적으면 틀릴 여지가 생긴다. 그 실수는
+-- "로그인은 되는데 계속 403" 으로만 보여 원인을 짚기 어렵다.
+--
+-- user_id 는 BINARY(16) 이라 문자열과 바로 비교되지 않는다. 하이픈을 떼고 UNHEX 로 맞춘다.
+INSERT IGNORE INTO admin_account (provider, provider_user_id, label)
+SELECT ui.provider, ui.provider_user_id, seed.label
+  FROM (
+        SELECT UNHEX(REPLACE('<사용자 ID>', '-', '')) AS user_id, '<이름>' AS label
+        UNION ALL
+        SELECT UNHEX(REPLACE('<사용자 ID>', '-', '')), '<이름>'
+       ) AS seed
+  JOIN user_identity ui ON ui.user_id = seed.user_id;
+```
+
+**들어간 행 수를 반드시 센다.** `user_id` 를 하나만 잘못 적어도 그 행은 조용히 빠지는데 쿼리는 성공으로
+끝난다. 그 사람만 계속 403 이 되고 로그에는 아무 흔적이 없다.
+
+```sql
+SELECT id, provider, label, created_at FROM admin_account ORDER BY id;
+```
+
+### 빼기
+
+```sql
+DELETE FROM admin_account WHERE label = '<이름>';
+```
+
+**바로 막히지 않는다.** 역할이 토큰에 실려 나가므로, 뺀 사람은 **access 토큰이 만료될 때까지**(기본
+1시간) 어드민으로 남는다. 재발급 시점에 다시 대조하므로 그 이상은 아니다. 즉시 끊어야 하면 그 사용자의
+refresh 토큰까지 폐기해야 한다.
+
+### 넣은 뒤에는 각자 다시 로그인해야 한다
+
+같은 이유다 — 이미 손에 든 토큰에는 `ADMIN` 이 없다. 로그아웃하고 다시 들어와야 새 토큰에 실린다.
+
+### 기록
+
+| 날짜 | 이름 | 비고 |
+|---|---|---|
+| 2026-09-01 | 박세빈 · 조영찬 · 이예빈 | 최초 3명 (#343) |
 
 ---
 
