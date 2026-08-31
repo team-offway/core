@@ -1,0 +1,503 @@
+/* OffWay 백오피스 (#343) — 빌드 도구 없이 브라우저가 그대로 읽는다. */
+
+:root {
+    --ink: #16202b;
+    --ink-soft: #5b6b7c;
+    --line: #dfe5ec;
+    --bg: #f5f7fa;
+    --panel: #ffffff;
+    --accent: #1f6feb;
+    --accent-ink: #ffffff;
+    --danger: #b3261e;
+    --ok: #1a7f4b;
+    --radius: 10px;
+    --gap: 16px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+}
+
+h1, h2, h3 {
+    margin: 0;
+    font-weight: 700;
+}
+
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.92em;
+    background: #eef2f7;
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
+/* ---------------------------------------------------------------- 머리 */
+
+.top {
+    display: flex;
+    align-items: center;
+    gap: var(--gap);
+    padding: 14px 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+}
+
+.top h1 {
+    font-size: 17px;
+    letter-spacing: -0.01em;
+}
+
+.who {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--ink-soft);
+    font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- 게이트 */
+
+.gate {
+    max-width: 560px;
+    margin: 80px auto;
+    padding: 32px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    text-align: center;
+}
+
+.gate h2 {
+    font-size: 20px;
+    margin-bottom: 10px;
+}
+
+.gate p {
+    color: var(--ink-soft);
+    margin: 0 0 18px;
+    text-align: left;
+}
+
+.gate .primary {
+    display: inline-block;
+    text-decoration: none;
+}
+
+.copy-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 16px;
+}
+
+.copy-row code {
+    font-size: 14px;
+    padding: 8px 12px;
+    user-select: all;
+}
+
+/* ---------------------------------------------------------------- 본 화면 */
+
+main {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+.tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.tab {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--ink-soft);
+    padding: 7px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.tab.is-active {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px;
+}
+
+.toolbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.toolbar label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--ink-soft);
+}
+
+.spacer {
+    flex: 1;
+}
+
+.count {
+    font-size: 13px;
+    color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------------- 표 */
+
+.grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.grid th,
+.grid td {
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: middle;
+}
+
+.grid th {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    border-bottom-width: 2px;
+}
+
+.grid tbody tr.is-unpublished {
+    background: #fbfbfc;
+    color: var(--ink-soft);
+}
+
+.grid tbody tr.is-dragging {
+    opacity: 0.45;
+}
+
+.grid tbody tr[draggable='true'] .drag {
+    cursor: grab;
+    color: #9aa7b4;
+    user-select: none;
+}
+
+.drag-col { width: 28px; }
+.thumb-col { width: 72px; }
+.period-col { width: 170px; }
+.surface-col { width: 130px; }
+.order-col { width: 52px; }
+.state-col { width: 64px; }
+.action-col { width: 64px; }
+
+.thumb img {
+    width: 56px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 6px;
+    background: #eef2f7;
+    display: block;
+}
+
+.row-chip {
+    display: inline-block;
+    margin-top: 3px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: #eaf1fe;
+    color: #1c4fa1;
+    font-size: 12px;
+}
+
+.by {
+    display: block;
+    margin-top: 2px;
+    color: #9aa7b4;
+    font-size: 11px;
+}
+
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+}
+
+.badge.on {
+    background: #e6f4ec;
+    color: var(--ok);
+}
+
+.badge.off {
+    background: #f0f2f5;
+    color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------------- 버튼 */
+
+button,
+.primary {
+    font: inherit;
+    border-radius: 8px;
+    padding: 7px 14px;
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+
+.primary {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-color: var(--accent);
+    font-weight: 600;
+}
+
+.ghost {
+    background: var(--panel);
+    border-color: var(--line);
+    color: var(--ink);
+}
+
+.danger {
+    background: var(--panel);
+    border-color: #e8c9c6;
+    color: var(--danger);
+}
+
+button:hover,
+.primary:hover {
+    filter: brightness(0.97);
+}
+
+/* ---------------------------------------------------------------- 편집 */
+
+dialog {
+    border: none;
+    border-radius: 12px;
+    padding: 0;
+    width: min(920px, 94vw);
+    box-shadow: 0 18px 48px rgba(20, 32, 45, 0.22);
+}
+
+dialog::backdrop {
+    background: rgba(20, 32, 45, 0.42);
+}
+
+.editor-head,
+.editor-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+}
+
+.editor-head {
+    border-bottom: 1px solid var(--line);
+}
+
+.editor-head h2 {
+    font-size: 16px;
+}
+
+.editor-head .ghost {
+    margin-left: auto;
+}
+
+.editor-foot {
+    border-top: 1px solid var(--line);
+    background: #fafbfc;
+}
+
+.editor-body {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 24px;
+    padding: 20px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.fields {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.fields label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.fields label.inline {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    font-weight: 400;
+}
+
+.fields .row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.fields .row > label {
+    flex: 1;
+}
+
+.pull-down {
+    padding-bottom: 8px;
+}
+
+input,
+select,
+textarea {
+    font: inherit;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+    width: 100%;
+}
+
+input[type='checkbox'] {
+    width: auto;
+}
+
+fieldset {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+legend {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink-soft);
+    padding: 0 4px;
+}
+
+.required {
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.counter {
+    color: var(--ink-soft);
+    font-size: 11px;
+    font-weight: 400;
+}
+
+.counter.is-over {
+    color: var(--danger);
+    font-weight: 700;
+}
+
+.note {
+    color: var(--ink-soft);
+    font-size: 12px;
+    margin: 8px 0 0;
+}
+
+.error {
+    color: var(--danger);
+    font-size: 13px;
+    margin: 0;
+}
+
+/* ---------------------------------------------------------------- 미리보기 */
+
+.preview h3 {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-bottom: 10px;
+}
+
+.card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.card-thumb {
+    height: 132px;
+    background: #dde4ec center / cover no-repeat;
+}
+
+.card-thumb.is-empty::after {
+    content: '썸네일 없음';
+    display: grid;
+    place-items: center;
+    height: 100%;
+    color: #90a0b0;
+    font-size: 12px;
+}
+
+.card-body {
+    padding: 12px;
+}
+
+.card-chip {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: #eaf1fe;
+    color: #1c4fa1;
+    font-size: 12px;
+    /* 앱 카드와 같이 한 줄로 접는다 — 여기서 잘리면 앱에서도 잘린다. */
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.card-title {
+    margin: 8px 0 0;
+    font-weight: 700;
+    font-size: 15px;
+    line-height: 1.35;
+}
+
+.card-desc {
+    margin: 4px 0 0;
+    color: var(--ink-soft);
+    font-size: 13px;
+}
+
+@media (max-width: 860px) {
+    .editor-body {
+        grid-template-columns: 1fr;
+    }
+}

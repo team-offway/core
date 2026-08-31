@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -42,6 +43,43 @@ public record AuthProperties(Jwt jwt, Map<AuthProvider, Oidc> oidc, Apple apple,
     public boolean kakaoConfigured() {
         Oidc config = oidc.get(AuthProvider.KAKAO);
         return config != null && config.restApiKey() != null && !config.restApiKey().isBlank();
+    }
+
+    /**
+     * 백오피스 웹 로그인을 받을 수 있는가(#343) — REST API 키와 콜백 주소가 <b>둘 다</b> 있어야 한다.
+     *
+     * <p>키만 있고 콜백 주소가 없으면 인가 페이지로 보낼 수는 있지만 돌아온 코드를 교환할 수 없다. 그러면
+     * 사용자는 카카오 동의까지 마치고 마지막에서야 실패를 본다 — <b>시작 전에 끊는 편이 낫다.</b>
+     *
+     * <p>앱 로그인({@link #kakaoConfigured})과 따로 묻는다. 콜백 주소는 웹에만 필요한 값이라, 이것이 비었다고
+     * 앱 로그인까지 막으면 로컬 실행성 불변식을 깬다.
+     */
+    public boolean kakaoWebLoginConfigured() {
+        return kakaoConfigured() && hasText(kakaoOf(Oidc::redirectUri));
+    }
+
+    /** 웹 로그인이 카카오에 우리를 밝히는 값 — 인가 요청의 {@code client_id}, 교환 요청의 {@code client_id}. */
+    public String kakaoRestApiKey() {
+        return kakaoOf(Oidc::restApiKey);
+    }
+
+    /** 카카오 콘솔에 등록한 콜백 주소. 인가·교환 두 단계에서 대조되므로 같은 값을 양쪽에 쓴다. */
+    public String kakaoRedirectUri() {
+        return kakaoOf(Oidc::redirectUri);
+    }
+
+    /** Client Secret — 콘솔에서 켠 앱만 요구한다. 안 켰으면 비어 있고, 그때는 교환 요청에 싣지 않는다. */
+    public Optional<String> kakaoClientSecret() {
+        return Optional.ofNullable(kakaoOf(Oidc::clientSecret)).filter(AuthProperties::hasText);
+    }
+
+    private String kakaoOf(Function<Oidc, String> field) {
+        Oidc config = oidc.get(AuthProvider.KAKAO);
+        return config == null ? null : field.apply(config);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     /**
@@ -137,9 +175,16 @@ public record AuthProperties(Jwt jwt, Map<AuthProvider, Oidc> oidc, Apple apple,
      *     Apple·Google 은 ID 토큰의 {@code aud} 와 대조할 클라이언트 ID, Kakao 는 토큰 정보 조회가 돌려주는
      *     {@code app_id} 와 대조할 앱 번호다. Google 은 '웹' 클라이언트 ID 다 — iOS 클라이언트 ID 를 넣으면 앱이
      *     보낸 토큰의 {@code aud} 와 어긋나 전부 401 이 된다. 여러 개면 콤마로 나열한다
-     * @param restApiKey 카카오 REST API 키. 프로필 조회 호출에 실리지는 않고, 앱 등록 여부 판별에만 쓴다
+     * @param restApiKey 카카오 REST API 키. <b>앱 로그인</b>에서는 프로필 조회 호출에 실리지 않고 앱 등록 여부
+     *     판별에만 쓰지만, <b>웹 로그인</b>(#343)에서는 인가 코드를 액세스 토큰으로 바꿀 때 {@code client_id}
+     *     로 실제로 실린다
+     * @param redirectUri 웹 로그인 콜백 주소(#343). 카카오 콘솔에 등록한 값과 <b>한 글자까지 같아야</b> 한다 —
+     *     카카오가 인가 단계와 교환 단계에서 두 번 대조하고, 다르면 {@code KOE006} 으로 거절한다. 환경마다
+     *     다르므로(로컬은 localhost, 운영은 배포 도메인) 설정으로 받는다. 비면 웹 로그인만 비활성이다
+     * @param clientSecret 카카오 콘솔의 Client Secret(#343). <b>선택이다</b> — 콘솔에서 사용함으로 켠 앱만
+     *     교환 요청에 요구하고, 안 켰으면 보내면 오히려 거절된다. 그래서 "설정된 경우에만" 싣는다
      */
-    public record Oidc(List<String> audiences, String restApiKey) {
+    public record Oidc(List<String> audiences, String restApiKey, String redirectUri, String clientSecret) {
 
         public Oidc {
             audiences = audiences == null ? List.of() : List.copyOf(audiences);

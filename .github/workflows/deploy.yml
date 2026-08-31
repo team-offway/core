@@ -172,6 +172,8 @@ jobs:
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           KAKAO_REST_API_KEY=${{ secrets.KAKAO_REST_API_KEY }}
           KAKAO_APP_ID=${{ secrets.KAKAO_APP_ID }}
+          KAKAO_WEB_REDIRECT_URI=https://api.offway.cloud/api/v1/auth/oauth2/kakao/callback
+          KAKAO_CLIENT_SECRET=${{ secrets.KAKAO_CLIENT_SECRET }}
           GOOGLE_AUDIENCES=${{ secrets.GOOGLE_AUDIENCES }}
           APPLE_AUDIENCES=${{ secrets.APPLE_AUDIENCES }}
           APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}

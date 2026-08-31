@@ -43,7 +43,7 @@ class AppleAccountLinkImplTest {
     private static AppleAccountLinkImpl link(String privateKeyBase64) {
         AuthProperties properties = new AuthProperties(
                 null,
-                Map.of(AuthProvider.APPLE, new AuthProperties.Oidc(List.of(BUNDLE_ID), null)),
+                Map.of(AuthProvider.APPLE, new AuthProperties.Oidc(List.of(BUNDLE_ID), null, null, null)),
                 new AuthProperties.Apple("TEAM123456", "KEY1234567", privateKeyBase64),
                 null);
         return new AppleAccountLinkImpl(WebClient.builder().build(), properties);
