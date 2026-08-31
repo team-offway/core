@@ -501,6 +501,33 @@ class CourseStorageIntegrationTest {
     }
 
     @Test
+    void 대표_수단_옆에_이_지역에_닿는_다른_수단도_함께_내린다() throws Exception {
+        // 대표 하나만 내리면, 열차로도 갈 수 있다는 걸 아는 사용자에게는 화면이 틀린 것으로 읽힌다.
+        // 정선은 역과 터미널이 둘 다 있어 대표(버스) 옆에 열차가 대안으로 붙는다(#97).
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
+                .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'TRAIN')]").exists())
+                .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'EXPRESS_BUS')]").doesNotExist());
+    }
+
+    @Test
+    void 열차로_가는_코스에도_대안_키는_항상_있다() throws Exception {
+        // 빈 배열이라 키가 없는 경우가 없다 — 화면이 null 검사를 하지 않아도 된다.
+        trainArrives();
+        long courseId = save(transitBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("TRAIN"))
+                .andExpect(jsonPath("$.data.transitAccess.alternatives").isArray())
+                .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'TRAIN')]").doesNotExist());
+    }
+
+    @Test
     void 버스로_가는_코스는_처음엔_소요시간이_없다가_배치가_잰_뒤_붙는다() throws Exception {
         // 구간 조회창이 오늘~+2일뿐이라 요청 시점에 물을 수 없다. 그래서 첫 조회는 자리만 만들고 넘어가고,
         // 배치가 채운 뒤부터 정확해진다(#107). 요청 경로에서 외부를 부르지 않는 것이 요점이다.

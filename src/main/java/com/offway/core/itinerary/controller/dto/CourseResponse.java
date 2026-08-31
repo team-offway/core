@@ -15,6 +15,7 @@ import com.offway.core.itinerary.service.dto.SlotHours;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.service.dto.RegionAccess;
+import com.offway.core.transport.service.dto.TransitOption;
 import com.offway.core.weather.domain.DailyWeather;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -459,6 +460,8 @@ public record CourseResponse(
      * @param vehicleType 운행 편의 등급(AVAILABLE 일 때만, 예: KTX)
      * @param durationMinutes 소요시간(분). 열차는 실제 편에서, 버스·여객선은 저장해 둔 구간 측정값에서 온다.
      *     <b>기다리는 시간은 안 들어 있다</b> — 버스·여객선은 시간표를 못 물어 다음 편까지의 대기를 모른다
+     * @param alternatives 대표 말고 이 지역에 닿는 다른 수단들(#97). <b>없으면 빈 배열</b>이라 키가 항상 있다.
+     *     해석되지 않은 수단은 담지 않는다 — 갈 수 없는 선택지를 늘어놓는 것은 정보가 아니다
      */
     public record TransitAccessResponse(
             @Schema(example = "INTERCITY_BUS") String mode,
@@ -467,7 +470,8 @@ public record CourseResponse(
             @Schema(example = "동서울", nullable = true) String fromPlace,
             @Schema(example = "정선", nullable = true) String toPlace,
             @Schema(example = "KTX", nullable = true) String vehicleType,
-            @Schema(example = "150", nullable = true) Integer durationMinutes) {
+            @Schema(example = "150", nullable = true) Integer durationMinutes,
+            List<TransitOptionResponse> alternatives) {
 
         static TransitAccessResponse from(RegionAccess access) {
             if (access == null) {
@@ -485,7 +489,30 @@ public record CourseResponse(
                     //
                     // Integer.valueOf 가 필요하다. 한쪽이 int(TrainLeg.durationMinutes)이고 다른 쪽이
                     // Integer 면 삼항 전체가 int 로 언박싱돼, 소요시간을 모르는 코스마다 NPE 가 난다.
-                    hasLeg ? Integer.valueOf(access.fastest().durationMinutes()) : access.durationMinutes());
+                    hasLeg ? Integer.valueOf(access.fastest().durationMinutes()) : access.durationMinutes(),
+                    access.alternatives().stream().map(TransitOptionResponse::from).toList());
+        }
+    }
+
+    /**
+     * 대표 말고 이 지역에 닿는 수단 하나(#97).
+     *
+     * <p>도착 좌표·운행 편은 담지 않는다 — 화면이 대안에 대해 묻는 것은 "무엇으로, 어디에, 몇 분" 뿐이다.
+     *
+     * @param mode TRAIN · EXPRESS_BUS · INTERCITY_BUS · FERRY
+     * @param modeLabel 화면에 그대로 쓸 한글 수단명
+     * @param toPlace 도착 지점명(역·터미널·항구)
+     * @param durationMinutes 소요시간(분, 모르면 null)
+     */
+    public record TransitOptionResponse(
+            @Schema(example = "FERRY") String mode,
+            @Schema(example = "여객선") String modeLabel,
+            @Schema(example = "울릉_도동") String toPlace,
+            @Schema(example = "140", nullable = true) Integer durationMinutes) {
+
+        static TransitOptionResponse from(TransitOption option) {
+            return new TransitOptionResponse(
+                    option.mode().name(), option.mode().label(), option.toName(), option.durationMinutes());
         }
     }
 

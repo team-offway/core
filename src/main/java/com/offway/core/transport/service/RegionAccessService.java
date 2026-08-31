@@ -6,10 +6,13 @@ import com.offway.core.transport.domain.RegionArrival;
 import com.offway.core.transport.domain.Terminal;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.service.dto.RegionAccess;
+import com.offway.core.transport.service.dto.TransitOption;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -57,14 +60,43 @@ public class RegionAccessService {
                 new Coordinate(destLat, destLng),
                 destTerminal.map(RegionArrival::of).orElse(null),
                 destPort.map(RegionArrival::of).orElse(null));
-        if (chosen == train) {
-            return train;
+        if (chosen != train) {
+            // 열차만 보던 시절 이 지역은 도착 지점을 몰라 출발지로 되돌아갔다. 무엇이 그 자리를 채웠는지 남긴다.
+            log.debug("도착 지점을 {}(으)로 잡습니다 — 열차 상태={} 지점={}",
+                    chosen.mode().label(), train.status(), chosen.toName());
+            chosen = chosen.withDuration(
+                    durationOf(chosen.mode(), originLat, originLng, destTerminal, destPort).orElse(null));
         }
-        // 열차만 보던 시절 이 지역은 도착 지점을 몰라 출발지로 되돌아갔다. 무엇이 그 자리를 채웠는지 남긴다.
-        log.debug("도착 지점을 {}(으)로 잡습니다 — 열차 상태={} 지점={}",
-                chosen.mode().label(), train.status(), chosen.toName());
-        return chosen.withDuration(
-                durationOf(chosen.mode(), originLat, originLng, destTerminal, destPort).orElse(null));
+        return chosen.withAlternatives(alternativesTo(chosen, train, destTerminal, destPort));
+    }
+
+    /**
+     * 대표 말고 이 지역에 닿는 다른 수단들(#97).
+     *
+     * <p>대표 하나만 내리면, 배로도 갈 수 있다는 걸 아는 사용자에게는 화면이 틀린 것으로 읽힌다. 반대로
+     * <b>해석되지 않은 수단은 넣지 않는다</b> — "없는 선택지" 를 늘어놓는 것은 정보가 아니라 소음이다.
+     *
+     * <p>소요시간은 여기서 새로 재지 않는다. 대안까지 구간을 물으면 요청 하나에 조회가 수단 수만큼 늘고,
+     * 그 값을 화면이 실제로 쓰는지도 아직 모른다. 대표가 가진 값만 그대로 옮긴다.
+     */
+    private static List<TransitOption> alternativesTo(
+            RegionAccess chosen, RegionAccess train, Optional<Terminal> destTerminal, Optional<Port> destPort) {
+        List<TransitOption> others = new ArrayList<>();
+        if (chosen.mode() != TransitMode.TRAIN && train.toName() != null) {
+            others.add(new TransitOption(TransitMode.TRAIN, train.toName(), trainMinutes(train)));
+        }
+        destTerminal
+                .filter(terminal -> TransitMode.of(terminal.kind()) != chosen.mode())
+                .ifPresent(terminal ->
+                        others.add(new TransitOption(TransitMode.of(terminal.kind()), terminal.name(), null)));
+        destPort
+                .filter(port -> chosen.mode() != TransitMode.FERRY)
+                .ifPresent(port -> others.add(new TransitOption(TransitMode.FERRY, port.name(), null)));
+        return List.copyOf(others);
+    }
+
+    private static Integer trainMinutes(RegionAccess train) {
+        return train.fastest() == null ? null : train.fastest().durationMinutes();
     }
 
     /**

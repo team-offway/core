@@ -7,6 +7,7 @@ import com.offway.core.transport.domain.TransitMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -31,6 +32,7 @@ import java.util.Optional;
  * @param fastest 가장 빠른 운행 편({@link Status#AVAILABLE} 일 때만, 아니면 null)
  * @param durationMinutes 저장해 둔 구간 소요시간(분, 버스·여객선만 — 모르면 null). 시간표를 못 묻는
  *     수단이라 <b>시각 대신 이것으로</b> 도착 시각을 만든다(#107)
+ * @param alternatives 대표 말고 이 지역에 닿는 다른 수단들. 없으면 빈 목록이다
  */
 public record RegionAccess(
         TransitMode mode,
@@ -39,11 +41,14 @@ public record RegionAccess(
         String toName,
         Coordinate toPoint,
         TrainLeg fastest,
-        Integer durationMinutes) {
+        Integer durationMinutes,
+        List<TransitOption> alternatives) {
 
     public RegionAccess {
         Objects.requireNonNull(mode, "수단은 null 일 수 없습니다.");
         Objects.requireNonNull(status, "접근 상태는 null 일 수 없습니다.");
+        // null 을 그대로 두면 화면과 테스트가 매번 null 검사를 한다. 없는 것은 빈 목록이다.
+        alternatives = alternatives == null ? List.of() : List.copyOf(alternatives);
     }
 
     public enum Status {
@@ -107,27 +112,32 @@ public record RegionAccess(
         if (Objects.equals(durationMinutes, minutes)) {
             return this;
         }
-        return new RegionAccess(mode, status, fromName, toName, toPoint, fastest, minutes);
+        return new RegionAccess(mode, status, fromName, toName, toPoint, fastest, minutes, alternatives);
+    }
+
+    /** 대안 목록을 얹은 사본. 대표를 고른 뒤 나머지를 붙이는 자리다. */
+    public RegionAccess withAlternatives(List<TransitOption> others) {
+        return new RegionAccess(mode, status, fromName, toName, toPoint, fastest, durationMinutes, others);
     }
 
     public static RegionAccess available(String fromName, String toName, Coordinate toPoint, TrainLeg fastest) {
-        return new RegionAccess(TransitMode.TRAIN, Status.AVAILABLE, fromName, toName, toPoint, fastest, null);
+        return new RegionAccess(TransitMode.TRAIN, Status.AVAILABLE, fromName, toName, toPoint, fastest, null, List.of());
     }
 
     /** 닿는 지점 자체가 없는 경우 — 도착 지점도 없다. */
     public static RegionAccess noStation(String fromName, String toName) {
-        return new RegionAccess(TransitMode.TRAIN, Status.NO_STATION, fromName, toName, null, null, null);
+        return new RegionAccess(TransitMode.TRAIN, Status.NO_STATION, fromName, toName, null, null, null, List.of());
     }
 
     /** 지점은 해석됐으나 그날 운행이 없는 경우 — 시각은 모르지만 <b>지점은 안다</b>. */
     public static RegionAccess noServiceOnDate(String fromName, String toName, Coordinate toPoint) {
         return new RegionAccess(
-                TransitMode.TRAIN, Status.NO_SERVICE_ON_DATE, fromName, toName, toPoint, null, null);
+                TransitMode.TRAIN, Status.NO_SERVICE_ON_DATE, fromName, toName, toPoint, null, null, List.of());
     }
 
     /** 지점은 해석됐으나 조회가 실패한 경우 — 해석된 지점명·좌표는 그대로 담는다(해석과 조회는 별개). */
     public static RegionAccess unavailable(String fromName, String toName, Coordinate toPoint) {
-        return new RegionAccess(TransitMode.TRAIN, Status.UNAVAILABLE, fromName, toName, toPoint, null, null);
+        return new RegionAccess(TransitMode.TRAIN, Status.UNAVAILABLE, fromName, toName, toPoint, null, null, List.of());
     }
 
     /**
@@ -168,6 +178,6 @@ public record RegionAccess(
     public static RegionAccess pointOnly(RegionArrival arrival) {
         Objects.requireNonNull(arrival, "도착 지점은 null 일 수 없습니다.");
         return new RegionAccess(
-                arrival.mode(), Status.POINT_ONLY, null, arrival.name(), arrival.point(), null, null);
+                arrival.mode(), Status.POINT_ONLY, null, arrival.name(), arrival.point(), null, null, List.of());
     }
 }
