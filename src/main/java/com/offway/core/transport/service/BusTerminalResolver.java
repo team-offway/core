@@ -1,6 +1,7 @@
 package com.offway.core.transport.service;
 
 import com.offway.core.transport.domain.BusTerminal;
+import com.offway.core.transport.domain.BusTerminalKind;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.Terminal;
 import com.offway.core.transport.repository.BusTerminalRepository;
@@ -32,9 +33,23 @@ public class BusTerminalResolver {
 
     /** 좌표에서 {@value #MAX_KM}㎞ 안 가장 가까운 터미널. 없으면 빈 Optional. */
     public Optional<Terminal> nearest(double lat, double lng) {
+        return nearest(lat, lng, null);
+    }
+
+    /**
+     * 종류를 고정한 최근접 터미널(#97).
+     *
+     * <p><b>구간 조회는 같은 종류끼리여야 한다.</b> 고속({@code NAEK...})과 시외({@code NAI...})는 코드
+     * 공간이 겹치지 않아, 출발은 고속·도착은 시외로 물으면 제공기관이 알 수 없는 코드로 읽는다. 출발
+     * 터미널을 풀 때는 도착 쪽 종류를 그대로 넘긴다.
+     *
+     * @param kind 고정할 종류. {@code null} 이면 종류를 가리지 않는다
+     */
+    public Optional<Terminal> nearest(double lat, double lng, BusTerminalKind kind) {
         Coordinate target = new Coordinate(lat, lng);
         return terminals().stream()
                 .filter(BusTerminal::hasCoordinate)
+                .filter(t -> kind == null || t.getKind() == kind)
                 .map(t -> Map.entry(t, target.haversineKmTo(new Coordinate(t.getLat(), t.getLng()))))
                 .filter(entry -> entry.getValue() <= MAX_KM)
                 .min(Comparator.comparingDouble(Map.Entry::getValue))

@@ -3,6 +3,7 @@ package com.offway.core.itinerary.controller;
 import static com.offway.core.user.config.TestLogins.loginAs;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -18,7 +19,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.offway.core.policy.domain.Policy;
 import com.jayway.jsonpath.JsonPath;
+import com.offway.core.transport.domain.MeasuredLeg;
+import com.offway.core.transport.domain.TransitLegResult;
 import com.offway.core.transport.infrastructure.tago.StubTrainInfoClient;
+import com.offway.core.transport.infrastructure.tago.StubTransitLegClient;
+import com.offway.core.transport.infrastructure.tago.TransitLegClient;
+import com.offway.core.transport.service.TransitDurationRefreshService;
 import com.offway.core.transport.infrastructure.tago.TrainInfoClient;
 import com.offway.core.transport.service.TrainRouteService;
 import com.offway.core.transport.domain.TrainAvailability;
@@ -43,6 +49,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
@@ -94,6 +101,15 @@ class CourseStorageIntegrationTest {
     @Autowired
     private TrainRouteService trainRouteService;
 
+    @Autowired
+    private StubTransitLegClient transitLegClient;
+
+    @Autowired
+    private TransitDurationRefreshService transitDurationRefreshService;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @TestConfiguration
     static class StubConfig {
 
@@ -101,6 +117,12 @@ class CourseStorageIntegrationTest {
         @Primary
         TrainInfoClient stubTrainInfoClient() {
             return new StubTrainInfoClient();
+        }
+
+        @Bean
+        @Primary
+        TransitLegClient stubTransitLegClient() {
+            return new StubTransitLegClient();
         }
 
         @Bean
@@ -416,11 +438,23 @@ class CourseStorageIntegrationTest {
                 .andExpect(jsonPath("$.data.days.length()").value(2));
     }
 
-    /** 정선(16) 근처로 도착하는 열차 — 저장 코스에서 다시 계산될 때 쓰인다. */
+    /**
+     * 정선(16) 근처로 도착하는 열차 — 저장 코스에서 다시 계산될 때 쓰인다.
+     *
+     * <p><b>출발이 09:00 이라야 한다.</b> 예전에는 06:00 이었는데 기본 출발시각(연차 = 08:00)보다 일러
+     * {@code fastestDepartingFrom} 이 걸러냈다 — 이름은 "열차가 온다" 인데 실제로는 <b>그날 탈 수 있는 편이
+     * 없는</b> 경로를 검증하고 있었다(#97 에서 발견).
+     */
     private void trainArrives() {
         trainInfoClient.respond(() -> new TrainAvailability.Available(List.of(TrainLeg.of("KTX",
-                LocalDateTime.of(2026, 9, 11, 6, 0),
-                LocalDateTime.of(2026, 9, 11, 8, 30)))));
+                LocalDateTime.of(2026, 9, 11, 9, 0),
+                LocalDateTime.of(2026, 9, 11, 11, 30)))));
+        trainRouteService.evictCache();
+    }
+
+    /** 역은 있는데 그날 탈 편이 없는 상황 — 도착 지점을 무엇으로 잡는지가 갈리는 자리다(#97). */
+    private void trainDoesNotRun() {
+        trainInfoClient.respond(TrainAvailability.NoServiceOnDate::new);
         trainRouteService.evictCache();
     }
 
@@ -443,7 +477,181 @@ class CourseStorageIntegrationTest {
 
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.trainAccess.toStation").value("정선"));
+                .andExpect(jsonPath("$.data.trainAccess.toStation").value("정선"))
+                // 새 필드도 같은 값을 담는다 — 옛 필드를 걷어낼 때 화면이 비지 않게(#97)
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("TRAIN"))
+                .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("열차"))
+                .andExpect(jsonPath("$.data.transitAccess.status").value("AVAILABLE"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"));
+    }
+
+    @Test
+    void 그날_탈_열차가_없으면_더_가까운_버스_터미널을_도착_지점으로_잡는다() throws Exception {
+        // 예전에는 역이 그날 안 다녀도 역 좌표를 동선 기준점으로 썼다. 정선은 터미널이 읍내에 있어
+        // 역보다 가깝다 — 먼 역을 기준으로 잡으면 지역 반대편부터 코스를 짠다(#97 · #127).
+        //
+        // 고속인지 시외인지는 여기서 중요하지 않다. 정선에는 둘 다 있고(시드 기준 좌표가 조금 다르다)
+        // 코스가 알고 싶은 것은 "어디에 내리는가" 하나다. 지금 시드에서는 고속 쪽이 더 가깝다.
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
+                .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("고속버스"))
+                .andExpect(jsonPath("$.data.transitAccess.status").value("POINT_ONLY"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"))
+                // 옛 필드는 열차만 담기로 했다 — 버스로 가는 코스에 "역 없음" 을 내리면 화면이 "못 간다" 고 말한다
+                .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
+    }
+
+    @Test
+    void 대표_수단_옆에_이_지역에_닿는_다른_수단도_함께_내린다() throws Exception {
+        // 대표 하나만 내리면, 열차로도 갈 수 있다는 걸 아는 사용자에게는 화면이 틀린 것으로 읽힌다.
+        // 정선은 역과 터미널이 둘 다 있어 대표(버스) 옆에 열차가 대안으로 붙는다(#97).
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
+                .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'TRAIN')]").exists())
+                .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'EXPRESS_BUS')]").doesNotExist());
+    }
+
+    @Test
+    void 열차로_가는_코스에도_대안_키는_항상_있다() throws Exception {
+        // 빈 배열이라 키가 없는 경우가 없다 — 화면이 null 검사를 하지 않아도 된다.
+        trainArrives();
+        long courseId = save(transitBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("TRAIN"))
+                .andExpect(jsonPath("$.data.transitAccess.alternatives").isArray())
+                .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'TRAIN')]").doesNotExist());
+    }
+
+    @Test
+    void 버스로_가는_코스는_처음엔_소요시간이_없다가_배치가_잰_뒤_붙는다() throws Exception {
+        // 구간 조회창이 오늘~+2일뿐이라 요청 시점에 물을 수 없다. 그래서 첫 조회는 자리만 만들고 넘어가고,
+        // 배치가 채운 뒤부터 정확해진다(#107). 요청 경로에서 외부를 부르지 않는 것이 요점이다.
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+        clearMeasuredLegs();
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.status").value("POINT_ONLY"))
+                .andExpect(jsonPath("$.data.transitAccess.durationMinutes").doesNotExist());
+
+        transitLegClient.respond(() -> new TransitLegResult.Measured(new MeasuredLeg(150, 28_600, "우등")));
+        transitDurationRefreshService.measurePending();
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.durationMinutes").value(150));
+    }
+
+    @Test
+    void 조회가_실패하면_미운행으로_굳히지_않고_다음_배치로_미룬다() throws Exception {
+        // 키가 없거나 한도가 마른 날의 실패를 "이 구간은 원래 안 다님" 으로 적으면 멀쩡한 구간이
+        // 영원히 소요시간 없이 남는다. 화면에는 아무 흔적도 안 남는 종류의 사고다.
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+        onlyThisLegPending(courseId);
+
+        transitLegClient.respond(TransitLegResult.Unavailable::new);
+        transitDurationRefreshService.measurePending();
+
+        // 실패를 안 적었으므로 다음 배치가 같은 구간을 다시 잰다 — 이번엔 성공한다.
+        transitLegClient.respond(() -> new TransitLegResult.Measured(new MeasuredLeg(150, 28_600, "우등")));
+        transitDurationRefreshService.measurePending();
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.durationMinutes").value(150));
+    }
+
+    @Test
+    void 미운행이면_수단의_조회창만큼만_물어본다() throws Exception {
+        // 하루만 물어 비면 "이 구간은 안 다닌다" 로 굳는데, 주 몇 편짜리 배차는 그렇게 사라진다.
+        // 반대로 조회창 밖까지 밀면 어차피 0건인 날을 물어 외부 한도만 태운다.
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+        onlyThisLegPending(courseId);
+
+        transitLegClient.respond(TransitLegResult.NoService::new);
+        transitDurationRefreshService.measurePending();
+
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        assertIterableEquals(
+                List.of(today, today.plusDays(1), today.plusDays(2)), // 정선은 버스 — 조회창이 사흘이다
+                transitLegClient.askedDates());
+    }
+
+    @Test
+    void 미운행으로_적힌_구간도_한참_뒤에는_다시_잰다() throws Exception {
+        // 겨울에 쉬는 항로와 새로 뚫린 노선이 있다. 한 번의 조회로 영구히 굳히면, 배 말고 닿는 수단이
+        // 없는 지역은 그대로 "도달 불가" 로 남는다 — 화면에는 아무 흔적도 안 남는 종류의 사고다.
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+        onlyThisLegPending(courseId);
+
+        transitLegClient.respond(TransitLegResult.NoService::new);
+        transitDurationRefreshService.measurePending();
+
+        // 갓 적은 미운행은 다시 재지 않는다 — 매시 배치가 같은 구간을 계속 물으면 한도가 샌다.
+        transitLegClient.respond(() -> new TransitLegResult.Measured(new MeasuredLeg(150, 28_600, "우등")));
+        transitDurationRefreshService.measurePending();
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.durationMinutes").doesNotExist());
+
+        // 적은 지 오래됐으면 다시 잰다.
+        jdbcTemplate.update(
+                "UPDATE transit_leg_duration SET measured_at = ? WHERE minutes IS NULL AND measured_at IS NOT NULL",
+                LocalDateTime.now().minusDays(60));
+        transitDurationRefreshService.measurePending();
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.durationMinutes").value(150));
+    }
+
+    @Test
+    void 첫날_연차_기록이_없는_옛_코스도_날짜를_고칠_수_있다() throws Exception {
+        // start_day_leave 컬럼이 생기기 전에 저장된 코스는 이 값이 비어 있다. 그 코스의 날짜를 고치면
+        // 첫날 재정렬이 NPE 로 터져 수정 자체가 500 이 됐다 — 옛 코스만 골라 못 고치는 상태였다.
+        weatherClient.respondByDate(date -> Optional.empty());
+        trainArrivesAt(LocalDateTime.of(2026, 9, 11, 8, 30));
+        long courseId = save(transitTwoDayBody("2026-09-11"));
+        jdbcTemplate.update("UPDATE course SET start_day_leave = NULL WHERE id = ?", courseId);
+
+        trainArrivesAt(LocalDateTime.of(2026, 9, 20, 8, 30));
+
+        mockMvc.perform(patch(URL + "/{id}", courseId)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"travelDate\": \"2026-09-20\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.travelDate").value("2026-09-20"));
+    }
+
+    /**
+     * 앞선 테스트가 남긴 구간 측정값을 지운다.
+     *
+     * <p>통합 테스트는 컨텍스트를 공유하는데 <b>전 테스트가 같은 구간을 쓴다</b> — 출발지도 지역(정선)도
+     * 같아 터미널 짝이 하나다. 지우지 않으면 "아직 안 잰 구간" 을 전제하는 테스트가 실행 순서에 따라 깨진다.
+     */
+    private void clearMeasuredLegs() {
+        jdbcTemplate.update("DELETE FROM transit_leg_duration");
+    }
+
+    /** 이 코스의 구간 하나만 배치 대상으로 남긴다 — 그래야 "몇 건 물었나" 를 셀 수 있다. */
+    private void onlyThisLegPending(long courseId) throws Exception {
+        clearMeasuredLegs();
+        mockMvc.perform(get(URL + "/{id}", courseId)).andExpect(status().isOk()); // 자리 만들기
     }
 
     @Test

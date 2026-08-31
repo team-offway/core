@@ -16,9 +16,9 @@ import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.service.RegionImageProvider;
-import com.offway.core.transport.service.dto.TrainAccess;
+import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.transport.domain.TransportMode;
-import com.offway.core.transport.service.TrainAccessService;
+import com.offway.core.transport.service.RegionAccessService;
 import com.offway.core.weather.domain.DailyWeather;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -58,7 +58,7 @@ public class CourseStorageService {
     private final CoursePersistenceService coursePersistenceService;
     private final CourseLeaveDeductionService courseLeaveDeductionService;
     private final MyLeaveService myLeaveService;
-    private final TrainAccessService trainAccessService;
+    private final RegionAccessService regionAccessService;
     private final RegionImageProvider regionImageProvider;
 
     /** 이미 조립된 사용자 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
@@ -268,7 +268,7 @@ public class CourseStorageService {
         // 새 날짜의 도착 시각으로 첫날을 다시 판정한다(#214). 열차는 이미 새 날짜로 조회되는데 그 시각으로
         // 내린 일정 판단은 저장된 옛것이라, 그대로 두면 도착 전 시간에 일정이 잡힌 코스가 남는다.
         Region region = regionOf(updated);
-        TrainAccess trainAccess = trainAccessFor(updated, region);
+        RegionAccess trainAccess = trainAccessFor(updated, region);
         FirstDayChange change = realignFirstDay(userId, courseId, updated, travelDate, trainAccess);
         Course finalCourse = change == FirstDayChange.TRIMMED
                 ? coursePersistenceService.loadOwned(userId, courseId) // 걷어낸 결과로 다시 읽는다
@@ -296,11 +296,15 @@ public class CourseStorageService {
      * @return 뒤집힘이 없었으면 null
      */
     private FirstDayChange realignFirstDay(
-            UUID userId, long courseId, Course course, LocalDate travelDate, TrainAccess trainAccess) {
+            UUID userId, long courseId, Course course, LocalDate travelDate, RegionAccess trainAccess) {
         if (trainAccess == null) {
             return null; // 자차·출발지 없음 — 애초에 첫날 판단이 없다
         }
-        DayStart start = trainAccess.arrivalAt()
+        // 버스·여객선은 시간표를 못 물어 실제 편이 없다 — 대신 저장해 둔 소요시간을 출발 시각에 얹는다(#107).
+        //
+        // getStartDayLeave() 가 아니라 startDayLeave() 다. 앞쪽은 컬럼을 그대로 주므로 이 컬럼이 생기기 전에
+        // 저장된 코스에서 null 이고, 그러면 날짜 수정이 통째로 500 이 된다. 뒤쪽이 종일로 답한다.
+        DayStart start = trainAccess.arrivalAt(travelDate, course.startDayLeave().departureTime())
                 .map(arriveAt -> DayStart.afterArriving(travelDate, arriveAt))
                 .orElseGet(DayStart::fullDay);
 
@@ -327,13 +331,13 @@ public class CourseStorageService {
      *
      * @return 열차 접근. 자차 코스·출발지 없음·지역 좌표 없음이면 null(오류가 아니다)
      */
-    private TrainAccess trainAccessFor(Course course, Region region) {
+    private RegionAccess trainAccessFor(Course course, Region region) {
         if (course.getTransport() != TransportMode.TRANSIT || region == null) {
             return null;
         }
         // 이 필드가 생기기 전에 저장된 코스는 근거가 없다. 지어내지 않는다.
         return course.origin()
-                .map(origin -> trainAccessService.accessTo(
+                .map(origin -> regionAccessService.accessTo(
                         origin.lat(),
                         origin.lng(),
                         region.getLat(),
@@ -396,9 +400,9 @@ public class CourseStorageService {
         return coursePersistenceService.shareTokensOf(courseIds);
     }
 
-    private GeneratedCourse withBenefits(Course course, boolean withTrainAccess) {
+    private GeneratedCourse withBenefits(Course course, boolean withRegionAccess) {
         Region region = regionOf(course);
-        return assemble(course, region, withTrainAccess ? trainAccessFor(course, region) : null);
+        return assemble(course, region, withRegionAccess ? trainAccessFor(course, region) : null);
     }
 
     /** 코스 지역 — 슬롯 표시명·날씨·열차 접근이 모두 이 값을 쓴다. 한 번만 읽는다. */
@@ -408,7 +412,7 @@ public class CourseStorageService {
                 .orElse(null);
     }
 
-    private GeneratedCourse assemble(Course course, Region region, TrainAccess trainAccess) {
+    private GeneratedCourse assemble(Course course, Region region, RegionAccess trainAccess) {
         // 혜택은 **여행일** 기준으로 매칭한다(#213). 정책에 유효기간이 있어 기준일이 결과를 가르는데,
         // 여기만 오늘을 넘기고 있어 생성 응답과 상세 조회의 혜택이 어긋났다 — 저장하는 순간부터 갈리고
         // 여행이 멀수록 벌어졌다. 날짜 없이 저장된 코스는 알 수 없어 오늘로 물러선다.

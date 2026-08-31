@@ -2,7 +2,7 @@ package com.offway.core.itinerary.service.dto;
 
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.policy.domain.PolicyType;
-import com.offway.core.transport.service.dto.TrainAccess;
+import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
@@ -26,7 +26,7 @@ public record GeneratedCourse(
         Course course,
         List<Benefit> benefits,
         Map<Integer, DailyWeather> weatherByDay,
-        TrainAccess trainAccess,
+        RegionAccess trainAccess,
         String regionName,
         Map<String, SlotHours> hoursByContentId,
         String shareToken,
