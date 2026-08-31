@@ -2,67 +2,214 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<title>OffWay 일일 리포트</title>
+<title>offway 개발일지</title>
 <style>
-  :root { --ink:#1a1a1a; --dim:#6b7280; --line:#e5e7eb; --band:#f7f7f8; --accent:#0f766e; }
+  :root {
+    --ink:#111214; --dim:#8a8f98; --mid:#4a4f57; --line:#e4e5e8;
+    --page:#f1f1f2; --card:#ffffff; --hot:#d9342b; --dark:#141517;
+  }
   * { box-sizing:border-box; }
   body {
-    margin:0; padding:40px 32px; color:var(--ink);
+    margin:0; padding:34px 36px 26px; background:var(--page); color:var(--ink);
     font-family:"Pretendard","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif;
-    line-height:1.6; -webkit-font-smoothing:antialiased;
+    line-height:1.6; -webkit-font-smoothing:antialiased; letter-spacing:-0.01em;
   }
-  .wrap { max-width:920px; margin:0 auto; }
-  header { margin-bottom:20px; }
-  .date { font-size:14px; color:var(--dim); letter-spacing:.02em; }
-  h1 { margin:4px 0 0; font-size:24px; font-weight:700; }
-  h1 em { font-style:normal; color:var(--accent); }
-  table { width:100%; border-collapse:collapse; font-size:15px; }
-  thead th {
-    text-align:left; font-size:13px; font-weight:600; color:var(--dim);
-    padding:10px 14px; border-bottom:2px solid var(--ink);
-  }
-  tbody td { padding:14px; border-bottom:1px solid var(--line); vertical-align:top; }
-  tbody tr:nth-child(even) { background:var(--band); }
-  .num { width:44px; font-weight:700; color:var(--accent); text-align:center; }
-  .task { width:34%; font-weight:600; }
-  .detail { color:#333; }
-  .detail em { font-style:normal; color:var(--accent); }
-  footer { margin-top:22px; font-size:13px; color:var(--dim); }
+  .wrap { max-width:1900px; margin:0 auto; }
+
+  /* 머리 */
+  .top { display:flex; align-items:flex-start; justify-content:space-between; }
+  .brand { font-size:26px; font-weight:800; letter-spacing:-0.03em; }
+  .brand span { font-size:13px; font-weight:500; color:var(--dim); margin-left:10px; letter-spacing:0; }
+  .day { text-align:right; }
+  .day b { display:block; font-size:40px; font-weight:800; line-height:1; letter-spacing:-0.03em; }
+  .day i { display:block; font-style:normal; font-size:12px; color:var(--dim); margin-top:6px; }
+
+  .lead { margin:18px 0 22px; font-size:17px; font-weight:600; line-height:1.65; max-width:1400px; }
+  .lead em { font-style:normal; color:var(--hot); font-weight:800; }
+
+  /* 지표 */
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:14px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
+  .stat b { display:block; font-size:29px; font-weight:800; line-height:1.15; letter-spacing:-0.03em; }
+  .stat b s { text-decoration:none; font-size:16px; font-weight:700; margin-left:2px; }
+  .stat b u { text-decoration:none; color:var(--dim); font-weight:700; }
+  .stat span { display:block; font-size:12px; color:var(--dim); margin-top:8px; line-height:1.5; }
+
+  /* 본 카드 */
+  .cards { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
+  .card h3 { margin:0 0 10px; font-size:15px; font-weight:700; line-height:1.45; }
+  .tags { display:flex; gap:5px; margin-bottom:12px; flex-wrap:wrap; }
+  .tag { font-size:11px; color:var(--mid); background:#f0f0f1; border-radius:4px; padding:2px 7px; font-weight:600; }
+  .card ul { margin:0; padding:0; list-style:none; }
+  .card li { position:relative; padding-left:11px; font-size:13px; color:var(--mid); line-height:1.72; margin-bottom:9px; }
+  .card li:last-child { margin-bottom:0; }
+  .card li::before { content:""; position:absolute; left:0; top:9px; width:3px; height:3px; border-radius:50%; background:#c4c6ca; }
+  .card li b { color:var(--ink); font-weight:700; }
+  .card li em { font-style:normal; color:var(--hot); font-weight:700; }
+
+  /* 더 한 작업 */
+  .more-label { font-size:12px; color:var(--dim); margin:22px 0 10px; }
+  .more { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .mini { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
+  .mini h4 { margin:0 0 8px; font-size:13px; font-weight:700; }
+  .mini p { margin:0; font-size:12.5px; color:var(--mid); line-height:1.7; }
+  .mini p em { font-style:normal; color:var(--hot); font-weight:700; }
+  .mini p b { color:var(--ink); font-weight:700; }
+
+  /* 이번 주 */
+  .week { margin-top:16px; background:var(--dark); color:#fff; border-radius:10px; padding:22px 26px;
+          display:grid; grid-template-columns:180px 1fr 1fr; gap:28px; }
+  .week .when { font-size:11px; color:#8b9098; }
+  .week .when b { display:block; font-size:19px; font-weight:800; color:#fff; margin-top:6px; letter-spacing:-0.02em; }
+  .week h5 { margin:0 0 8px; font-size:14px; font-weight:700; }
+  .week p { margin:0; font-size:12.5px; color:#b9bec5; line-height:1.75; }
+  .week p b { color:#fff; font-weight:700; }
+
+  /* 바닥 */
+  .foot { margin-top:16px; padding-top:12px; border-top:1px solid var(--line);
+          display:flex; justify-content:space-between; font-size:11px; color:var(--dim); }
 </style>
 </head>
 <body>
+<!--
+  정본 템플릿. 아래는 2026-08-30 리포트를 그대로 둔 것이다 — 빈 자리표시 대신 실제 예시를 두는 이유는
+  "이 칸에 어느 정도 깊이의 문장이 들어가는가" 가 형식보다 지키기 어렵기 때문이다. 복제해서 내용만 갈아끼운다.
+
+  갈아끼우는 곳: .day(날짜·요일) · .lead · .stats(4) · .cards(4) · .more(3열) · .week · .foot
+  채울 것이 없으면 칸을 비우지 말고 카드 수를 줄인다.
+-->
 <div class="wrap">
-  <header>
-    <!-- 날짜(KST)·건수만 갈아끼운다 -->
-    <div class="date">2026-07-29 (KST)</div>
-    <h1>오늘 <em>3</em>건 작업</h1>
-  </header>
 
-  <table>
-    <thead>
-      <tr><th class="num">#</th><th class="task">작업</th><th>이 작업으로 사용자가 할 수 있는 것</th></tr>
-    </thead>
-    <!-- 아래 <tbody> 행만 그날 작업으로 교체한다. 한 작업 = 한 행. -->
-    <tbody>
-      <tr>
-        <td class="num">1</td>
-        <td class="task">전국 기차역 마스터 + 좌표 최근접 역해석</td>
-        <td class="detail">코스가 도착하는 지역 근처의 실제 기차역을 자동으로 찾아준다. 역이 없는 오지 지역이면 근교 역(예: 경주 인근이면 <em>경주역</em>)을 잡아 "열차로 어떻게 가는지"를 안내한다.</td>
-      </tr>
-      <tr>
-        <td class="num">2</td>
-        <td class="task">장소 상세에 구석구석 캐치프레이즈 추가</td>
-        <td class="detail">코스에 나온 장소를 누르면 그 장소의 '대한민국 구석구석' 한 줄 소개가 함께 뜬다 (예: 완도타워 → <em>바다 위에 뜬 낭만, 완도의 랜드마크</em>). 관광공사 소개가 비어도 감성 문구로 카드가 채워진다.</td>
-      </tr>
-      <tr>
-        <td class="num">3</td>
-        <td class="task">장소 무장애(배리어프리) 정보</td>
-        <td class="detail">장소를 누르면 이용약자 편의를 분류별로 볼 수 있다 — <em>휠체어 대여·장애인 화장실·음성안내·수유실</em> 등. 등록 정보가 없으면 빈 상태로 깔끔히 처리된다.</td>
-      </tr>
-    </tbody>
-  </table>
+  <div class="top">
+    <div class="brand">offway <span>개발일지 · core</span></div>
+    <div class="day"><b>08.30</b><i>일요일</i></div>
+  </div>
 
-  <footer>OffWay - BE 박세빈 · 2026 관광데이터 활용 공모전</footer>
+  <p class="lead">
+    붙여 두고 <em>12일 동안 아무에게도 안 보이던</em> 푸시 알림을 잠금화면에 띄웠고, 그 알림이 <em>어느 여행 얘기인지</em>
+    말하게 했습니다. 외부 링크를 <em>배포 없이</em> 고칠 수 있는 백오피스 API 를 완성했습니다.
+  </p>
+
+  <div class="stats">
+    <div class="stat">
+      <b>4</b>
+      <span>PR — 전부 머지 (#353 #354 #358 #359)</span>
+    </div>
+    <div class="stat">
+      <b>12<s>일</s></b>
+      <span>푸시가 안 보인 채 지나간 기간 — 발송은 성공으로 집계되고 있었다</span>
+    </div>
+    <div class="stat">
+      <b>5<s>곳</s> <u>/ 89</u></b>
+      <span>접미사를 떼면 지명이 깨지는 자치구 — "동구" → "동"</span>
+    </div>
+    <div class="stat">
+      <b>2,027</b>
+      <span>테스트 (+47) · 코드 리뷰 지적 7건 처리</span>
+    </div>
+  </div>
+
+  <div class="cards">
+
+    <div class="card">
+      <h3>붙여 둔 푸시가 12일 동안 아무에게도 안 보였다</h3>
+      <div class="tags"><span class="tag">fix</span><span class="tag">#358</span><span class="tag">머지</span></div>
+      <ul>
+        <li><b>data 만 실은 메시지</b>는 iOS 가 silent push 로 취급합니다. 백그라운드·종료 상태에서 아무것도 안 그리고, 전달 자체가 버려지기도 합니다.</li>
+        <li>그런데 이 알림은 <em>전날 20시·다음 날 20시 배치</em>입니다 — 정확히 그 상태에서 필요합니다.</li>
+        <li>발송은 <b>SENT 로 성공</b>했고 CI 도 초록이었습니다. <em>보내는 내용 자체를 아무도 안 보고 있었습니다.</em></li>
+        <li>"문구를 서버가 들지 않는다"를 폐기한 게 아니라 범위를 바로잡았습니다 — 알림함은 30일 남아 굳고, 배너는 지나가면 끝입니다.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>알림이 어느 여행 얘기인지 말하지 못했다</h3>
+      <div class="tags"><span class="tag">feat</span><span class="tag">#359</span><span class="tag">머지</span></div>
+      <ul>
+        <li>코스를 여러 개 담아 둔 사람에게 <b>"여행, 다녀오셨나요?"</b> 는 어느 여행인지 알 수 없는 알림입니다.</li>
+        <li>특히 <em>연차를 기록해 달라</em>는 요청이라, 어느 여행인지 모르면 눌러 보기 전까지 판단이 안 됩니다.</li>
+        <li>앱이 코스를 직접 조회하면 <b>알림 5건에 요청 5번</b>이고, 지워진 코스는 404 라 그 줄만 빕니다. 서버가 한 페이지에 <b>조회 두 번</b>으로 채웁니다.</li>
+        <li>지역명은 문구가 아니라 데이터라, "문구는 앱이 소유한다"는 원칙은 그대로입니다.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>값 하나 고치려면 배포를 해야 했다</h3>
+      <div class="tags"><span class="tag">feat</span><span class="tag">#354</span><span class="tag">머지</span></div>
+      <ul>
+        <li>앱 네 화면에 뜨는 외부 링크를 <b>추가·수정·삭제</b>하는 API 를 붙였습니다. 어떤 화면에·언제부터 언제까지·지금 켤지를 그 자리에서 정합니다.</li>
+        <li>어드민은 <b>소셜 로그인 그대로</b> 쓰고 화이트리스트에 있으면 역할만 올립니다 — 별도 로그인은 지켜야 할 자리를 하나 더 만듭니다.</li>
+        <li><em>GET 도 막았습니다.</em> 어드민 목록에는 미공개 항목이 전부 있어, 읽기를 열면 팀 밖에 샙니다.</li>
+        <li>만들다 만 항목은 <b>기본이 "안 보임"</b> 입니다. 켜는 것이 명시적 행위여야 합니다.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>리뷰를 안 받아들이면 머지가 막혔다</h3>
+      <div class="tags"><span class="tag">docs</span><span class="tag">#353</span><span class="tag">머지</span></div>
+      <ul>
+        <li>규칙이 "reject 한 코멘트는 닫지 않는다" 였는데, 이 저장소는 <em>코멘트가 전부 닫혀야 머지</em>됩니다.</li>
+        <li>같은 문서의 다른 절은 이미 반대로 적고 있었습니다 — <b>셋 중 하나만 규칙이 달랐습니다.</b></li>
+        <li>검토 기회는 <b>답글이 이미 보존</b>합니다. 열어 둔 코멘트는 기록이 아니라 차단입니다.</li>
+        <li>대신 닫기 전에 <b>사람에게 선택을 받게</b> 했습니다 — reject 는 셋 중 유일하게 판단만 남는 갈래입니다.</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <div class="more-label">더 한 작업들 — 고치다 만난 것</div>
+  <div class="more">
+
+    <div class="mini">
+      <h4>#354 · 배포가 어드민 데이터를 지울 참이었다</h4>
+      <p>큐레이션 seed 가 <b>전량 삭제 후 재적재</b>였습니다. 어드민이 붙은 지금 그대로 뒀다면 <em>배포 한 번이 넣고 고친 항목을 통째로</em> 지웠습니다. 앞선 PR 에 "그때 걷어내야 한다"고 적어 둔 자리입니다.</p>
+    </div>
+
+    <div class="mini">
+      <h4>#354 · 필드 하나를 빼면 요청 전체가 400 이었다</h4>
+      <p>Jackson 3 은 <b>선택 필드가 primitive 면</b> 그 필드가 없을 때 매핑을 깨뜨립니다. 어드민이 값 하나를 생략한 것이 <em>값 오류로 보고</em>되어 어디가 틀렸는지 알 수 없었습니다. 래퍼로 받고 기본값은 DTO 가 정합니다.</p>
+    </div>
+
+    <div class="mini">
+      <h4>#354 · 삭제가 두 문장이라 404 가 200 이 될 수 있었다</h4>
+      <p>있는지 확인하고 지우는 사이에 <b>다른 어드민이 같은 항목을 지우면</b> 404 여야 할 요청이 200 으로 나갑니다. 지운 행 수로 판정해 그 틈을 없앴습니다. 조회가 하나 주는 건 덤입니다.</p>
+    </div>
+
+    <div class="mini">
+      <h4>#358 · 우리가 무엇을 보내는지 보는 자리가 없었다</h4>
+      <p>FCM 메시지는 <b>내용을 읽을 수 있는 접근자가 없습니다.</b> 조립과 발송을 갈라, SDK 가 전송에 쓰는 직렬화기를 통과한 <em>실제 JSON</em> 으로 확인하게 했습니다. 같은 회귀가 조용히 다시 나가지 않습니다.</p>
+    </div>
+
+    <div class="mini">
+      <h4>#359 · 접미사를 떼면 "동구" 가 "동" 이 된다</h4>
+      <p>프론트가 "서버가 어려우면 앱에서 떼겠다"고 했는데, 89곳을 세어 보니 <b>다섯이 자치구</b>였습니다. 어느 이름이 자치구인지는 <em>이 표를 가진 쪽만</em> 압니다 — 서버가 다듬어 내려보냅니다.</p>
+    </div>
+
+    <div class="mini">
+      <h4>#359 · 코스 없는 알림 하나가 목록 전체를 500 으로 만들었다</h4>
+      <p>불변 맵은 <b>키가 null 이면 조회에서 예외</b>를 냅니다. 코스와 무관한 알림 하나가 목록 응답 전체를 무너뜨렸습니다. 테스트가 먼저 잡았습니다.</p>
+    </div>
+
+  </div>
+
+  <div class="week">
+    <div class="when">2026년 35주차<b>이번 주 중점</b></div>
+    <div>
+      <h5>붙여 놓고 안 보이던 것들을 잇는다</h5>
+      <p>기능은 있는데 사용자에게 닿지 않던 것이 이번 주에 셋 나왔습니다. 도로에 안 붙는 좌표가 이동시간을 조용히 직선거리로 떨어뜨리고(#351), 푸시는 발송 성공으로 집계되면서 화면에는 안 뜨고(#358), 알림은 어느 여행인지 말하지 못했습니다(#359). <b>공통점은 실패가 실패로 안 보였다</b>는 것입니다 — 셋 다 "무엇을 보내고 무엇을 계산했는지" 를 확인하는 자리를 함께 만들었습니다.</p>
+    </div>
+    <div>
+      <h5>배포 없이 고칠 수 있게 — 절반이 끝났다</h5>
+      <p>외부 링크를 배포 없이 관리하는 <b>서버 기능이 완성</b>됐습니다(#354). 다만 지금은 API 뿐이라 curl 로만 쓸 수 있고, 그러면 결국 아무도 안 쓰고 SQL 로 돌아갑니다. 다음은 <b>관리 화면(#343)</b> 과 정책까지 옮기는 일(#344)입니다. 어드민 계정은 아직 비어 있어 <em>지금은 아무도 못 들어갑니다</em> — 로그인 한 번 뒤에 첫 계정을 넣습니다.</p>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>OffWay core · Spring Boot 4.1 · Java 25</span>
+    <span>2026-08-30 (KST) · 머지 #353 #354 #358 #359</span>
+  </div>
+
 </div>
 </body>
 </html>
