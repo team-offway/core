@@ -12,15 +12,29 @@ import org.springframework.http.HttpStatus;
 public abstract class BaseException extends RuntimeException implements HttpMappable {
 
     private final ErrorCode errorCode;
+    private final boolean stackTraceUseful;
 
     protected BaseException(ErrorCode errorCode) {
         super(requireErrorCode(errorCode).message());
         this.errorCode = errorCode;
+        this.stackTraceUseful = true;
     }
 
     protected BaseException(ErrorCode errorCode, Throwable cause) {
         super(requireErrorCode(errorCode).message(), cause);
         this.errorCode = errorCode;
+        this.stackTraceUseful = true;
+    }
+
+    /**
+     * @param stackTraceUseful 이 예외의 스택트레이스가 진단에 새 정보를 주는가. 캐시가 이미 로그로 남긴 실패를
+     *     재사용해 새로 만드는 예외처럼 스택이 매번 같은 모양이라 정보가 없을 때만 {@code false} 를 준다 —
+     *     {@link GlobalExceptionHandler} 가 5xx 를 로그할 때 이 값을 보고 스택트레이스를 붙일지 정한다.
+     */
+    protected BaseException(ErrorCode errorCode, Throwable cause, boolean stackTraceUseful) {
+        super(requireErrorCode(errorCode).message(), cause);
+        this.errorCode = errorCode;
+        this.stackTraceUseful = stackTraceUseful;
     }
 
     private static ErrorCode requireErrorCode(ErrorCode errorCode) {
@@ -29,6 +43,10 @@ public abstract class BaseException extends RuntimeException implements HttpMapp
 
     public ErrorCode errorCode() {
         return errorCode;
+    }
+
+    public boolean stackTraceUseful() {
+        return stackTraceUseful;
     }
 
     @Override
