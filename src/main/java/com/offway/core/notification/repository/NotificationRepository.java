@@ -19,9 +19,12 @@ public interface NotificationRepository {
      * 애플리케이션이 하면(있는지 조회 → 없으면 저장) 두 실행이 동시에 "없다" 를 읽고 둘 다 넣는다.
      * 유니크 제약에 얹어 DB 가 판정하게 한다.
      *
-     * @return 이 호출로 실제 만들어졌으면 true. 이미 있었으면 false
+     * <p><b>만들어진 id 를 돌려준다</b>(#357). 푸시에 알림 id 를 실어야 배너를 눌러 들어온 앱이 그 자리에서
+     * 읽음 처리할 수 있는데, 그 값을 아는 곳이 여기뿐이다.
+     *
+     * @return 이 호출로 실제 만들어졌으면 그 알림의 id. 이미 있었으면 빈 값
      */
-    boolean saveIfAbsent(Notification notification);
+    Optional<Long> saveIfAbsent(Notification notification);
 
     /** 소유자의 알림 한 페이지 — 최근 것부터. */
     Page<Notification> findByOwner(UUID userId, Pageable pageable);
