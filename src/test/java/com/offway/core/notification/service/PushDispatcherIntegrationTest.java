@@ -6,9 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.offway.core.device.domain.DevicePlatform;
 import com.offway.core.device.domain.DevicePushToken;
 import com.offway.core.device.repository.DevicePushTokenRepository;
+import com.offway.core.notification.domain.Notification;
 import com.offway.core.notification.domain.NotificationType;
+import com.offway.core.notification.infrastructure.push.PushMessage;
 import com.offway.core.notification.infrastructure.push.PushResult;
 import com.offway.core.notification.infrastructure.push.PushSender;
+import com.offway.core.notification.repository.NotificationRepository;
 import com.offway.core.notification.service.dto.PushTarget;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -56,6 +59,9 @@ class PushDispatcherIntegrationTest {
 
     @Autowired
     private StubPushSender pushSender;
+
+    @Autowired
+    private NotificationRepository notificationRepository;
 
     @Test
     void 소유자의_모든_기기로_보낸다() {
@@ -113,6 +119,55 @@ class PushDispatcherIntegrationTest {
     }
 
     @Test
+    void 어느_알림인지_함께_보낸다() {
+        // 이 값이 없으면 배너를 눌러 들어온 앱이 무엇을 읽음 처리할지 모른다. 코스 id 로는 대신할 수 없다 —
+        // 한 코스에 TRIP_TOMORROW·TRIP_AFTER 가 둘 다 달릴 수 있어 어느 쪽인지 갈리지 않는다.
+        UUID owner = UUID.randomUUID();
+        String token = "token-357-id-" + owner;
+        registerToken(deviceOwner(owner), token);
+        long notificationId = saveNotification(owner, NotificationType.TRIP_TOMORROW, 20L);
+        pushSender.respondWith(t -> PushResult.SENT);
+
+        pushDispatcher.dispatch(List.of(target(owner, 20L, notificationId)));
+
+        assertEquals(notificationId, pushSender.messageTo(token).notificationId());
+    }
+
+    @Test
+    void 안_읽은_알림_개수를_배지로_싣는다() {
+        // iOS 는 이 값을 받아야 앱 아이콘에 숫자를 그린다. 앱이 켜 둔 표시 옵션은 "오면 반영한다" 는
+        // 뜻이지 값을 만들어 내지 않는다.
+        UUID owner = UUID.randomUUID();
+        String token = "token-357-badge-" + owner;
+        registerToken(deviceOwner(owner), token);
+        long notificationId = saveNotification(owner, NotificationType.TRIP_TOMORROW, 21L);
+        saveNotification(owner, NotificationType.TRIP_AFTER, 21L);
+        pushSender.respondWith(t -> PushResult.SENT);
+
+        pushDispatcher.dispatch(List.of(target(owner, 21L, notificationId)));
+
+        assertEquals(2, pushSender.messageTo(token).badge(), "안 읽은 두 건이 배지로 나가야 한다");
+    }
+
+    @Test
+    void 같은_사람의_기기들은_같은_배지를_받는다() {
+        // 배지를 기기마다 세면 질의가 기기 수만큼 돈다. 값은 어차피 같으므로 사람 단위로 한 번만 센다 —
+        // 두 기기가 다른 숫자를 받으면 그 전제가 깨진 것이다.
+        UUID owner = UUID.randomUUID();
+        String phone = "token-357-phone-" + owner;
+        String tablet = "token-357-tablet-" + owner;
+        registerToken(deviceOwner(owner), phone);
+        registerToken(deviceOwner(owner), tablet);
+        long notificationId = saveNotification(owner, NotificationType.TRIP_TOMORROW, 22L);
+        pushSender.respondWith(t -> PushResult.SENT);
+
+        pushDispatcher.dispatch(List.of(target(owner, 22L, notificationId)));
+
+        assertEquals(1, pushSender.messageTo(phone).badge());
+        assertEquals(pushSender.messageTo(phone).badge(), pushSender.messageTo(tablet).badge());
+    }
+
+    @Test
     void 등록된_기기가_없으면_보내지_않는다() {
         pushSender.respondWith(token -> {
             throw new AssertionError("보낼 기기가 없는데 발송을 시도했다");
@@ -154,8 +209,31 @@ class PushDispatcherIntegrationTest {
         return userId.toString();
     }
 
+    /** 발송 대상 하나 — 알림 id 는 저장 없이도 되는 시나리오라 코스 id 에서 만든다. */
     private PushTarget target(UUID owner, Long courseId) {
-        return new PushTarget(owner, NotificationType.TRIP_TOMORROW, courseId);
+        return target(owner, courseId, courseId);
+    }
+
+    /** 코스와 알림을 따로 주는 대상 — 둘 다 Long 이라 이름을 붙여 조립한다. */
+    private PushTarget target(UUID owner, Long courseId, Long notificationId) {
+        return PushTarget.builder()
+                .userId(owner)
+                .type(NotificationType.TRIP_TOMORROW)
+                .courseId(courseId)
+                .notificationId(notificationId)
+                .build();
+    }
+
+    /** 안 읽은 알림을 실제로 하나 남긴다 — 배지는 DB 를 세어 나오는 값이라 진짜 행이 있어야 한다. */
+    private long saveNotification(UUID owner, NotificationType type, long courseId) {
+        return notificationRepository
+                .saveIfAbsent(Notification.builder()
+                        .userId(owner)
+                        .type(type)
+                        .courseId(courseId)
+                        .createdAt(LocalDateTime.now())
+                        .build())
+                .orElseThrow(() -> new AssertionError("알림을 만들지 못했다"));
     }
 
     private void registerToken(String deviceOwner, String token) {
@@ -173,18 +251,27 @@ class PushDispatcherIntegrationTest {
 
         private final Map<String, AtomicInteger> sent = new ConcurrentHashMap<>();
 
+        /** 토큰별로 <b>무엇을</b> 보냈는지 — 배지·알림 id 는 결과값이 아니라 실어 보낸 내용이라 여기서만 보인다. */
+        private final Map<String, PushMessage> messages = new ConcurrentHashMap<>();
+
         void respondWith(Function<String, PushResult> behavior) {
             this.behavior = behavior;
             sent.clear();
+            messages.clear();
         }
 
         Map<String, AtomicInteger> sentTokens() {
             return sent;
         }
 
+        PushMessage messageTo(String token) {
+            return messages.get(token);
+        }
+
         @Override
-        public PushResult send(String token, NotificationType type, Long courseId) {
+        public PushResult send(String token, PushMessage message) {
             sent.computeIfAbsent(token, key -> new AtomicInteger()).incrementAndGet();
+            messages.put(token, message);
             return behavior.apply(token);
         }
     }

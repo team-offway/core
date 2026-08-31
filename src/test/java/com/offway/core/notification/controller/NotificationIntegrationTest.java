@@ -31,6 +31,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -412,14 +413,14 @@ class NotificationIntegrationTest {
         UUID owner = UUID.fromString(ownerId);
         long courseId = 280_001L;
 
-        boolean created = notificationRepository.saveIfAbsent(Notification.builder()
+        Optional<Long> created = notificationRepository.saveIfAbsent(Notification.builder()
                 .userId(owner)
                 .type(NotificationType.TRIP_TOMORROW)
                 .courseId(courseId)
                 .createdAt(BASE_TIME)
                 .build());
 
-        assertTrue(created, "native INSERT 가 새 알림을 만들지 못했다");
+        assertTrue(created.isPresent(), "native INSERT 가 새 알림을 만들지 못했다");
         // ① JPA 가 같은 소유자로 찾는다 — UUID_TO_BIN 과 @JdbcTypeCode(BINARY) 의 바이트가 같아야만 걸린다.
         assertEquals(
                 1,

@@ -2,14 +2,19 @@ package com.offway.core.notification.service;
 
 import com.offway.core.device.domain.DevicePushToken;
 import com.offway.core.device.repository.DevicePushTokenRepository;
+import com.offway.core.notification.infrastructure.push.PushMessage;
 import com.offway.core.notification.infrastructure.push.PushResult;
 import com.offway.core.notification.infrastructure.push.PushSender;
+import com.offway.core.notification.repository.NotificationRepository;
 import com.offway.core.notification.service.dto.PushTarget;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -35,13 +40,18 @@ public class PushDispatcher {
 
     private final PushSender pushSender;
     private final DevicePushTokenRepository devicePushTokenRepository;
+    private final NotificationRepository notificationRepository;
 
     /** 발송 전용 풀. 요청 처리 스레드를 쓰면 배치가 사용자 요청과 자원을 다툰다. */
     private final ExecutorService sendExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public PushDispatcher(PushSender pushSender, DevicePushTokenRepository devicePushTokenRepository) {
+    public PushDispatcher(
+            PushSender pushSender,
+            DevicePushTokenRepository devicePushTokenRepository,
+            NotificationRepository notificationRepository) {
         this.pushSender = pushSender;
         this.devicePushTokenRepository = devicePushTokenRepository;
+        this.notificationRepository = notificationRepository;
     }
 
     /**
@@ -65,9 +75,10 @@ public class PushDispatcher {
             return 0;
         }
 
+        Map<UUID, Integer> badges = badges(targets);
         Semaphore inFlight = new Semaphore(MAX_CONCURRENT_SENDS);
         List<CompletableFuture<Delivered>> sending = deliveries.stream()
-                .map(delivery -> CompletableFuture.supplyAsync(() -> send(delivery, inFlight), sendExecutor))
+                .map(delivery -> CompletableFuture.supplyAsync(() -> send(delivery, badges, inFlight), sendExecutor))
                 .toList();
 
         int sent = 0;
@@ -96,15 +107,46 @@ public class PushDispatcher {
     }
 
     /** 세마포어로 동시 발송 수를 묶는다 — 가상 스레드는 값싸지만 상대(FCM)는 그렇지 않다. */
-    private Delivered send(Delivery delivery, Semaphore inFlight) {
+    private Delivered send(Delivery delivery, Map<UUID, Integer> badges, Semaphore inFlight) {
         inFlight.acquireUninterruptibly();
         try {
-            return new Delivered(
-                    delivery.token(),
-                    pushSender.send(delivery.token(), delivery.target().type(), delivery.target().courseId()));
+            PushTarget target = delivery.target();
+            // 이름을 붙여 조립한다. courseId 와 notificationId 가 둘 다 Long 이라 위치로 넘기면 맞바꿔도
+            // 컴파일이 통과하고, 그러면 앱이 엉뚱한 알림을 읽음 처리한다.
+            PushMessage message = PushMessage.builder()
+                    .type(target.type())
+                    .courseId(target.courseId())
+                    .notificationId(target.notificationId())
+                    .badge(badges.get(target.userId()))
+                    .build();
+            return new Delivered(delivery.token(), pushSender.send(delivery.token(), message));
         } finally {
             inFlight.release();
         }
+    }
+
+    /**
+     * 사람마다 안 읽은 알림 개수를 <b>한 번만</b> 센다(#357). iOS 는 이 값을 받아야 앱 아이콘에 숫자를 그린다.
+     *
+     * <p>보낼 때 세면 안 된다. 발송은 기기마다 도는 팬아웃이라 <b>기기 수만큼</b> 질의가 돌고, 한 사람에게
+     * 여러 알림이 함께 나가는 하루치 배치에서는 그만큼 또 곱해진다. 값은 어차피 같으므로 사람 단위로 한 번만
+     * 세어 나눠 쓴다.
+     *
+     * <p><b>세는 데 실패해도 발송은 나간다.</b> 배지는 곁가지고, 여기서 예외가 올라가면 알림 자체가 안 간다 —
+     * 숫자 하나 때문에 알림을 통째로 잃는 것은 바꾸려던 것과 정반대다. 그때는 키가 없어 배지가 안 실리고,
+     * 앱은 직전 값을 그대로 둔다.
+     */
+    private Map<UUID, Integer> badges(List<PushTarget> targets) {
+        Map<UUID, Integer> badges = new HashMap<>();
+        for (UUID userId : targets.stream().map(PushTarget::userId).distinct().toList()) {
+            try {
+                badges.put(userId, Math.toIntExact(notificationRepository.countUnread(userId)));
+            } catch (RuntimeException e) {
+                // 왜 배지가 안 실렸는지 남긴다 — 폴백이 정상처럼 보이면 숫자가 안 뜨는 것을 아무도 모른다.
+                log.warn("안 읽은 알림 수를 세지 못해 배지 없이 보냅니다 cause={}", e.getClass().getSimpleName());
+            }
+        }
+        return badges;
     }
 
     /**

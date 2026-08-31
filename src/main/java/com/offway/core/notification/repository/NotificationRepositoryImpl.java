@@ -37,13 +37,17 @@ public class NotificationRepositoryImpl implements NotificationRepository {
      */
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean saveIfAbsent(Notification notification) {
-        return notificationJpaRepository.insertIfAbsent(
-                        notification.getUserId().toString(),
-                        notification.getType().name(),
-                        notification.course().orElse(null),
-                        notification.getCreatedAt())
-                > 0;
+    public Optional<Long> saveIfAbsent(Notification notification) {
+        Long courseId = notification.course().orElse(null);
+        int inserted = notificationJpaRepository.insertIfAbsent(
+                notification.getUserId().toString(),
+                notification.getType().name(),
+                courseId,
+                notification.getCreatedAt());
+        if (inserted == 0) {
+            return Optional.empty();
+        }
+        return notificationJpaRepository.findIdByKey(notification.getUserId(), notification.getType(), courseId);
     }
 
     @Override

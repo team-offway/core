@@ -1,5 +1,7 @@
 package com.offway.core.notification.infrastructure.push;
 
+import com.google.firebase.messaging.ApnsConfig;
+import com.google.firebase.messaging.Aps;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
@@ -9,6 +11,7 @@ import com.offway.core.common.logging.RootCause;
 import com.offway.core.notification.domain.NotificationType;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -40,6 +43,14 @@ public class FcmPushSender implements PushSender {
     /** 누르면 이동할 코스. 없는 알림도 있어 있을 때만 싣는다. */
     private static final String DATA_KEY_COURSE_ID = "courseId";
 
+    /**
+     * 배너를 눌러 들어온 앱이 <b>읽음 처리할 대상</b>(#357).
+     *
+     * <p>이 값이 없던 동안 배너로 확인한 알림이 계속 안 읽음으로 남았다 — 알림함에 들어가 한 번 더 눌러야
+     * 읽음이 됐다. 내용을 본 사람에게 "안 읽은 알림이 있다" 고 계속 말하는 셈이었다.
+     */
+    private static final String DATA_KEY_NOTIFICATION_ID = "notificationId";
+
     private final FirebaseMessaging messaging;
 
     /**
@@ -54,12 +65,12 @@ public class FcmPushSender implements PushSender {
     }
 
     @Override
-    public PushResult send(String token, NotificationType type, Long courseId) {
+    public PushResult send(String token, PushMessage push) {
         if (messaging == null) {
             return PushResult.DISABLED;
         }
         try {
-            messaging.send(message(token, type, courseId));
+            messaging.send(message(token, push));
             return PushResult.SENT;
         } catch (FirebaseMessagingException e) {
             return classify(e);
@@ -90,12 +101,13 @@ public class FcmPushSender implements PushSender {
      * <p>합쳐 두면 "notification 을 싣는가" 를 확인할 방법이 실기기밖에 없다. 실제로 그래서 이 결함이
      * 12일 동안 아무 신호 없이 살아 있었다 — 발송은 성공(`SENT`)으로 집계되고 있었다.
      */
-    Message message(String token, NotificationType type, Long courseId) {
-        return Message.builder()
+    Message message(String token, PushMessage push) {
+        Message.Builder message = Message.builder()
                 .setToken(token)
-                .putAllData(payload(type, courseId))
-                .setNotification(banner(type))
-                .build();
+                .putAllData(payload(push))
+                .setNotification(banner(push.type()));
+        badge(push).ifPresent(message::setApnsConfig);
+        return message.build();
     }
 
     /**
@@ -109,11 +121,28 @@ public class FcmPushSender implements PushSender {
                 .build();
     }
 
-    private Map<String, String> payload(NotificationType type, Long courseId) {
+    /**
+     * 앱 아이콘에 그릴 숫자(#357). iOS 는 {@code aps.badge} 를 받아야 그린다 — 앱이 켜 둔 표시 옵션은
+     * "값이 실려 오면 반영한다" 는 뜻이지 값을 만들어 내지 않는다.
+     *
+     * <p><b>모르면 블록 자체를 안 붙인다.</b> 0 을 보내면 안 읽은 알림이 남아 있는데도 배지가 지워져,
+     * 세는 데 실패한 것이 "다 읽었다" 로 보인다.
+     */
+    private static Optional<ApnsConfig> badge(PushMessage push) {
+        if (push.badge() == null) {
+            return Optional.empty();
+        }
+        return Optional.of(ApnsConfig.builder()
+                .setAps(Aps.builder().setBadge(push.badge()).build())
+                .build());
+    }
+
+    private static Map<String, String> payload(PushMessage push) {
         Map<String, String> data = new HashMap<>();
-        data.put(DATA_KEY_TYPE, type.name());
-        if (courseId != null) {
-            data.put(DATA_KEY_COURSE_ID, String.valueOf(courseId));
+        data.put(DATA_KEY_TYPE, push.type().name());
+        data.put(DATA_KEY_NOTIFICATION_ID, String.valueOf(push.notificationId()));
+        if (push.courseId() != null) {
+            data.put(DATA_KEY_COURSE_ID, String.valueOf(push.courseId()));
         }
         return data;
     }

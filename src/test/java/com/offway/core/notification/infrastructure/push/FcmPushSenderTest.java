@@ -1,6 +1,7 @@
 package com.offway.core.notification.infrastructure.push;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,8 +34,23 @@ class FcmPushSenderTest {
 
     private static final String DATA_KEY_COURSE_ID = "courseId";
 
+    /** 배너를 눌러 들어온 앱이 읽음 처리할 대상 — 이것도 앱과 맞춘 계약이다(#357). */
+    private static final String DATA_KEY_NOTIFICATION_ID = "notificationId";
+
     /** 코스가 있는 알림에 쓰는 값. 무엇이든 되지만 응답에서 문자열로 바뀌는 것을 함께 본다. */
     private static final long COURSE_ID = 7L;
+
+    private static final long NOTIFICATION_ID = 12L;
+
+    /** 코스와 배지를 뺀 기본 내용 — 각 테스트가 필요한 것만 바꿔 쓴다. */
+    private static PushMessage push(NotificationType type, Long courseId, Integer badge) {
+        return PushMessage.builder()
+                .type(type)
+                .courseId(courseId)
+                .notificationId(NOTIFICATION_ID)
+                .badge(badge)
+                .build();
+    }
 
     /** 키 없는 환경을 만들 때 부르면 안 되는 자리에 남기는 말. */
     private static final String NEVER_CALLED = "키 없는 환경에서는 부르지 않는다";
@@ -71,7 +87,7 @@ class FcmPushSenderTest {
     @ParameterizedTest
     @EnumSource(NotificationType.class)
     void 모든_종류가_배너로_그려질_알림을_싣는다(NotificationType type) {
-        Message message = senderWithoutKey().message(TOKEN, type, COURSE_ID);
+        Message message = senderWithoutKey().message(TOKEN, push(type, COURSE_ID, null));
 
         assertNotNull(FcmMessages.notificationOf(message), type + " 가 notification 없이 나갑니다(배너가 안 뜬다)");
     }
@@ -80,7 +96,7 @@ class FcmPushSenderTest {
     @ParameterizedTest
     @EnumSource(NotificationType.class)
     void 배너에_종류에_맞는_문구가_실린다(NotificationType type) {
-        Message message = senderWithoutKey().message(TOKEN, type, COURSE_ID);
+        Message message = senderWithoutKey().message(TOKEN, push(type, COURSE_ID, null));
 
         String payload = FcmMessages.transportJsonOf(message);
 
@@ -94,7 +110,7 @@ class FcmPushSenderTest {
      */
     @Test
     void 배너를_붙여도_앱이_읽는_data_는_그대로다() {
-        Message message = senderWithoutKey().message(TOKEN, NotificationType.TRIP_AFTER, COURSE_ID);
+        Message message = senderWithoutKey().message(TOKEN, push(NotificationType.TRIP_AFTER, COURSE_ID, null));
 
         Map<String, String> data = FcmMessages.dataOf(message);
 
@@ -107,14 +123,63 @@ class FcmPushSenderTest {
     /** 코스가 없는 알림도 있다 — 그때는 키 자체를 싣지 않아 앱이 "이동 없음" 으로 읽는다. */
     @Test
     void 코스가_없으면_courseId_를_싣지_않는다() {
-        Message message = senderWithoutKey().message(TOKEN, NotificationType.TRIP_AFTER, null);
+        Message message = senderWithoutKey().message(TOKEN, push(NotificationType.TRIP_AFTER, null, null));
 
         assertNull(FcmMessages.dataOf(message).get(DATA_KEY_COURSE_ID));
+    }
+
+    /**
+     * 배너를 눌러 들어온 앱이 <b>그 자리에서 읽음 처리</b>하려면 어느 알림인지가 필요하다(#357).
+     *
+     * <p>이 값이 없던 동안 배너로 확인한 알림이 계속 안 읽음으로 남아, 홈 종에 점이 그대로 붙어 있었다.
+     */
+    @Test
+    void 어느_알림인지_data_에_싣는다() {
+        Message message = senderWithoutKey().message(TOKEN, push(NotificationType.TRIP_AFTER, COURSE_ID, null));
+
+        assertEquals(String.valueOf(NOTIFICATION_ID), FcmMessages.dataOf(message).get(DATA_KEY_NOTIFICATION_ID));
+    }
+
+    /** 코스가 없는 알림에도 알림 id 는 있다 — 이동은 못 해도 읽음 처리는 해야 한다. */
+    @Test
+    void 코스가_없어도_알림_id_는_싣는다() {
+        Message message = senderWithoutKey().message(TOKEN, push(NotificationType.TRIP_AFTER, null, null));
+
+        assertEquals(String.valueOf(NOTIFICATION_ID), FcmMessages.dataOf(message).get(DATA_KEY_NOTIFICATION_ID));
+    }
+
+    /**
+     * iOS 는 {@code aps.badge} 를 받아야 앱 아이콘에 숫자를 그린다(#357).
+     *
+     * <p>실제로 나가는 JSON 에서 확인한다 — {@code ApnsConfig} 도 접근자가 없어, 우리가 그 블록을 실었는지
+     * 볼 수 있는 자리가 전송 직렬화 결과뿐이다.
+     */
+    @Test
+    void 배지_숫자를_실으면_apns_로_나간다() {
+        Message message = senderWithoutKey().message(TOKEN, push(NotificationType.TRIP_AFTER, COURSE_ID, 3));
+
+        String payload = FcmMessages.transportJsonOf(message);
+
+        assertTrue(payload.contains("badge"), payload);
+        assertTrue(payload.contains("3"), payload);
+    }
+
+    /**
+     * <b>모르면 안 싣는다.</b> 세는 데 실패했을 때 0 을 보내면 안 읽은 알림이 남아 있는데도 배지가 지워져,
+     * 실패가 "다 읽었다" 로 보인다.
+     */
+    @Test
+    void 배지를_모르면_apns_블록_자체를_안_붙인다() {
+        Message message = senderWithoutKey().message(TOKEN, push(NotificationType.TRIP_AFTER, COURSE_ID, null));
+
+        assertFalse(FcmMessages.transportJsonOf(message).contains("badge"));
     }
 
     /** 키가 없어도 부팅·발송 호출이 깨지지 않는다(로컬 실행성). 실패로 세지 않는 결과로 돌려준다. */
     @Test
     void 키가_없으면_발송하지_않고_비활성으로_돌려준다() {
-        assertEquals(PushResult.DISABLED, senderWithoutKey().send(TOKEN, NotificationType.TRIP_TOMORROW, COURSE_ID));
+        assertEquals(
+                PushResult.DISABLED,
+                senderWithoutKey().send(TOKEN, push(NotificationType.TRIP_TOMORROW, COURSE_ID, null)));
     }
 }

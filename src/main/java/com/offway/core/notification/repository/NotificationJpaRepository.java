@@ -1,6 +1,7 @@
 package com.offway.core.notification.repository;
 
 import com.offway.core.notification.domain.Notification;
+import com.offway.core.notification.domain.NotificationType;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -68,6 +69,25 @@ interface NotificationJpaRepository extends JpaRepository<Notification, Long> {
             @Param("type") String type,
             @Param("courseId") Long courseId,
             @Param("createdAt") LocalDateTime createdAt);
+
+    /**
+     * 방금 넣은 행의 id 를 <b>유니크 키로</b> 되읽는다(#357).
+     *
+     * <p>native {@code INSERT} 는 생성된 키를 돌려주지 않아 삽입만으로는 id 를 알 수 없다. 실제로 만들어진
+     * 건에서만 한 번 더 읽는다 — 재실행처럼 이미 있던 경우에는 돌지 않는다.
+     *
+     * <p>코스가 없는 알림도 있어 {@code courseId} 는 null 일 수 있다. {@code = :courseId} 만 쓰면 SQL 의
+     * null 비교 규칙 때문에 그 행을 영영 못 찾으므로, 삽입 문장의 {@code <=>} 와 같은 판정을 여기서도 한다.
+     */
+    @Query("""
+            select n.id from Notification n
+            where n.userId = :userId and n.type = :type
+              and (n.courseId = :courseId or (n.courseId is null and :courseId is null))
+            """)
+    Optional<Long> findIdByKey(
+            @Param("userId") UUID userId,
+            @Param("type") NotificationType type,
+            @Param("courseId") Long courseId);
 
     /**
      * 전체 읽음은 <b>벌크 UPDATE</b> 다 — 행을 다 읽어 하나씩 고치면 쌓인 만큼 힙에 올린다.

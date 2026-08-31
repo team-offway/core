@@ -20,8 +20,7 @@ public interface PushSender {
      * 안 된다. 실패도 결과값으로 돌려 호출자가 집계·정리에 쓰게 한다.
      *
      * @param token 기기 토큰
-     * @param type 알림 종류 — 앱이 아이콘·문구를 맞추는 키이자, 배너 문구의 출처
-     * @param courseId 누르면 이동할 코스. 없으면 null
+     * @param message 실어 보낼 내용 — 종류·이동할 코스·읽음 처리할 알림·배지 숫자
      */
-    PushResult send(String token, NotificationType type, Long courseId);
+    PushResult send(String token, PushMessage message);
 }

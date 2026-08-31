@@ -62,14 +62,20 @@ public class CourseNotificationWriter {
         int failed = 0;
         for (Course course : courses) {
             try {
-                if (notificationRepository.saveIfAbsent(Notification.builder()
-                        .userId(course.getUserId())
-                        .type(type)
-                        .courseId(course.getId())
-                        .createdAt(now)
-                        .build())) {
-                    created.add(new PushTarget(course.getUserId(), type, course.getId()));
-                }
+                // 만들어진 id 를 그대로 푸시에 싣는다(#357) — 배너를 눌러 들어온 앱이 그 자리에서
+                // 읽음 처리하려면 어느 알림인지가 필요하다.
+                notificationRepository.saveIfAbsent(Notification.builder()
+                                .userId(course.getUserId())
+                                .type(type)
+                                .courseId(course.getId())
+                                .createdAt(now)
+                                .build())
+                        .ifPresent(notificationId -> created.add(PushTarget.builder()
+                                .userId(course.getUserId())
+                                .type(type)
+                                .courseId(course.getId())
+                                .notificationId(notificationId)
+                                .build()));
             } catch (DataIntegrityViolationException e) {
                 // 조회와 삽입 사이에 다른 실행이 같은 것을 넣었다. 유니크 키가 막아 준 것이고 결과는
                 // "이미 있음" 과 같으므로 실패로 세지 않는다.
