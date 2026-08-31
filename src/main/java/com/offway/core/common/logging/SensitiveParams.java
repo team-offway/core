@@ -30,6 +30,13 @@ public final class SensitiveParams {
      * <p><b>snake_case 도 함께 적는다.</b> 우리 앱은 camelCase 로 보내지만 OAuth 규격(RFC 6749)이 쓰는 이름은
      * {@code access_token}·{@code id_token}·{@code refresh_token} 이다. 제공자 쪽 URL 이 예외 메시지에 실려
      * 들어오는 경로가 있어, 한쪽만 적으면 그 경로로 토큰이 그대로 로그에 남는다.
+     *
+     * <p><b>토큰만 자격증명인 것이 아니다(#372).</b> OAuth 인가 코드({@code code})는 수명이 짧을 뿐 그 값
+     * 하나로 액세스 토큰을 받아낼 수 있다. 백오피스 웹 로그인이 붙기 전까지는 {@code code} 를 쿼리로 받는
+     * 엔드포인트가 없어 이 목록에 넣을 이유가 없었는데, 콜백이 생기면서 운영 로그에 그대로 찍혔다.
+     *
+     * <p>이름 비교는 <b>정확 일치</b>다. {@code areaCode}·{@code sigunguCode} 처럼 {@code code} 로 끝나는
+     * 외부 API 파라미터는 걸리지 않는다 — 부분 일치로 바꾸면 그것들이 통째로 가려져 로그가 쓸모없어진다.
      */
     private static final Set<String> MASKED_NAMES = Set.of(
             "servicekey",
@@ -46,7 +53,8 @@ public final class SensitiveParams {
             "refreshtoken",
             "secret",
             "client_secret",
-            "authorization");
+            "authorization",
+            "code");
 
     private static final String MASK = "***";
 
