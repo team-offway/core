@@ -85,8 +85,6 @@ public class PoiDetailService {
      */
     private static final Duration FIRST_LOAD_WAIT = Duration.ofSeconds(8);
 
-    /** 캐시가 잡아 둔 실패를 502 로 올릴 때의 사유 — 실제 원인은 적재 시점 로그에 남아 있다. */
-    private static final String CACHED_FAILURE_REASON = "관광 API 상세 조회 실패(캐시된 결과)";
     /** 혜택 기간 판정은 KST — 사용자가 서 있는 시간대다. */
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
@@ -146,9 +144,8 @@ public class PoiDetailService {
             return switch (status) {
                 case FOUND -> detail;
                 case NOT_FOUND -> throw TourApiException.poiNotFound();
-                // 캐시가 잡아 둔 실패다. 원인은 loader 안에서 이미 로그로 남았다.
-                case LOOKUP_FAILED -> throw TourApiException.lookupFailed(
-                        new IllegalStateException(CACHED_FAILURE_REASON));
+                // 캐시가 잡아 둔 실패다. 원인은 loader 안에서 이미 로그로 남았으니 스택을 다시 찍지 않는다(#362).
+                case LOOKUP_FAILED -> throw TourApiException.cachedLookupFailure();
             };
         }
     }
