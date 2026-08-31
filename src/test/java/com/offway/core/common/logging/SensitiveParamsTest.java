@@ -221,6 +221,23 @@ class SensitiveParamsTest {
     }
 
     @Test
+    void OAuth_인가_코드를_가린다() {
+        // 백오피스 웹 로그인 콜백이 code 를 쿼리로 받는다(#343). 수명이 짧을 뿐 그 값 하나로 액세스
+        // 토큰을 받아낼 수 있는 자격증명이라, 운영 로그에 그대로 찍히면 안 된다(#372).
+        assertEquals(
+                "code=***, state=abc",
+                SensitiveParams.readableParams("code=Tv31rjF0fpLrdPdTmLjT&state=abc"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"areaCode", "sigunguCode", "contentTypeId", "cat1"})
+    void code_로_끝나는_외부_API_파라미터는_가리지_않는다(String name) {
+        // 이름 비교가 정확 일치라서 성립한다. 부분 일치로 바꾸면 TourAPI 의 지역 코드가 통째로 가려져
+        // "어느 지역을 물었나" 를 로그에서 못 읽게 된다 — 가리려던 것과 무관한 값이다.
+        assertEquals(name + "=31", SensitiveParams.readableParams(name + "=31"));
+    }
+
+    @Test
     void 물결이_섞인_Bearer_토큰도_통째로_가린다() {
         // base64url·RFC 6750 이 허용하는 문자다. 문자 집합에서 빠지면 거기서 끊겨 뒷부분이 로그에 남는다.
         // 전체 문자열로 고정한다 — 일부만 보면 "Bearer ***.ghi" 처럼 꼬리가 남아도 통과한다.
