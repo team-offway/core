@@ -1,5 +1,7 @@
 package com.offway.core.trip.infrastructure.tour;
 
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -71,6 +73,28 @@ class TourApiClientImplTest {
 
         private int calls() {
             return calls.get();
+        }
+    }
+
+    /** 몇 번 세었는지만 붙잡는 기록기 — "실제로 나간 호출" 과 "우리가 센 호출" 을 맞대보려면 필요하다. */
+    private static final class CountingCallRecorder extends ExternalApiCallRecorder {
+
+        private final java.util.concurrent.atomic.AtomicInteger counted =
+                new java.util.concurrent.atomic.AtomicInteger();
+
+        // NoOpCallRecorder 와 같은 이유로 저장소·알림 없이 만든다 — 여기서 세는 것은 횟수뿐이라
+        // record 를 통째로 덮어써 원본 구현에 닿지 않는다.
+        private CountingCallRecorder() {
+            super(null, null);
+        }
+
+        @Override
+        public void record(ExternalApi api) {
+            counted.incrementAndGet();
+        }
+
+        private int counted() {
+            return counted.get();
         }
     }
 
@@ -301,6 +325,51 @@ class TourApiClientImplTest {
         // 최초 1회 + 재시도 2회. 정확히 세지 않으면 재시도 횟수가 줄어도 이 테스트가 통과해
         // 상한이 조용히 바뀐다.
         assertEquals(ATTEMPTS_WITH_RETRIES, sequence.calls(), "실제=" + sequence.calls());
+    }
+
+    @Test
+    void 다시_건_호출도_사용량에_센다() {
+        // 재시도는 실제로 나가는 호출이라 제공기관 쪽 한도를 그만큼 깎는다. 그런데 세지 않으면 우리 카운터가
+        // 낮게 나와 "아직 여유 있다" 로 읽힌다 — 하필 429 가 도는 그때, 즉 한도가 마르고 있는 그때 틀린다.
+        String ok = """
+                {"response":{"header":{"resultCode":"0000"},
+                "body":{"items":{"item":[{"contentid":"1","contenttypeid":"12","title":"갑사"}]},"totalCount":1}}}""";
+        Sequence sequence = new Sequence(tooManyRequests(), tooManyRequests(), json(ok));
+        CountingCallRecorder recorder = new CountingCallRecorder();
+        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, recorder);
+
+        client.findByArea(34, 1, null, 10);
+
+        assertEquals(ATTEMPTS_WITH_RETRIES, sequence.calls(), "실제로 나간 호출");
+        assertEquals(sequence.calls(), recorder.counted(), "우리가 센 호출");
+    }
+
+    @Test
+    void 재시도를_다_쓰고_실패해도_나간_만큼_센다() {
+        // 실패로 끝나도 호출은 이미 나갔다. 여기서 안 세면 한도가 마를수록 카운터가 더 크게 어긋난다.
+        Sequence sequence = new Sequence(tooManyRequests());
+        CountingCallRecorder recorder = new CountingCallRecorder();
+        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, recorder);
+
+        assertThrows(TourApiException.class, () -> client.findByArea(34, 1, null, 10));
+
+        assertEquals(sequence.calls(), recorder.counted(), "우리가 센 호출");
+    }
+
+    @Test
+    void 재시도가_없으면_한_번만_센다() {
+        // 재시도를 세느라 평상시 호출을 두 번 세면, 고치려던 것과 반대 방향으로 틀린다.
+        String ok = """
+                {"response":{"header":{"resultCode":"0000"},
+                "body":{"items":{"item":[{"contentid":"1","contenttypeid":"12","title":"갑사"}]},"totalCount":1}}}""";
+        Sequence sequence = new Sequence(json(ok));
+        CountingCallRecorder recorder = new CountingCallRecorder();
+        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, recorder);
+
+        client.findByArea(34, 1, null, 10);
+
+        assertEquals(1, sequence.calls());
+        assertEquals(1, recorder.counted());
     }
 
     @Test
