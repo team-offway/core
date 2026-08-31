@@ -69,8 +69,25 @@ public class SecurityConfig {
      * 인증이 필요하다. 열 것만 적는 allowlist 라, 나중에 {@code /auth} 아래 새 엔드포인트가 생겨도 기본이 잠김이다.
      */
     private static final String[] CREDENTIAL_ISSUING_PATHS = {
-        "/api/v1/auth/callback/*", "/api/v1/auth/reissue", "/api/v1/auth/dev-login"
+        "/api/v1/auth/callback/*",
+        "/api/v1/auth/reissue",
+        "/api/v1/auth/dev-login",
+        // 브라우저 로그인 왕복(#343). 토큰을 받으러 오는 경로라 앱 콜백과 같은 이유로 열린다.
+        "/api/v1/auth/oauth2/**"
     };
+
+    /**
+     * 백오피스 <b>화면</b>(#343) — 정적 파일이라 인증 없이 연다. API 경로가 아니다.
+     *
+     * <p><b>여기 있는 것은 HTML·JS·CSS 뿐이고 데이터는 없다.</b> 목록도 상세도 전부
+     * {@code /api/v1/admin/**} 뒤에 있고 그쪽은 {@code ROLE_ADMIN} 을 요구한다 — 화면을 열어도 토큰이
+     * 없으면 빈 화면에 로그인 버튼만 보인다.
+     *
+     * <p>잠글 수도 있었지만 그러면 <b>로그인이 두 번</b>이 된다. 아래 "나머지 읽기" 규칙에 맡기면 브라우저가
+     * Basic 팝업부터 띄우고, 그걸 통과해야 화면이 열리고, 화면에서 다시 소셜 로그인을 해야 한다. 얻는 것은
+     * "화면의 존재를 감추는 것" 뿐인데 그건 보안이 아니다.
+     */
+    private static final String ADMIN_CONSOLE_PATH_PATTERN = "/admin/**";
 
     /**
      * 상태를 바꾸는 요청에 요구하는 역할 — <b>Bearer 로 온 요청만 갖는다</b>.
@@ -133,6 +150,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth.requestMatchers(PUBLIC_PATH_PATTERN)
                         .permitAll()
                         .requestMatchers(CREDENTIAL_ISSUING_PATHS)
+                        .permitAll()
+                        // 백오피스 **화면**은 정적 파일이라 연다. 아래 GET 규칙에 맡기면 Basic 팝업이
+                        // 먼저 떠서 로그인이 두 번이 된다. 데이터는 바로 아래 ADMIN 규칙 뒤에 있다.
+                        .requestMatchers(ADMIN_CONSOLE_PATH_PATTERN)
                         .permitAll()
                         // 백오피스는 읽기·쓰기 모두 ADMIN. 아래 GET 규칙보다 **앞**에 둬야 Basic 으로
                         // 미공개 항목이 새지 않는다 — 순서가 곧 규칙이다.

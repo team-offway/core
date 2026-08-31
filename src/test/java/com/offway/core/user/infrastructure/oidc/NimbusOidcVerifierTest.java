@@ -52,7 +52,7 @@ class NimbusOidcVerifierTest {
     void 다른_provider가_설정돼_있어도_요청한_provider가_비면_거부한다() {
         AuthProperties properties = new AuthProperties(
                 null,
-                Map.of(AuthProvider.GOOGLE, new AuthProperties.Oidc(List.of("google-web-client-id"), null)),
+                Map.of(AuthProvider.GOOGLE, new AuthProperties.Oidc(List.of("google-web-client-id"), null, null, null)),
                 null,
                 null);
         NimbusOidcVerifier verifier = new NimbusOidcVerifier(properties);
