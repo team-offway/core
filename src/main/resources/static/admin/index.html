@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- 로그인 결과가 프래그먼트로 오므로 그 주소가 밖으로 새지 않게 리퍼러를 끊는다. -->
+    <meta name="referrer" content="no-referrer">
+    <title>OffWay 백오피스</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+    <h1>OffWay 백오피스</h1>
+    <div class="who" id="who" hidden>
+        <span id="who-label"></span>
+        <button type="button" class="ghost" id="logout">로그아웃</button>
+    </div>
+</header>
+
+<!-- 로그인 전 -->
+<section class="gate" id="gate-login" hidden>
+    <h2>로그인이 필요합니다</h2>
+    <p>앱에서 쓰시는 카카오 계정 그대로 들어옵니다.</p>
+    <p class="note" id="login-error" hidden></p>
+    <a class="primary" id="login" href="/api/v1/auth/oauth2/kakao">카카오로 로그인</a>
+</section>
+
+<!-- 로그인은 됐지만 어드민이 아닐 때 -->
+<section class="gate" id="gate-forbidden" hidden>
+    <h2>백오피스 권한이 없습니다</h2>
+    <p>
+        로그인은 됐지만 이 계정은 어드민 명단에 없습니다. 아래 사용자 ID 를 전달하면 명단에 추가할 수
+        있습니다 &mdash; 명단은 마이그레이션으로 넣고, 넣은 뒤에는 다시 로그인해야 반영됩니다.
+    </p>
+    <div class="copy-row">
+        <code id="my-user-id"></code>
+        <button type="button" class="ghost" id="copy-user-id">복사</button>
+    </div>
+    <p class="note">
+        서버는 이 ID 로 <code>user_identity</code> 에서 provider 와 식별자를 찾아 명단에 넣습니다.
+        절차는 <code>scripts/setup-admin.md</code> 에 있습니다.
+    </p>
+    <button type="button" class="ghost" id="logout-forbidden">다른 계정으로 로그인</button>
+</section>
+
+<!-- 본 화면 -->
+<main id="console" hidden>
+    <nav class="tabs">
+        <button type="button" class="tab is-active" data-tab="links">큐레이션 링크</button>
+    </nav>
+
+    <section class="panel" id="tab-links">
+        <div class="toolbar">
+            <label>
+                면
+                <select id="filter-surface">
+                    <option value="">전체</option>
+                    <option value="HOME">홈</option>
+                    <option value="REGION">지역 상세</option>
+                    <option value="COURSE">코스 상세</option>
+                    <option value="POI">장소 상세</option>
+                </select>
+            </label>
+            <label>
+                게시
+                <select id="filter-published">
+                    <option value="">전체</option>
+                    <option value="true">게시됨</option>
+                    <option value="false">미게시</option>
+                </select>
+            </label>
+            <span class="spacer"></span>
+            <span class="count" id="count"></span>
+            <button type="button" class="ghost" id="reload">새로고침</button>
+            <button type="button" class="primary" id="new-link">새로 만들기</button>
+        </div>
+
+        <p class="note" id="list-message" hidden></p>
+
+        <table class="grid">
+            <thead>
+            <tr>
+                <th class="drag-col" title="끌어서 순서를 바꿉니다"></th>
+                <th class="thumb-col">썸네일</th>
+                <th>제목 / 칩 문구</th>
+                <th class="period-col">기간</th>
+                <th class="surface-col">면</th>
+                <th class="order-col">정렬</th>
+                <th class="state-col">노출</th>
+                <th class="action-col"></th>
+            </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+        </table>
+        <p class="note" id="reorder-hint" hidden>
+            순서를 바꾸면 그 자리에서 저장됩니다. 정렬 값은 같은 면 안에서만 뜻이 있습니다.
+        </p>
+    </section>
+</main>
+
+<!-- 편집 -->
+<dialog id="editor">
+    <form method="dialog" id="editor-form">
+        <header class="editor-head">
+            <h2 id="editor-title">큐레이션 링크</h2>
+            <button type="button" class="ghost" id="editor-close">닫기</button>
+        </header>
+
+        <div class="editor-body">
+            <div class="fields">
+                <label>
+                    제목 <span class="required">필수</span>
+                    <input name="title" maxlength="100" required>
+                </label>
+
+                <label>
+                    칩 문구 <span class="required">필수</span>
+                    <input name="chipText" maxlength="30" required>
+                    <small class="counter" id="chip-counter">0 / 30</small>
+                </label>
+
+                <label>
+                    부제
+                    <textarea name="description" maxlength="500" rows="2"></textarea>
+                </label>
+
+                <label>
+                    링크 주소 <span class="required">필수</span>
+                    <input name="linkUrl" maxlength="1000" placeholder="https://" required>
+                    <small class="counter">https 만 받습니다.</small>
+                </label>
+
+                <fieldset class="thumb">
+                    <legend>썸네일</legend>
+                    <label>
+                        주소 붙여넣기
+                        <input name="thumbnailUrl" maxlength="1000" placeholder="https://">
+                    </label>
+                    <small class="counter">업로드는 다음 작업에서 붙습니다(#343).</small>
+                </fieldset>
+
+                <fieldset>
+                    <legend>노출 기간</legend>
+                    <label class="inline">
+                        <input type="checkbox" name="alwaysOn"> 상시 노출
+                    </label>
+                    <div class="row">
+                        <label>시작일 <input type="date" name="startsOn"></label>
+                        <label>종료일 <input type="date" name="endsOn"></label>
+                    </div>
+                    <small class="counter">상시가 아니면 종료일이 필요합니다.</small>
+                </fieldset>
+
+                <fieldset>
+                    <legend>내릴 면 <span class="required">하나 이상</span></legend>
+                    <label class="inline"><input type="checkbox" name="surfaces" value="HOME"> 홈</label>
+                    <label class="inline"><input type="checkbox" name="surfaces" value="REGION"> 지역 상세</label>
+                    <label class="inline"><input type="checkbox" name="surfaces" value="COURSE"> 코스 상세</label>
+                    <label class="inline"><input type="checkbox" name="surfaces" value="POI"> 장소 상세</label>
+                </fieldset>
+
+                <div class="row">
+                    <label>정렬 <input type="number" name="displayOrder" value="0" step="1"></label>
+                    <label class="inline pull-down">
+                        <input type="checkbox" name="published"> 앱에 노출
+                    </label>
+                </div>
+
+                <p class="error" id="editor-error" hidden></p>
+            </div>
+
+            <aside class="preview">
+                <h3>앱에서 이렇게 보입니다</h3>
+                <div class="card" id="preview-card">
+                    <div class="card-thumb" id="preview-thumb"></div>
+                    <div class="card-body">
+                        <span class="card-chip" id="preview-chip">칩 문구</span>
+                        <p class="card-title" id="preview-title">제목</p>
+                        <p class="card-desc" id="preview-desc"></p>
+                    </div>
+                </div>
+                <p class="note">
+                    칩 문구는 카드에서 한 줄로 접힙니다. 여기서 잘리면 앱에서도 잘립니다.
+                </p>
+            </aside>
+        </div>
+
+        <footer class="editor-foot">
+            <button type="button" class="danger" id="delete" hidden>삭제</button>
+            <span class="spacer"></span>
+            <button type="button" class="ghost" id="cancel">취소</button>
+            <button type="button" class="primary" id="save">저장</button>
+        </footer>
+    </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
