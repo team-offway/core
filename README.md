@@ -132,7 +132,7 @@ com.offway.core.<domain>/
 | `leave` | 연차·가용시간(LNT)·샌드위치 연휴 | 특일정보 |
 | `trip` | 인구감소지역·관광지 추천 · 장소 풀 | TourAPI · 관광빅데이터 |
 | `transport` | 교통·동선 | TMAP · TAGO(버스·열차) |
-| `weather` | 날씨 | 기상청 단기/중기 · 관광기후지수 |
+| `weather` | 날씨 | 기상청 단기/중기 |
 | `itinerary` | 코스 생성(trip+transport 조합) | — |
 | `region` | 인구감소지역 89곳 마스터·태그 | — |
 | `policy` | 7대 혜택 매칭 | — |
