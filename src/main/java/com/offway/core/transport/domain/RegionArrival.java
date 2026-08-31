@@ -16,13 +16,15 @@ import java.util.Optional;
  * 테스트하기 어려운 자리에 남는다.
  *
  * @param mode 이 지점에 실어다 주는 수단
+ * @param code 지점 코드(TAGO 역·터미널·항구 코드) — 구간 소요시간을 물을 때 쓴다(#107)
  * @param name 지점 이름(역명·터미널명·항구명)
  * @param point 지점 좌표 — 해석이 좌표 최근접이라 해석된 지점은 좌표를 반드시 가진다
  */
-public record RegionArrival(TransitMode mode, String name, Coordinate point) {
+public record RegionArrival(TransitMode mode, String code, String name, Coordinate point) {
 
     public RegionArrival {
         Objects.requireNonNull(mode, "수단은 null 일 수 없습니다.");
+        Objects.requireNonNull(code, "지점 코드는 null 일 수 없습니다.");
         Objects.requireNonNull(name, "지점 이름은 null 일 수 없습니다.");
         Objects.requireNonNull(point, "지점 좌표는 null 일 수 없습니다.");
     }
@@ -30,13 +32,14 @@ public record RegionArrival(TransitMode mode, String name, Coordinate point) {
     /** 버스 터미널을 도착 지점으로 — 고속·시외 구분은 터미널이 이미 알고 있다. */
     public static RegionArrival of(Terminal terminal) {
         Objects.requireNonNull(terminal, "터미널은 null 일 수 없습니다.");
-        return new RegionArrival(TransitMode.of(terminal.kind()), terminal.name(), terminal.coordinate());
+        return new RegionArrival(
+                TransitMode.of(terminal.kind()), terminal.code(), terminal.name(), terminal.coordinate());
     }
 
     /** 여객선 항구를 도착 지점으로. */
     public static RegionArrival of(Port port) {
         Objects.requireNonNull(port, "항구는 null 일 수 없습니다.");
-        return new RegionArrival(TransitMode.FERRY, port.name(), port.coordinate());
+        return new RegionArrival(TransitMode.FERRY, port.code(), port.name(), port.coordinate());
     }
 
     /**

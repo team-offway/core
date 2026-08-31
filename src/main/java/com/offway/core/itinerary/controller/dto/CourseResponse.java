@@ -457,7 +457,8 @@ public record CourseResponse(
      * @param fromPlace 출발 지점명(역·터미널·항구, 없으면 null)
      * @param toPlace 도착 지점명(없으면 null)
      * @param vehicleType 운행 편의 등급(AVAILABLE 일 때만, 예: KTX)
-     * @param durationMinutes 소요시간(분, AVAILABLE 일 때만)
+     * @param durationMinutes 소요시간(분). 열차는 실제 편에서, 버스·여객선은 저장해 둔 구간 측정값에서 온다.
+     *     <b>기다리는 시간은 안 들어 있다</b> — 버스·여객선은 시간표를 못 물어 다음 편까지의 대기를 모른다
      */
     public record TransitAccessResponse(
             @Schema(example = "INTERCITY_BUS") String mode,
@@ -480,7 +481,11 @@ public record CourseResponse(
                     access.fromName(),
                     access.toName(),
                     hasLeg ? access.fastest().trainType() : null,
-                    hasLeg ? access.fastest().durationMinutes() : null);
+                    // 열차는 실제 편에서, 버스·여객선은 저장해 둔 구간 측정값에서 온다(#107).
+                    //
+                    // Integer.valueOf 가 필요하다. 한쪽이 int(TrainLeg.durationMinutes)이고 다른 쪽이
+                    // Integer 면 삼항 전체가 int 로 언박싱돼, 소요시간을 모르는 코스마다 NPE 가 난다.
+                    hasLeg ? Integer.valueOf(access.fastest().durationMinutes()) : access.durationMinutes());
         }
     }
 

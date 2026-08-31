@@ -8,7 +8,9 @@ import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.RegionArrival;
 import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.transport.domain.TransitMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -21,9 +23,10 @@ class RegionAccessTest {
     private static final Coordinate 완도군청 = new Coordinate(34.3111, 126.7550);
     private static final Coordinate 먼_역 = new Coordinate(34.7900, 126.3900);
     private static final Coordinate 읍내_터미널 = new Coordinate(34.3120, 126.7560);
+    private static final LocalDate 여행일 = LocalDate.of(2026, 9, 1);
 
     private static RegionArrival 시외버스(Coordinate point) {
-        return new RegionArrival(TransitMode.INTERCITY_BUS, "완도", point);
+        return new RegionArrival(TransitMode.INTERCITY_BUS, "NAI5911401", "완도", point);
     }
 
     @Test
@@ -78,7 +81,7 @@ class RegionAccessTest {
     @Test
     void 섬이라_항구만_있으면_배로_내린다() {
         Coordinate 울릉군청 = new Coordinate(37.4845, 130.9057);
-        RegionArrival 도동항 = new RegionArrival(TransitMode.FERRY, "울릉_도동", new Coordinate(37.4838, 130.9053));
+        RegionArrival 도동항 = new RegionArrival(TransitMode.FERRY, "SEA43113", "울릉_도동", new Coordinate(37.4838, 130.9053));
 
         RegionAccess 결과 = RegionAccess.noStation(null, null).orNearer(울릉군청, null, 도동항);
 
@@ -93,5 +96,39 @@ class RegionAccessTest {
 
         assertTrue(지점만.arrivalAt().isEmpty());
         assertTrue(지점만.arrivalPoint().isPresent());
+    }
+
+    @Test
+    void 저장해_둔_소요시간이_있으면_출발_시각에_얹어_도착을_만든다() {
+        // 시간표는 못 물어도 소요시간은 안다 — 대안은 "하루 전부" 라 오전 일정이 들어가 버린다(#107).
+        RegionAccess 버스 = RegionAccess.pointOnly(시외버스(읍내_터미널)).withDuration(150);
+
+        LocalDateTime 도착 = 버스.arrivalAt(여행일, LocalTime.of(8, 0)).orElseThrow();
+
+        assertEquals(LocalDateTime.of(2026, 9, 1, 10, 30), 도착);
+    }
+
+    @Test
+    void 소요시간을_모르면_도착_시각도_모른다() {
+        // 여기서 지어내면 조회 실패가 조용히 첫날을 깎는다.
+        RegionAccess 버스 = RegionAccess.pointOnly(시외버스(읍내_터미널));
+
+        assertTrue(버스.arrivalAt(여행일, LocalTime.of(8, 0)).isEmpty());
+    }
+
+    @Test
+    void 실제_운행_편이_있으면_소요시간보다_그것을_쓴다() {
+        // 편을 찾았다는 것은 시각까지 안다는 뜻이라, 추정으로 덮을 이유가 없다.
+        TrainLeg leg = TrainLeg.of("KTX", LocalDateTime.of(2026, 9, 1, 9, 0), LocalDateTime.of(2026, 9, 1, 11, 0));
+        RegionAccess 열차 = RegionAccess.available("서울", "완도역", 먼_역, leg).withDuration(999);
+
+        assertEquals(LocalDateTime.of(2026, 9, 1, 11, 0), 열차.arrivalAt(여행일, LocalTime.of(8, 0)).orElseThrow());
+    }
+
+    @Test
+    void 같은_소요시간을_다시_얹으면_새_객체를_만들지_않는다() {
+        RegionAccess 버스 = RegionAccess.pointOnly(시외버스(읍내_터미널)).withDuration(150);
+
+        assertSame(버스, 버스.withDuration(150));
     }
 }

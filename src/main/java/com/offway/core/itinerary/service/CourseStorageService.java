@@ -300,7 +300,8 @@ public class CourseStorageService {
         if (trainAccess == null) {
             return null; // 자차·출발지 없음 — 애초에 첫날 판단이 없다
         }
-        DayStart start = trainAccess.arrivalAt()
+        // 버스·여객선은 시간표를 못 물어 실제 편이 없다 — 대신 저장해 둔 소요시간을 출발 시각에 얹는다(#107).
+        DayStart start = trainAccess.arrivalAt(travelDate, course.getStartDayLeave().departureTime())
                 .map(arriveAt -> DayStart.afterArriving(travelDate, arriveAt))
                 .orElseGet(DayStart::fullDay);
 

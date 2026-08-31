@@ -13,7 +13,7 @@ class RegionArrivalTest {
     private static final Coordinate 정선군청 = new Coordinate(37.3805, 128.6608);
 
     private static RegionArrival at(TransitMode mode, String name, double lat, double lng) {
-        return new RegionArrival(mode, name, new Coordinate(lat, lng));
+        return new RegionArrival(mode, "CODE-" + name, name, new Coordinate(lat, lng));
     }
 
     @Test
@@ -80,6 +80,6 @@ class RegionArrivalTest {
 
     @Test
     void 좌표_없는_도착_지점은_만들_수_없다() {
-        assertThrows(NullPointerException.class, () -> new RegionArrival(TransitMode.TRAIN, "정선역", null));
+        assertThrows(NullPointerException.class, () -> new RegionArrival(TransitMode.TRAIN, "NAT1", "정선역", null));
     }
 }

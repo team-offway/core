@@ -18,7 +18,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.offway.core.policy.domain.Policy;
 import com.jayway.jsonpath.JsonPath;
+import com.offway.core.transport.domain.MeasuredLeg;
+import com.offway.core.transport.domain.TransitLegResult;
 import com.offway.core.transport.infrastructure.tago.StubTrainInfoClient;
+import com.offway.core.transport.infrastructure.tago.StubTransitLegClient;
+import com.offway.core.transport.infrastructure.tago.TransitLegClient;
+import com.offway.core.transport.service.TransitDurationRefreshService;
 import com.offway.core.transport.infrastructure.tago.TrainInfoClient;
 import com.offway.core.transport.service.TrainRouteService;
 import com.offway.core.transport.domain.TrainAvailability;
@@ -94,6 +99,12 @@ class CourseStorageIntegrationTest {
     @Autowired
     private TrainRouteService trainRouteService;
 
+    @Autowired
+    private StubTransitLegClient transitLegClient;
+
+    @Autowired
+    private TransitDurationRefreshService transitDurationRefreshService;
+
     @TestConfiguration
     static class StubConfig {
 
@@ -101,6 +112,12 @@ class CourseStorageIntegrationTest {
         @Primary
         TrainInfoClient stubTrainInfoClient() {
             return new StubTrainInfoClient();
+        }
+
+        @Bean
+        @Primary
+        TransitLegClient stubTransitLegClient() {
+            return new StubTransitLegClient();
         }
 
         @Bean
@@ -481,6 +498,46 @@ class CourseStorageIntegrationTest {
                 .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"))
                 // 옛 필드는 열차만 담기로 했다 — 버스로 가는 코스에 "역 없음" 을 내리면 화면이 "못 간다" 고 말한다
                 .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
+    }
+
+    @Test
+    void 버스로_가는_코스는_처음엔_소요시간이_없다가_배치가_잰_뒤_붙는다() throws Exception {
+        // 구간 조회창이 오늘~+2일뿐이라 요청 시점에 물을 수 없다. 그래서 첫 조회는 자리만 만들고 넘어가고,
+        // 배치가 채운 뒤부터 정확해진다(#107). 요청 경로에서 외부를 부르지 않는 것이 요점이다.
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.status").value("POINT_ONLY"))
+                .andExpect(jsonPath("$.data.transitAccess.durationMinutes").doesNotExist());
+
+        transitLegClient.respond(() -> new TransitLegResult.Measured(new MeasuredLeg(150, 28_600, "우등")));
+        transitDurationRefreshService.measurePending();
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.durationMinutes").value(150));
+    }
+
+    @Test
+    void 조회가_실패하면_미운행으로_굳히지_않고_다음_배치로_미룬다() throws Exception {
+        // 키가 없거나 한도가 마른 날의 실패를 "이 구간은 원래 안 다님" 으로 적으면 멀쩡한 구간이
+        // 영원히 소요시간 없이 남는다. 화면에는 아무 흔적도 안 남는 종류의 사고다.
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+        mockMvc.perform(get(URL + "/{id}", courseId)).andExpect(status().isOk()); // 자리 만들기
+
+        transitLegClient.respond(TransitLegResult.Unavailable::new);
+        transitDurationRefreshService.measurePending();
+
+        // 실패를 안 적었으므로 다음 배치가 같은 구간을 다시 잰다 — 이번엔 성공한다.
+        transitLegClient.respond(() -> new TransitLegResult.Measured(new MeasuredLeg(150, 28_600, "우등")));
+        transitDurationRefreshService.measurePending();
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.durationMinutes").value(150));
     }
 
     @Test

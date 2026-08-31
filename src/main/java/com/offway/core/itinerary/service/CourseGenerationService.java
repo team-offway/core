@@ -247,7 +247,8 @@ public class CourseGenerationService {
         if (trainAccess == null) {
             return carFirstDayStart(command, region);
         }
-        return trainAccess.arrivalAt()
+        // 버스·여객선은 시간표를 못 물어 실제 편이 없다 — 대신 저장해 둔 소요시간을 출발 시각에 얹는다(#107).
+        return trainAccess.arrivalAt(command.travelDate(), command.startDayLeave().departureTime())
                 .map(arriveAt -> DayStart.afterArriving(command.travelDate(), arriveAt))
                 .orElseGet(DayStart::fullDay);
     }

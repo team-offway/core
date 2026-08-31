@@ -4,7 +4,9 @@ import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.RegionArrival;
 import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.transport.domain.TransitMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -27,9 +29,17 @@ import java.util.Optional;
  * @param toName 도착 지점명(없으면 null)
  * @param toPoint 도착 지점 좌표(해석됐으면 non-null) — 지역 안 동선의 기준점
  * @param fastest 가장 빠른 운행 편({@link Status#AVAILABLE} 일 때만, 아니면 null)
+ * @param durationMinutes 저장해 둔 구간 소요시간(분, 버스·여객선만 — 모르면 null). 시간표를 못 묻는
+ *     수단이라 <b>시각 대신 이것으로</b> 도착 시각을 만든다(#107)
  */
 public record RegionAccess(
-        TransitMode mode, Status status, String fromName, String toName, Coordinate toPoint, TrainLeg fastest) {
+        TransitMode mode,
+        Status status,
+        String fromName,
+        String toName,
+        Coordinate toPoint,
+        TrainLeg fastest,
+        Integer durationMinutes) {
 
     public RegionAccess {
         Objects.requireNonNull(mode, "수단은 null 일 수 없습니다.");
@@ -73,23 +83,51 @@ public record RegionAccess(
         return Optional.ofNullable(fastest).map(TrainLeg::arriveAt);
     }
 
+    /**
+     * 집을 나서는 시각을 알 때의 도착 시각(#107). 운행 편을 찾았으면 그 편의 도착 시각을, 아니면 저장해 둔
+     * 소요시간을 얹어 만든다. 둘 다 모르면 빈 값이다.
+     *
+     * <p><b>기다리는 시간은 안 들어 있다.</b> 버스·여객선은 시간표를 못 물어(조회창 +2일·+7일) 다음 편까지의
+     * 대기를 알 수 없다. 그래서 이 값은 <b>가장 이른 도착</b>이고 실제로는 더 늦을 수 있다.
+     *
+     * <p>그래도 쓰는 이유는 대안이 "하루 전부" 이기 때문이다 — 서울에서 세 시간 걸려 닿는 지역에 오전
+     * 일정을 넣는 것보다, 조금 이르게 잡더라도 이동시간을 반영하는 쪽이 지킬 수 있는 코스에 가깝다. 자차가
+     * 이미 같은 방식으로 계산한다({@code carFirstDayStart}).
+     */
+    public Optional<LocalDateTime> arrivalAt(LocalDate date, LocalTime departure) {
+        Objects.requireNonNull(date, "여행일은 null 일 수 없습니다.");
+        Objects.requireNonNull(departure, "출발 시각은 null 일 수 없습니다.");
+        return arrivalAt()
+                .or(() -> Optional.ofNullable(durationMinutes).map(minutes -> date.atTime(departure)
+                        .plusMinutes(minutes)));
+    }
+
+    /** 저장해 둔 소요시간을 얹은 사본. 값이 그대로면 자기 자신을 준다 — 불필요한 객체를 만들지 않는다. */
+    public RegionAccess withDuration(Integer minutes) {
+        if (Objects.equals(durationMinutes, minutes)) {
+            return this;
+        }
+        return new RegionAccess(mode, status, fromName, toName, toPoint, fastest, minutes);
+    }
+
     public static RegionAccess available(String fromName, String toName, Coordinate toPoint, TrainLeg fastest) {
-        return new RegionAccess(TransitMode.TRAIN, Status.AVAILABLE, fromName, toName, toPoint, fastest);
+        return new RegionAccess(TransitMode.TRAIN, Status.AVAILABLE, fromName, toName, toPoint, fastest, null);
     }
 
     /** 닿는 지점 자체가 없는 경우 — 도착 지점도 없다. */
     public static RegionAccess noStation(String fromName, String toName) {
-        return new RegionAccess(TransitMode.TRAIN, Status.NO_STATION, fromName, toName, null, null);
+        return new RegionAccess(TransitMode.TRAIN, Status.NO_STATION, fromName, toName, null, null, null);
     }
 
     /** 지점은 해석됐으나 그날 운행이 없는 경우 — 시각은 모르지만 <b>지점은 안다</b>. */
     public static RegionAccess noServiceOnDate(String fromName, String toName, Coordinate toPoint) {
-        return new RegionAccess(TransitMode.TRAIN, Status.NO_SERVICE_ON_DATE, fromName, toName, toPoint, null);
+        return new RegionAccess(
+                TransitMode.TRAIN, Status.NO_SERVICE_ON_DATE, fromName, toName, toPoint, null, null);
     }
 
     /** 지점은 해석됐으나 조회가 실패한 경우 — 해석된 지점명·좌표는 그대로 담는다(해석과 조회는 별개). */
     public static RegionAccess unavailable(String fromName, String toName, Coordinate toPoint) {
-        return new RegionAccess(TransitMode.TRAIN, Status.UNAVAILABLE, fromName, toName, toPoint, null);
+        return new RegionAccess(TransitMode.TRAIN, Status.UNAVAILABLE, fromName, toName, toPoint, null, null);
     }
 
     /**
@@ -115,19 +153,21 @@ public record RegionAccess(
         if (status == Status.AVAILABLE) {
             return this;
         }
-        RegionArrival mine = toPoint == null || toName == null ? null : new RegionArrival(mode, toName, toPoint);
-        RegionArrival[] candidates = new RegionArrival[others == null ? 1 : others.length + 1];
-        candidates[0] = mine;
-        if (others != null) {
-            System.arraycopy(others, 0, candidates, 1, others.length);
+        Optional<RegionArrival> best = RegionArrival.nearestTo(region, others);
+        if (best.isEmpty()) {
+            return this;
         }
-        return RegionArrival.nearestTo(region, candidates)
-                .map(nearest -> nearest.equals(mine) ? this : pointOnly(nearest))
-                .orElse(this);
+        if (toPoint == null) {
+            return pointOnly(best.get()); // 내 지점이 없으니 비교할 것도 없다
+        }
+        double mineKm = region.haversineKmTo(toPoint);
+        double bestKm = region.haversineKmTo(best.get().point());
+        return bestKm < mineKm ? pointOnly(best.get()) : this;
     }
 
     public static RegionAccess pointOnly(RegionArrival arrival) {
         Objects.requireNonNull(arrival, "도착 지점은 null 일 수 없습니다.");
-        return new RegionAccess(arrival.mode(), Status.POINT_ONLY, null, arrival.name(), arrival.point(), null);
+        return new RegionAccess(
+                arrival.mode(), Status.POINT_ONLY, null, arrival.name(), arrival.point(), null, null);
     }
 }
