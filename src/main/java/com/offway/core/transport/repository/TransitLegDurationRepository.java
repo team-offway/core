@@ -2,6 +2,7 @@ package com.offway.core.transport.repository;
 
 import com.offway.core.transport.domain.TransitLegDuration;
 import com.offway.core.transport.domain.TransitMode;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,8 +18,13 @@ public interface TransitLegDurationRepository {
      */
     void requestIfAbsent(TransitLegDuration leg);
 
-    /** 아직 안 잰 구간을 오래 기다린 순으로. {@code max} 로 한 번에 가져올 수를 제한한다. */
-    List<TransitLegDuration> unmeasured(int max);
+    /**
+     * 배치가 잴 구간을 {@code max} 건까지. 아직 안 잰 것이 먼저고, 그다음이 다시 잴 것이다.
+     *
+     * @param remeasureBefore 이 시각 이전에 미운행으로 적힌 구간은 다시 잰다 — 계절 항로·신설 노선이
+     *     한 번의 조회로 영원히 굳지 않게 한다
+     */
+    List<TransitLegDuration> pending(int max, LocalDateTime remeasureBefore);
 
     void save(TransitLegDuration leg);
 }

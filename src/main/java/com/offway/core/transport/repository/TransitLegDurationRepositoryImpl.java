@@ -2,6 +2,7 @@ package com.offway.core.transport.repository;
 
 import com.offway.core.transport.domain.TransitLegDuration;
 import com.offway.core.transport.domain.TransitMode;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -39,8 +40,8 @@ public class TransitLegDurationRepositoryImpl implements TransitLegDurationRepos
     }
 
     @Override
-    public List<TransitLegDuration> unmeasured(int max) {
-        return transitLegDurationJpaRepository.findByMeasuredAtIsNullOrderByRequestedAtAsc(Limit.of(max));
+    public List<TransitLegDuration> pending(int max, LocalDateTime remeasureBefore) {
+        return transitLegDurationJpaRepository.findPending(remeasureBefore, Limit.of(max));
     }
 
     @Override

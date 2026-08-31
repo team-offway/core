@@ -301,7 +301,10 @@ public class CourseStorageService {
             return null; // 자차·출발지 없음 — 애초에 첫날 판단이 없다
         }
         // 버스·여객선은 시간표를 못 물어 실제 편이 없다 — 대신 저장해 둔 소요시간을 출발 시각에 얹는다(#107).
-        DayStart start = trainAccess.arrivalAt(travelDate, course.getStartDayLeave().departureTime())
+        //
+        // getStartDayLeave() 가 아니라 startDayLeave() 다. 앞쪽은 컬럼을 그대로 주므로 이 컬럼이 생기기 전에
+        // 저장된 코스에서 null 이고, 그러면 날짜 수정이 통째로 500 이 된다. 뒤쪽이 종일로 답한다.
+        DayStart start = trainAccess.arrivalAt(travelDate, course.startDayLeave().departureTime())
                 .map(arriveAt -> DayStart.afterArriving(travelDate, arriveAt))
                 .orElseGet(DayStart::fullDay);
 

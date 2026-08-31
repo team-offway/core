@@ -51,10 +51,17 @@ public class TransitDurationService {
         return Optional.empty();
     }
 
-    /** 배치가 잴 대상 — 오래 기다린 것부터 {@code max} 건. */
+    /**
+     * 배치가 잴 대상 {@code max} 건 — 아직 안 잰 구간이 먼저고, 그다음이 미운행으로 적힌 지 오래된 구간이다.
+     *
+     * <p><b>미운행도 다시 잰다.</b> 한 번의 조회로 굳히면 겨울에 쉬는 항로·새로 뚫린 노선이 영원히 없는 길이
+     * 된다 — 배 말고 닿는 수단이 없는 지역에서는 그게 곧 "도달 불가" 다.
+     *
+     * @param remeasureBefore 이 시각 이전에 미운행으로 적힌 구간을 다시 잴 대상에 넣는다
+     */
     @Transactional(readOnly = true)
-    public List<TransitLegDuration> unmeasured(int max) {
-        return transitLegDurationRepository.unmeasured(max);
+    public List<TransitLegDuration> pending(int max, LocalDateTime remeasureBefore) {
+        return transitLegDurationRepository.pending(max, remeasureBefore);
     }
 
     /**

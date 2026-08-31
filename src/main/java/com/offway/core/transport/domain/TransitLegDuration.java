@@ -36,6 +36,10 @@ import lombok.NoArgsConstructor;
  *
  * <p>{@code measuredAt} 은 있는데 {@code minutes} 가 없으면 "재봤더니 그 구간은 다니지 않는다" 는 뜻이다.
  * 이 행을 지우면 배치가 같은 구간을 영원히 다시 잰다.
+ *
+ * <p><b>그렇다고 영구도 아니다.</b> 겨울에 쉬는 항로와 새로 뚫린 노선이 있어, 미운행으로 적힌 지 오래된 행은
+ * 배치가 다시 잰다({@code TransitDurationRefreshService}). {@code measuredAt} 이 그 기준점이라, 다시 잴 때마다
+ * 새로 찍힌다.
  */
 @Entity
 @Table(name = "transit_leg_duration")

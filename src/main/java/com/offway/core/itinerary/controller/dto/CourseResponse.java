@@ -463,6 +463,7 @@ public record CourseResponse(
      * @param alternatives 대표 말고 이 지역에 닿는 다른 수단들(#97). <b>없으면 빈 배열</b>이라 키가 항상 있다.
      *     해석되지 않은 수단은 담지 않는다 — 갈 수 없는 선택지를 늘어놓는 것은 정보가 아니다
      */
+    @Builder
     public record TransitAccessResponse(
             @Schema(example = "INTERCITY_BUS") String mode,
             @Schema(example = "시외버스") String modeLabel,
@@ -478,19 +479,23 @@ public record CourseResponse(
                 return null;
             }
             boolean hasLeg = access.fastest() != null;
-            return new TransitAccessResponse(
-                    access.mode().name(),
-                    access.mode().label(),
-                    access.status().name(),
-                    access.fromName(),
-                    access.toName(),
-                    hasLeg ? access.fastest().trainType() : null,
+            // 이름을 붙여 조립한다. String 이 다섯 개 연달아 있어 위치 생성자로는 둘을 맞바꿔도
+            // 컴파일이 통과한다 — 수단 라벨 자리에 상태가 들어가는 종류의 사고다.
+            return TransitAccessResponse.builder()
+                    .mode(access.mode().name())
+                    .modeLabel(access.mode().label())
+                    .status(access.status().name())
+                    .fromPlace(access.fromName())
+                    .toPlace(access.toName())
+                    .vehicleType(hasLeg ? access.fastest().trainType() : null)
                     // 열차는 실제 편에서, 버스·여객선은 저장해 둔 구간 측정값에서 온다(#107).
                     //
                     // Integer.valueOf 가 필요하다. 한쪽이 int(TrainLeg.durationMinutes)이고 다른 쪽이
                     // Integer 면 삼항 전체가 int 로 언박싱돼, 소요시간을 모르는 코스마다 NPE 가 난다.
-                    hasLeg ? Integer.valueOf(access.fastest().durationMinutes()) : access.durationMinutes(),
-                    access.alternatives().stream().map(TransitOptionResponse::from).toList());
+                    .durationMinutes(
+                            hasLeg ? Integer.valueOf(access.fastest().durationMinutes()) : access.durationMinutes())
+                    .alternatives(access.alternatives().stream().map(TransitOptionResponse::from).toList())
+                    .build();
         }
     }
 
