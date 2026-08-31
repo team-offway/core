@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -230,18 +231,42 @@ class TourApiClientImpl implements TourApiClient {
         URI uri = builder.build(true).toUri();
         // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
         callRecorder.record(ExternalApi.TOUR_API);
-        return webClient.get()
-                .uri(uri)
-                .retrieve()
-                .bodyToMono(String.class)
-                // timeout 을 retryWhen 앞에 둔다 — 재시도마다 다시 구독되므로 이 상한은 시도 하나에 걸린다.
-                .timeout(TIMEOUT)
-                .retryWhen(Retry.backoff(RATE_LIMIT_RETRIES, RATE_LIMIT_BACKOFF)
-                        .jitter(RATE_LIMIT_JITTER)
-                        .filter(TourApiClientImpl::isRateLimited))
-                // 재시도 바깥의 상한 — 시도별 timeout 만으로는 전체가 곱해진다.
-                .timeout(RETRY_TOTAL_TIMEOUT)
-                .block();
+        AtomicInteger attempts = new AtomicInteger();
+        try {
+            return webClient.get()
+                    .uri(uri)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    // 구독마다 요청이 새로 나간다. retryWhen 이 다시 구독하므로 여기서 세면 재시도가 잡힌다.
+                    .doOnSubscribe(subscription -> attempts.incrementAndGet())
+                    // timeout 을 retryWhen 앞에 둔다 — 재시도마다 다시 구독되므로 이 상한은 시도 하나에 걸린다.
+                    .timeout(TIMEOUT)
+                    .retryWhen(Retry.backoff(RATE_LIMIT_RETRIES, RATE_LIMIT_BACKOFF)
+                            .jitter(RATE_LIMIT_JITTER)
+                            .filter(TourApiClientImpl::isRateLimited))
+                    // 재시도 바깥의 상한 — 시도별 timeout 만으로는 전체가 곱해진다.
+                    .timeout(RETRY_TOTAL_TIMEOUT)
+                    .block();
+        } finally {
+            // 실패로 끝나도 센다 — 나간 호출은 이미 한도를 깎았다.
+            recordRetries(attempts.get());
+        }
+    }
+
+    /**
+     * 재시도로 <b>더</b> 나간 호출을 마저 센다(#365). 최초 1회는 위에서 이미 셌으므로 그만큼을 뺀다.
+     *
+     * <p><b>왜 세는 자리와 적는 자리를 갈랐나.</b> 재시도는 Reactor 의 backoff 스케줄러 스레드에서 돈다.
+     * 거기서 바로 적으면 둘이 어긋난다 — 기록은 DB 와 디스코드를 타는 blocking 작업이라 스케줄러 스레드를
+     * 붙잡고, 호출 주체는 스레드 지역이라({@code CallerContext}) 그 스레드에서는 UNKNOWN 으로 잡힌다.
+     * 재시도가 전부 미상으로 들어가면 #285 가 하려던 "누가 태웠나" 가 그만큼 흐려진다.
+     *
+     * <p>그래서 스케줄러 스레드에서는 <b>세기만</b> 하고, 부른 스레드로 돌아와 적는다.
+     */
+    private void recordRetries(int attempts) {
+        for (int retried = 1; retried < attempts; retried++) {
+            callRecorder.record(ExternalApi.TOUR_API);
+        }
     }
 
     /** 제공기관이 "지금은 많으니 잠시 뒤" 라고 답한 것인가. 이것만 재시도한다. */
