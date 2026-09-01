@@ -66,7 +66,7 @@ public class CourseRegenerationService {
      */
     public RegeneratedCourse regenerate(GenerateCourse command, Long requestedSeed, Long previousSeed) {
         // 후보는 한 번만 모은다. collect 는 캐시가 없어 호출마다 TourAPI 를 세 번 부른다.
-        RegionPois pois = regionPoiService.collect(command.regionId());
+        RegionPois pois = regionPoiService.collect(command.regionId(), command.travelDate());
         // 차단 좌표도 한 번만 읽는다(#335). 씨앗 판정이 시도마다 selectedSightIds 를 부르는데,
         // 그 안에서 읽으면 한 요청 안에서 안 바뀌는 값을 시도 횟수만큼 다시 조회한다.
         Set<CoordinateKey> blocked = unroutableCoordinateService.blockedPoints();

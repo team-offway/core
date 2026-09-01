@@ -8,6 +8,10 @@ import com.offway.core.trip.domain.PlaceKind;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
+import com.offway.core.trip.domain.FestivalPeriod;
+import com.offway.core.trip.domain.PoiContentType;
+import com.offway.core.trip.repository.FestivalPeriodRepository;
+import java.time.LocalDate;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
@@ -64,14 +68,23 @@ public class RegionPoiService {
     /** TourAPI 콘텐츠가 아님을 뜻하는 타입 — 인허가·국가유산이 함께 쓴다. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
     private static final int NON_TOUR_CONTENT_TYPE = 0;
 
+    /** 축제 콘텐츠 타입 — 이 타입만 기간을 물어본다(#388). */
+    private static final int FESTIVAL_TYPE = PoiContentType.FESTIVAL.contentTypeId();
+
     private final RegionRepository regionRepository;
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
     private final LicensedPlaceRepository licensedPlaceRepository;
     private final HeritagePlaceRepository heritagePlaceRepository;
+    private final FestivalPeriodRepository festivalPeriodRepository;
 
-    /** 지역의 후보 POI 를 세 풀로 분류해 돌려준다. 좌표가 없는 POI 는 지도·동선에 못 쓰므로 제외한다. */
-    public RegionPois collect(long regionId) {
+    /**
+     * 지역의 후보 POI 를 세 풀로 분류해 돌려준다. 좌표가 없는 POI 는 지도·동선에 못 쓰므로 제외한다.
+     *
+     * <p><b>여행일을 받는 이유</b>(#388) — 볼거리 풀에는 축제(타입 15)가 섞여 있는데, 그날 안 하는 축제는
+     * 갈 수 없는 곳이다. 날짜를 인자로 둬서 <b>호출자가 "언제 가는 코스인가" 에 답하게</b> 한다.
+     */
+    public RegionPois collect(long regionId, LocalDate travelDate) {
         List<Region> found = regionRepository.findByIds(List.of(regionId));
         if (found.isEmpty()) {
             log.debug("코스 POI 수집 — 없는 지역 regionId={}", regionId);
@@ -86,9 +99,8 @@ public class RegionPoiService {
         // 볼거리로 샌다 — 실측(89곳 전수)에서 AC05(숙박) 625건이 타입 28(레포츠)로 왔다. 숙박 조회
         // (contentTypeId=32)에는 안 잡히는 값이라, 그동안 지방 숙소가 통째로 빠지고 있었다.
         List<PoiCandidate> allTypes = candidates(region, null);
-        List<PoiCandidate> sights = allTypes.stream()
-                .filter(c -> isSight(c))
-                .toList();
+        List<PoiCandidate> sights = withoutClosedFestivals(
+                allTypes.stream().filter(c -> isSight(c)).toList(), travelDate);
         List<PoiCandidate> foods = merge(allTypes.stream().filter(c -> LCLS_FOOD.equals(c.lclsSystm1())).toList(),
                 candidates(region, FOOD_TYPE));
         List<PoiCandidate> stays = merge(allTypes.stream().filter(RegionPoiService::isStay).toList(),
@@ -205,6 +217,59 @@ public class RegionPoiService {
      * <p>외부가 죽어도 코스는 나가야 한다는 것이 장소 풀을 DB 화한 이유다(#144). 다만 조용히 넘기지
      * 않는다 — degrade 한 사실을 warn 으로 남긴다. 후보가 인허가로도 안 채워지면 그때 404 가 나간다.
      */
+
+    /**
+     * 그날 안 하는 축제를 뺀다(#388).
+     *
+     * <h2>왜 필요한가</h2>
+     *
+     * <p>볼거리 풀은 축제(타입 15)를 포함한다. 그런데 <b>기간이 없어 3월에 끝난 벚꽃축제가 9월 코스에
+     * 들어갈 수 있었다</b> — 이름만 보면 그럴듯해서 화면에서도 안 드러나고, 사용자가 현장에 가서야 안다.
+     *
+     * <h2>모르는 축제는 남긴다</h2>
+     *
+     * <p>기간을 아는 축제만 뺀다. TourAPI 가 날짜를 안 주는 행이 있고, <b>모르는 것을 끝났다고 단정하면
+     * 있는 축제를 우리가 지운다.</b> 없는 것과 "모른다" 는 다르다.
+     *
+     * <h2>조회는 한 번이다</h2>
+     *
+     * <p>후보마다 물으면 요청 경로에서 질의가 후보 수만큼 돈다. 축제인 후보의 id 를 모아 <b>한 번에</b>
+     * 읽는다 — 축제가 하나도 없으면 질의 자체가 없다.
+     */
+    private List<PoiCandidate> withoutClosedFestivals(List<PoiCandidate> sights, LocalDate travelDate) {
+        List<String> festivalIds = sights.stream()
+                .filter(candidate -> candidate.contentTypeId() == FESTIVAL_TYPE)
+                .map(PoiCandidate::contentId)
+                .filter(contentId -> contentId != null && !contentId.isBlank())
+                .toList();
+        if (festivalIds.isEmpty()) {
+            return sights;
+        }
+
+        Map<String, FestivalPeriod> periods = festivalPeriodRepository.findByContentIds(festivalIds);
+        List<PoiCandidate> open = sights.stream()
+                .filter(candidate -> isOpenOrUnknown(candidate, periods, travelDate))
+                .toList();
+
+        int dropped = sights.size() - open.size();
+        if (dropped > 0) {
+            // degrade 하는 이유를 남긴다 — 후보가 줄어든 것이 데이터 부족인지 날짜 필터인지 구분되게.
+            log.info("그날 안 하는 축제를 뺐습니다 travelDate={} 축제후보={} 제외={}건",
+                    travelDate, festivalIds.size(), dropped);
+        }
+        return open;
+    }
+
+    /** 축제가 아니거나, 기간을 모르거나, 그날 열리면 남긴다. */
+    private static boolean isOpenOrUnknown(
+            PoiCandidate candidate, Map<String, FestivalPeriod> periods, LocalDate travelDate) {
+        if (candidate.contentTypeId() != FESTIVAL_TYPE) {
+            return true;
+        }
+        FestivalPeriod period = periods.get(candidate.contentId());
+        return period == null || period.isOpenOn(travelDate);
+    }
+
     private List<PoiCandidate> candidates(Region region, Integer contentTypeId) {
         TourPoiResult result;
         try {

@@ -68,7 +68,7 @@ public class CourseGenerationService {
 
     public GeneratedCourse generate(GenerateCourse command) {
         // ① POI 수집 (trip)
-        return generate(command, regionPoiService.collect(command.regionId()));
+        return generate(command, regionPoiService.collect(command.regionId(), command.travelDate()));
     }
 
     /**
