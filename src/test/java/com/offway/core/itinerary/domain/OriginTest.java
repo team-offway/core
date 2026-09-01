@@ -35,10 +35,26 @@ class OriginTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", "   "})
+    @ValueSource(strings = {"", "   ", "　", " 　  "})
     void 비어_있는_이름은_없는_것으로_둔다(String name) {
         // 빈 문자열을 그대로 실으면 화면이 "에서 출발" 로 뜬다.
+        //
+        // 전각 공백(U+3000)·nbsp(U+00A0)까지 본다. trim() 은 U+0020 이하만 걷어내서 이것들이 남는데,
+        // 그러면 눈에는 빈 이름인데 값은 있어서 "  에서 출발" 이 뜬다. 한글 입력기에서 나올 수 있다.
         assertNull(Origin.of(서울시청, name).name());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "   ", "　"})
+    void 생성자로_바로_만들어도_같은_규칙을_지난다(String name) {
+        // record 는 생성자가 public 이라 of() 를 지나칠 수 있다. 정규화가 of() 에만 있으면 그 우회로로
+        // 들어온 이름이 그대로 저장되고 화면까지 나간다.
+        assertNull(new Origin(서울시청, name).name());
+    }
+
+    @Test
+    void 생성자로_바로_만들어도_상한을_넘으면_버린다() {
+        assertNull(new Origin(서울시청, "가".repeat(Origin.MAX_NAME_LENGTH + 1)).name());
     }
 
     @Test

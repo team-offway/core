@@ -28,8 +28,15 @@ public record Origin(Coordinate point, String name) {
      */
     public static final int MAX_NAME_LENGTH = 20;
 
+    /**
+     * <b>어느 경로로 만들든 이름은 같은 규칙을 지난다.</b>
+     *
+     * <p>정규화를 {@link #of} 에만 두면 {@code new Origin(point, rawName)} 이 그것을 지나쳐, 20자를 넘거나
+     * 공백뿐인 이름이 그대로 저장되고 화면까지 나간다. record 는 생성자가 public 이라 우회로가 열려 있다.
+     */
     public Origin {
         Objects.requireNonNull(point, "출발 좌표는 null 일 수 없습니다.");
+        name = usableName(name);
     }
 
     /**
@@ -39,15 +46,25 @@ public record Origin(Coordinate point, String name) {
      * 그것 때문에 코스 담기가 통째로 실패하면 주객이 뒤집힌다. 없으면 화면은 그 조각만 접는다.
      */
     public static Origin of(Coordinate point, String name) {
-        return new Origin(point, usableName(name));
+        return new Origin(point, name);
     }
 
+    /**
+     * 눈에 보이는 글자가 없으면 이름이 아니다.
+     *
+     * <p>{@code trim()} 이 아니라 {@code strip()} 이다 — 앞쪽은 U+0020 이하만 걷어내서 전각 공백(U+3000)이
+     * 그대로 남는다. 한글 입력기에서 나올 수 있는 문자라 실제로 닿는 경로다.
+     *
+     * <p><b>nbsp 는 그걸로도 안 걷힌다.</b> {@code Character.isWhitespace} 가 U+00A0 를 공백으로 치지 않아
+     * {@code strip()} 을 지나친다 — 눈에는 빈 이름인데 값은 있어서 화면에 "  에서 출발" 이 뜬다. 걷어내기
+     * 전에 보통 공백으로 바꿔 같은 규칙을 태운다.
+     */
     private static String usableName(String name) {
         if (name == null) {
             return null;
         }
-        String trimmed = name.trim();
-        return trimmed.isEmpty() || trimmed.length() > MAX_NAME_LENGTH ? null : trimmed;
+        String stripped = name.replace(' ', ' ').strip();
+        return stripped.isEmpty() || stripped.length() > MAX_NAME_LENGTH ? null : stripped;
     }
 
     public double lat() {

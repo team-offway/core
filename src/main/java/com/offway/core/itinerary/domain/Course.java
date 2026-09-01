@@ -29,6 +29,7 @@ import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import lombok.AccessLevel;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -144,6 +145,12 @@ public class Course {
     @OrderBy("dayNumber")
     private List<DaySchedule> days;
 
+    /**
+     * <b>이름으로만 조립한다.</b> 열한 칸 중 {@code originLat}·{@code originLng}·{@code originName} 이
+     * 나란히 서고, 출발지가 없는 코스에서는 그 셋이 전부 {@code null} 로 들어간다 — 위치로 넘기면 몇 번째
+     * 칸을 비우는 중인지 세어야 하고, 하나 어긋나도 컴파일이 통과한다.
+     */
+    @Builder(access = AccessLevel.PRIVATE)
     private Course(
             UUID userId,
             Long regionId,
@@ -201,8 +208,15 @@ public class Course {
             LocalDate travelDate,
             int travelDays,
             StartDayLeave startDayLeave) {
-        return new Course(
-                null, regionId, density, transport, days, travelDate, travelDays, null, null, null, startDayLeave);
+        return Course.builder()
+                .regionId(regionId)
+                .density(density)
+                .transport(transport)
+                .days(days)
+                .travelDate(travelDate)
+                .travelDays(travelDays)
+                .startDayLeave(startDayLeave)
+                .build();
     }
 
     /**
@@ -221,9 +235,7 @@ public class Course {
             Origin origin,
             StartDayLeave startDayLeave) {
         Objects.requireNonNull(userId, "사용자 ID는 필수입니다");
-        return new Course(userId, regionId, density, transport, days, travelDate, travelDays,
-                origin == null ? null : origin.lat(), origin == null ? null : origin.lng(),
-                origin == null ? null : origin.name(), startDayLeave);
+        return build(userId, regionId, density, transport, days, travelDate, travelDays, origin, startDayLeave);
     }
 
     /**
@@ -248,9 +260,38 @@ public class Course {
             int travelDays,
             Origin origin,
             StartDayLeave startDayLeave) {
-        return new Course(null, regionId, density, transport, days, travelDate, travelDays,
-                origin == null ? null : origin.lat(), origin == null ? null : origin.lng(),
-                origin == null ? null : origin.name(), startDayLeave);
+        return build(null, regionId, density, transport, days, travelDate, travelDays, origin, startDayLeave);
+    }
+
+    /**
+     * 두 팩토리가 공유하는 조립 — <b>출발지를 푸는 자리를 하나로 둔다</b>.
+     *
+     * <p>좌표와 이름을 세 칸으로 흩는 곳이 여기 하나뿐이라, {@code Origin} 에 칸이 늘어도 고칠 데가 한
+     * 군데다. 예전에는 같은 삼항 세 줄이 두 팩토리에 복사돼 있었다.
+     */
+    private static Course build(
+            UUID userId,
+            Long regionId,
+            Density density,
+            TransportMode transport,
+            List<DaySchedule> days,
+            LocalDate travelDate,
+            int travelDays,
+            Origin origin,
+            StartDayLeave startDayLeave) {
+        return Course.builder()
+                .userId(userId)
+                .regionId(regionId)
+                .density(density)
+                .transport(transport)
+                .days(days)
+                .travelDate(travelDate)
+                .travelDays(travelDays)
+                .originLat(origin == null ? null : origin.lat())
+                .originLng(origin == null ? null : origin.lng())
+                .originName(origin == null ? null : origin.name())
+                .startDayLeave(startDayLeave)
+                .build();
     }
 
     /**
