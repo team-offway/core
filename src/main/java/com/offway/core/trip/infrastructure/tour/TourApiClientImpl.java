@@ -6,6 +6,8 @@ import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.dto.TourAccessibility;
+import com.offway.core.trip.infrastructure.tour.dto.TourFestival;
+import com.offway.core.trip.infrastructure.tour.dto.TourFestivalResult;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
@@ -14,6 +16,8 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -44,6 +48,12 @@ class TourApiClientImpl implements TourApiClient {
     private static final String DETAIL_INTRO = "/detailIntro2";
     private static final String DETAIL_COMMON = "/detailCommon2";
     private static final String DETAIL_WITH_TOUR = "/detailWithTour2";
+
+    /** 행사정보(#388) — 축제 기간을 주는 유일한 오퍼레이션. areaBasedList2 는 날짜를 안 준다. */
+    private static final String SEARCH_FESTIVAL = "/searchFestival2";
+
+    /** TourAPI 가 받는 날짜 형식 — {@code 20260912} 처럼 구분자가 없다. */
+    private static final DateTimeFormatter API_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private static final Duration TIMEOUT = Duration.ofSeconds(6);
 
@@ -139,6 +149,55 @@ class TourApiClientImpl implements TourApiClient {
             builder.queryParam("contentTypeId", contentTypeId);
         }
         return requestList(builder, "areaBased");
+    }
+
+    @Override
+    public TourFestivalResult findFestivals(LocalDate from, int pageNo, int numOfRows) {
+        if (!hasKey()) {
+            log.info("TourAPI 키 없음 — 축제 기간 조회를 건너뜁니다");
+            return TourFestivalResult.empty();
+        }
+        UriComponentsBuilder builder = base(SEARCH_FESTIVAL)
+                // 시작일 오름차순. 페이지를 도는 중에 순서가 흔들리면 같은 축제를 두 번 받거나 빠뜨린다.
+                .queryParam("arrange", "A")
+                .queryParam("eventStartDate", API_DATE.format(from))
+                .queryParam("pageNo", pageNo)
+                .queryParam("numOfRows", numOfRows);
+        try {
+            return parseFestivals(call(builder));
+        } catch (Exception e) {
+            log.warn("TourAPI 축제 조회 실패 pageNo={} cause={}", pageNo, RootCause.of(e));
+            throw TourApiException.lookupFailed(e);
+        }
+    }
+
+    /**
+     * 축제 응답을 기간으로 옮긴다 — <b>날짜가 깨진 줄은 버리고 나머지는 살린다</b>.
+     *
+     * <p>한 줄 때문에 페이지 전체를 날리지 않는다. 버려진 줄은 저장되지 않아 그 축제가 지금처럼 평범한
+     * 볼거리로 남을 뿐이고, 그건 "모르는 것을 끝났다고 단정" 하는 것보다 낫다.
+     */
+    private TourFestivalResult parseFestivals(String body) throws Exception {
+        JsonNode response = objectMapper.readTree(body).path("response");
+        requireSuccess(response);
+
+        JsonNode bodyNode = response.path("body");
+        int totalCount = bodyNode.path("totalCount").asInt(0);
+
+        List<TourFestival> items = new ArrayList<>();
+        JsonNode item = bodyNode.path("items").path("item");
+        if (item.isMissingNode() || item.isNull()) {
+            return new TourFestivalResult(items, totalCount);
+        }
+        for (JsonNode node : item.isArray() ? item : objectMapper.createArrayNode().add(item)) {
+            TourFestival.of(
+                            text(node, "contentid"),
+                            text(node, "title"),
+                            text(node, "eventstartdate"),
+                            text(node, "eventenddate"))
+                    .ifPresent(items::add);
+        }
+        return new TourFestivalResult(items, totalCount);
     }
 
     @Override

@@ -55,6 +55,7 @@ public class CourseStorageService {
     private final RegionRepository regionRepository;
     private final CourseWeatherProvider courseWeatherProvider;
     private final OpeningHoursProvider openingHoursProvider;
+    private final FestivalPeriodProvider festivalPeriodProvider;
     private final CoursePersistenceService coursePersistenceService;
     private final CourseLeaveDeductionService courseLeaveDeductionService;
     private final MyLeaveService myLeaveService;
@@ -448,6 +449,7 @@ public class CourseStorageService {
                 .regionName(region == null ? null : region.getSigungu())
                 // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
                 .hoursByContentId(openingHoursProvider.forCourse(course))
+                .festivalPeriodByContentId(festivalPeriodProvider.forCourse(course))
                 .build();
     }
 }

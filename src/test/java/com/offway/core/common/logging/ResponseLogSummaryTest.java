@@ -33,7 +33,7 @@ class ResponseLogSummaryTest {
     @Test
     void 코스는_지역명과_규모를_낸다() {
         CourseResponse.Item item = new CourseResponse.Item(
-                1, "MORNING", "SIGHT", "관광", "c1", "장소1", null, null, null, null, null, null, null, null, null, 37.5, 128.6, 0, null, "정선군");
+                1, "MORNING", "SIGHT", "관광", "c1", "장소1", null, null, null, null, null, null, null, null, null, 37.5, 128.6, 0, null, "정선군", null);
         CourseResponse.Day day = new CourseResponse.Day(1, null, null, null, null, null, List.of(item));
         // 빌더로 만든다 — 필드가 하나 늘 때마다 위치를 세어 null 을 덧붙이던 자리다(#317 에서 실제로 깨졌다).
         CourseResponse response = CourseResponse.builder()

@@ -62,13 +62,14 @@ public class CourseGenerationService {
     private final PolicyService policyService;
     private final CourseWeatherProvider courseWeatherProvider;
     private final OpeningHoursProvider openingHoursProvider;
+    private final FestivalPeriodProvider festivalPeriodProvider;
     private final RegionRepository regionRepository;
     private final RegionAccessService regionAccessService;
     private final UnroutableCoordinateService unroutableCoordinateService;
 
     public GeneratedCourse generate(GenerateCourse command) {
         // ① POI 수집 (trip)
-        return generate(command, regionPoiService.collect(command.regionId()));
+        return generate(command, regionPoiService.collect(command.regionId(), command.travelDate()));
     }
 
     /**
@@ -145,6 +146,7 @@ public class CourseGenerationService {
                 .regionName(region == null ? null : region.getSigungu())
                 // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
                 .hoursByContentId(openingHoursProvider.forCourse(course))
+                .festivalPeriodByContentId(festivalPeriodProvider.forCourse(course))
                 .build();
     }
 

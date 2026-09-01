@@ -1,12 +1,15 @@
 package com.offway.core.trip.infrastructure.tour;
 
 import com.offway.core.trip.infrastructure.tour.dto.TourAccessibility;
+import com.offway.core.trip.infrastructure.tour.dto.TourFestivalResult;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -108,5 +111,24 @@ public class StubTourApiClient implements TourApiClient {
     @Override
     public Optional<TourAccessibility> findAccessibility(String contentId) {
         return accessibilityBehavior.get();
+    }
+
+    /**
+     * 축제 기간 조회(#388) — <b>기본은 빈 결과</b>다.
+     *
+     * <p>다른 stub 과 달리 throw 로 두지 않았다. 축제 기간을 안 다루는 테스트가 대부분이고, 그쪽에서
+     * 이 값이 비어 있다는 것은 "기간을 모른다" 라 <b>지금과 같은 동작</b>(축제를 안 거름)이 된다 —
+     * 세팅을 빠뜨려도 조용히 다른 결과가 나오지 않는다.
+     */
+    private Function<Integer, TourFestivalResult> festivalBehavior = pageNo -> TourFestivalResult.empty();
+
+    /** 페이지 번호에 따라 결과를 정한다 — 여러 페이지를 도는 배치를 확인할 때 쓴다. */
+    public void respondFestivals(Function<Integer, TourFestivalResult> behavior) {
+        this.festivalBehavior = behavior;
+    }
+
+    @Override
+    public TourFestivalResult findFestivals(LocalDate from, int pageNo, int numOfRows) {
+        return festivalBehavior.apply(pageNo);
     }
 }

@@ -15,6 +15,7 @@ import com.offway.core.trip.service.dto.RegionPois;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.RegionPoi;
 import java.util.List;
+import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,6 +37,9 @@ import org.springframework.context.annotation.Primary;
  */
 @SpringBootTest
 class RegionPoiPoolIntegrationTest {
+
+    /** 축제 기간 필터(#388)가 결과를 흔들지 않게 고정한다 — 이 테스트가 보는 것은 풀 구성이다. */
+    private static final LocalDate TRAVEL_DATE = LocalDate.of(2026, 9, 1);
 
     @Autowired
     private RegionPoiService regionPoiService;
@@ -61,7 +65,7 @@ class RegionPoiPoolIntegrationTest {
                 poi("CAMP-1", 28, "AC", "느티담길캠핑장"),
                 poi("SIGHT-1", 12, "NA", "가리왕산")));
 
-        RegionPois pois = regionPoiService.collect(anyRegionId());
+        RegionPois pois = regionPoiService.collect(anyRegionId(), TRAVEL_DATE);
 
         assertTrue(has(pois.stays(), "CAMP-1"), "야영장이 숙박 풀에 없다");
         assertFalse(has(pois.sights(), "CAMP-1"), "야영장이 볼거리 풀로 샜다");
@@ -73,7 +77,7 @@ class RegionPoiPoolIntegrationTest {
     void 대분류가_음식이면_맛집_풀에_들어간다() {
         tourApiClient.respond(() -> result(poi("FOOD-1", 39, "FD", "밀면집")));
 
-        RegionPois pois = regionPoiService.collect(anyRegionId());
+        RegionPois pois = regionPoiService.collect(anyRegionId(), TRAVEL_DATE);
 
         assertTrue(has(pois.foods(), "FOOD-1"), "맛집이 맛집 풀에 없다");
         assertFalse(has(pois.sights(), "FOOD-1"), "맛집이 볼거리 풀로 샜다");
@@ -89,7 +93,7 @@ class RegionPoiPoolIntegrationTest {
     void 전체타입과_타입별_조회가_겹쳐도_한_번만_담는다() {
         tourApiClient.respond(() -> result(poi("HOTEL-1", 32, "AC", "라메르호텔")));
 
-        RegionPois pois = regionPoiService.collect(anyRegionId());
+        RegionPois pois = regionPoiService.collect(anyRegionId(), TRAVEL_DATE);
 
         assertTrue(count(pois.stays(), "HOTEL-1") == 1, "같은 숙소가 두 번 담겼다");
     }
@@ -104,7 +108,7 @@ class RegionPoiPoolIntegrationTest {
     void 대분류가_없으면_타입으로_가른다() {
         tourApiClient.respond(() -> result(poi("NOLCLS-1", 12, null, "대분류 없는 관광지")));
 
-        RegionPois pois = regionPoiService.collect(anyRegionId());
+        RegionPois pois = regionPoiService.collect(anyRegionId(), TRAVEL_DATE);
 
         assertTrue(has(pois.sights(), "NOLCLS-1"), "대분류 없는 관광지가 볼거리에 없다");
     }
@@ -119,7 +123,7 @@ class RegionPoiPoolIntegrationTest {
     void 리조트는_대분류가_문화관광이어도_숙박_풀에_들어간다() {
         tourApiClient.respond(() -> result(poi("RESORT-1", 12, "VE", "VE05", "스카이랜드카라반 리조트")));
 
-        RegionPois pois = regionPoiService.collect(anyRegionId());
+        RegionPois pois = regionPoiService.collect(anyRegionId(), TRAVEL_DATE);
 
         assertTrue(has(pois.stays(), "RESORT-1"), "리조트가 숙박 풀에 없다");
         assertFalse(has(pois.sights(), "RESORT-1"), "리조트가 볼거리 풀로 샜다");
@@ -135,7 +139,7 @@ class RegionPoiPoolIntegrationTest {
     void 쇼핑은_볼거리_풀에_들어간다() {
         tourApiClient.respond(() -> result(poi("SHOP-1", 38, "SH", "SH06", "부산진시장")));
 
-        RegionPois pois = regionPoiService.collect(anyRegionId());
+        RegionPois pois = regionPoiService.collect(anyRegionId(), TRAVEL_DATE);
 
         assertTrue(has(pois.sights(), "SHOP-1"), "전통시장이 코스 후보에서 빠졌다");
     }
