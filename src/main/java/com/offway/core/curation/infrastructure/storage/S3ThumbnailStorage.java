@@ -45,6 +45,12 @@ public class S3ThumbnailStorage implements ThumbnailStorage {
         this.presigner = properties.isConfigured() ? presigner(properties) : null;
         if (this.presigner == null) {
             log.warn("S3 자격증명이 없어 썸네일 업로드를 비활성으로 시작합니다 — 어드민은 주소 붙여넣기로 등록합니다");
+            return;
+        }
+        if (!properties.canDeriveDefaultUrl()) {
+            // 여기서 막지 않는다 — 부팅은 되고 업로드도 성공한다. 다만 그 뒤로 이미지가 안 열리는데,
+            // 저장까지 끝난 다음에 드러나는 종류라 배포 직후 로그에서 보이게 남긴다.
+            log.warn("버킷 이름에 점이 있어 기본 공개 주소가 TLS 에서 막힙니다 — S3_PUBLIC_BASE_URL 을 채워 주세요");
         }
     }
 
@@ -75,11 +81,16 @@ public class S3ThumbnailStorage implements ThumbnailStorage {
                             .build())
                     .url()
                     .toString();
-            // 오브젝트 키만 남긴다. 서명된 주소는 그 자체로 버킷에 쓸 수 있는 자격이라 로그에 남기지 않는다.
-            log.info("썸네일 업로드 주소 발급 key={} bytes={}", objectKey, upload.contentLength());
-            return new UploadTicket(uploadUrl, publicUrl(objectKey), SIGNATURE_TTL);
+            // 오브젝트 키도 남기지 않는다. 키는 무작위라 그 자체가 썸네일 주소를 추측 못 하게 하는 장치인데,
+            // 로그로 새면 그 성질이 로그 열람 범위만큼 사라진다. 무엇이 발급됐는지는 종류·크기로 충분하다.
+            log.info("썸네일 업로드 주소 발급 type={} bytes={}", upload.contentType(), upload.contentLength());
+            return UploadTicket.builder()
+                    .uploadUrl(uploadUrl)
+                    .publicUrl(publicUrl(objectKey))
+                    .expiresIn(SIGNATURE_TTL)
+                    .build();
         } catch (RuntimeException e) {
-            log.warn("썸네일 업로드 주소를 발급하지 못했습니다 key={} cause={}", objectKey, RootCause.of(e));
+            log.warn("썸네일 업로드 주소를 발급하지 못했습니다 type={} cause={}", upload.contentType(), RootCause.of(e));
             throw CurationException.imageStorageUnavailable();
         }
     }

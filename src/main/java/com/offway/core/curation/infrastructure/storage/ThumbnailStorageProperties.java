@@ -13,7 +13,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param accessKey 업로드 주소를 서명할 IAM 자격증명
  * @param secretKey 위와 짝
  * @param publicBaseUrl 저장해 둘 주소의 앞머리. CloudFront 같은 것을 앞에 두면 버킷 주소와 달라지므로
- *     따로 받는다. 비우면 버킷의 기본 주소를 쓴다
+ *     따로 받는다. 비우면 버킷의 기본 주소를 쓴다 — 다만 <b>이름에 점이 든 버킷이면 반드시 채워야 한다</b>
+ *     ({@link #canDeriveDefaultUrl()})
  */
 @ConfigurationProperties(prefix = "offway.storage.s3")
 public record ThumbnailStorageProperties(
@@ -27,6 +28,18 @@ public record ThumbnailStorageProperties(
      */
     public boolean isConfigured() {
         return hasText(bucket) && hasText(region) && hasText(accessKey) && hasText(secretKey);
+    }
+
+    /**
+     * 기본 주소를 우리가 만들어도 되는가.
+     *
+     * <p><b>이름에 점이 든 버킷은 안 된다.</b> 기본 주소는 virtual-hosted 형식({@code bucket.s3.리전...})
+     * 인데, 버킷 이름에 점이 있으면 호스트명이 {@code *.s3.리전.amazonaws.com} 와일드카드 인증서와
+     * 맞지 않아 브라우저가 TLS 에서 막는다. 업로드는 성공하는데 <b>그 뒤로 이미지가 안 열린다</b> —
+     * 저장까지 끝난 다음에 드러나는 종류라 미리 가른다.
+     */
+    public boolean canDeriveDefaultUrl() {
+        return hasText(publicBaseUrl) || (hasText(bucket) && !bucket.contains("."));
     }
 
     /** 저장해 둘 주소의 앞머리 — 따로 주지 않았으면 버킷의 기본 주소. */

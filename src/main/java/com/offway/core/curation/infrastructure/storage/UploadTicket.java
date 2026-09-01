@@ -2,6 +2,7 @@ package com.offway.core.curation.infrastructure.storage;
 
 import java.time.Duration;
 import java.util.Objects;
+import lombok.Builder;
 
 /**
  * 한 장을 올리기 위해 발급한 자리(#377).
@@ -13,6 +14,7 @@ import java.util.Objects;
  * @param publicUrl 저장해 둘 주소. 업로드가 끝나면 이 값이 {@code thumbnailUrl} 이 된다
  * @param expiresIn 서명이 살아 있는 시간 — 화면이 "다시 시도" 를 안내할 근거다
  */
+@Builder
 public record UploadTicket(String uploadUrl, String publicUrl, Duration expiresIn) {
 
     public UploadTicket {

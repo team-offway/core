@@ -59,6 +59,14 @@ let links = [];
 /** 지금 편집 중인 항목. 새로 만들기면 null. */
 let editing = null;
 
+/**
+ * 업로드 세대. 파일을 연속으로 고르거나 올리는 중에 편집기를 다시 열면 요청이 겹친다.
+ *
+ * 늦게 끝난 앞 요청이 지금 폼의 thumbnailUrl 을 앞 파일 주소로 덮으면, 화면에는 방금 고른 이미지가
+ * 보이는데 저장되는 값은 다른 것이 된다. 시작할 때 세대를 올리고, 끝난 뒤 세대가 그대로일 때만 반영한다.
+ */
+let thumbUploadGeneration = 0;
+
 const $ = (id) => document.getElementById(id);
 
 // ---------------------------------------------------------------- 토큰
@@ -514,6 +522,7 @@ function setEditorError(text) {
  * 정할 수 있다.
  */
 function resetThumbTabs(hasUrl) {
+    thumbUploadGeneration += 1; // 편집기를 다시 열면 앞 업로드의 결과는 이 폼의 것이 아니다
     $('thumb-file').value = '';
     setThumbStatus('');
     showThumbTab(hasUrl ? 'url' : 'upload');
@@ -555,6 +564,7 @@ async function uploadThumbnail(event) {
         return;
     }
 
+    const generation = (thumbUploadGeneration += 1);
     setThumbStatus('올리는 중…');
     try {
         const ticket = await call(UPLOADS_API, {
@@ -573,10 +583,16 @@ async function uploadThumbnail(event) {
             throw new Error(`S3 ${put.status}`);
         }
 
+        if (generation !== thumbUploadGeneration) {
+            return; // 그 사이에 다른 파일을 고르거나 편집기를 다시 열었다 — 이 결과는 버린다
+        }
         $('editor-form').thumbnailUrl.value = ticket.data.publicUrl;
         setThumbStatus('올렸습니다. 저장을 눌러야 반영됩니다.');
         refreshPreview();
     } catch (error) {
+        if (generation !== thumbUploadGeneration) {
+            return; // 지난 업로드의 실패로 지금 화면에 오류를 띄우지 않는다
+        }
         // 사유를 그대로 보여준다 — 저장소 설정이 없는 것(502)과 종류·크기 문제(400)는 다음 행동이 다르다.
         setThumbStatus(error.message || DEFAULT_ERROR, true);
         event.target.value = '';
