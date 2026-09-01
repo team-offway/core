@@ -12,6 +12,11 @@
 /** 백오피스 API. 전부 ROLE_ADMIN 뒤에 있다. */
 const LINKS_API = '/api/v1/admin/curated-links';
 
+const UPLOADS_API = '/api/v1/admin/uploads';
+
+/** ThumbnailUpload.MAX_BYTES. 서버가 거절하기 전에 화면이 먼저 알려준다. */
+const MAX_THUMB_BYTES = 5 * 1024 * 1024;
+
 /**
  * 토큰을 sessionStorage 에 둔다 — 탭을 닫으면 사라진다.
  *
@@ -429,6 +434,7 @@ function openEditor(link) {
         input.checked = chosen.has(input.value);
     });
 
+    resetThumbTabs(Boolean(link && link.thumbnailUrl));
     refreshPreview();
     $('editor').showModal();
 }
@@ -494,6 +500,87 @@ function setEditorError(text) {
     const node = $('editor-error');
     node.textContent = text;
     node.hidden = !text;
+}
+
+// ---------------------------------------------------------------- 썸네일 업로드
+
+/**
+ * 편집기를 열 때마다 업로드 칸을 처음 상태로 되돌린다.
+ *
+ * 되돌리지 않으면 앞 항목에서 고른 파일과 "올렸습니다" 문구가 다음 항목에 그대로 남는다 — 실제로는
+ * 아무것도 안 올렸는데 올린 것처럼 보인다.
+ *
+ * 이미 주소가 있는 항목은 '주소 붙여넣기' 로 연다. 지금 무엇이 걸려 있는지가 먼저 보여야 고칠지 말지를
+ * 정할 수 있다.
+ */
+function resetThumbTabs(hasUrl) {
+    $('thumb-file').value = '';
+    setThumbStatus('');
+    showThumbTab(hasUrl ? 'url' : 'upload');
+}
+
+function showThumbTab(which) {
+    const onUpload = which === 'upload';
+    $('thumb-tab-upload').classList.toggle('is-on', onUpload);
+    $('thumb-tab-url').classList.toggle('is-on', !onUpload);
+    $('thumb-panel-upload').hidden = !onUpload;
+    $('thumb-panel-url').hidden = onUpload;
+}
+
+function setThumbStatus(message, isError = false) {
+    const status = $('thumb-status');
+    status.textContent = message;
+    status.classList.toggle('is-over', isError);
+}
+
+/**
+ * 고른 파일을 S3 로 **직접** 올린다.
+ *
+ * 서버는 이 한 건에만 쓰는 서명된 주소만 내주고 바이트는 받지 않는다 — EC2 한 대에 MySQL 이 동거하는
+ * 형편이라 업로드를 앱 메모리로 받을 여유가 없다.
+ *
+ * 서명에 종류와 크기가 들어 있어, 여기서 보내는 Content-Type 과 실제 바이트 수가 발급 때와 달라지면
+ * S3 가 거절한다. 그래서 같은 File 객체로 둘 다 만든다.
+ */
+async function uploadThumbnail(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) {
+        return;
+    }
+
+    // 서버도 같은 것을 보지만, 여기서 먼저 잡으면 5MB 를 올려 보고 나서야 거절당하는 일이 없다.
+    if (file.size > MAX_THUMB_BYTES) {
+        setThumbStatus('이미지가 너무 큽니다. 5MB 이하로 올려 주세요.', true);
+        event.target.value = '';
+        return;
+    }
+
+    setThumbStatus('올리는 중…');
+    try {
+        const ticket = await call(UPLOADS_API, {
+            method: 'POST',
+            body: JSON.stringify({contentType: file.type, contentLength: file.size}),
+        });
+
+        // 서명된 주소로는 우리 토큰을 보내지 않는다 — 인증은 서명 자체가 하고, Authorization 헤더가
+        // 붙으면 S3 가 서명과 어긋난 요청으로 보고 거절한다. 그래서 call() 을 쓰지 않는다.
+        const put = await fetch(ticket.data.uploadUrl, {
+            method: 'PUT',
+            headers: {'Content-Type': file.type},
+            body: file,
+        });
+        if (!put.ok) {
+            throw new Error(`S3 ${put.status}`);
+        }
+
+        $('editor-form').thumbnailUrl.value = ticket.data.publicUrl;
+        setThumbStatus('올렸습니다. 저장을 눌러야 반영됩니다.');
+        refreshPreview();
+    } catch (error) {
+        // 사유를 그대로 보여준다 — 저장소 설정이 없는 것(502)과 종류·크기 문제(400)는 다음 행동이 다르다.
+        setThumbStatus(error.message || DEFAULT_ERROR, true);
+        event.target.value = '';
+    }
 }
 
 /** 앱 카드 미리보기 — 칩 문구가 어디서 접히는지 등록 화면에서 바로 보이게 하는 것이 목적이다. */
@@ -564,6 +651,9 @@ function bind() {
     $('cancel').addEventListener('click', () => $('editor').close());
     $('editor-close').addEventListener('click', () => $('editor').close());
     $('editor-form').addEventListener('input', refreshPreview);
+    $('thumb-tab-upload').addEventListener('click', () => showThumbTab('upload'));
+    $('thumb-tab-url').addEventListener('click', () => showThumbTab('url'));
+    $('thumb-file').addEventListener('change', uploadThumbnail);
 
     $('copy-user-id').addEventListener('click', async () => {
         await navigator.clipboard.writeText($('my-user-id').textContent);

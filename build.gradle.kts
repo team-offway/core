@@ -23,6 +23,9 @@ repositories {
 dependencyManagement {
     imports {
         mavenBom("org.testcontainers:testcontainers-bom:2.0.5")
+        // S3 presigned 업로드(#377). AWS SDK 도 Spring Boot BOM 밖이라 자체 BOM 으로 버전을 묶는다 —
+        // s3 하나만 쓰더라도 전이 의존(auth·http-client)이 같은 세대여야 한다.
+        mavenBom("software.amazon.awssdk:bom:2.46.7")
     }
 }
 
@@ -41,6 +44,10 @@ dependencies {
     // FCM 발송(#270). 서비스 계정 키가 없으면 초기화하지 않고 발송만 비활성으로 뜬다 — 키 없이도
     // 부팅되어야 한다는 로컬 실행성 불변식(CLAUDE.md) 때문이다.
     implementation("com.google.firebase:firebase-admin:9.9.0")
+    // 백오피스 썸네일 업로드(#377). 이미지 바이트가 앱을 지나가지 않게 presigned URL 만 발급한다 —
+    // EC2 한 대에 MySQL 이 동거하는 형편이라 업로드를 앱 메모리로 받을 여유가 없다.
+    // 키가 없으면 발급만 실패하고 부팅은 되게 둔다(로컬 실행성 불변식).
+    implementation("software.amazon.awssdk:s3")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-webservices")

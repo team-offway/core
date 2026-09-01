@@ -132,11 +132,21 @@
 
                 <fieldset class="thumb">
                     <legend>썸네일</legend>
-                    <label>
-                        주소 붙여넣기
+                    <div class="tabs" role="tablist">
+                        <button type="button" id="thumb-tab-upload" class="tab is-on" role="tab">업로드</button>
+                        <button type="button" id="thumb-tab-url" class="tab" role="tab">주소 붙여넣기</button>
+                    </div>
+
+                    <div id="thumb-panel-upload">
+                        <input type="file" id="thumb-file" accept="image/jpeg,image/png,image/webp">
+                        <small class="counter">JPG · PNG · WEBP, 5MB 까지. 고르면 바로 올라갑니다.</small>
+                        <small class="counter" id="thumb-status"></small>
+                    </div>
+
+                    <div id="thumb-panel-url" hidden>
                         <input name="thumbnailUrl" maxlength="1000" placeholder="https://">
-                    </label>
-                    <small class="counter">업로드는 다음 작업에서 붙습니다(#343).</small>
+                        <small class="counter">이미 어딘가에 올라가 있는 이미지 주소를 넣습니다.</small>
+                    </div>
                 </fieldset>
 
                 <fieldset>
