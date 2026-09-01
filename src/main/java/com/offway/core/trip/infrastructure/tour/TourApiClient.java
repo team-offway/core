@@ -1,9 +1,11 @@
 package com.offway.core.trip.infrastructure.tour;
 
 import com.offway.core.trip.infrastructure.tour.dto.TourAccessibility;
+import com.offway.core.trip.infrastructure.tour.dto.TourFestivalResult;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
+import java.time.LocalDate;
 import java.util.Optional;
 
 /**
@@ -34,6 +36,23 @@ public interface TourApiClient {
      * @param numOfRows 페이지 크기
      */
     TourPoiResult findByLocation(double lat, double lng, int radiusMeters, Integer contentTypeId, int numOfRows);
+
+    /**
+     * 행사정보(searchFestival2) — <b>축제가 언제 열리는지</b>(#388).
+     *
+     * <p>{@link #findByArea} 는 이 날짜를 주지 않는다. 그래서 축제가 볼거리 풀에 들어와 있으면서도
+     * 기간을 모르는 상태였고, 끝난 축제가 코스에 들어갈 수 있었다.
+     *
+     * <p><b>지역을 받지 않는다.</b> 89곳을 각각 부르면 회차마다 89번인데, 전국을 한 번에 받아 우리
+     * 쪽에서 {@code contentId} 로 맞추면 <b>페이지 수만큼</b>이면 된다. 지역별 조회가 필요해지는 날
+     * 그때 파라미터를 연다.
+     *
+     * @param from 이 날짜 <b>이후</b>에 시작하는 행사만. TourAPI 의 {@code eventStartDate}
+     * @param pageNo 1부터
+     * @param numOfRows 페이지 크기
+     * @return 이번 페이지 + 전체 건수. 전체 건수가 남은 비용을 확정한다
+     */
+    TourFestivalResult findFestivals(LocalDate from, int pageNo, int numOfRows);
 
     /** 소개정보(detailIntro2) — 운영시간·휴무일. 없으면 빈 Optional. */
     Optional<TourIntro> findIntro(String contentId, int contentTypeId);
