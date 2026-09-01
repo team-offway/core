@@ -25,7 +25,7 @@ class SlotMapLinkTest {
 
     @Test
     void 사진이_없으면_지도로_넘긴다() {
-        CourseResponse.Item item = CourseResponse.Item.from(slot(null), null, "의성군", null, null);
+        CourseResponse.Item item = CourseResponse.Item.from(slot(null), null, "의성군", null, null, null);
 
         assertNotNull(item.mapSearchUrl());
         assertTrue(item.mapSearchUrl().startsWith("https://map.naver.com/p/search/"));
@@ -35,7 +35,7 @@ class SlotMapLinkTest {
     void 사진이_있으면_링크를_안_붙인다() {
         // 카드가 이미 설 수 있어 링크가 군더더기다.
         CourseResponse.Item item =
-                CourseResponse.Item.from(slot("http://img/1.jpg"), null, "의성군", null, null);
+                CourseResponse.Item.from(slot("http://img/1.jpg"), null, "의성군", null, null, null);
 
         assertNull(item.mapSearchUrl());
     }
