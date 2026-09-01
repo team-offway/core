@@ -12,6 +12,8 @@ import com.offway.core.leave.service.dto.CourseDeduction;
 import com.offway.core.leave.service.dto.MyLeave;
 import com.offway.core.leave.service.dto.UpdateLeaveUsage;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Collection;
 import java.util.Objects;
 import java.util.Optional;
@@ -40,6 +42,9 @@ public class MyLeaveService {
 
     /** 아직 연차를 설정하지 않은 소유자의 총 연차. 0 이면 "쓸 수 있는 게 없다" 가 아니라 "아직 안 넣었다" 는 뜻이다. */
     private static final double UNSET_TOTAL_DAYS = 0;
+
+    /** 등록 시각은 한국 기준이다 — 서버 기본 시간대에 기대지 않는다. */
+    private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
     private final LeaveBalanceRepository balanceRepository;
     private final LeaveUsageRepository usageRepository;
@@ -90,15 +95,19 @@ public class MyLeaveService {
     @Transactional
     public MyLeave addUsage(UUID userId, AddLeaveUsage command) {
         UUID owner = requireOwner(userId);
+        // 등록 시각은 도메인이 시계를 직접 읽지 않고 여기서 넘긴다(#375) — 읽게 두면 테스트가 시계에 묶인다.
+        LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
         LeaveUsage usage = command.courseId() == null
-                ? LeaveUsage.manual(owner, command.usedOn(), command.days(), command.reason(), command.memo())
+                ? LeaveUsage.manual(
+                        owner, command.usedOn(), command.days(), command.reason(), command.memo(), now)
                 : LeaveUsage.forCourse(
                         owner,
                         command.usedOn(),
                         command.days(),
                         command.reason(),
                         command.courseId(),
-                        command.startDayLeave());
+                        command.startDayLeave(),
+                        now);
         usageRepository.save(usage);
         MyLeave after = myLeave(owner);
         log.info("연차 사용내역 추가 days={} 남은={}", command.days(), after.summary().remainingDays());

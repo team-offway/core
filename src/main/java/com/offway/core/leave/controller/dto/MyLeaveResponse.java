@@ -4,6 +4,7 @@ import com.offway.core.leave.domain.LeaveUsage;
 import com.offway.core.leave.service.dto.MyLeave;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -37,6 +38,8 @@ public record MyLeaveResponse(
      * @param reason 사유 (없으면 null)
      * @param memo 상세 메모 (없으면 null, #319)
      * @param courseId 이 내역을 만든 코스 (수동 입력이면 null). <b>값이 있으면 삭제할 수 없다</b> — 코스에서 차감을 취소한다
+     * @param createdAt 등록 시각(KST). 화면이 "방금 등록한 것" 을 24시간 표시하는 근거다(#375).
+     *     <b>이 컬럼이 생기기 전 내역은 null</b> 이고 그건 오류가 아니다 — 채울 진실이 없어 지어내지 않았다
      */
     public record Usage(
             long id,
@@ -44,7 +47,8 @@ public record MyLeaveResponse(
             @Schema(description = "쓴 일수 (옛 상쇄 등록만 음수)", example = "1.0") double days,
             @Schema(example = "제주 여행", nullable = true) String reason,
             @Schema(example = "숙소 체크인 15시", nullable = true) String memo,
-            @Schema(nullable = true) Long courseId) {
+            @Schema(nullable = true) Long courseId,
+            @Schema(example = "2026-09-01T14:03:22", nullable = true) LocalDateTime createdAt) {
 
         static Usage from(LeaveUsage usage) {
             return new Usage(
@@ -53,7 +57,8 @@ public record MyLeaveResponse(
                     usage.getDays(),
                     usage.getReason(),
                     usage.getMemo(),
-                    usage.getCourseId());
+                    usage.getCourseId(),
+                    usage.getCreatedAt());
         }
     }
 }

@@ -71,6 +71,10 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @AutoConfigureMockMvc
 class UserWithdrawalIntegrationTest {
 
+    /** 등록 시각(#375) — 시계에 안 묶이게 고정값을 쓴다. */
+    private static final java.time.LocalDateTime REGISTERED =
+            java.time.LocalDateTime.of(2026, 9, 1, 14, 3, 22);
+
     private static final String WITHDRAW_URL = "/api/v1/users/me";
     private static final String REISSUE_URL = "/api/v1/auth/reissue";
     private static final String CALLBACK_URL = "/api/v1/auth/callback/google";
@@ -214,7 +218,7 @@ class UserWithdrawalIntegrationTest {
         assertTrue(leaveBalanceJpaRepository.findByUserId(session.userId()).isEmpty(), "연차 설정이 남았다");
         assertTrue(
                 leaveUsageJpaRepository
-                        .findByUserIdOrderByUsedOnDescIdDesc(session.userId())
+                        .findByUserIdOrderByCreatedAtDescIdDesc(session.userId())
                         .isEmpty(),
                 "연차 내역이 남았다");
         // 후기는 리스너가 지우는 것 중 하나인데 오래 검증에서 빠져 있었다. 코스와 다른 테이블이라
@@ -517,7 +521,7 @@ class UserWithdrawalIntegrationTest {
     private void seedLeave(UUID userId) {
         leaveBalanceJpaRepository.save(LeaveBalance.of(userId, 15.0));
         // 메모는 null 이다(#319) — 이 시나리오가 보는 것은 탈퇴가 무엇을 지우는가이지 메모가 아니다.
-        leaveUsageJpaRepository.save(LeaveUsage.manual(userId, LocalDate.now(), 1.0, "테스트", null));
+        leaveUsageJpaRepository.save(LeaveUsage.manual(userId, LocalDate.now(), 1.0, "테스트", null, REGISTERED));
     }
 
     /** 여행 후기 한 건 — 탈퇴가 지우는 데이터 중 코스와 다른 테이블에 있는 쪽이다. */

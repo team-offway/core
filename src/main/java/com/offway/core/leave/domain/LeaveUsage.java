@@ -12,6 +12,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -102,6 +103,17 @@ public class LeaveUsage {
     @Column(name = "half_day_start")
     private Boolean halfDayStart;
 
+    /**
+     * 등록 시각(KST) — <b>연차를 쓴 날이 아니라 이 행을 만든 때</b>다(#375).
+     *
+     * <p>화면이 "방금 등록한 것" 에 24시간 동안 칩을 띄우는 근거다. {@link #usedOn} 으로 대신할 수 없다 —
+     * 지난주에 쓴 연차를 오늘 등록하는 일이 흔해서, 그걸로 판단하면 방금 등록했는데도 칩이 안 뜬다.
+     *
+     * <p>이 컬럼이 생기기 전 행은 null 이고 그건 오류가 아니다. 채울 진실이 없어 지어내지 않았다.
+     */
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
     private LeaveUsage(
             UUID userId,
             LocalDate usedOn,
@@ -109,7 +121,8 @@ public class LeaveUsage {
             String reason,
             String memo,
             Long courseId,
-            StartDayLeave startDayLeave) {
+            StartDayLeave startDayLeave,
+            LocalDateTime createdAt) {
         this.userId = Objects.requireNonNull(userId, "userId 는 null 일 수 없습니다.");
         this.usedOn = Objects.requireNonNull(usedOn, "usedOn 은 null 일 수 없습니다.");
         this.days = requireDays(days, courseId);
@@ -120,11 +133,13 @@ public class LeaveUsage {
         // 전환기 동안 예전 컬럼도 채운다. 반반차는 예전 계약으로 표현할 수 없어 반차로 내려앉는데,
         // 그 값을 읽는 것은 롤백한 이전 버전뿐이고 그 버전에는 반반차 개념이 애초에 없다.
         this.halfDayStart = startDayLeave == null ? null : !startDayLeave.isFullDay();
+        this.createdAt = Objects.requireNonNull(createdAt, "createdAt 은 null 일 수 없습니다.");
     }
 
     /** 사용자가 직접 남기는 내역. 메모는 이 경로에만 있다 — 코스 확정 행은 서버가 만든다. */
-    public static LeaveUsage manual(UUID userId, LocalDate usedOn, double days, String reason, String memo) {
-        return new LeaveUsage(userId, usedOn, days, reason, memo, null, null);
+    public static LeaveUsage manual(
+            UUID userId, LocalDate usedOn, double days, String reason, String memo, LocalDateTime now) {
+        return new LeaveUsage(userId, usedOn, days, reason, memo, null, null, now);
     }
 
     /**
@@ -138,10 +153,12 @@ public class LeaveUsage {
             double days,
             String reason,
             long courseId,
-            StartDayLeave startDayLeave) {
+            StartDayLeave startDayLeave,
+            LocalDateTime now) {
         return new LeaveUsage(
                 userId, usedOn, days, reason, null, courseId,
-                Objects.requireNonNull(startDayLeave, "startDayLeave"));
+                Objects.requireNonNull(startDayLeave, "startDayLeave"),
+                now);
     }
 
     /**
