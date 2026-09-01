@@ -12,6 +12,12 @@
 -- 출처와 확인일자를 각 행에 주석으로 남긴다. 수동 seed 의 유일한 실패 모드는 낡는 것인데,
 -- 언제 확인한 값인지 모르면 낡았는지도 알 수 없다.
 --
+-- 확인일자는 **주석과 checked_on 컬럼 양쪽에** 있다(#220). 주석은 사람이 읽고 무엇을 대조했는지까지
+-- 말해 주지만 기계가 못 읽는다 — 낡음을 알아채는 알림이 읽는 것은 컬럼 쪽이다.
+--
+-- **행마다 확인일이 다르다.** 셋을 한 날짜로 뭉뚱그리면 알림이 낡음을 그만큼 늦게 잡는다. 값을 고칠 때
+-- 주석과 컬럼을 함께 고친다 — 둘이 갈리면 사람이 읽는 것과 기계가 읽는 것이 달라진다.
+--
 -- apply_url 은 사용자가 뱃지를 누르면 웹뷰로 열리는 주소다(#345). **죽은 링크는 없는 것만 못하므로**
 -- 넣기 전에 실호출로 200 을 확인한다 — 셋 다 2026-08-28 에 확인했다. 기관 페이지는 개편이 잦아
 -- 확인일자가 오래되면 다시 봐야 한다.
@@ -20,7 +26,7 @@
 DELETE FROM policy;
 
 INSERT INTO policy (id, type, name, benefit_detail, target_audience,
-                    period_start, period_end, period_note, apply_url, verified) VALUES
+                    period_start, period_end, period_note, apply_url, verified, checked_on) VALUES
 
 -- 출처: korean.visitkorea.or.kr/dgtourcard/tour50.do · 확인 2026-08-28 (혜택 문구 일치, 대상 16 → 25곳)
 -- 대상 16곳(2026 상반기 시범사업)은 R__seed_program_region_tags.sql 참고.
@@ -38,7 +44,7 @@ INSERT INTO policy (id, type, name, benefit_detail, target_audience,
  '여행경비의 50%를 지역화폐로 환급 · 1인 최대 10만원, 2인 이상 20만원, 가족 5인까지 50만원 · 청년(19~34세)은 70%로 최대 14만원',
  '18세 이상 국민(사전 신청 필수)', '2026-04-07', '2026-11-30',
  '지자체별로 신청·여행 기간이 다릅니다. 신청 전 대상 지역 공고를 확인하세요.',
- 'https://korean.visitkorea.or.kr/dgtourcard/tour50.do', TRUE),
+ 'https://korean.visitkorea.or.kr/dgtourcard/tour50.do', TRUE, '2026-08-28'),
 
 -- 출처: ktostay.visitkorea.or.kr · 확인 2026-08-28 (기간·85곳·할인액·제외조건 전부 일치)
 -- 대상은 비수도권 인구감소지역 85곳. 참여 업소 화이트리스트는 없고, 그 지역의 등록 숙박업소면 된다.
@@ -46,11 +52,11 @@ INSERT INTO policy (id, type, name, benefit_detail, target_audience,
 (2, 'STAY_FESTA', '2026 대한민국 숙박세일 페스타',
  '숙박 할인권 · 1박 7만원 미만 2만원, 7만원 이상 3만원 · 연박 14만원 미만 5만원, 14만원 이상 7만원 · 1인 1매 · 대실·캠핑시설·외국인도시민박업 제외',
  '전 국민(참여 온라인여행사에서 발급)', '2026-06-11', '2026-08-31',
- '매일 오전 10시 선착순 발급', 'https://ktostay.visitkorea.or.kr', TRUE),
+ '매일 오전 10시 선착순 발급', 'https://ktostay.visitkorea.or.kr', TRUE, '2026-08-28'),
 
 -- 출처: 문체부 발표(2026-06-08 · 44곳 → 52곳) · 확인 2026-08-10
 -- 실제 대상은 52곳인데 명단을 확보하지 못해 아직 좁히지 못했다(PolicyType 은 89곳을 본다).
 -- verified=FALSE 라 노출되지 않으므로 거짓 뱃지는 나지 않는다. 명단 확보 후 전용 태그로 좁히고 승격한다.
 (3, 'DIGITAL_TOURIST_CARD', '디지털관광주민증',
  '인구감소지역 가맹 시설 할인(약 1,400곳)', '전 국민', NULL, NULL, NULL,
- 'https://korean.visitkorea.or.kr/dgtourcard', FALSE);
+ 'https://korean.visitkorea.or.kr/dgtourcard', FALSE, '2026-08-10');
