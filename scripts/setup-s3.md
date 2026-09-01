@@ -98,12 +98,14 @@ IAM 자격증명은 코드가 만들 수 없다.
 
 ## 4. 환경변수
 
-배포 워크플로우(`.github/workflows/deploy.yml`)와 GitHub 시크릿에 넣는다.
+**워크플로우 쪽은 이미 되어 있다** — `deploy.yml` 이 아래 이름들을 컨테이너 환경변수로 넘긴다.
+GitHub 시크릿(레포 Settings > Secrets and variables > Actions)에 값만 넣으면 다음 배포부터 붙는다.
+등록하지 않은 이름은 빈 값으로 나가고, 그때는 업로드가 비활성일 뿐 부팅은 정상이다.
 
 | 이름 | 값 | 비우면 |
 |---|---|---|
 | `S3_BUCKET` | 버킷 이름 | 업로드 비활성 |
-| `S3_REGION` | `ap-northeast-1` | 기본값이 이미 도쿄라 안 넣어도 된다 |
+| `S3_REGION` | `ap-northeast-1` | 기본값이 이미 도쿄다. **시크릿으로 받지 않는다** — 바꿀 일이 생기면 코드 기본값을 고친다 |
 | `S3_ACCESS_KEY` | 2번의 액세스 키 | 업로드 비활성 |
 | `S3_SECRET_KEY` | 2번의 시크릿 | 업로드 비활성 |
 | `S3_PUBLIC_BASE_URL` | CloudFront 를 앞에 둘 때만 | 버킷 기본 주소를 쓴다 |
