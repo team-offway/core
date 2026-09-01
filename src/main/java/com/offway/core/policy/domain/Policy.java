@@ -9,7 +9,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
+import java.util.Objects;
 import lombok.AccessLevel;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -65,6 +67,49 @@ public class Policy {
 
     @Column(nullable = false)
     private boolean verified;
+
+    /**
+     * 사람이 마지막으로 출처를 확인한 날(#220).
+     *
+     * <p>정책은 수동 seed 라 <b>낡는 것이 유일한 실패 모드</b>인데, 언제 확인한 값인지 모르면 낡았는지도
+     * 알 수 없다. 이 값이 낡음 감지의 기준이다.
+     *
+     * <p>이 컬럼이 생기기 전 행은 null 이고 그건 "확인한 적 없음" 이 아니라 "모른다" 다 — 알림은 모르는
+     * 것을 낡았다고 단정하지 않는다.
+     */
+    @Column(name = "checked_on")
+    private LocalDate checkedOn;
+
+    /**
+     * 정책 하나를 조립한다 — <b>이름으로만</b>.
+     *
+     * <p>지금까지 생성 수단이 없었다. seed SQL 이 넣고 JPA 가 읽는 것이 전부라 코드에서 만들 일이 없었고,
+     * 그래서 이 값을 다루는 규칙을 검증할 자리도 없었다(#220). 열 칸 중 여섯이 nullable {@code String}·
+     * {@code LocalDate} 라 위치로 넘기면 맞바꿔도 컴파일이 통과한다.
+     */
+    @Builder
+    private Policy(
+            PolicyType type,
+            String name,
+            String benefitDetail,
+            String targetAudience,
+            LocalDate periodStart,
+            LocalDate periodEnd,
+            String periodNote,
+            String applyUrl,
+            boolean verified,
+            LocalDate checkedOn) {
+        this.type = Objects.requireNonNull(type, "정책 분류는 null 일 수 없습니다.");
+        this.name = Objects.requireNonNull(name, "정책명은 null 일 수 없습니다.");
+        this.benefitDetail = benefitDetail;
+        this.targetAudience = targetAudience;
+        this.periodStart = periodStart;
+        this.periodEnd = periodEnd;
+        this.periodNote = periodNote;
+        this.applyUrl = applyUrl;
+        this.verified = verified;
+        this.checkedOn = checkedOn;
+    }
 
     /**
      * 주어진 날짜에 이 정책이 유효한가(4축 중 기간 매칭). 시작·종료일이 없으면 상시 유효로 본다.
