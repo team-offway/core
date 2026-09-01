@@ -14,6 +14,25 @@ const LINKS_API = '/api/v1/admin/curated-links';
 
 const UPLOADS_API = '/api/v1/admin/uploads';
 
+const POLICIES_API = '/api/v1/admin/policies';
+
+/**
+ * 7대 혜택 분류 — PolicyType 과 짝이다.
+ *
+ * **뱃지 문구를 여기 적어 두는 것은 미리보기 때문이다.** 실제 문구는 서버가 badgeText 로 내려주므로
+ * 저장된 정책은 그 값을 쓴다. 여기 값은 아직 저장 전인 폼에서 "이 분류를 고르면 뱃지가 뭐가 되나" 를
+ * 보여줄 때만 쓴다 — 서버 값과 어긋나면 화면이 거짓말을 하므로 PolicyType 을 고칠 때 함께 고친다.
+ */
+const POLICY_TYPES = [
+    {value: 'DIGITAL_TOURIST_CARD', name: '디지털관광주민증', badge: '디지털관광주민증', scope: '인구감소지역 89곳'},
+    {value: 'REGIONAL_VOUCHER', name: '지역사랑 휴가지원(반값여행)', badge: '여행경비 50% 환급', scope: '참여 지자체만'},
+    {value: 'STAY_FESTA', name: '숙박세일페스타', badge: '숙박 할인', scope: '비수도권 인구감소지역'},
+    {value: 'WORKER_VACATION', name: '근로자 휴가지원', badge: '근로자 휴가비 지원', scope: '인구감소지역 89곳'},
+    {value: 'RAIL_DISCOUNT', name: 'KTX·SRT 할인', badge: 'KTX·SRT 할인', scope: '인구감소지역 89곳'},
+    {value: 'LOCAL_TOURISM', name: '로컬100·관광두레', badge: '로컬100·관광두레', scope: '인구감소지역 89곳'},
+    {value: 'RURAL', name: '농촌체험·치유관광', badge: '농촌체험·치유관광', scope: '인구감소지역 89곳'},
+];
+
 /** ThumbnailUpload.MAX_BYTES. 서버가 거절하기 전에 화면이 먼저 알려준다. */
 const MAX_THUMB_BYTES = 5 * 1024 * 1024;
 
@@ -58,6 +77,10 @@ let links = [];
 
 /** 지금 편집 중인 항목. 새로 만들기면 null. */
 let editing = null;
+
+/** 정책 목록·편집 대상. 링크와 같은 구조를 따로 든다 — 두 탭이 서로의 상태를 밟지 않게. */
+let policies = [];
+let editingPolicy = null;
 
 /**
  * 업로드 세대. 파일을 연속으로 고르거나 올리는 중에 편집기를 다시 열면 요청이 겹친다.
@@ -422,7 +445,7 @@ function openEditor(link) {
     editing = link;
     const form = $('editor-form');
 
-    $('editor-title').textContent = link ? '큐레이션 링크 편집' : '큐레이션 링크 만들기';
+    $('editor-title').textContent = link ? '바로가기 링크 편집' : '바로가기 링크 만들기';
     $('delete').hidden = !link;
     setEditorError('');
 
@@ -621,6 +644,280 @@ function refreshPreview() {
     counter.classList.toggle('is-over', used > MAX_CHIP_TEXT);
 }
 
+
+// ---------------------------------------------------------------- 정책 탭
+
+/** 상단 탭만 — 편집기 안의 썸네일 탭과 구분한다. */
+function consoleTabs() {
+    return document.querySelectorAll('nav.tabs .tab');
+}
+
+/** 탭 전환 — 패널만 갈아 끼운다. 각 탭은 자기 데이터를 자기가 들고 있다. */
+function showTab(name) {
+    // **nav 로 좁힌다.** 썸네일 칸에도 class="tabs" 가 있어, 좁히지 않으면 그 버튼을 누를 때
+    // showTab(undefined) 가 돌아 두 패널이 함께 숨는다.
+    consoleTabs().forEach((tab) => {
+        tab.classList.toggle('is-active', tab.dataset.tab === name);
+    });
+    $('tab-links').hidden = name !== 'links';
+    $('tab-policies').hidden = name !== 'policies';
+    if (name === 'policies' && !policies.length) {
+        reloadPolicies();
+    }
+}
+
+function typeOf(value) {
+    return POLICY_TYPES.find((t) => t.value === value) || null;
+}
+
+/** 분류 select 를 채운다 — 목록 필터와 편집 폼이 같은 목록을 쓴다. */
+function fillTypeOptions() {
+    POLICY_TYPES.forEach((type) => {
+        const filterOption = document.createElement('option');
+        filterOption.value = type.value;
+        filterOption.textContent = type.name;
+        $('filter-type').appendChild(filterOption);
+
+        const formOption = document.createElement('option');
+        formOption.value = type.value;
+        formOption.textContent = type.name;
+        $('policy-type').appendChild(formOption);
+    });
+}
+
+function filteredPolicies() {
+    const type = $('filter-type').value;
+    const verified = $('filter-verified').value;
+    return policies.filter((policy) => {
+        if (type && policy.type !== type) {
+            return false;
+        }
+        if (verified && String(policy.verified) !== verified) {
+            return false;
+        }
+        return true;
+    });
+}
+
+function policyPeriodText(policy) {
+    const from = policy.periodStart || '';
+    const to = policy.periodEnd || '';
+    if (!from && !to) {
+        return '상시';
+    }
+    return `${from || '~'} ~ ${to || '끝없음'}`;
+}
+
+function renderPolicies() {
+    const rows = $('policy-rows');
+    const visible = filteredPolicies();
+
+    rows.innerHTML = '';
+    visible.forEach((policy) => {
+        const tr = document.createElement('tr');
+        if (!policy.verified) {
+            tr.classList.add('is-unpublished');
+        }
+
+        const type = typeOf(policy.type);
+        tr.appendChild(cell(type ? type.name : policy.type, 'type'));
+        tr.appendChild(policyTitleCell(policy));
+        tr.appendChild(cell(policyPeriodText(policy), 'period'));
+        tr.appendChild(cell(policy.checkedOn || '-', 'checked'));
+        tr.appendChild(verifiedCell(policy.verified));
+        tr.appendChild(policyEditCell(policy));
+        rows.appendChild(tr);
+    });
+
+    $('policy-count').textContent = `${visible.length}건 / 전체 ${policies.length}건`;
+}
+
+function policyTitleCell(policy) {
+    const td = document.createElement('td');
+    const name = document.createElement('strong');
+    name.textContent = policy.name;
+    const badge = document.createElement('span');
+    badge.className = 'row-chip';
+    badge.textContent = policy.badgeText;
+    td.appendChild(name);
+    td.appendChild(document.createElement('br'));
+    td.appendChild(badge);
+    if (policy.updatedBy) {
+        const by = document.createElement('small');
+        by.className = 'by';
+        by.textContent = ` 마지막 수정 ${policy.updatedBy}`;
+        td.appendChild(by);
+    }
+    return td;
+}
+
+function verifiedCell(verified) {
+    const td = document.createElement('td');
+    const badge = document.createElement('span');
+    badge.className = verified ? 'badge on' : 'badge off';
+    badge.textContent = verified ? '노출' : '미검증';
+    td.appendChild(badge);
+    return td;
+}
+
+function policyEditCell(policy) {
+    const td = document.createElement('td');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ghost';
+    button.textContent = '편집';
+    button.addEventListener('click', () => openPolicyEditor(policy));
+    td.appendChild(button);
+    return td;
+}
+
+async function reloadPolicies() {
+    setPolicyMessage('');
+    try {
+        const collected = [];
+        let page = 0;
+        let totalPages = 1;
+        while (page < totalPages) {
+            const body = await call(`${POLICIES_API}?page=${page}&size=${PAGE_SIZE}`);
+            collected.push(...(body.data || []));
+            totalPages = (body.pageResponse && body.pageResponse.totalPages) || 1;
+            page += 1;
+        }
+        policies = collected;
+        renderPolicies();
+    } catch (error) {
+        setPolicyMessage(error.message);
+    }
+}
+
+function setPolicyMessage(text) {
+    const node = $('policy-message');
+    node.textContent = text;
+    node.hidden = !text;
+}
+
+// ---------------------------------------------------------------- 정책 편집
+
+function openPolicyEditor(policy) {
+    editingPolicy = policy;
+    const form = $('policy-form');
+
+    $('policy-editor-title').textContent = policy ? '지역 혜택 편집' : '지역 혜택 만들기';
+    $('policy-delete').hidden = !policy;
+    setPolicyError('');
+
+    form.type.value = (policy && policy.type) || POLICY_TYPES[0].value;
+    form.name.value = (policy && policy.name) || '';
+    form.benefitDetail.value = (policy && policy.benefitDetail) || '';
+    form.targetAudience.value = (policy && policy.targetAudience) || '';
+    form.applyUrl.value = (policy && policy.applyUrl) || '';
+    form.periodStart.value = (policy && policy.periodStart) || '';
+    form.periodEnd.value = (policy && policy.periodEnd) || '';
+    form.periodNote.value = (policy && policy.periodNote) || '';
+    form.checkedOn.value = (policy && policy.checkedOn) || '';
+    form.verified.checked = Boolean(policy && policy.verified);
+
+    refreshPolicyPreview();
+    $('policy-editor').showModal();
+}
+
+function readPolicyForm() {
+    const form = $('policy-form');
+    return {
+        type: form.type.value,
+        name: form.name.value.trim(),
+        benefitDetail: form.benefitDetail.value.trim(),
+        targetAudience: form.targetAudience.value.trim(),
+        applyUrl: form.applyUrl.value.trim(),
+        periodStart: form.periodStart.value,
+        periodEnd: form.periodEnd.value,
+        periodNote: form.periodNote.value.trim(),
+        checkedOn: form.checkedOn.value,
+        verified: form.verified.checked,
+    };
+}
+
+/** 빈 문자열은 null 로 — 서버에서 "안 보냄" 과 같은 뜻이어야 한다. */
+function toPolicyRequest(draft) {
+    return {
+        type: draft.type,
+        name: draft.name,
+        benefitDetail: emptyToNull(draft.benefitDetail),
+        targetAudience: emptyToNull(draft.targetAudience),
+        periodStart: emptyToNull(draft.periodStart),
+        periodEnd: emptyToNull(draft.periodEnd),
+        periodNote: emptyToNull(draft.periodNote),
+        applyUrl: emptyToNull(draft.applyUrl),
+        verified: Boolean(draft.verified),
+        checkedOn: emptyToNull(draft.checkedOn),
+    };
+}
+
+async function savePolicy() {
+    const draft = readPolicyForm();
+    setPolicyError('');
+
+    // 서버도 같은 것을 보지만, 여기서 먼저 잡으면 왕복 없이 그 자리에서 고칠 수 있다.
+    if (draft.periodStart && draft.periodEnd && draft.periodStart > draft.periodEnd) {
+        setPolicyError('시작일이 종료일보다 늦습니다. 그대로 두면 뱃지가 영영 안 뜹니다.');
+        return;
+    }
+
+    try {
+        const body = JSON.stringify(toPolicyRequest(draft));
+        if (editingPolicy) {
+            await call(`${POLICIES_API}/${editingPolicy.id}`, {method: 'PATCH', body});
+        } else {
+            await call(POLICIES_API, {method: 'POST', body});
+        }
+        $('policy-editor').close();
+        await reloadPolicies();
+    } catch (error) {
+        setPolicyError(error.message);
+    }
+}
+
+async function removePolicy() {
+    if (!editingPolicy || !confirm(`"${editingPolicy.name}" 을(를) 지웁니다. 되돌릴 수 없습니다.`)) {
+        return;
+    }
+    try {
+        await call(`${POLICIES_API}/${editingPolicy.id}`, {method: 'DELETE'});
+        $('policy-editor').close();
+        await reloadPolicies();
+    } catch (error) {
+        setPolicyError(error.message);
+    }
+}
+
+function setPolicyError(text) {
+    const node = $('policy-error');
+    node.textContent = text;
+    node.hidden = !text;
+}
+
+/**
+ * 미리보기 — **분류가 무엇을 함께 정하는지** 보여주는 것이 목적이다.
+ *
+ * 뱃지 문구와 대상 지역이 분류에 묶여 있는데, 폼에서는 select 하나로만 보인다. 고르는 순간 무엇이
+ * 따라 바뀌는지 옆에서 말해 주지 않으면 어드민이 그 사실을 모른 채 분류를 바꾼다.
+ */
+function refreshPolicyPreview() {
+    const draft = readPolicyForm();
+    const type = typeOf(draft.type);
+
+    $('policy-preview-badge').textContent = type ? type.badge : draft.type;
+    $('policy-preview-name').textContent = draft.name || '정책명';
+    $('policy-preview-detail').textContent = draft.benefitDetail;
+    $('policy-preview-detail').hidden = !draft.benefitDetail;
+
+    const scope = type ? `대상 지역: ${type.scope}` : '';
+    $('policy-type-note').textContent = scope;
+    $('policy-preview-note').textContent = draft.verified
+        ? scope
+        : '검증을 켜지 않아 앱에 나가지 않습니다.';
+}
+
 // ---------------------------------------------------------------- 시작
 
 function showOnly(sectionId) {
@@ -674,6 +971,20 @@ function bind() {
     $('thumb-tab-upload').addEventListener('click', () => showThumbTab('upload'));
     $('thumb-tab-url').addEventListener('click', () => showThumbTab('url'));
     $('thumb-file').addEventListener('change', uploadThumbnail);
+
+    fillTypeOptions();
+    consoleTabs().forEach((tab) => {
+        tab.addEventListener('click', () => showTab(tab.dataset.tab));
+    });
+    $('policy-reload').addEventListener('click', reloadPolicies);
+    $('new-policy').addEventListener('click', () => openPolicyEditor(null));
+    $('filter-type').addEventListener('change', renderPolicies);
+    $('filter-verified').addEventListener('change', renderPolicies);
+    $('policy-save').addEventListener('click', savePolicy);
+    $('policy-delete').addEventListener('click', removePolicy);
+    $('policy-cancel').addEventListener('click', () => $('policy-editor').close());
+    $('policy-editor-close').addEventListener('click', () => $('policy-editor').close());
+    $('policy-form').addEventListener('input', refreshPolicyPreview);
 
     $('copy-user-id').addEventListener('click', async () => {
         await navigator.clipboard.writeText($('my-user-id').textContent);

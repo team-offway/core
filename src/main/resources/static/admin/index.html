@@ -46,10 +46,15 @@
 <!-- 본 화면 -->
 <main id="console" hidden>
     <nav class="tabs">
-        <button type="button" class="tab is-active" data-tab="links">큐레이션 링크</button>
+        <button type="button" class="tab is-active" data-tab="links">바로가기 링크</button>
+        <button type="button" class="tab" data-tab="policies">지역 혜택</button>
     </nav>
 
     <section class="panel" id="tab-links">
+        <p class="panel-note">
+            <b>화면에 붙는 카드입니다.</b> 홈·지역·코스·장소 네 화면에 뜨고, 누르면 바깥 페이지가 열립니다.
+            <em>지역과 무관합니다</em> &mdash; 그 화면을 여는 사람 모두에게 같게 보입니다.
+        </p>
         <div class="toolbar">
             <label>
                 면
@@ -96,13 +101,60 @@
             순서를 바꾸면 그 자리에서 저장됩니다. 정렬 값은 같은 면 안에서만 뜻이 있습니다.
         </p>
     </section>
+
+    <section class="panel" id="tab-policies" hidden>
+        <p class="panel-note">
+            <b>지역에 붙는 혜택 뱃지입니다.</b> 7대 혜택이고, 누르면 대상·기간·신청법을 보는 상세 화면이
+            열립니다. <em>지역마다 다르게 보입니다</em> &mdash; 완도에서 보이는 것과 가평에서 보이는 것이
+            다릅니다.
+        </p>
+        <div class="toolbar">
+            <label>
+                분류
+                <select id="filter-type">
+                    <option value="">전체</option>
+                </select>
+            </label>
+            <label>
+                검증
+                <select id="filter-verified">
+                    <option value="">전체</option>
+                    <option value="true">검증됨 (앱에 나감)</option>
+                    <option value="false">미검증 (안 나감)</option>
+                </select>
+            </label>
+            <span class="spacer"></span>
+            <span class="count" id="policy-count"></span>
+            <button type="button" class="ghost" id="policy-reload">새로고침</button>
+            <button type="button" class="primary" id="new-policy">새로 만들기</button>
+        </div>
+
+        <p class="note" id="policy-message" hidden></p>
+
+        <table class="grid">
+            <thead>
+            <tr>
+                <th class="type-col">분류</th>
+                <th>정책명 / 뱃지</th>
+                <th class="period-col">기간</th>
+                <th class="checked-col">확인일</th>
+                <th class="state-col">노출</th>
+                <th class="action-col"></th>
+            </tr>
+            </thead>
+            <tbody id="policy-rows"></tbody>
+        </table>
+        <p class="note">
+            대상 지역은 분류가 정합니다 &mdash; 여기서 못 고칩니다. 참여 지자체 명단은 아직 배포로 관리합니다.
+        </p>
+    </section>
 </main>
 
 <!-- 편집 -->
 <dialog id="editor">
     <form method="dialog" id="editor-form">
         <header class="editor-head">
-            <h2 id="editor-title">큐레이션 링크</h2>
+            <h2 id="editor-title">바로가기 링크</h2>
             <button type="button" class="ghost" id="editor-close">닫기</button>
         </header>
 
@@ -200,6 +252,101 @@
             <span class="spacer"></span>
             <button type="button" class="ghost" id="cancel">취소</button>
             <button type="button" class="primary" id="save">저장</button>
+        </footer>
+    </form>
+</dialog>
+
+<!-- 정책 편집 -->
+<dialog id="policy-editor">
+    <form method="dialog" id="policy-form">
+        <header class="editor-head">
+            <h2 id="policy-editor-title">정책</h2>
+            <button type="button" class="ghost" id="policy-editor-close">닫기</button>
+        </header>
+
+        <div class="editor-body">
+            <div class="fields">
+                <label>
+                    분류 <span class="required">필수</span>
+                    <select name="type" id="policy-type"></select>
+                    <small class="counter" id="policy-type-note"></small>
+                </label>
+
+                <label>
+                    정책명 <span class="required">필수</span>
+                    <input name="name" maxlength="100" required>
+                </label>
+
+                <label>
+                    혜택 상세
+                    <textarea name="benefitDetail" maxlength="500" rows="3"></textarea>
+                    <small class="counter">사용자에게 그대로 보입니다.</small>
+                </label>
+
+                <label>
+                    대상
+                    <input name="targetAudience" maxlength="200">
+                </label>
+
+                <label>
+                    신청 주소
+                    <input name="applyUrl" maxlength="500" placeholder="https://">
+                    <small class="counter">https 만 받습니다. 비우면 뱃지가 눌리지 않습니다.</small>
+                </label>
+
+                <fieldset>
+                    <legend>노출 기간</legend>
+                    <div class="row">
+                        <label>시작일 <input type="date" name="periodStart"></label>
+                        <label>종료일 <input type="date" name="periodEnd"></label>
+                    </div>
+                    <label>
+                        기간 보충 문구
+                        <input name="periodNote" maxlength="200">
+                    </label>
+                    <small class="counter">
+                        <b>종료일을 비우면 끝나지 않습니다.</b> 지자체마다 기간이 다르면 바깥 경계를 넣고
+                        사정은 보충 문구로 적습니다.
+                    </small>
+                </fieldset>
+
+                <div class="row">
+                    <label>
+                        출처 확인일
+                        <input type="date" name="checkedOn">
+                    </label>
+                    <label class="inline pull-down">
+                        <input type="checkbox" name="verified"> 검증됨 &mdash; 앱에 노출
+                    </label>
+                </div>
+                <small class="counter">
+                    확인일은 낡음 알림이 읽는 값입니다. 값을 고칠 때 오늘 날짜로 함께 갱신하세요.
+                </small>
+
+                <p class="error" id="policy-error" hidden></p>
+            </div>
+
+            <aside class="preview">
+                <h3>앱에서 이렇게 보입니다</h3>
+                <div class="card">
+                    <div class="card-body">
+                        <span class="card-chip" id="policy-preview-badge">뱃지</span>
+                        <p class="card-title" id="policy-preview-name">정책명</p>
+                        <p class="card-desc" id="policy-preview-detail"></p>
+                    </div>
+                </div>
+                <p class="note" id="policy-preview-note"></p>
+                <p class="note">
+                    <b>뱃지 문구는 분류가 정합니다.</b> 여기서 직접 못 바꾸고, 분류를 바꾸면 함께 바뀝니다.
+                </p>
+            </aside>
+        </div>
+
+        <footer class="editor-foot">
+            <button type="button" class="danger" id="policy-delete" hidden>삭제</button>
+            <span class="spacer"></span>
+            <button type="button" class="ghost" id="policy-cancel">취소</button>
+            <button type="button" class="primary" id="policy-save">저장</button>
         </footer>
     </form>
 </dialog>
