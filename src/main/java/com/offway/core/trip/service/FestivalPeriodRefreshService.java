@@ -9,8 +9,10 @@ import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourFestival;
 import com.offway.core.trip.infrastructure.tour.dto.TourFestivalResult;
 import com.offway.core.trip.repository.FestivalPeriodRepository;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Period;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,7 +68,7 @@ public class FestivalPeriodRefreshService {
     private static final String BOOT_CHECK_INTERVAL = "P7D";
 
     /** 이 주기 안에 이미 돌았으면 건너뛴다 — 재배포가 한도를 다시 태우지 않게. */
-    private static final java.time.Duration RUN_INTERVAL = java.time.Duration.ofDays(7);
+    private static final Duration RUN_INTERVAL = Duration.ofDays(7);
 
     private static final String BATCH_NAME = "festival-period-refresh";
 
@@ -90,6 +92,19 @@ public class FestivalPeriodRefreshService {
     /** 첫 페이지 번호 — TourAPI 는 1부터다. */
     private static final int FIRST_PAGE = 1;
 
+    /**
+     * 오늘에서 얼마나 되돌아볼 것인가(#388).
+     *
+     * <p><b>오늘을 기준으로 부르면 진행 중인 축제가 통째로 빠진다.</b> {@code eventStartDate} 는 "이
+     * 날짜 이후에 <b>시작</b>하는" 행사를 주므로, 지난주에 시작해 다음 주까지 하는 축제가 조회에 안 잡힌다.
+     * 그러면 그 축제는 기간을 모르는 채로 남고 — 하필 <b>여행 중에 실제로 열리는</b> 축제가 그렇다.
+     *
+     * <p>3개월로 잡았다. 대부분의 지역 축제가 며칠에서 몇 주라 넉넉하고, 범위를 넓힐수록 받아 오는
+     * 건수가 늘어 페이지 상한에 먼저 걸린다. 이보다 긴 축제는 여전히 빠지는데, 그건 상한 경고와 첫
+     * 실행의 {@code totalCount} 를 보고 다시 정한다.
+     */
+    private static final Period LOOKBACK = Period.ofMonths(3);
+
     private final TourApiClient tourApiClient;
     private final FestivalPeriodRepository festivalPeriodRepository;
     private final BatchRunRepository batchRunRepository;
@@ -103,8 +118,12 @@ public class FestivalPeriodRefreshService {
                 log.info("축제 기간을 최근 {}일 안에 이미 받아 갱신을 건너뜁니다", RUN_INTERVAL.toDays());
                 return;
             }
-            batchRunRepository.markStarted(BATCH_NAME, now);
-            refresh(LocalDate.now(SERVICE_ZONE));
+            // **성공한 회차만 기록한다.** 부르기 전에 적으면 첫 페이지가 깨진 날에도 7일을 건너뛴다 —
+            // 한 번의 일시적 실패로 축제 기간이 일주일 낡는다. 이 배치는 회차당 열 콜 남짓이라
+            // 다시 시도하는 비용이 그 위험보다 훨씬 싸다(지역 장소 풀은 267콜이라 반대로 판단했다).
+            if (refresh(LocalDate.now(SERVICE_ZONE).minus(LOOKBACK)) > 0) {
+                batchRunRepository.markStarted(BATCH_NAME, now);
+            }
         });
     }
 
@@ -139,11 +158,13 @@ public class FestivalPeriodRefreshService {
         }
 
         List<TourFestival> collected = new ArrayList<>(first.items());
+        int failedPages = 0;
         for (int page = FIRST_PAGE + 1; page <= pagesToRead; page++) {
             try {
                 collected.addAll(tourApiClient.findFestivals(from, page, ROWS_PER_PAGE).items());
             } catch (RuntimeException e) {
                 // 한 페이지가 깨져도 받은 것은 저장한다 — 전부 버리면 이번 주 내내 기간을 모른다.
+                failedPages++;
                 log.warn("축제 기간 페이지 조회 실패 page={} cause={}", page, RootCause.label(e));
             }
         }
@@ -152,8 +173,41 @@ public class FestivalPeriodRefreshService {
         int saved = festivalPeriodRepository.upsertAll(collected.stream()
                 .map(festival -> toEntity(festival, fetchedAt))
                 .toList());
-        log.info("축제 기간 저장 완료 받은건수={} 저장={}건", collected.size(), saved);
+        int removed = removeCancelled(collected, from, pagesToRead, totalPages, failedPages);
+        log.info("축제 기간 저장 완료 받은건수={} 저장={}건 취소정리={}건", collected.size(), saved, removed);
         return saved;
+    }
+
+    /**
+     * 취소된 축제를 걷어낸다 — <b>온전히 훑은 회차에서만</b>(#388).
+     *
+     * <h2>왜 필요한가</h2>
+     *
+     * <p>TourAPI 가 취소된 축제를 더 이상 안 주면 upsert 만으로는 <b>옛 행이 그대로 남는다.</b> 저장된
+     * 미래 기간에는 {@code isOpenOn} 이 계속 참이라, 열리지도 않는 축제를 코스에 넣게 된다.
+     *
+     * <h2>왜 조건이 붙나</h2>
+     *
+     * <p>페이지 상한에 걸렸거나 한 페이지라도 실패했으면 <b>"이번에 안 온 것 = 취소됨" 이 성립하지
+     * 않는다.</b> 그때 지우면 멀쩡한 축제를 우리가 없앤다 — 조용히, 되돌릴 수 없게.
+     *
+     * <p>범위도 {@code from} 이후로 좁힌다. 이번 조회가 그 날짜부터 시작하는 축제만 봤으므로, 그보다
+     * 앞서 끝난 옛 행까지 지우면 보지도 않은 것을 없다고 단정하는 셈이다.
+     */
+    private int removeCancelled(
+            List<TourFestival> collected, LocalDate from, int pagesToRead, int totalPages, int failedPages) {
+        if (totalPages > pagesToRead || failedPages > 0) {
+            log.info("이번 회차는 온전하지 않아 취소 정리를 건너뜁니다 전체페이지={} 읽음={} 실패={}",
+                    totalPages, pagesToRead, failedPages);
+            return 0;
+        }
+        List<String> kept = collected.stream().map(TourFestival::contentId).toList();
+        int removed = festivalPeriodRepository.deleteMissingFrom(kept, from);
+        if (removed > 0) {
+            // 지운 것은 반드시 남긴다 — 축제가 화면에서 사라진 이유를 나중에 설명할 수 있어야 한다.
+            log.info("이번 조회에 없어 취소로 보고 지웠습니다 {}건", removed);
+        }
+        return removed;
     }
 
     private static FestivalPeriod toEntity(TourFestival festival, LocalDateTime fetchedAt) {

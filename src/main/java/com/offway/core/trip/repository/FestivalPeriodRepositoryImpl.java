@@ -1,6 +1,7 @@
 package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.FestivalPeriod;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.Map;
 import java.util.function.Function;
@@ -41,5 +42,19 @@ public class FestivalPeriodRepositoryImpl implements FestivalPeriodRepository {
             return 0;
         }
         return jpaRepository.saveAll(periods).size();
+    }
+
+    /**
+     * <b>빈 목록이면 아무것도 안 지운다.</b> {@code NOT IN ()} 은 SQL 로 성립하지 않고, 성립한다 해도
+     * 그 뜻은 "전부 지운다" 다 — 조회가 0건이었다는 것은 외부가 이상했다는 신호이지 축제가 전멸했다는
+     * 뜻이 아니다.
+     */
+    @Override
+    @Transactional
+    public int deleteMissingFrom(Collection<String> keptContentIds, LocalDate minEventEnd) {
+        if (keptContentIds.isEmpty()) {
+            return 0;
+        }
+        return jpaRepository.deleteMissingFrom(keptContentIds, minEventEnd);
     }
 }
