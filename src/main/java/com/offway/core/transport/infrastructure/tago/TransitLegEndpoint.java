@@ -43,9 +43,10 @@ enum TransitLegEndpoint {
     }
 
     /**
-     * 수단에 대응하는 계약. 열차는 여기 없다 — {@link TrainInfoClient} 가 시각까지 답하는 별도 경로다.
+     * 수단에 대응하는 계약. 열차와 자차는 여기 없다 — 열차는 {@link TrainInfoClient} 가 시각까지 답하는
+     * 별도 경로고, 자차는 구간이라는 개념 자체가 없다(#379).
      *
-     * @throws IllegalArgumentException 열차를 넘긴 경우(불변식 — 호출부가 걸러야 한다)
+     * @throws IllegalArgumentException 열차·자차를 넘긴 경우(불변식 — 호출부가 걸러야 한다)
      */
     static TransitLegEndpoint of(TransitMode mode) {
         return switch (mode) {
@@ -53,6 +54,7 @@ enum TransitLegEndpoint {
             case INTERCITY_BUS -> INTERCITY_BUS;
             case FERRY -> FERRY;
             case TRAIN -> throw new IllegalArgumentException("열차는 TrainInfoClient 가 담당합니다.");
+            case CAR -> throw new IllegalArgumentException("자차는 구간 조회 대상이 아닙니다.");
         };
     }
 

@@ -1,6 +1,7 @@
 package com.offway.core.transport.service.dto;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -130,5 +131,47 @@ class RegionAccessTest {
         RegionAccess 버스 = RegionAccess.pointOnly(시외버스(읍내_터미널)).withDuration(150);
 
         assertSame(버스, 버스.withDuration(150));
+    }
+
+    @Test
+    void 자차는_지역_자체가_도착_지점이다() {
+        // 역·터미널·항구가 아니라 지역으로 바로 간다. 여기가 비면 화면이 카드를 통째로 접는다(#379).
+        RegionAccess 자차 = RegionAccess.car("완도", 완도군청, 210, 350);
+
+        assertEquals(TransitMode.CAR, 자차.mode());
+        assertEquals("완도", 자차.toName());
+        assertEquals(완도군청, 자차.arrivalPoint().orElseThrow());
+        assertEquals(210, 자차.durationMinutes());
+        assertEquals(350, 자차.distanceKm());
+    }
+
+    @Test
+    void 자차는_출발_지점명을_지어내지_않는다() {
+        // 서버는 출발지를 좌표로만 받아 그곳을 뭐라고 부르는지 모른다. 빈 문자열로 채우면 화면이 "출발: " 로 뜬다.
+        assertNull(RegionAccess.car("완도", 완도군청, 210, 350).fromName());
+    }
+
+    @Test
+    void 자차는_나서는_시각에_이동시간을_얹어_도착을_안다() {
+        // 운행 편이 없어도 도착 시각을 아는 유일한 수단이다 — 그래서 상태가 AVAILABLE 이다.
+        RegionAccess 자차 = RegionAccess.car("완도", 완도군청, 210, 350);
+
+        assertEquals(RegionAccess.Status.AVAILABLE, 자차.status());
+        assertEquals(
+                LocalDateTime.of(2026, 9, 1, 11, 30),
+                자차.arrivalAt(여행일, LocalTime.of(8, 0)).orElseThrow());
+    }
+
+    @Test
+    void 자차에는_대안이_없다() {
+        // 자차로 가기로 한 사용자에게 "시외버스로도 갈 수 있다" 를 늘어놓는 것은 정보가 아니다.
+        assertTrue(RegionAccess.car("완도", 완도군청, 210, 350).alternatives().isEmpty());
+    }
+
+    @Test
+    void 같은_거리를_다시_얹으면_새_객체를_만들지_않는다() {
+        RegionAccess 버스 = RegionAccess.pointOnly(시외버스(읍내_터미널)).withDistanceKm(300);
+
+        assertSame(버스, 버스.withDistanceKm(300));
     }
 }

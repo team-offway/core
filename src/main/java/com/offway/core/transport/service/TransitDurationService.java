@@ -34,8 +34,9 @@ public class TransitDurationService {
      */
     @Transactional
     public Optional<Integer> minutesFor(TransitMode mode, String depCode, String arrCode, LocalDateTime now) {
-        if (mode == TransitMode.TRAIN) {
-            // 열차는 실제 시각을 직접 답하므로 이 표를 쓰지 않는다. 넣어 두면 안 쓰이는 행만 쌓인다.
+        if (mode == TransitMode.TRAIN || mode == TransitMode.CAR) {
+            // 이 표를 쓰지 않는 수단이다 — 열차는 실제 시각을 직접 답하고, 자차는 구간이라는 개념이 없다.
+            // 걸러내지 않으면 아무도 안 읽는 행이 쌓이고, 배치가 그것을 재려고 외부 한도를 태운다.
             return Optional.empty();
         }
         Optional<TransitLegDuration> found = transitLegDurationRepository.find(mode, depCode, arrCode);

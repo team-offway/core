@@ -40,8 +40,9 @@ import java.util.Map;
  * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근. <b>null 은 오류가 아니다</b> — 자차 코스이거나,
  *     출발지 없이 저장된 코스(저장 요청에 {@code originLat}·{@code originLng} 를 안 보낸 경우)다. 저장 코스도
  *     출발지가 있으면 조회 시점에 다시 계산해 채운다(#187)
- * @param transitAccess 대중교통 코스일 때 지역 도착 정보(#97) — 무엇을 타고 어디에 내리는가. {@code trainAccess} 를
- *     대체한다. 열차가 아닌 수단(버스·여객선)으로 닿는 지역은 여기에만 값이 있다
+ * @param transitAccess 지역 도착 정보(#97 · #379) — 무엇을 타고 어디에 내리는가. {@code trainAccess} 를 대체한다.
+ *     열차·고속버스·시외버스·여객선에 <b>자차까지</b> 한 모양으로 담는다. null 은 지역 좌표를 모르거나
+ *     출발지 없이 저장된 코스라는 뜻이고, 그건 오류가 아니다
  * @param curatedLinks 외부 페이지로 나가는 창구(#341). 코스 상세에 켜진 것만, 정렬 순으로.
  *     <b>없으면 빈 목록</b>이라 아래 NON_NULL 규칙과 무관하게 키가 항상 있다
  */
@@ -78,8 +79,9 @@ public record CourseResponse(
                         nullable = true)
                 TrainAccessResponse trainAccess,
         @Schema(
-                        description = "대중교통 코스의 지역 도착 정보(#97) — 열차·고속버스·시외버스·여객선을 한 모양으로. "
-                                + "trainAccess 를 대체한다 (자차·저장 코스는 null)",
+                        description = "지역 도착 정보(#97·#379) — 열차·고속버스·시외버스·여객선·자차를 한 모양으로. "
+                                + "trainAccess 를 대체한다. "
+                                + "출발지 없이 저장된 코스에서만 null 이다",
                         nullable = true)
                 TransitAccessResponse transitAccess,
         @Schema(
@@ -145,8 +147,8 @@ public record CourseResponse(
                                 slotBenefits(generated)))
                         .toList())
                 .benefits(generated.benefits().stream().map(Benefit::from).toList())
-                .trainAccess(TrainAccessResponse.from(generated.trainAccess()))
-                .transitAccess(TransitAccessResponse.from(generated.trainAccess()))
+                .trainAccess(TrainAccessResponse.from(generated.regionAccess()))
+                .transitAccess(TransitAccessResponse.from(generated.regionAccess()))
                 .shareToken(generated.shareToken())
                 .firstDayChange(generated.firstDayChange() == null ? null : generated.firstDayChange().name())
                 .curatedLinks(CuratedLinkResponse.from(curatedLinks))
@@ -451,8 +453,8 @@ public record CourseResponse(
      * <p>수단이 더 늘어도 응답 모양이 안 변하게 {@code mode} 로 가른다. 필드명에서 Station 을 걷은 것도 같은
      * 이유다 — 도착 지점은 역일 수도, 터미널일 수도, 항구일 수도 있다.
      *
-     * @param mode TRAIN · EXPRESS_BUS · INTERCITY_BUS · FERRY
-     * @param modeLabel 화면에 그대로 쓸 한글 수단명(열차·고속버스·시외버스·여객선)
+     * @param mode TRAIN · EXPRESS_BUS · INTERCITY_BUS · FERRY · CAR
+     * @param modeLabel 화면에 그대로 쓸 한글 수단명(열차·고속버스·시외버스·여객선·자차)
      * @param status AVAILABLE(운행 편 있음, 도착 시각까지 앎) · POINT_ONLY(도착 지점만 앎) ·
      *     NO_STATION(닿는 지점 없음) · NO_SERVICE_ON_DATE(그날 미운행) · UNAVAILABLE(조회 실패)
      * @param fromPlace 출발 지점명(역·터미널·항구, 없으면 null)
@@ -460,6 +462,8 @@ public record CourseResponse(
      * @param vehicleType 운행 편의 등급(AVAILABLE 일 때만, 예: KTX)
      * @param durationMinutes 소요시간(분). 열차는 실제 편에서, 버스·여객선은 저장해 둔 구간 측정값에서 온다.
      *     <b>기다리는 시간은 안 들어 있다</b> — 버스·여객선은 시간표를 못 물어 다음 편까지의 대기를 모른다
+     * @param distanceKm 출발지에서 도착 지점까지의 <b>직선거리</b>(㎞, 모르면 null). 화면이 소요시간 옆에
+     *     "· 200km" 로 붙인다(#379). 실제 주행거리가 아니다
      * @param alternatives 대표 말고 이 지역에 닿는 다른 수단들(#97). <b>없으면 빈 배열</b>이라 키가 항상 있다.
      *     해석되지 않은 수단은 담지 않는다 — 갈 수 없는 선택지를 늘어놓는 것은 정보가 아니다
      */
@@ -472,6 +476,7 @@ public record CourseResponse(
             @Schema(example = "정선", nullable = true) String toPlace,
             @Schema(example = "KTX", nullable = true) String vehicleType,
             @Schema(example = "150", nullable = true) Integer durationMinutes,
+            @Schema(example = "200", nullable = true) Integer distanceKm,
             List<TransitOptionResponse> alternatives) {
 
         static TransitAccessResponse from(RegionAccess access) {
@@ -494,6 +499,7 @@ public record CourseResponse(
                     // Integer 면 삼항 전체가 int 로 언박싱돼, 소요시간을 모르는 코스마다 NPE 가 난다.
                     .durationMinutes(
                             hasLeg ? Integer.valueOf(access.fastest().durationMinutes()) : access.durationMinutes())
+                    .distanceKm(access.distanceKm())
                     .alternatives(access.alternatives().stream().map(TransitOptionResponse::from).toList())
                     .build();
         }

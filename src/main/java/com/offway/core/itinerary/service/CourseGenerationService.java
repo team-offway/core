@@ -104,18 +104,18 @@ public class CourseGenerationService {
         // 지역은 날씨·열차 접근 양쪽이 쓴다 — 한 번만 읽는다(#129).
         Region region = regionRepository.findByIds(List.of(command.regionId())).stream().findFirst().orElse(null);
 
-        // 대중교통이면 출발지→지역 열차 접근을 여기서 조회한다(자차는 TMAP 실측이라 불필요). 부가 정보라 실패해도 코스는 그대로.
+        // 지역까지 무엇을 타고 가서 어디에 닿는지. 부가 정보라 실패해도 코스는 그대로다.
         // 슬롯 배치보다 앞서야 한다 — 동선의 기준점과 1일차 시작 시간대가 이 결과에서 나온다(#127).
-        RegionAccess trainAccess =
-                command.transport() == TransportMode.TRANSIT ? trainAccessFor(command, region) : null;
+        // 자차도 만든다(#379) — 예전에는 여기서 null 이라 화면의 교통 카드가 통째로 비었다.
+        RegionAccess regionAccess = regionAccessFor(command, region);
 
         // ⑤⑦ interim: 기준점 최근접 정렬(동선) → 하루씩 순서대로 슬라이스하면 가까운 곳끼리 묶인다
         List<PoiCandidate> orderedSights =
-                nearestNeighborOrder(sights, command.transport(), regionAnchor(command, trainAccess));
+                nearestNeighborOrder(sights, command.transport(), regionAnchor(command, regionAccess));
 
         // ⑥ 슬롯 배치 → ⑨ 조립. 첫날은 도착 시각 이후 남는 시간대만 쓴다.
         List<DaySchedule> days =
-                buildDays(command, firstDayStart(command, region, trainAccess), orderedSights, foods, stays);
+                buildDays(command, firstDayStart(command, regionAccess), orderedSights, foods, stays);
         // 기간은 days.size() 가 아니라 **요청한 일수**다. 일정이 없는 날은 코스에서 빠지므로(#159) 둘이 갈린다 —
         // 첫날이 이동뿐이어도 그날은 여행 중이고, 연차도 그만큼 나간다(#164).
         Course course = Course.of(
@@ -133,14 +133,19 @@ public class CourseGenerationService {
         // 광역 구역 단위 중기예보가 답한다(#129). 부가 정보라 미조회·실패·예보범위 밖인 Day 는 그냥 빈다.
         Map<Integer, DailyWeather> weatherByDay = courseWeatherProvider.byDay(course, region, hub);
 
-        log.debug("코스 생성 regionId={} days={} slots={} benefits={} weatherDays={} trainAccess={}",
+        log.debug("코스 생성 regionId={} days={} slots={} benefits={} weatherDays={} regionAccess={}",
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
-                weatherByDay.size(), trainAccess != null ? trainAccess.status() : "N/A");
+                weatherByDay.size(), regionAccess != null ? regionAccess.status() : "N/A");
         // 공유 토큰은 저장한 코스에만 있다 — 아직 저장 전이라 null 이다(#143).
-        return new GeneratedCourse(
-                course, benefits, weatherByDay, trainAccess, region == null ? null : region.getSigungu(),
+        return GeneratedCourse.builder()
+                .course(course)
+                .benefits(benefits)
+                .weatherByDay(weatherByDay)
+                .regionAccess(regionAccess)
+                .regionName(region == null ? null : region.getSigungu())
                 // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
-                openingHoursProvider.forCourse(course), null, null);
+                .hoursByContentId(openingHoursProvider.forCourse(course))
+                .build();
     }
 
     /**
@@ -207,9 +212,13 @@ public class CourseGenerationService {
     }
 
     /** 대중교통 코스의 출발지→지역 열차 접근. 출발·지역 좌표의 최근접 역으로 해석한다. */
-    private RegionAccess trainAccessFor(GenerateCourse command, Region region) {
+    private RegionAccess regionAccessFor(GenerateCourse command, Region region) {
         if (region == null) {
             return null;
+        }
+        if (command.transport() != TransportMode.TRANSIT) {
+            return regionAccessService.carAccessTo(
+                    region.shortName(), command.originLat(), command.originLng(), region.getLat(), region.getLng());
         }
         return regionAccessService.accessTo(
                 command.originLat(), command.originLng(),
@@ -224,13 +233,17 @@ public class CourseGenerationService {
      * 실제로는 경주역에 내려 거기서 움직이므로 동선이 반대로 짜인다.
      *
      * <p>역이 없거나(오지) 접근 조회가 실패해 도착 지점을 모르면 출발지로 되돌아간다 — 이전과 같은 동작이라 회귀가 없다.
+     *
+     * <p><b>수단으로 가른다. 접근 값이 있느냐로 가르지 않는다.</b> #379 로 자차에도 접근 값이 생겼는데,
+     * 그 값의 도착 지점은 지역 중심이다. 있고 없고로 가르면 자차 동선이 출발지가 아니라 지역 중심에서
+     * 시작하도록 조용히 바뀐다 — 이 PR 이 건드리려던 것이 아니다.
      */
-    private static Coordinate regionAnchor(GenerateCourse command, RegionAccess trainAccess) {
+    private static Coordinate regionAnchor(GenerateCourse command, RegionAccess regionAccess) {
         Coordinate origin = new Coordinate(command.originLat(), command.originLng());
-        if (trainAccess == null) {
+        if (command.transport() != TransportMode.TRANSIT || regionAccess == null) {
             return origin;
         }
-        return trainAccess.arrivalPoint().orElse(origin);
+        return regionAccess.arrivalPoint().orElse(origin);
     }
 
     /**
@@ -243,35 +256,16 @@ public class CourseGenerationService {
      * <p>역 없음·그날 운행 없음·조회 실패는 여전히 하루 전부다. 모르는 것을 늦은 도착으로 단정하면 조회 실패가
      * 조용히 코스를 깎는다 — degrade 가 정상처럼 보이는 최악의 형태다.
      */
-    private DayStart firstDayStart(GenerateCourse command, Region region, RegionAccess trainAccess) {
-        if (trainAccess == null) {
-            return carFirstDayStart(command, region);
+    private DayStart firstDayStart(GenerateCourse command, RegionAccess regionAccess) {
+        if (regionAccess == null) {
+            return DayStart.fullDay(); // 지역 좌표를 모른다 — 도착 시각의 기준점이 없다
         }
         // 버스·여객선은 시간표를 못 물어 실제 편이 없다 — 대신 저장해 둔 소요시간을 출발 시각에 얹는다(#107).
-        return trainAccess.arrivalAt(command.travelDate(), command.startDayLeave().departureTime())
+        // 자차도 같은 계산이다(#379). 예전에는 이 자리에 자차 전용 경로가 따로 있었는데, 둘이 같은 식을
+        // 각자 쓰고 있어 한쪽만 고치면 조용히 갈라졌다.
+        return regionAccess.arrivalAt(command.travelDate(), command.startDayLeave().departureTime())
                 .map(arriveAt -> DayStart.afterArriving(command.travelDate(), arriveAt))
                 .orElseGet(DayStart::fullDay);
-    }
-
-    /**
-     * 자차 첫날 — 집을 나서는 시각에 지역까지의 이동시간을 얹어 도착 시각을 만든다.
-     *
-     * <p><b>외부 호출이 코스 하나에 1건 늘어난다</b>({@code travelTimeProvider}). 이미 장소 정렬에 쓰는 같은
-     * provider 이고 캐시를 타므로, 같은 (출발지, 지역) 조합이면 다시 부르지 않는다. 키·한도가 없을 때는 직선거리
-     * 폴백이 값을 채운다 — 그래도 하루 전부로 되돌아가지는 않는다.
-     *
-     * <p>지역 좌표를 모르면 하루 전부다. 이동시간의 기준점이 없어 도착 시각을 지어낼 수밖에 없다.
-     */
-    private DayStart carFirstDayStart(GenerateCourse command, Region region) {
-        if (region == null) {
-            return DayStart.fullDay();
-        }
-        Coordinate origin = new Coordinate(command.originLat(), command.originLng());
-        Coordinate destination = new Coordinate(region.getLat(), region.getLng());
-        int minutes = travelTimeProvider.reachMinutes(origin, destination, command.transport());
-        LocalDateTime arriveAt = LocalDateTime.of(command.travelDate(), command.startDayLeave().departureTime())
-                .plusMinutes(minutes);
-        return DayStart.afterArriving(command.travelDate(), arriveAt);
     }
 
     /** 기준점에서 가장 가까운 곳부터 이어붙이는 그리디 정렬(하루 묶기용). 하루 내부 순서는 TMAP 경유지 최적화로 다시 다듬는다. */
