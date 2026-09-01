@@ -99,21 +99,32 @@ IAM 자격증명은 코드가 만들 수 없다.
 브라우저가 **우리 서버가 아니라 S3 로 직접** `PUT` 하므로, 버킷이 우리 도메인을 허용해야 한다. 이걸
 빼면 발급까지는 성공하고 업로드만 조용히 막힌다 — 콘솔에만 CORS 오류가 뜬다.
 
+**이미 규칙이 있다(확인 2026-09-01).** `PUT` 도 허용돼 있고 `AllowedHeaders` 가 `*` 라 서명이 요구하는
+`Content-Type` 도 통과한다. **빠진 것은 origin 하나** — 백오피스가 뜨는 `https://api.offway.cloud` 다.
+
+**규칙을 갈아치우지 말고 `AllowedOrigins` 배열에만 더한다.**
+
 ```json
 [
-  {
-    "AllowedOrigins": ["https://api.offway.cloud"],
-    "AllowedMethods": ["PUT"],
-    "AllowedHeaders": ["Content-Type"],
-    "MaxAgeSeconds": 3000
-  }
+    {
+        "AllowedHeaders": ["*"],
+        "AllowedMethods": ["PUT", "GET", "HEAD"],
+        "AllowedOrigins": [
+            "https://offway.cloud",
+            "https://www.offway.cloud",
+            "https://api.offway.cloud",
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://localhost:8080"
+        ],
+        "ExposeHeaders": ["ETag"],
+        "MaxAgeSeconds": 3000
+    }
 ]
 ```
 
-`AllowedHeaders` 에 `Content-Type` 이 있어야 한다. 서명에 그 헤더가 들어 있어 브라우저가 반드시 보낸다.
-
-> 로컬(`http://localhost:8080`)에서도 시험하려면 그 origin 을 함께 넣는다. 운영 버킷에 로컬 origin 을
-> 남겨 두지 않는다.
+`http://localhost:8080` 은 로컬에서 백오피스를 띄워 업로드를 시험할 때만 필요하다. 이 버킷은 이미
+`5173`·`3000` 을 받고 있어 관례가 서 있지만, 원치 않으면 그 줄만 빼면 된다.
 
 ## 4. 환경변수
 
