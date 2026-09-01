@@ -437,9 +437,14 @@ public class CourseStorageService {
                 courseWeatherProvider.byDay(course, region, course.center().orElse(null));
         // 생성 응답에만 붙고 상세 조회에는 없으면 저장한 코스에서 값이 사라진다(#169 와 같은 실수).
         // 공유 토큰은 조립이 아니라 영속 경계에서 온다 — 필요한 호출자가 withShareToken 으로 얹는다(#143).
-        return new GeneratedCourse(
-                course, benefits, weatherByDay, regionAccess, region == null ? null : region.getSigungu(),
+        return GeneratedCourse.builder()
+                .course(course)
+                .benefits(benefits)
+                .weatherByDay(weatherByDay)
+                .regionAccess(regionAccess)
+                .regionName(region == null ? null : region.getSigungu())
                 // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
-                openingHoursProvider.forCourse(course), null, null);
+                .hoursByContentId(openingHoursProvider.forCourse(course))
+                .build();
     }
 }

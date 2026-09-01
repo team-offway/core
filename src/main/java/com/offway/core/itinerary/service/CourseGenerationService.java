@@ -137,10 +137,15 @@ public class CourseGenerationService {
                 command.regionId(), course.getTravelDays(), course.totalSlots(), benefits.size(),
                 weatherByDay.size(), regionAccess != null ? regionAccess.status() : "N/A");
         // 공유 토큰은 저장한 코스에만 있다 — 아직 저장 전이라 null 이다(#143).
-        return new GeneratedCourse(
-                course, benefits, weatherByDay, regionAccess, region == null ? null : region.getSigungu(),
+        return GeneratedCourse.builder()
+                .course(course)
+                .benefits(benefits)
+                .weatherByDay(weatherByDay)
+                .regionAccess(regionAccess)
+                .regionName(region == null ? null : region.getSigungu())
                 // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
-                openingHoursProvider.forCourse(course), null, null);
+                .hoursByContentId(openingHoursProvider.forCourse(course))
+                .build();
     }
 
     /**

@@ -40,8 +40,9 @@ import java.util.Map;
  * @param trainAccess 대중교통 코스일 때 출발지→지역 열차 접근. <b>null 은 오류가 아니다</b> — 자차 코스이거나,
  *     출발지 없이 저장된 코스(저장 요청에 {@code originLat}·{@code originLng} 를 안 보낸 경우)다. 저장 코스도
  *     출발지가 있으면 조회 시점에 다시 계산해 채운다(#187)
- * @param transitAccess 대중교통 코스일 때 지역 도착 정보(#97) — 무엇을 타고 어디에 내리는가. {@code trainAccess} 를
- *     대체한다. 열차가 아닌 수단(버스·여객선)으로 닿는 지역은 여기에만 값이 있다
+ * @param transitAccess 지역 도착 정보(#97 · #379) — 무엇을 타고 어디에 내리는가. {@code trainAccess} 를 대체한다.
+ *     열차·고속버스·시외버스·여객선에 <b>자차까지</b> 한 모양으로 담는다. null 은 지역 좌표를 모르거나
+ *     출발지 없이 저장된 코스라는 뜻이고, 그건 오류가 아니다
  * @param curatedLinks 외부 페이지로 나가는 창구(#341). 코스 상세에 켜진 것만, 정렬 순으로.
  *     <b>없으면 빈 목록</b>이라 아래 NON_NULL 규칙과 무관하게 키가 항상 있다
  */
@@ -78,8 +79,9 @@ public record CourseResponse(
                         nullable = true)
                 TrainAccessResponse trainAccess,
         @Schema(
-                        description = "대중교통 코스의 지역 도착 정보(#97) — 열차·고속버스·시외버스·여객선을 한 모양으로. "
-                                + "trainAccess 를 대체한다 (자차·저장 코스는 null)",
+                        description = "지역 도착 정보(#97·#379) — 열차·고속버스·시외버스·여객선·자차를 한 모양으로. "
+                                + "trainAccess 를 대체한다. "
+                                + "출발지 없이 저장된 코스에서만 null 이다",
                         nullable = true)
                 TransitAccessResponse transitAccess,
         @Schema(
@@ -145,8 +147,8 @@ public record CourseResponse(
                                 slotBenefits(generated)))
                         .toList())
                 .benefits(generated.benefits().stream().map(Benefit::from).toList())
-                .trainAccess(TrainAccessResponse.from(generated.trainAccess()))
-                .transitAccess(TransitAccessResponse.from(generated.trainAccess()))
+                .trainAccess(TrainAccessResponse.from(generated.regionAccess()))
+                .transitAccess(TransitAccessResponse.from(generated.regionAccess()))
                 .shareToken(generated.shareToken())
                 .firstDayChange(generated.firstDayChange() == null ? null : generated.firstDayChange().name())
                 .curatedLinks(CuratedLinkResponse.from(curatedLinks))
