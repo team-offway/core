@@ -21,5 +21,9 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "playwright@claude-plugins-official": true,
+    "taste-skill@taste-skill": true
   }
 }
