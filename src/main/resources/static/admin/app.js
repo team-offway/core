@@ -557,6 +557,11 @@ async function uploadThumbnail(event) {
         return;
     }
 
+    // 파일을 고른 순간 세대를 올린다 — 크기 검사보다 **앞**이어야 한다. 뒤에 두면 5MB 초과 파일을
+    // 골라 여기서 되돌아갈 때 앞 업로드의 세대가 그대로 살아, 그것이 끝나면서 "올렸습니다" 와 주소를
+    // 지금 폼에 얹는다. 방금 거절당한 파일이 올라간 것처럼 보인다.
+    const generation = (thumbUploadGeneration += 1);
+
     // 서버도 같은 것을 보지만, 여기서 먼저 잡으면 5MB 를 올려 보고 나서야 거절당하는 일이 없다.
     if (file.size > MAX_THUMB_BYTES) {
         setThumbStatus('이미지가 너무 큽니다. 5MB 이하로 올려 주세요.', true);
@@ -564,7 +569,6 @@ async function uploadThumbnail(event) {
         return;
     }
 
-    const generation = (thumbUploadGeneration += 1);
     setThumbStatus('올리는 중…');
     try {
         const ticket = await call(UPLOADS_API, {
