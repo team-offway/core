@@ -182,6 +182,10 @@ jobs:
           PROVIDER_TOKEN_KEY_BASE64=${{ secrets.PROVIDER_TOKEN_KEY_BASE64 }}
           PROVIDER_TOKEN_KEY_VERSION=${{ secrets.PROVIDER_TOKEN_KEY_VERSION }}
           FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}
+          S3_BUCKET=${{ secrets.S3_BUCKET }}
+          S3_ACCESS_KEY=${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY=${{ secrets.S3_SECRET_KEY }}
+          S3_PUBLIC_BASE_URL=${{ secrets.S3_PUBLIC_BASE_URL }}
           ENVEOF
           scp -i ~/.ssh/deploy_key env.prod \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/offway/env.prod"
