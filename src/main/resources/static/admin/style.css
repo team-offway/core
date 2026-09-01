@@ -424,6 +424,27 @@ legend {
     font-weight: 700;
 }
 
+/* 썸네일 — 올리기와 주소 붙여넣기를 탭으로 가른다(#377). 결과는 어느 쪽이든 thumbnailUrl 한 칸이다. */
+.tabs {
+    display: flex;
+    gap: 4px;
+}
+
+.tab {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    background: transparent;
+    border: 1px solid var(--line);
+}
+
+.tab.is-on {
+    color: var(--ink);
+    border-color: var(--accent);
+}
+
 .note {
     color: var(--ink-soft);
     font-size: 12px;
