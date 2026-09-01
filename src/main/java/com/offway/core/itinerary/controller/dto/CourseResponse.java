@@ -12,6 +12,7 @@ import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.itinerary.service.dto.OwnedCourse;
 import lombok.Builder;
 import com.offway.core.itinerary.service.dto.SlotHours;
+import com.offway.core.trip.domain.FestivalPeriod;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.service.dto.RegionAccess;
@@ -144,6 +145,7 @@ public record CourseResponse(
                                 generated.weatherByDay().get(course.getDays().get(i).getDayNumber()),
                                 course.distanceFromPrevDayMeters(i),
                                 generated.hoursByContentId(),
+                                generated.festivalPeriodByContentId(),
                                 slotBenefits(generated)))
                         .toList())
                 .benefits(generated.benefits().stream().map(Benefit::from).toList())
@@ -248,6 +250,7 @@ public record CourseResponse(
         static Day from(
                 DaySchedule schedule, LocalDate travelDate, String regionName, DailyWeather weather,
                 Integer distanceFromPrevDayMeters, Map<String, SlotHours> hoursByContentId,
+                Map<String, FestivalPeriod> festivalPeriodByContentId,
                 Map<SlotKind, String> slotBenefits) {
             // 표시 번호가 아니라 달력 오프셋으로 센다 — 첫날이 빠진 코스에서 하루 앞당겨지지 않게(#159).
             LocalDate date = travelDate == null ? null : travelDate.plusDays(schedule.getDayOffset());
@@ -255,6 +258,7 @@ public record CourseResponse(
             List<Item> items = IntStream.range(0, slots.size())
                     .mapToObj(i -> Item.from(slots.get(i), schedule.distanceFromPrevMeters(i), regionName,
                             hoursByContentId.get(slots.get(i).getPoiContentId()),
+                            festivalPeriodByContentId.get(slots.get(i).getPoiContentId()),
                             benefitFor(slots.get(i), slotBenefits)))
                     .toList();
             return new Day(
@@ -335,10 +339,17 @@ public record CourseResponse(
             int travelMinutes,
             @Schema(description = "앞 장소와의 직선거리(m). 첫 장소는 null", example = "8300", nullable = true)
                     Integer distanceFromPrevMeters,
-            @Schema(description = "코스 지역의 짧은 이름", example = "정선군", nullable = true) String regionName) {
+            @Schema(description = "코스 지역의 짧은 이름", example = "정선군", nullable = true) String regionName,
+            @Schema(description = """
+                    축제가 열리는 기간(#388). **축제 슬롯이면서 기간을 아는 경우에만** 실린다.
+
+                    그날 안 하는 축제는 후보에서 이미 빠졌으므로, 여기 실리는 것은 여행일에 열리는
+                    축제다. 값이 필요한 이유는 **며칠까지 하는가** 다 — 1박 2일로 갔는데 축제가 첫날로
+                    끝나면 둘째 날 일정이 헛돈다.""",
+                    example = "2026-09-12 ~ 2026-09-14", nullable = true) String festivalPeriod) {
 
         static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName,
-                SlotHours hours, String benefit) {
+                SlotHours hours, FestivalPeriod festival, String benefit) {
             return new Item(
                     slot.getOrderInDay(),
                     slot.getTimeOfDay().name(),
@@ -359,7 +370,18 @@ public record CourseResponse(
                     slot.getLng(),
                     slot.getTravelMinutesFromPrev(),
                     distanceFromPrevMeters,
-                    regionName);
+                    regionName,
+                    periodTextOf(festival));
+        }
+
+        /**
+         * 화면에 그대로 쓸 기간 문구 — 없으면 {@code null} 이라 필드 자체가 사라진다.
+         *
+         * <p>서버가 문자열로 만들어 내린다. 날짜 둘을 내리고 앱이 조립하면 <b>같은 규칙이 두 곳</b>에
+         * 생기고, 화면마다 표기가 갈린다.
+         */
+        private static String periodTextOf(FestivalPeriod festival) {
+            return festival == null ? null : festival.getEventStart() + " ~ " + festival.getEventEnd();
         }
     }
 

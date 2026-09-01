@@ -6,6 +6,7 @@ import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
+import com.offway.core.trip.domain.FestivalPeriod;
 import java.util.Map;
 import lombok.Builder;
 
@@ -35,6 +36,13 @@ public record GeneratedCourse(
         RegionAccess regionAccess,
         String regionName,
         Map<String, SlotHours> hoursByContentId,
+        /**
+         * 축제 슬롯의 행사 기간(#388) — <b>기간을 아는 축제만</b> 키가 있다.
+         *
+         * <p>후보를 고를 때 그날 안 하는 축제는 이미 뺐다. 여기 실리는 것은 "며칠까지 하는가" 이고,
+         * 1박 2일로 갔는데 축제가 첫날로 끝나는 경우를 사용자가 미리 알게 한다.
+         */
+        Map<String, FestivalPeriod> festivalPeriodByContentId,
         String shareToken,
         FirstDayChange firstDayChange) {
 
@@ -42,6 +50,8 @@ public record GeneratedCourse(
         benefits = List.copyOf(benefits);
         weatherByDay = weatherByDay == null ? Map.of() : Map.copyOf(weatherByDay);
         hoursByContentId = hoursByContentId == null ? Map.of() : Map.copyOf(hoursByContentId);
+        festivalPeriodByContentId =
+                festivalPeriodByContentId == null ? Map.of() : Map.copyOf(festivalPeriodByContentId);
     }
 
     /** 날씨·지역 접근 없이(목록 조회 등). 지역명은 슬롯 표시에 쓰이므로 저장 코스도 채운다. */
