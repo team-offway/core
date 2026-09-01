@@ -18,7 +18,7 @@ public class LeaveUsageRepositoryImpl implements LeaveUsageRepository {
 
     @Override
     public List<LeaveUsage> findByUserId(UUID userId) {
-        return jpaRepository.findByUserIdOrderByUsedOnDescIdDesc(userId);
+        return jpaRepository.findByUserIdOrderByCreatedAtDescIdDesc(userId);
     }
 
     @Override
