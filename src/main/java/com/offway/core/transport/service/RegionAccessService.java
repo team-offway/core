@@ -81,12 +81,17 @@ public class RegionAccessService {
      * 지역을 골랐다. 코스 상세에서만 그 값이 사라지던 셈이다.
      *
      * <p>이동시간 조회는 캐시를 탄다. 같은 (출발지, 지역) 조합이면 코스 안에서 다시 부르지 않는다.
+     *
+     * @param originName 출발지 표시명(#382) — 서버가 좌표에서 만들 수 없어 저장된 값을 그대로 받는다.
+     *     모르면 null 이고 화면은 그 조각만 접는다
      */
-    public RegionAccess carAccessTo(String regionName, double originLat, double originLng, double destLat, double destLng) {
+    public RegionAccess carAccessTo(
+            String originName, String regionName, double originLat, double originLng, double destLat, double destLng) {
         Coordinate origin = new Coordinate(originLat, originLng);
         Coordinate destination = new Coordinate(destLat, destLng);
         int minutes = travelTimeProvider.reachMinutes(origin, destination, TransportMode.CAR);
-        return RegionAccess.car(regionName, destination, minutes, distanceKm(origin, Optional.of(destination)));
+        return RegionAccess.car(
+                originName, regionName, destination, minutes, distanceKm(origin, Optional.of(destination)));
     }
 
     /**

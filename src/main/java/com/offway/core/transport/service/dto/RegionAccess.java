@@ -153,17 +153,19 @@ public record RegionAccess(
     /**
      * 자차로 지역까지(#379). 도착 지점이 <b>지역 그 자체</b>라 역·터미널을 해석할 것이 없다.
      *
-     * <p>출발 지점명은 담지 않는다 — 서버는 출발지를 <b>좌표로만</b> 받아 그곳을 뭐라고 부르는지 모른다.
-     * 지어내느니 비워 두고, 화면이 아는 이름을 쓰게 한다.
+     * <p><b>출발 지점명은 받아서 그대로 싣는다</b>(#382). 서버는 좌표를 이름으로 바꾸지 못하므로 지어내지
+     * 않는다 — 앱이 저장할 때 실어 보낸 값이 여기까지 온다. 모르면 null 이고 화면은 그 조각만 접는다.
      *
      * <p>상태가 {@link Status#AVAILABLE} 인 이유는 <b>언제 닿는지를 알기 때문</b>이다. 열차처럼 운행 편이
      * 있어서가 아니라, 자차는 나서는 시각에 이동시간을 얹으면 그대로 도착 시각이 된다.
      */
-    public static RegionAccess car(String regionName, Coordinate region, int durationMinutes, Integer distanceKm) {
+    public static RegionAccess car(
+            String originName, String regionName, Coordinate region, int durationMinutes, Integer distanceKm) {
         Objects.requireNonNull(region, "지역 좌표는 null 일 수 없습니다.");
         return RegionAccess.builder()
                 .mode(TransitMode.CAR)
                 .status(Status.AVAILABLE)
+                .fromName(originName)
                 .toName(regionName)
                 .toPoint(region)
                 .durationMinutes(durationMinutes)

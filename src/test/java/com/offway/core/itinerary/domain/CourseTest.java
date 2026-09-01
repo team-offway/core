@@ -45,11 +45,14 @@ class CourseTest {
     @Test
     void 공유전용_코스는_주인이_없고_출발지는_받는다() {
         Course course = Course.sharedOnly(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 2)),
-                LocalDate.of(2026, 9, 12), 1, new Coordinate(37.55, 126.97), StartDayLeave.FULL_DAY);
+                LocalDate.of(2026, 9, 12), 1,
+                Origin.of(new Coordinate(37.55, 126.97), "서울"), StartDayLeave.FULL_DAY);
 
         assertNull(course.getUserId());
         assertEquals(42L, course.getRegionId());
         assertTrue(course.origin().isPresent());
+        // 좌표와 이름이 한 몸으로 돌아온다(#382) — 이름만 있는 출발지는 의미가 없다.
+        assertEquals("서울", course.origin().orElseThrow().name());
     }
 
     /** 링크로 열리는 코스가 담은 코스보다 느슨하면, 같은 구성이 한쪽에서만 통과한다. */

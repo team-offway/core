@@ -217,8 +217,11 @@ public class CourseGenerationService {
             return null;
         }
         if (command.transport() != TransportMode.TRANSIT) {
+            // 생성 응답에는 출발지 이름이 없다(#382). 이름은 저장 요청으로 들어오고, 카드가 뜨는 곳도
+            // 저장 코스 상세다 — 추천 화면에서는 이 카드를 감춘다. 없는 값을 지어내지 않는다.
             return regionAccessService.carAccessTo(
-                    region.shortName(), command.originLat(), command.originLng(), region.getLat(), region.getLng());
+                    null, region.shortName(),
+                    command.originLat(), command.originLng(), region.getLat(), region.getLng());
         }
         return regionAccessService.accessTo(
                 command.originLat(), command.originLng(),
