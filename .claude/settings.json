@@ -23,15 +23,6 @@
     ]
   },
   "enabledPlugins": {
-    "playwright@claude-plugins-official": true,
-    "taste-skill@taste-skill": true
-  },
-  "extraKnownMarketplaces": {
-    "taste-skill": {
-      "source": {
-        "source": "github",
-        "repo": "leonxlnx/taste-skill"
-      }
-    }
+    "playwright@claude-plugins-official": true
   }
 }
