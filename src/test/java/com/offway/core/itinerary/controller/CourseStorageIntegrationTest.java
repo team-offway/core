@@ -655,7 +655,13 @@ class CourseStorageIntegrationTest {
     }
 
     private static String carBody(boolean withOrigin) {
-        String origin = withOrigin ? "\"originLat\": 37.5547, \"originLng\": 126.9707," : "";
+        return carBody(withOrigin, null);
+    }
+
+    /** 출발지 이름을 함께 싣는 자차 코스(#382). {@code originName} 이 null 이면 그 줄을 안 보낸다. */
+    private static String carBody(boolean withOrigin, String originName) {
+        String name = originName == null ? "" : "\"originName\": \"%s\",".formatted(originName);
+        String origin = withOrigin ? "\"originLat\": 37.5547, \"originLng\": 126.9707," + name : "";
         return """
                 { "regionId": 16, "density": "PACKED", "transport": "CAR",
                   "travelDate": "2026-09-11", %s "days": [
@@ -683,6 +689,41 @@ class CourseStorageIntegrationTest {
                 .andExpect(jsonPath("$.data.transitAccess.alternatives").isEmpty())
                 // 옛 필드는 열차만 담기로 했다 — 자차가 여기 실리면 화면이 "역 없음" 으로 읽는다
                 .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
+    }
+
+    @Test
+    void 자차_카드에_출발지_이름이_실린다() throws Exception {
+        // 서버는 좌표를 이름으로 바꾸지 못한다 — 저장할 때 앱이 실어 보낸 값을 그대로 되돌려준다(#382).
+        long courseId = save(carBody(true, "서울"));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("CAR"))
+                .andExpect(jsonPath("$.data.transitAccess.fromPlace").value("서울"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"));
+    }
+
+    @Test
+    void 출발지_이름을_안_보내도_자차_카드는_뜬다() throws Exception {
+        // 지오코딩이 실패했거나 이 필드를 모르는 앱이다. 이름만 빠지고 시간·거리는 그대로 나간다.
+        long courseId = save(carBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("CAR"))
+                .andExpect(jsonPath("$.data.transitAccess.fromPlace").doesNotExist())
+                .andExpect(jsonPath("$.data.transitAccess.durationMinutes").isNumber());
+    }
+
+    @Test
+    void 이름이_너무_길어도_저장을_막지_않고_이름만_버린다() throws Exception {
+        // 화면 한 줄을 채우는 곁가지 값 때문에 코스 담기가 실패하면 주객이 뒤집힌다.
+        long courseId = save(carBody(true, "가".repeat(50)));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.fromPlace").doesNotExist())
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"));
     }
 
     @Test

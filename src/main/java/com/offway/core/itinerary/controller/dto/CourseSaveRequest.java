@@ -5,6 +5,7 @@ import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.domain.ItineraryException;
+import com.offway.core.itinerary.domain.Origin;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SlotKind;
@@ -33,6 +34,9 @@ import java.util.function.Function;
  * @param transport 이동수단
  * @param originLat 출발지 위도(대중교통 열차 접근 재계산용, 없으면 null)
  * @param originLng 출발지 경도(없으면 null)
+ * @param originName 출발지 표시명(#382). 자차 코스의 "서울에서 출발" 을 그리는 값이다. 서버는 좌표를
+ *     이름으로 바꾸지 못해 앱이 역지오코딩해 보낸다. <b>없어도 되고</b>, 길이가 넘거나 공백뿐이면
+ *     거절하지 않고 이름만 버린다 — 곁가지 값 때문에 담기가 실패하면 주객이 뒤집힌다
  * @param days 날짜별 일정(최소 1일)
  */
 public record CourseSaveRequest(
@@ -62,6 +66,13 @@ public record CourseSaveRequest(
                 Double originLat,
         @Schema(description = "출발지 경도. originLat 와 짝.", example = "126.9780", nullable = true)
                 Double originLng,
+        @Schema(
+                        description = "출발지 표시명. 자차 코스 상세의 '서울에서 출발' 에 쓴다. "
+                                + "시·도/시·군 단위의 짧은 이름을 보낸다(접미사 없이). "
+                                + "20자를 넘거나 비어 있으면 거절하지 않고 이름만 버린다.",
+                        example = "서울",
+                        nullable = true)
+                String originName,
         @Schema(
                         description = "첫날에 쓴 연차 (생성 요청에 보낸 값을 그대로 돌려준다). 상세·날짜 수정이 "
                                 + "열차 접근을 다시 계산할 때 이 값이 근거가 된다. 생략하면 FULL_DAY",
@@ -104,7 +115,7 @@ public record CourseSaveRequest(
      * 연속성 등)은 도메인이 던지고, 여기서 계약 예외(400)로 번역한다. 입력 경계가 계약 검증을
      * 소유하므로 이 매핑에서 400 을 확정한다.
      */
-    private Course build(Function<Coordinate, Course> factory) {
+    private Course build(Function<Origin, Course> factory) {
         try {
             // 출발지는 위도·경도가 함께여야 좌표가 된다. 한쪽만 오면 조용히 버리지 않고 거절한다 —
             // 클라이언트는 출발지를 보냈다고 여기는데 저장 코스에서 열차 접근이 비고, 그 이유를 알 수 없다.
@@ -112,7 +123,9 @@ public record CourseSaveRequest(
             if ((originLat == null) != (originLng == null)) {
                 throw new IllegalArgumentException("출발지는 위도·경도를 함께 보내야 합니다");
             }
-            return factory.apply(originLat == null ? null : new Coordinate(originLat, originLng));
+            // 이름은 좌표가 있을 때만 의미가 있다 — 이름만 온 것은 출발지가 아니다(#382).
+            return factory.apply(
+                    originLat == null ? null : Origin.of(new Coordinate(originLat, originLng), originName));
         } catch (IllegalArgumentException e) {
             throw ItineraryException.invalidCourse();
         }

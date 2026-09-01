@@ -136,7 +136,7 @@ class RegionAccessTest {
     @Test
     void 자차는_지역_자체가_도착_지점이다() {
         // 역·터미널·항구가 아니라 지역으로 바로 간다. 여기가 비면 화면이 카드를 통째로 접는다(#379).
-        RegionAccess 자차 = RegionAccess.car("완도", 완도군청, 210, 350);
+        RegionAccess 자차 = RegionAccess.car("서울", "완도", 완도군청, 210, 350);
 
         assertEquals(TransitMode.CAR, 자차.mode());
         assertEquals("완도", 자차.toName());
@@ -146,15 +146,21 @@ class RegionAccessTest {
     }
 
     @Test
-    void 자차는_출발_지점명을_지어내지_않는다() {
-        // 서버는 출발지를 좌표로만 받아 그곳을 뭐라고 부르는지 모른다. 빈 문자열로 채우면 화면이 "출발: " 로 뜬다.
-        assertNull(RegionAccess.car("완도", 완도군청, 210, 350).fromName());
+    void 자차도_출발_지점명을_싣는다() {
+        // 서버가 좌표에서 만들지는 못하고, 저장할 때 앱이 실어 보낸 값을 그대로 되돌려준다(#382).
+        assertEquals("서울", RegionAccess.car("서울", "완도", 완도군청, 210, 350).fromName());
+    }
+
+    @Test
+    void 출발_지점명을_모르면_비워_둔다() {
+        // 지오코딩이 실패했거나 이 필드를 모르는 앱이다. 지어내면 화면이 틀린 지명을 보여준다.
+        assertNull(RegionAccess.car(null, "완도", 완도군청, 210, 350).fromName());
     }
 
     @Test
     void 자차는_나서는_시각에_이동시간을_얹어_도착을_안다() {
         // 운행 편이 없어도 도착 시각을 아는 유일한 수단이다 — 그래서 상태가 AVAILABLE 이다.
-        RegionAccess 자차 = RegionAccess.car("완도", 완도군청, 210, 350);
+        RegionAccess 자차 = RegionAccess.car("서울", "완도", 완도군청, 210, 350);
 
         assertEquals(RegionAccess.Status.AVAILABLE, 자차.status());
         assertEquals(
@@ -165,7 +171,7 @@ class RegionAccessTest {
     @Test
     void 자차에는_대안이_없다() {
         // 자차로 가기로 한 사용자에게 "시외버스로도 갈 수 있다" 를 늘어놓는 것은 정보가 아니다.
-        assertTrue(RegionAccess.car("완도", 완도군청, 210, 350).alternatives().isEmpty());
+        assertTrue(RegionAccess.car("서울", "완도", 완도군청, 210, 350).alternatives().isEmpty());
     }
 
     @Test

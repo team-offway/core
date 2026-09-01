@@ -342,7 +342,10 @@ public class CourseStorageService {
             // 자차도 카드를 그린다(#379). 저장 코스라 출발지를 기억해 둔 경우에만 답할 수 있다.
             return course.origin()
                     .map(origin -> regionAccessService.carAccessTo(
-                            region.shortName(), origin.lat(), origin.lng(), region.getLat(), region.getLng()))
+                            // 저장할 때 앱이 실어 보낸 이름을 그대로 되돌려준다(#382). 없으면 null 이고
+                            // 화면은 "서울에서 출발" 한 줄만 접는다.
+                            origin.name(), region.shortName(),
+                            origin.lat(), origin.lng(), region.getLat(), region.getLng()))
                     .orElse(null);
         }
         // 이 필드가 생기기 전에 저장된 코스는 근거가 없다. 지어내지 않는다.

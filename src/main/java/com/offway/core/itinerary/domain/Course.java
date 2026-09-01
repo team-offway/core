@@ -29,6 +29,7 @@ import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import lombok.AccessLevel;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -104,6 +105,16 @@ public class Course {
     private Double originLng;
 
     /**
+     * 출발지 표시명(#382) — 화면이 "서울에서 출발" 로 쓴다.
+     *
+     * <p><b>좌표에서 도출할 수 없다.</b> 역지오코딩이 필요한데 그건 앱이 기기 내장으로 하고, 서버가
+     * 하려면 외부 호출이 하나 더 는다. 그래서 앱이 저장할 때 실어 보낸 값을 그대로 들고 있다가
+     * 상세에서 되돌려준다. 없으면 null 이고 그건 오류가 아니다.
+     */
+    @Column(name = "origin_name", length = Origin.MAX_NAME_LENGTH)
+    private String originName;
+
+    /**
      * 소유 사용자 ID(저장된 코스만) — 인증으로 확인된 값이라 요청이 소유자를 자칭할 수 없다(#280).
      *
      * <p><b>null 이 정상인 코스가 있다.</b> 생성만 된 코스와, 담지 않고 링크만 만든 공유 전용 코스
@@ -134,6 +145,12 @@ public class Course {
     @OrderBy("dayNumber")
     private List<DaySchedule> days;
 
+    /**
+     * <b>이름으로만 조립한다.</b> 열한 칸 중 {@code originLat}·{@code originLng}·{@code originName} 이
+     * 나란히 서고, 출발지가 없는 코스에서는 그 셋이 전부 {@code null} 로 들어간다 — 위치로 넘기면 몇 번째
+     * 칸을 비우는 중인지 세어야 하고, 하나 어긋나도 컴파일이 통과한다.
+     */
+    @Builder(access = AccessLevel.PRIVATE)
     private Course(
             UUID userId,
             Long regionId,
@@ -144,6 +161,7 @@ public class Course {
             int travelDays,
             Double originLat,
             Double originLng,
+            String originName,
             StartDayLeave startDayLeave) {
         if (days == null || days.isEmpty()) {
             throw new IllegalArgumentException("코스에는 하루 이상이 있어야 합니다");
@@ -163,6 +181,7 @@ public class Course {
         this.travelDate = travelDate;
         this.originLat = originLat;
         this.originLng = originLng;
+        this.originName = originName;
         this.startDayLeave = startDayLeave;
     }
 
@@ -189,8 +208,15 @@ public class Course {
             LocalDate travelDate,
             int travelDays,
             StartDayLeave startDayLeave) {
-        return new Course(
-                null, regionId, density, transport, days, travelDate, travelDays, null, null, startDayLeave);
+        return Course.builder()
+                .regionId(regionId)
+                .density(density)
+                .transport(transport)
+                .days(days)
+                .travelDate(travelDate)
+                .travelDays(travelDays)
+                .startDayLeave(startDayLeave)
+                .build();
     }
 
     /**
@@ -206,11 +232,10 @@ public class Course {
             List<DaySchedule> days,
             LocalDate travelDate,
             int travelDays,
-            Coordinate origin,
+            Origin origin,
             StartDayLeave startDayLeave) {
         Objects.requireNonNull(userId, "사용자 ID는 필수입니다");
-        return new Course(userId, regionId, density, transport, days, travelDate, travelDays,
-                origin == null ? null : origin.lat(), origin == null ? null : origin.lng(), startDayLeave);
+        return build(userId, regionId, density, transport, days, travelDate, travelDays, origin, startDayLeave);
     }
 
     /**
@@ -233,10 +258,40 @@ public class Course {
             List<DaySchedule> days,
             LocalDate travelDate,
             int travelDays,
-            Coordinate origin,
+            Origin origin,
             StartDayLeave startDayLeave) {
-        return new Course(null, regionId, density, transport, days, travelDate, travelDays,
-                origin == null ? null : origin.lat(), origin == null ? null : origin.lng(), startDayLeave);
+        return build(null, regionId, density, transport, days, travelDate, travelDays, origin, startDayLeave);
+    }
+
+    /**
+     * 두 팩토리가 공유하는 조립 — <b>출발지를 푸는 자리를 하나로 둔다</b>.
+     *
+     * <p>좌표와 이름을 세 칸으로 흩는 곳이 여기 하나뿐이라, {@code Origin} 에 칸이 늘어도 고칠 데가 한
+     * 군데다. 예전에는 같은 삼항 세 줄이 두 팩토리에 복사돼 있었다.
+     */
+    private static Course build(
+            UUID userId,
+            Long regionId,
+            Density density,
+            TransportMode transport,
+            List<DaySchedule> days,
+            LocalDate travelDate,
+            int travelDays,
+            Origin origin,
+            StartDayLeave startDayLeave) {
+        return Course.builder()
+                .userId(userId)
+                .regionId(regionId)
+                .density(density)
+                .transport(transport)
+                .days(days)
+                .travelDate(travelDate)
+                .travelDays(travelDays)
+                .originLat(origin == null ? null : origin.lat())
+                .originLng(origin == null ? null : origin.lng())
+                .originName(origin == null ? null : origin.name())
+                .startDayLeave(startDayLeave)
+                .build();
     }
 
     /**
@@ -244,11 +299,11 @@ public class Course {
      *
      * @return 출발지. 자차 코스이거나 이 필드가 생기기 전에 저장된 코스면 empty
      */
-    public Optional<Coordinate> origin() {
+    public Optional<Origin> origin() {
         if (originLat == null || originLng == null) {
             return Optional.empty();
         }
-        return Optional.of(new Coordinate(originLat, originLng));
+        return Optional.of(new Origin(new Coordinate(originLat, originLng), originName));
     }
 
     /**
