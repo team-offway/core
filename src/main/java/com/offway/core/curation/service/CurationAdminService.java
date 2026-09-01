@@ -25,6 +25,14 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class CurationAdminService {
 
+    /**
+     * 지운 행이 없다 — <b>없던 것을 지우라는 요청</b>이다.
+     *
+     * <p>숫자 {@code 0} 자체는 자명하지만, 이 비교가 답하는 질문("있었나")은 자명하지 않다. 이름을 붙여
+     * 삭제 계약이 코드에 남게 한다.
+     */
+    private static final int NO_ROWS_DELETED = 0;
+
     private final CuratedLinkRepository curatedLinkRepository;
     private final AdminAccountService adminAccountService;
 
@@ -79,7 +87,7 @@ public class CurationAdminService {
      */
     @Transactional
     public void delete(long id, UUID adminUserId) {
-        if (curatedLinkRepository.deleteById(id) == 0) {
+        if (curatedLinkRepository.deleteById(id) == NO_ROWS_DELETED) {
             throw CurationException.linkNotFound();
         }
         log.info("큐레이션 링크 삭제 id={} by={}", id, labelOf(adminUserId));

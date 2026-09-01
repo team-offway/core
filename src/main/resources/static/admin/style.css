@@ -211,7 +211,7 @@ main {
 .surface-col { width: 130px; }
 .order-col { width: 52px; }
 .state-col { width: 64px; }
-.action-col { width: 64px; }
+.action-col { width: 72px; }
 
 .thumb img {
     width: 56px;
@@ -521,4 +521,41 @@ legend {
     .editor-body {
         grid-template-columns: 1fr;
     }
+}
+
+/* ---------------------------------------------------------------- 탭 설명 */
+
+/*
+ * 각 탭이 무엇을 다루는지 한 줄로 말한다.
+ *
+ * "바로가기 링크" 와 "지역 혜택" 은 이름만으로 구분이 안 된다 — 둘 다 앱에 내보내는 외부 링크이고,
+ * 팀원이 어느 탭에서 고쳐야 하는지 헷갈린다. 진짜 차이(화면에 붙나 지역에 붙나)를 여기서 말한다.
+ */
+.panel-note {
+    margin: 0 0 14px;
+    padding: 10px 14px;
+    background: #f4f7fb;
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    color: var(--ink-soft);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.panel-note b {
+    color: var(--ink);
+}
+
+.panel-note em {
+    font-style: normal;
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.type-col { width: 150px; }
+.checked-col { width: 96px; }
+
+/* 좁은 칸에서 "편집" 이 두 글자로 접히지 않게 — 버튼은 줄바꿈하지 않는다. */
+.grid td button {
+    white-space: nowrap;
 }
