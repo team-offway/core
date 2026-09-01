@@ -853,6 +853,24 @@ function toPolicyRequest(draft) {
     };
 }
 
+/**
+ * https 이고 호스트가 있는 주소인가 — 서버의 `Policy.requireHttpsOrNull` 과 같은 판정이다.
+ *
+ * **접두사 비교가 아니라 파싱이다.** 앞자리만 보면 호스트 없는 `https://` 가 통과하고 대문자
+ * `HTTPS://` 는 거절된다 — 스킴은 대소문자를 가리지 않는다.
+ *
+ * 서버가 다시 보므로 이 검사가 없어도 안전하다. 여기 두는 이유는 **왕복 없이 그 자리에서 고칠 수 있게**
+ * 하는 것뿐이다.
+ */
+function isHttpsUrl(value) {
+    try {
+        const url = new URL(value);
+        return url.protocol === 'https:' && Boolean(url.hostname);
+    } catch (e) {
+        return false;
+    }
+}
+
 async function savePolicy() {
     const draft = readPolicyForm();
     setPolicyError('');
@@ -860,6 +878,10 @@ async function savePolicy() {
     // 서버도 같은 것을 보지만, 여기서 먼저 잡으면 왕복 없이 그 자리에서 고칠 수 있다.
     if (draft.periodStart && draft.periodEnd && draft.periodStart > draft.periodEnd) {
         setPolicyError('시작일이 종료일보다 늦습니다. 그대로 두면 뱃지가 영영 안 뜹니다.');
+        return;
+    }
+    if (draft.applyUrl && !isHttpsUrl(draft.applyUrl)) {
+        setPolicyError('신청 주소는 https 로 시작하는 올바른 주소여야 합니다.');
         return;
     }
 
