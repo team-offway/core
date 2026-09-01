@@ -50,19 +50,47 @@ public class PolicyAlertService {
     /** 정책 기간도 사람의 아침도 한국 기준이다. */
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
+    /** 매일 아침 9시 5분 — 자정에 보내면 어차피 아침에 본다. 정각을 피해 다른 배치와 겹치지 않게 했다. */
+    private static final String EXPIRY_CRON = "0 5 9 * * *";
+
+    /** 월요일 아침 — 한 주에 한 번 밀린 것을 본다. 예고와 10분 벌려 한꺼번에 쏟아지지 않게 했다. */
+    private static final String NEGLECT_CRON = "0 15 9 * * MON";
+
     private final PolicyRepository policyRepository;
     private final Notifier notifier;
 
-    /** 매일 아침 9시 5분 — 자정에 보내면 어차피 아침에 본다. 정각을 피해 다른 배치와 겹치지 않게 했다. */
-    @Scheduled(cron = "0 5 9 * * *", zone = "Asia/Seoul")
-    public void notifyExpiring() {
-        send("정책 종료 예고", true);
+    /**
+     * 알림 종류 — <b>제목과 담을 것을 한 몸으로</b> 든다.
+     *
+     * <p>둘을 따로 넘기면 {@code send("정책 종료 예고", false)} 처럼 <b>제목과 실제 내용이 어긋난 조합도
+     * 컴파일된다.</b> 받는 사람은 제목을 믿고 읽으므로, 그 어긋남은 "종료 예고" 라며 미검증 정책을
+     * 보여주는 형태로 나타난다.
+     */
+    enum AlertKind {
+
+        /** 곧 끝나는 정책 — 날마다 보되 정해진 예고일에만 걸린다. */
+        EXPIRY("정책 종료 예고", true),
+
+        /** 끝났거나 미검증이거나 확인이 낡은 것 — 고칠 때까지 계속 걸리므로 주 1회로 묶는다. */
+        NEGLECT("손봐야 할 정책", false);
+
+        private final String title;
+        private final boolean expiryNotice;
+
+        AlertKind(String title, boolean expiryNotice) {
+            this.title = title;
+            this.expiryNotice = expiryNotice;
+        }
     }
 
-    /** 월요일 아침 — 한 주에 한 번 밀린 것을 본다. */
-    @Scheduled(cron = "0 15 9 * * MON", zone = "Asia/Seoul")
+    @Scheduled(cron = EXPIRY_CRON, zone = "Asia/Seoul")
+    public void notifyExpiring() {
+        send(AlertKind.EXPIRY);
+    }
+
+    @Scheduled(cron = NEGLECT_CRON, zone = "Asia/Seoul")
     public void notifyNeglected() {
-        send("손봐야 할 정책", false);
+        send(AlertKind.NEGLECT);
     }
 
     /**
@@ -72,20 +100,20 @@ public class PolicyAlertService {
      * self-invocation 이라 프록시를 안 탄다 — 붙여 봐야 동작하지 않고, 동작하는 것처럼 보이는 표시만
      * 남는다. 조회 한 번이라 Spring Data 가 여는 트랜잭션으로 충분하다.
      *
-     * @param expiryNotice 종료 예고만 담을지, 그 밖의 방치만 담을지
+     * @param kind 무엇을 담을지 — 제목이 그것과 함께 온다
      */
-    void send(String title, boolean expiryNotice) {
+    void send(AlertKind kind) {
         LocalDate today = LocalDate.now(SERVICE_ZONE);
         List<PolicyAlert.Entry> entries =
-                PolicyAlert.entriesOf(policyRepository.findAll(), today, expiryNotice);
+                PolicyAlert.entriesOf(policyRepository.findAll(), today, kind.expiryNotice);
 
-        PolicyAlert.of(title, entries, today)
+        PolicyAlert.of(kind.title, entries, today)
                 .ifPresentOrElse(
                         alert -> {
                             notifier.send(alert.message());
-                            log.info("정책 점검 알림 — {} {}건", title, entries.size());
+                            log.info("정책 점검 알림 — {} {}건", kind.title, entries.size());
                         },
                         // 0건도 남긴다 — 배치가 돌았는지, 왜 조용한지를 로그만으로 답할 수 있어야 한다.
-                        () -> log.debug("정책 점검 — {} 없음", title));
+                        () -> log.debug("정책 점검 — {} 없음", kind.title));
     }
 }

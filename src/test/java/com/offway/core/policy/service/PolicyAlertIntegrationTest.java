@@ -45,7 +45,7 @@ class PolicyAlertIntegrationTest {
     void 종료_예고는_한_통으로_나가거나_아예_안_나간다() {
         notifier.clear();
 
-        policyAlertService.send("정책 종료 예고", true);
+        policyAlertService.send(PolicyAlertService.AlertKind.EXPIRY);
 
         assertTrue(notifier.sent().size() <= 1, "여러 통으로 쪼개 보내면 그 자체가 소음이다");
         notifier.sent().forEach(message -> assertTrue(message.startsWith("⚠️ 정책 종료 예고"), message));
@@ -55,7 +55,7 @@ class PolicyAlertIntegrationTest {
     void 방치_요약도_한_통으로_묶인다() {
         notifier.clear();
 
-        policyAlertService.send("손봐야 할 정책", false);
+        policyAlertService.send(PolicyAlertService.AlertKind.NEGLECT);
 
         assertTrue(notifier.sent().size() <= 1);
         notifier.sent().forEach(message -> {
@@ -74,7 +74,7 @@ class PolicyAlertIntegrationTest {
     void 미검증_정책은_방치_요약에_실린다() {
         notifier.clear();
 
-        policyAlertService.send("손봐야 할 정책", false);
+        policyAlertService.send(PolicyAlertService.AlertKind.NEGLECT);
 
         assertEquals(1, notifier.sent().size(), "시드에 미검증 정책이 있어 한 통은 나가야 한다");
         assertTrue(notifier.sent().get(0).contains("미검증"), notifier.sent().get(0));
