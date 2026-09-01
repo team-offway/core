@@ -13,7 +13,17 @@ import org.springframework.data.repository.query.Param;
 /** Spring Data JPA — 어댑터가 위임하는 실제 구현. */
 public interface LeaveUsageJpaRepository extends JpaRepository<LeaveUsage, Long> {
 
-    List<LeaveUsage> findByUserIdOrderByUsedOnDescIdDesc(UUID userId);
+    /**
+     * 소유자의 사용 내역 — <b>등록한 순서</b>로(#375).
+     *
+     * <p>예전에는 사용일 내림차순이었다. 그러면 미래 날짜로 미리 잡아 둔 내역이 늘 맨 위에 붙어, 방금
+     * 등록한 것이 아래로 숨는다 — 목록에서 찾는 것은 "방금 한 일" 인데 그게 안 보였다. 그래서 앱이 받아서
+     * id 로 다시 정렬하고 있었다.
+     *
+     * <p>{@code id} 를 보조 키로 남긴다. 이 컬럼이 생기기 전 행은 {@code created_at} 이 null 이고,
+     * MySQL 은 {@code DESC} 에서 null 을 뒤로 보내므로 옛 행끼리는 이 키로 갈린다.
+     */
+    List<LeaveUsage> findByUserIdOrderByCreatedAtDescIdDesc(UUID userId);
 
     /** 합을 DB 에서 낸다 — 내역을 전부 끌어와 자바로 더하면 내역이 쌓일수록 느려진다. 없으면 null 이라 0 으로 감싼다. */
     @Query("SELECT COALESCE(SUM(u.days), 0) FROM LeaveUsage u WHERE u.userId = :userId")
