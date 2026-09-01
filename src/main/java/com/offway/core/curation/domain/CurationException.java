@@ -35,6 +35,21 @@ public final class CurationException extends BaseException {
         return new CurationException(CurationErrorCode.SURFACE_REQUIRED);
     }
 
+    /** 썸네일로 허용하지 않는 이미지 종류다(#377). */
+    public static CurationException unsupportedImageType() {
+        return new CurationException(CurationErrorCode.UNSUPPORTED_IMAGE_TYPE);
+    }
+
+    /** 썸네일 크기가 상한을 넘거나 0 이하다(#377). */
+    public static CurationException imageTooLarge() {
+        return new CurationException(CurationErrorCode.IMAGE_TOO_LARGE);
+    }
+
+    /** 저장소 자격증명이 없어 업로드 주소를 낼 수 없다(#377). */
+    public static CurationException imageStorageUnavailable() {
+        return new CurationException(CurationErrorCode.IMAGE_STORAGE_UNAVAILABLE);
+    }
+
     /** 그 id 의 링크가 없다. */
     public static CurationException linkNotFound() {
         return new CurationException(CurationErrorCode.LINK_NOT_FOUND);
