@@ -4,6 +4,8 @@ import static com.offway.core.user.config.TestLogins.loginAs;
 import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -17,6 +19,8 @@ import com.jayway.jsonpath.JsonPath;
 import com.offway.core.user.config.WithLoginUser;
 import java.nio.ByteBuffer;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -635,5 +639,64 @@ class MyLeaveIntegrationTest {
         mockMvc.perform(get(URL).with(loginAs(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalDays").value(anyOf(is(10.0), is(11.0))));
+    }
+
+    /**
+     * 등록 시각이 응답에 실린다(#375) — 화면이 "방금 등록한 것" 을 24시간 표시하는 근거다.
+     *
+     * <p><b>사용일로는 대신할 수 없다.</b> 여기서 쓴 날은 2026-05-08 인데 등록은 오늘이다. 그 둘이
+     * 다르다는 것이 이 필드가 필요한 이유 자체라, 같은 값이면 애초에 컬럼을 만들 이유가 없었다.
+     */
+    @Test
+    @WithLoginUser
+    void 사용내역에_등록_시각이_실린다() throws Exception {
+        setTotalDays(10).andExpect(status().isOk());
+
+        // 요청 앞뒤로 날짜를 집어 둔다. 서버가 부르는 시계와 여기서 부르는 시계가 따로 도는데, 그 사이에
+        // KST 자정이 끼면 한쪽이 하루 앞선다 — 한 시점과 견주는 대신 창을 두어 그 경계에서 안 깜빡이게 한다.
+        LocalDate before = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        String created = addUsage("{\"usedOn\": \"2026-05-08\", \"days\": 1, \"reason\": \"제주\"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.usages[0].createdAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.usages[0].usedOn").value("2026-05-08"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        // 오프셋 없는 로컬 시각으로 나가야 한다 — 앱이 알림에서 쓰는 형식과 같아 파서를 재사용한다.
+        // 문자열 모양을 정규식으로 재는 대신 실제로 파싱해 본다. 파서가 통과하는 것이 계약 자체다.
+        String createdAt = JsonPath.read(created, "$.data.usages[0].createdAt");
+        LocalDateTime parsed = assertDoesNotThrow(
+                () -> LocalDateTime.parse(createdAt), "createdAt=" + createdAt);
+
+        // 사용일(2026-05-08)이 아니라 등록한 날이어야 한다. 그 둘이 다른 것이 이 필드가 있는 이유다.
+        LocalDate after = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        assertTrue(
+                parsed.toLocalDate().equals(before) || parsed.toLocalDate().equals(after),
+                "등록일이 요청 시각 범위 밖이다: " + parsed);
+        assertNotEquals(LocalDate.of(2026, 5, 8), parsed.toLocalDate(), "사용일이 아니라 등록일이어야 한다");
+    }
+
+    /**
+     * 목록은 <b>등록한 순서</b>다 — 사용일 순이 아니다(#375).
+     *
+     * <p>미래 날짜로 미리 잡아 둔 내역이 늘 맨 위에 붙으면, 방금 등록한 것이 아래로 숨는다. 사용자가
+     * 목록에서 찾는 것은 "방금 한 일" 이다. 그래서 앱이 받아서 id 로 다시 정렬하고 있었다.
+     */
+    @Test
+    @WithLoginUser
+    void 목록은_사용일이_아니라_등록_순서로_내려간다() throws Exception {
+        setTotalDays(10).andExpect(status().isOk());
+        // 먼저 미래 날짜를 등록하고, 그다음 과거 날짜를 등록한다.
+        addUsage("{\"usedOn\": \"2027-01-01\", \"days\": 1, \"reason\": \"미리 잡아 둔 것\"}")
+                .andExpect(status().isCreated());
+        addUsage("{\"usedOn\": \"2020-01-01\", \"days\": 1, \"reason\": \"방금 등록한 것\"}")
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get(URL))
+                .andExpect(status().isOk())
+                // 사용일 순이면 2027 이 위에 온다. 등록 순이라 방금 넣은 2020 이 위다.
+                .andExpect(jsonPath("$.data.usages[0].reason").value("방금 등록한 것"))
+                .andExpect(jsonPath("$.data.usages[1].reason").value("미리 잡아 둔 것"));
     }
 }
