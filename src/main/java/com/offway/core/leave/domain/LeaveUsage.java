@@ -15,6 +15,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import lombok.AccessLevel;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -114,6 +115,12 @@ public class LeaveUsage {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
+    /**
+     * <b>이름으로만 조립한다</b>(#375 리뷰). 여덟 칸 중 {@code reason} 과 {@code memo} 가 나란히 선
+     * nullable {@code String} 이라, 위치로 넘기면 맞바꿔도 컴파일이 통과한다 — 사용자가 쓴 사유와 메모가
+     * 서로 바뀐 채 저장되고, 화면에도 그대로 나간다.
+     */
+    @Builder(access = AccessLevel.PRIVATE)
     private LeaveUsage(
             UUID userId,
             LocalDate usedOn,
@@ -139,7 +146,14 @@ public class LeaveUsage {
     /** 사용자가 직접 남기는 내역. 메모는 이 경로에만 있다 — 코스 확정 행은 서버가 만든다. */
     public static LeaveUsage manual(
             UUID userId, LocalDate usedOn, double days, String reason, String memo, LocalDateTime now) {
-        return new LeaveUsage(userId, usedOn, days, reason, memo, null, null, now);
+        return LeaveUsage.builder()
+                .userId(userId)
+                .usedOn(usedOn)
+                .days(days)
+                .reason(reason)
+                .memo(memo)
+                .createdAt(now)
+                .build();
     }
 
     /**
@@ -155,10 +169,15 @@ public class LeaveUsage {
             long courseId,
             StartDayLeave startDayLeave,
             LocalDateTime now) {
-        return new LeaveUsage(
-                userId, usedOn, days, reason, null, courseId,
-                Objects.requireNonNull(startDayLeave, "startDayLeave"),
-                now);
+        return LeaveUsage.builder()
+                .userId(userId)
+                .usedOn(usedOn)
+                .days(days)
+                .reason(reason)
+                .courseId(courseId)
+                .startDayLeave(Objects.requireNonNull(startDayLeave, "startDayLeave"))
+                .createdAt(now)
+                .build();
     }
 
     /**

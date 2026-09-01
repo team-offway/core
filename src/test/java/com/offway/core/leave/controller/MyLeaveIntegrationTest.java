@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -651,6 +652,9 @@ class MyLeaveIntegrationTest {
     void 사용내역에_등록_시각이_실린다() throws Exception {
         setTotalDays(10).andExpect(status().isOk());
 
+        // 요청 앞뒤로 날짜를 집어 둔다. 서버가 부르는 시계와 여기서 부르는 시계가 따로 도는데, 그 사이에
+        // KST 자정이 끼면 한쪽이 하루 앞선다 — 한 시점과 견주는 대신 창을 두어 그 경계에서 안 깜빡이게 한다.
+        LocalDate before = LocalDate.now(ZoneId.of("Asia/Seoul"));
         String created = addUsage("{\"usedOn\": \"2026-05-08\", \"days\": 1, \"reason\": \"제주\"}")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.usages[0].createdAt").isNotEmpty())
@@ -665,8 +669,12 @@ class MyLeaveIntegrationTest {
         LocalDateTime parsed = assertDoesNotThrow(
                 () -> LocalDateTime.parse(createdAt), "createdAt=" + createdAt);
 
-        // 사용일(2026-05-08)이 아니라 등록한 오늘이어야 한다. 그 둘이 다른 것이 이 필드가 있는 이유다.
-        assertEquals(LocalDate.now(ZoneId.of("Asia/Seoul")), parsed.toLocalDate());
+        // 사용일(2026-05-08)이 아니라 등록한 날이어야 한다. 그 둘이 다른 것이 이 필드가 있는 이유다.
+        LocalDate after = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        assertTrue(
+                parsed.toLocalDate().equals(before) || parsed.toLocalDate().equals(after),
+                "등록일이 요청 시각 범위 밖이다: " + parsed);
+        assertNotEquals(LocalDate.of(2026, 5, 8), parsed.toLocalDate(), "사용일이 아니라 등록일이어야 한다");
     }
 
     /**
