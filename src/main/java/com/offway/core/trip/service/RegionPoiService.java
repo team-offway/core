@@ -254,8 +254,11 @@ public class RegionPoiService {
         int dropped = sights.size() - open.size();
         if (dropped > 0) {
             // degrade 하는 이유를 남긴다 — 후보가 줄어든 것이 데이터 부족인지 날짜 필터인지 구분되게.
-            log.info("그날 안 하는 축제를 뺐습니다 travelDate={} 축제후보={} 제외={}건",
-                    travelDate, festivalIds.size(), dropped);
+            //
+            // **여행일은 안 남긴다.** 사용자가 보낸 값이고, 추적 id·사용자 식별자가 같은 줄에 찍히므로
+            // 로그를 읽는 사람이 "이 사람이 언제 집을 비우는지" 를 알게 된다. 여기서 필요한 것은
+            // 무엇이 줄었나이지 언제 가느냐가 아니다(로깅 규약).
+            log.info("그날 안 하는 축제를 뺐습니다 축제후보={} 제외={}건", festivalIds.size(), dropped);
         }
         return open;
     }
