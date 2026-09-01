@@ -24,4 +24,9 @@ public class PolicyRepositoryImpl implements PolicyRepository {
     public List<Policy> findAllVerified() {
         return policyJpaRepository.findByVerifiedTrue();
     }
+
+    @Override
+    public List<Policy> findAll() {
+        return policyJpaRepository.findAll();
+    }
 }
