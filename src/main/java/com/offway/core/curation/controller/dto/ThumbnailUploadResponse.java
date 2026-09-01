@@ -17,9 +17,9 @@ import lombok.Builder;
  */
 @Builder
 public record ThumbnailUploadResponse(
-        @Schema(example = "https://bucket.s3.ap-northeast-2.amazonaws.com/curation/....?X-Amz-Signature=...")
+        @Schema(example = "https://bucket.s3.ap-northeast-1.amazonaws.com/curation/....?X-Amz-Signature=...")
                 String uploadUrl,
-        @Schema(example = "https://bucket.s3.ap-northeast-2.amazonaws.com/curation/8f14e45f.png") String publicUrl,
+        @Schema(example = "https://bucket.s3.ap-northeast-1.amazonaws.com/curation/8f14e45f.png") String publicUrl,
         @Schema(example = "300") long expiresInSeconds) {
 
     /**
