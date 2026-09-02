@@ -7,6 +7,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
+import com.offway.core.region.domain.Region;
+import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.domain.VisitorType;
 import com.offway.core.trip.infrastructure.datalab.StubTourDataLabClient;
@@ -20,6 +23,7 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -45,6 +49,9 @@ class RegionRecommendIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private RegionRepository regionRepository;
 
     @Autowired
     private StubTourDataLabClient dataLabClient;
@@ -256,6 +263,44 @@ class RegionRecommendIntegrationTest {
                 // 다만 **필드가 응답에 실리는지는 여기서 지킨다.** 내용을 안 본다고 필드까지 놓으면,
                 // 혜택이 통째로 직렬화에서 빠져도 이 경로의 테스트가 아무 말을 안 한다.
                 .andExpect(jsonPath("$.data.regions[0].benefits").isArray());
+    }
+
+    /**
+     * 지도 위에 지역 칩을 놓는 좌표(#404).
+     *
+     * <p><b>존재만 보지 않는다.</b> 앱은 이 값을 지도에 그대로 찍으므로, 위경도가 뒤바뀌어도 필드는 멀쩡히
+     * 실린다 — 그러면 정선군 핀이 서해 한가운데 뜬다. 그래서 <b>DB 의 그 지역 값과 같은지</b>를 본다.
+     *
+     * <p>이 단언이 곧 위경도 뒤바뀜의 회귀 가드다. 두 칸 모두 double 이라 자리를 맞바꿔도 컴파일은 통과한다.
+     */
+    @Test
+    void 추천된_지역마다_DB_의_대표_좌표를_그대로_싣는다() throws Exception {
+        dataLabClient.respond(TourVisitorResult::empty);
+        tourApiClient.respond(RegionRecommendIntegrationTest::sufficientContent);
+        regionContentRefreshService.refresh();
+
+        String body = """
+                { "originLat": 37.49, "originLng": 127.02, "transport": "CAR", "maxReachMinutes": 100000 }""";
+        String json = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        Map<Long, Region> byId = new HashMap<>();
+        regionRepository.findAll().forEach(region -> byId.put(region.getId(), region));
+
+        List<Map<String, Object>> regions = JsonPath.read(json, "$.data.regions");
+        assertTrue(regions.size() > 1, "비교할 지역이 없다");
+        for (Map<String, Object> item : regions) {
+            Region region = byId.get(((Number) item.get("regionId")).longValue());
+            assertNotNull(region, "응답의 regionId 가 DB 에 없다");
+            String where = region.getSigungu();
+            // 89곳 전부 NOT NULL 이라 필드가 빠질 일이 없다 — 빠졌다면 직렬화가 깨진 것이다.
+            assertNotNull(item.get("lat"), where + " lat 누락");
+            assertEquals(region.getLat(), ((Number) item.get("lat")).doubleValue(), where + " lat 불일치");
+            assertEquals(region.getLng(), ((Number) item.get("lng")).doubleValue(), where + " lng 불일치");
+        }
     }
 
     @Test

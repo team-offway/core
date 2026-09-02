@@ -3,6 +3,7 @@ package com.offway.core.trip.service.dto;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
+import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
@@ -13,7 +14,7 @@ class RecommendedRegionTest {
 
     private static RecommendedRegion region(long id, Category... categories) {
         return RecommendedRegion.of(
-                id, "시도", "시군구" + id, 60, CrowdLevel.LOW,
+                id, "시도", "시군구" + id, new Coordinate(37.4, 128.6), 60, CrowdLevel.LOW,
                 new RegionContent(10, null, List.of(categories), false), null, null, List.of());
     }
 

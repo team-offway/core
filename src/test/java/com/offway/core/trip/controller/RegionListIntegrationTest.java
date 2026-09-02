@@ -2,11 +2,15 @@ package com.offway.core.trip.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
+import com.offway.core.region.domain.Region;
+import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.VisitorType;
 import com.offway.core.trip.infrastructure.datalab.StubTourDataLabClient;
 import com.offway.core.trip.infrastructure.datalab.TourDataLabClient;
@@ -20,7 +24,9 @@ import com.offway.core.trip.service.RegionContentProvider;
 import com.offway.core.trip.service.RegionContentRefreshService;
 import com.offway.core.trip.service.RegionRankingService;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,6 +56,9 @@ class RegionListIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private RegionRepository regionRepository;
 
     @Autowired
     private StubTourDataLabClient dataLabClient;
@@ -132,6 +141,39 @@ class RegionListIntegrationTest {
                 .andExpect(jsonPath("$.pageResponse.size").value(20))
                 .andExpect(jsonPath("$.pageResponse.totalElements").value(SEEDED_REGIONS))
                 .andExpect(jsonPath("$.pageResponse.totalPages").value(5));
+    }
+
+    /**
+     * 목록에도 대표 좌표를 싣는다(#404).
+     *
+     * <p>이 화면은 아직 지도를 안 그리지만, 추천의 "더보기" 라 카드 재료가 갈리면 앱이 화면마다 다른 파서를
+     * 들게 된다. 같은 값·같은 이름으로 나가는지를 여기서 잠근다.
+     *
+     * <p><b>DB 값과 대조한다.</b> 위경도가 뒤바뀌어도 필드는 멀쩡히 실려, 존재만 보는 단언은 통과한다.
+     */
+    @Test
+    void 목록의_지역마다_DB_의_대표_좌표를_그대로_싣는다() throws Exception {
+        loadContent();
+
+        String json = mockMvc.perform(get(URL))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        Map<Long, Region> byId = new HashMap<>();
+        regionRepository.findAll().forEach(region -> byId.put(region.getId(), region));
+
+        List<Map<String, Object>> regions = JsonPath.read(json, "$.data.regions");
+        assertTrue(regions.size() > 1, "비교할 지역이 없다");
+        for (Map<String, Object> item : regions) {
+            Region region = byId.get(((Number) item.get("regionId")).longValue());
+            assertNotNull(region, "응답의 regionId 가 DB 에 없다");
+            String where = region.getSigungu();
+            assertNotNull(item.get("lat"), where + " lat 누락");
+            assertEquals(region.getLat(), ((Number) item.get("lat")).doubleValue(), where + " lat 불일치");
+            assertEquals(region.getLng(), ((Number) item.get("lng")).doubleValue(), where + " lng 불일치");
+        }
     }
 
     /** 이 API 가 생긴 이유 그대로 — 더보기가 홈의 6곳이 아니라 <b>새 지역</b>을 줘야 한다. */
