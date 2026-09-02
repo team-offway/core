@@ -158,11 +158,11 @@ public class RegionMaster {
 
     /** 한 지역에서 나머지 전부를 가까운 순으로. 89 × 88 이라 부팅 때 한 번이면 충분하다. */
     private static List<Neighbor> sortedNeighbors(Region region, List<Region> pool) {
-        Coordinate center = new Coordinate(region.getLat(), region.getLng());
+        Coordinate center = region.coordinate();
         return pool.stream()
                 .filter(candidate -> !Objects.equals(candidate.getId(), region.getId()))
                 .map(candidate -> new Neighbor(
-                        candidate, center.haversineKmTo(new Coordinate(candidate.getLat(), candidate.getLng()))))
+                        candidate, center.haversineKmTo(candidate.coordinate())))
                 .sorted(Comparator.comparingDouble(Neighbor::distanceKm))
                 .toList();
     }

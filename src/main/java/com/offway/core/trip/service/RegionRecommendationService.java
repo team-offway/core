@@ -54,7 +54,7 @@ public class RegionRecommendationService {
         List<Region> reachable = new ArrayList<>();
         for (Region region : allRegions) {
             int reach = travelTimeProvider.reachMinutes(
-                    origin, new Coordinate(region.getLat(), region.getLng()), command.transport());
+                    origin, region.coordinate(), command.transport());
             if (reach <= command.maxReachMinutes()) {
                 reachByRegion.put(region.getId(), reach);
                 reachable.add(region);
