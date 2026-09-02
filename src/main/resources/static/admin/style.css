@@ -1042,6 +1042,48 @@ legend {
     border: 1px solid var(--line);
 }
 
+/* ---- 조작 ---- */
+
+.api-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--s3);
+    margin-top: var(--s3);
+    padding-top: var(--s3);
+    border-top: 1px solid var(--line-soft);
+    font-size: var(--t-xs);
+}
+
+.switch {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s2);
+    color: var(--ink-2);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.switch input[type='checkbox'] {
+    margin: 0;
+}
+
+.switch .limit {
+    width: 84px;
+    padding: 3px var(--s2);
+    font-size: var(--t-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+/* 기본에서 벗어난 연동을 드러낸다 — 안 그러면 몇 달 뒤 "왜 이게 꺼져 있지" 가 된다. */
+.touched {
+    padding: 1px var(--s2);
+    border-radius: 999px;
+    background: #fff4e5;
+    color: var(--warn);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 /* ---- 날짜별 막대 ---- */
 
 .bars {

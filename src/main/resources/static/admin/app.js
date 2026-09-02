@@ -1060,7 +1060,73 @@ function apiCard(api) {
     if (api.flows.length) {
         card.appendChild(flowList(api.flows));
     }
+    card.appendChild(apiControls(api));
     return card;
+}
+
+/**
+ * 연동 하나를 조절한다(#403).
+ *
+ * 캐시를 끄면 그 연동은 매번 실호출한다 — 한도를 더 태우는 대신 값이 늘 최신이 된다. 그래서 누르기
+ * 전에 지금 무엇이 바뀌는지 곁에 적어 둔다.
+ */
+function apiControls(api) {
+    const row = el('div', 'api-controls');
+
+    const cache = el('label', 'switch');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = api.cacheEnabled;
+    box.addEventListener('change', () => saveApi(api, {cacheEnabled: box.checked, batchLimit: api.batchLimit}));
+    cache.appendChild(box);
+    cache.appendChild(el('span', null, '캐시 사용'));
+    row.appendChild(cache);
+
+    const limit = el('label', 'switch');
+    limit.appendChild(el('span', null, '배치 상한'));
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'limit';
+    input.min = '0';
+    input.max = String(api.dailyLimit);
+    input.placeholder = '무제한';
+    input.value = api.batchLimit === null || api.batchLimit === undefined ? '' : String(api.batchLimit);
+    input.addEventListener('change', () => saveApi(api, {
+        cacheEnabled: api.cacheEnabled,
+        batchLimit: input.value === '' ? null : Number(input.value),
+    }));
+    limit.appendChild(input);
+    row.appendChild(limit);
+
+    row.appendChild(el('span', 'spacer'));
+    if (!api.settingDefault) {
+        // 기본에서 벗어난 것을 드러낸다 — 안 그러면 몇 달 뒤 "왜 이게 꺼져 있지" 가 된다.
+        row.appendChild(el('span', 'touched', '기본값 아님'));
+    }
+    return row;
+}
+
+async function saveApi(api, body) {
+    await applySetting(`/api/v1/admin/external-apis/${encodeURIComponent(api.name)}`, body);
+}
+
+async function saveBatch(name, enabled) {
+    await applySetting(`/api/v1/admin/external-apis/batches/${encodeURIComponent(name)}`, {enabled});
+}
+
+/** 응답이 현황 전체라 그대로 다시 그린다 — 바꾼 한 줄만 고치면 소진율·예상 콜 수가 어긋난다. */
+async function applySetting(path, body) {
+    setExternalMessage('저장 중…');
+    try {
+        const result = await call(path, {method: 'PATCH', body: JSON.stringify(body)});
+        externals = result.data;
+        renderExternals();
+        setExternalMessage(null);
+    } catch (error) {
+        setExternalMessage(error.message || DEFAULT_ERROR);
+        // 실패했으면 화면이 거짓말하지 않게 서버 값으로 되돌린다.
+        reloadExternals();
+    }
 }
 
 /** 소진율 막대. 70% 를 넘으면 색이 바뀐다 — 디스코드 경보가 우는 지점과 같다. */
@@ -1141,15 +1207,30 @@ function renderBatches() {
     if (!externals.batches.length) {
         const tr = document.createElement('tr');
         const td = cell('아직 기록된 배치가 없습니다.', null);
-        td.colSpan = 2;
+        td.colSpan = 4;
         tr.appendChild(td);
         rows.appendChild(tr);
         return;
     }
     externals.batches.forEach((batch) => {
         const tr = document.createElement('tr');
+        if (!batch.enabled) {
+            tr.classList.add('is-unpublished');
+        }
         tr.appendChild(cell(batch.name, null));
         tr.appendChild(cell(batchWhen(batch.lastRunAt), 'period'));
+
+        const state = document.createElement('td');
+        const badge = el('span', batch.enabled ? 'badge on' : 'badge off', batch.enabled ? '동작' : '멈춤');
+        state.appendChild(badge);
+        tr.appendChild(state);
+
+        const action = document.createElement('td');
+        const button = el('button', batch.enabled ? 'danger' : 'ghost', batch.enabled ? '멈추기' : '다시 돌리기');
+        button.type = 'button';
+        button.addEventListener('click', () => saveBatch(batch.name, !batch.enabled));
+        action.appendChild(button);
+        tr.appendChild(action);
         rows.appendChild(tr);
     });
 }
