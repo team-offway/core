@@ -17,9 +17,16 @@ class ResponseLogSummaryTest {
     @Test
     void 여행지_추천은_건수만_낸다() {
         List<RegionRecommendResponse.Item> items = IntStream.rangeClosed(1, 20)
-                .mapToObj(i -> new RegionRecommendResponse.Item(
-                        i, "지역" + i + " · 도", 37.4, 128.6, 100 + i, null, null, 10, List.of(), false,
-                        null, List.of()))
+                .mapToObj(i -> RegionRecommendResponse.Item.builder()
+                        .regionId(i)
+                        .name("지역" + i + " · 도")
+                        .lat(37.4)
+                        .lng(128.6)
+                        .reachMinutes(100 + i)
+                        .contentCount(10)
+                        .categories(List.of())
+                        .benefits(List.of())
+                        .build())
                 .toList();
 
         assertEquals("추천 20건", new RegionRecommendResponse(items).logSummary());

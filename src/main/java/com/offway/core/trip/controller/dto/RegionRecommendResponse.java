@@ -6,6 +6,7 @@ import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.service.dto.RecommendedRegion;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import lombok.Builder;
 
 /**
  * 여행지 추천 응답 — API 계약. 랭킹 순(무드 지정 시 매칭 지역 우선).
@@ -36,6 +37,7 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
      * @param neighborIncluded 볼거리 부족으로 인접 50km 지역이 포함됐는지
      * @param benefits 적용 혜택 뱃지
      */
+    @Builder
     public record Item(
             long regionId,
             @Schema(example = "완도군 · 전남광주통합특별시") String name,
@@ -64,20 +66,23 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
             List<Benefit> benefits) {
 
         static Item from(RecommendedRegion region) {
-            return new Item(
-                    region.regionId(),
-                    region.sigungu() + " · " + region.sido(),
+            // 이름을 붙여 조립한다. lat·lng 가 나란한 double 이라 위치 생성자로는 둘을 맞바꿔도
+            // 컴파일이 통과하고, 뒤집힌 좌표는 지도에 핀이 엉뚱한 데 뜰 때까지 아무도 모른다.
+            return Item.builder()
+                    .regionId(region.regionId())
+                    .name(region.sigungu() + " · " + region.sido())
                     // 값객체에서 꺼내 두 칸으로 편다 — 앱이 이미 lat·lng 를 평평하게 읽는다.
-                    region.coordinate().lat(),
-                    region.coordinate().lng(),
-                    region.reachMinutes(),
-                    region.crowdLevel(),
-                    region.imageUrl(),
-                    region.contentCount(),
-                    region.categories().stream().map(CategoryTagResponse::from).toList(),
-                    region.neighborIncluded(),
-                    region.intro(),
-                    region.benefits().stream().map(Benefit::from).toList());
+                    .lat(region.coordinate().lat())
+                    .lng(region.coordinate().lng())
+                    .reachMinutes(region.reachMinutes())
+                    .crowdLevel(region.crowdLevel())
+                    .imageUrl(region.imageUrl())
+                    .contentCount(region.contentCount())
+                    .categories(region.categories().stream().map(CategoryTagResponse::from).toList())
+                    .neighborIncluded(region.neighborIncluded())
+                    .intro(region.intro())
+                    .benefits(region.benefits().stream().map(Benefit::from).toList())
+                    .build();
         }
     }
 

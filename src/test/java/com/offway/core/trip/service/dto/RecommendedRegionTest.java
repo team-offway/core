@@ -6,16 +6,24 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
-import com.offway.core.trip.domain.RegionContent;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class RecommendedRegionTest {
 
     private static RecommendedRegion region(long id, Category... categories) {
-        return RecommendedRegion.of(
-                id, "시도", "시군구" + id, new Coordinate(37.4, 128.6), 60, CrowdLevel.LOW,
-                new RegionContent(10, null, List.of(categories), false), null, null, List.of());
+        return RecommendedRegion.builder()
+                .regionId(id)
+                .sido("시도")
+                .sigungu("시군구" + id)
+                .coordinate(new Coordinate(37.4, 128.6))
+                .reachMinutes(60)
+                .crowdLevel(CrowdLevel.LOW)
+                .contentCount(10)
+                .categories(List.of(categories))
+                .neighborIncluded(false)
+                .benefits(List.of())
+                .build();
     }
 
     private static List<Long> ids(List<RecommendedRegion> regions) {

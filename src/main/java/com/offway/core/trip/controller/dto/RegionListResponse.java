@@ -6,6 +6,7 @@ import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.service.dto.RegionList;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import lombok.Builder;
 
 /**
  * 지역 목록 응답 — API 계약. 방문자 랭킹 내림차순.
@@ -37,6 +38,7 @@ public record RegionListResponse(List<Item> regions) implements LogSummary {
      * @param categories 볼거리 카테고리 태그
      * @param neighborIncluded 볼거리 부족으로 인접 50km 지역이 포함됐는지
      */
+    @Builder
     public record Item(
             long regionId,
             @Schema(example = "완도군 · 전남광주통합특별시") String name,
@@ -57,16 +59,18 @@ public record RegionListResponse(List<Item> regions) implements LogSummary {
             @Schema(example = "false") boolean neighborIncluded) {
 
         static Item from(RegionList.Item region) {
-            return new Item(
-                    region.regionId(),
-                    region.sigungu() + " · " + region.sido(),
-                    region.coordinate().lat(),
-                    region.coordinate().lng(),
-                    region.crowdLevel(),
-                    region.imageUrl(),
-                    region.contentCount(),
-                    region.categories().stream().map(CategoryTagResponse::from).toList(),
-                    region.neighborIncluded());
+            // 이름을 붙여 조립한다 — lat·lng 가 나란한 double 이라 맞바꿔도 컴파일이 통과한다.
+            return Item.builder()
+                    .regionId(region.regionId())
+                    .name(region.sigungu() + " · " + region.sido())
+                    .lat(region.coordinate().lat())
+                    .lng(region.coordinate().lng())
+                    .crowdLevel(region.crowdLevel())
+                    .imageUrl(region.imageUrl())
+                    .contentCount(region.contentCount())
+                    .categories(region.categories().stream().map(CategoryTagResponse::from).toList())
+                    .neighborIncluded(region.neighborIncluded())
+                    .build();
         }
     }
 }

@@ -4,6 +4,7 @@ import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
+import lombok.Builder;
 import java.util.Comparator;
 import java.util.List;
 
@@ -22,6 +23,7 @@ import java.util.List;
  * @param neighborIncluded 볼거리 부족으로 인접 50km 지역이 병합됐는지
  * @param benefits 이 지역에 적용되는 혜택 뱃지
  */
+@Builder
 public record RecommendedRegion(
         long regionId,
         String sido,
@@ -55,14 +57,22 @@ public record RecommendedRegion(
             String heroPhotoUrl,
             String intro,
             List<Benefit> benefits) {
-        return new RecommendedRegion(
-                regionId, sido, sigungu, coordinate, reachMinutes, crowdLevel,
-                content.contentCount(),
-                heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl(),
-                content.categories(),
-                content.neighborIncluded(),
-                intro,
-                benefits);
+        // 이름을 붙여 조립한다 — sido·sigungu 처럼 같은 타입이 붙어 있어 위치 생성자로는 둘을
+        // 맞바꿔도 컴파일이 통과한다. 그러면 "강원특별자치도 · 정선군" 이 뒤집힌 채 화면까지 간다.
+        return RecommendedRegion.builder()
+                .regionId(regionId)
+                .sido(sido)
+                .sigungu(sigungu)
+                .coordinate(coordinate)
+                .reachMinutes(reachMinutes)
+                .crowdLevel(crowdLevel)
+                .contentCount(content.contentCount())
+                .imageUrl(heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl())
+                .categories(content.categories())
+                .neighborIncluded(content.neighborIncluded())
+                .intro(intro)
+                .benefits(benefits)
+                .build();
     }
 
     /** 무드칩에 해당하는 콘텐츠가 이 지역에 있는가(무드 필터용). */

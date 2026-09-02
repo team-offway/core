@@ -6,6 +6,7 @@ import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
 import java.util.List;
+import lombok.Builder;
 import org.springframework.data.domain.Page;
 
 /**
@@ -42,6 +43,7 @@ public record RegionList(List<Item> regions, int page, int size, long totalEleme
      * @param categories 볼거리 카테고리
      * @param neighborIncluded 볼거리 부족으로 인접 50km 지역이 포함됐는지 — {@code contentCount} 가 무엇의 합인지 설명한다
      */
+    @Builder
     public record Item(
             long regionId,
             String sido,
@@ -69,16 +71,18 @@ public record RegionList(List<Item> regions, int page, int size, long totalEleme
                 CrowdLevel crowdLevel,
                 RegionContent content,
                 String heroPhotoUrl) {
-            return new Item(
-                    regionId,
-                    sido,
-                    sigungu,
-                    coordinate,
-                    crowdLevel,
-                    heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl(),
-                    content.contentCount(),
-                    content.categories(),
-                    content.neighborIncluded());
+            // 이름을 붙여 조립한다 — 같은 타입이 붙어 있어 위치 생성자로는 둘을 맞바꿔도 컴파일이 통과한다.
+            return Item.builder()
+                    .regionId(regionId)
+                    .sido(sido)
+                    .sigungu(sigungu)
+                    .coordinate(coordinate)
+                    .crowdLevel(crowdLevel)
+                    .imageUrl(heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl())
+                    .contentCount(content.contentCount())
+                    .categories(content.categories())
+                    .neighborIncluded(content.neighborIncluded())
+                    .build();
         }
     }
 }
