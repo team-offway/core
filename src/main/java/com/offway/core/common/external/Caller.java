@@ -1,6 +1,7 @@
 package com.offway.core.common.external;
 
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 외부 API 호출을 일으킨 주체 — 배치 이름이거나 요청 엔드포인트다(#285).
@@ -44,6 +45,28 @@ public record Caller(String name) {
     public static Caller request(String method, String pattern) {
         return new Caller(method + " " + pattern);
     }
+
+    /**
+     * 사용자 요청이 일으킨 호출인가 — 아니면 배치다(#398).
+     *
+     * <p><b>이 구분이 심사 자료의 핵심이다.</b> 총량만 보면 "우리가 API 를 쓴다" 까지밖에 못 말하는데,
+     * 정작 보여야 하는 것은 <b>서비스가 요청마다 실제로 부른다</b>는 쪽이다. 9/1 관측에서 700 중
+     * 603 이 배치였다.
+     *
+     * <p>판정은 <b>이름의 생김새</b>로 한다 — {@link #request} 가 만든 이름만 HTTP 메서드로 시작한다.
+     * 별도 컬럼을 두지 않은 것은 이미 쌓인 기록에는 그 값이 없어서다. 이름에서 도출하면 과거 기록도
+     * 같이 읽힌다.
+     *
+     * <p>다만 이건 <b>규약이지 강제가 아니다.</b> 배치 이름을 {@code "GET 무언가"} 로 지으면 사용자
+     * 요청으로 잘못 세어진다. 지금 배치 이름은 전부 한국어라 닿지 않는 경로다.
+     */
+    public boolean fromRequest() {
+        return REQUEST_METHODS.stream().anyMatch(method -> name.startsWith(method + " "));
+    }
+
+    /** {@link #request} 가 앞에 붙이는 값. Spring MVC 가 쓰는 표준 메서드다. */
+    private static final Set<String> REQUEST_METHODS =
+            Set.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS");
 
     private static String normalize(String raw) {
         String stripped = raw.strip();
