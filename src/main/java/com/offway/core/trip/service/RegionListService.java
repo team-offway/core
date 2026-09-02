@@ -89,6 +89,7 @@ public class RegionListService {
                 region.getId(),
                 region.getSido(),
                 region.getSigungu(),
+                region.coordinate(),
                 score.crowdLevel(),
                 contentOf(contents, region.getId()),
                 heroPhotos.get(region.getId()));

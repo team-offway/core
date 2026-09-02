@@ -26,6 +26,8 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
     /**
      * @param regionId 지역 ID
      * @param name 지역명 (시군구 · 시도)
+     * @param lat 대표 좌표 위도(#404)
+     * @param lng 대표 좌표 경도
      * @param reachMinutes 출발지→지역 도달시간(분)
      * @param crowdLevel 한산도 뱃지
      * @param imageUrl 대표 이미지 URL (없으면 null)
@@ -37,6 +39,13 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
     public record Item(
             long regionId,
             @Schema(example = "완도군 · 전남광주통합특별시") String name,
+            @Schema(description = """
+                    대표 좌표(WGS84) — 지도 위에 이 지역 칩을 놓는 자리(#404).
+
+                    군청·시청 소재지 기준으로 통일돼 있다. **항상 실린다** — 89곳 전부 좌표를 갖고
+                    있고(`NOT NULL`), 애초에 좌표가 없으면 도달시간을 못 재 추천에 오르지도 못한다.""",
+                    example = "37.381") double lat,
+            @Schema(example = "128.661") double lng,
             @Schema(example = "160") int reachMinutes,
             CrowdLevel crowdLevel,
             @Schema(
@@ -58,6 +67,9 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary 
             return new Item(
                     region.regionId(),
                     region.sigungu() + " · " + region.sido(),
+                    // 값객체에서 꺼내 두 칸으로 편다 — 앱이 이미 lat·lng 를 평평하게 읽는다.
+                    region.coordinate().lat(),
+                    region.coordinate().lng(),
                     region.reachMinutes(),
                     region.crowdLevel(),
                     region.imageUrl(),

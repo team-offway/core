@@ -29,6 +29,8 @@ public record RegionListResponse(List<Item> regions) implements LogSummary {
     /**
      * @param regionId 지역 ID
      * @param name 지역명 (시군구 · 시도)
+     * @param lat 대표 좌표 위도(#404)
+     * @param lng 대표 좌표 경도
      * @param crowdLevel 한산도 뱃지
      * @param imageUrl 대표 이미지 URL (없으면 null)
      * @param contentCount 볼거리 수 (인접 50km 병합 시 합산)
@@ -38,6 +40,13 @@ public record RegionListResponse(List<Item> regions) implements LogSummary {
     public record Item(
             long regionId,
             @Schema(example = "완도군 · 전남광주통합특별시") String name,
+            @Schema(description = """
+                    대표 좌표(WGS84) — 지도 위에 이 지역 칩을 놓는 자리(#404).
+
+                    추천 응답과 같은 값·같은 이름이다. 목록은 추천의 "더보기" 라 카드 재료가 갈리면
+                    앱이 화면마다 다른 파서를 들게 된다.""",
+                    example = "37.381") double lat,
+            @Schema(example = "128.661") double lng,
             CrowdLevel crowdLevel,
             @Schema(
                             example = "http://tong.visitkorea.or.kr/cms/resource/83/1234583_image2_1.jpg",
@@ -51,6 +60,8 @@ public record RegionListResponse(List<Item> regions) implements LogSummary {
             return new Item(
                     region.regionId(),
                     region.sigungu() + " · " + region.sido(),
+                    region.coordinate().lat(),
+                    region.coordinate().lng(),
                     region.crowdLevel(),
                     region.imageUrl(),
                     region.contentCount(),

@@ -1,6 +1,7 @@
 package com.offway.core.trip.service.dto;
 
 import com.offway.core.common.response.PageResponse;
+import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
@@ -34,6 +35,7 @@ public record RegionList(List<Item> regions, int page, int size, long totalEleme
      * @param regionId 지역 ID
      * @param sido 시도
      * @param sigungu 시군구
+     * @param coordinate 대표 좌표 — 지도 위에 이 지역을 놓는 자리(#404)
      * @param crowdLevel 한산도 뱃지
      * @param imageUrl 대표 이미지 URL (없으면 null)
      * @param contentCount 볼거리 수 (인접 50km 병합 시 합산)
@@ -44,6 +46,7 @@ public record RegionList(List<Item> regions, int page, int size, long totalEleme
             long regionId,
             String sido,
             String sigungu,
+            Coordinate coordinate,
             CrowdLevel crowdLevel,
             String imageUrl,
             int contentCount,
@@ -62,6 +65,7 @@ public record RegionList(List<Item> regions, int page, int size, long totalEleme
                 long regionId,
                 String sido,
                 String sigungu,
+                Coordinate coordinate,
                 CrowdLevel crowdLevel,
                 RegionContent content,
                 String heroPhotoUrl) {
@@ -69,6 +73,7 @@ public record RegionList(List<Item> regions, int page, int size, long totalEleme
                     regionId,
                     sido,
                     sigungu,
+                    coordinate,
                     crowdLevel,
                     heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl(),
                     content.contentCount(),

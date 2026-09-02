@@ -99,7 +99,7 @@ public class RegionRecommendationService {
                             .map(RegionRecommendationService::toBenefit)
                             .toList();
             result.add(RecommendedRegion.of(
-                    region.getId(), region.getSido(), region.getSigungu(),
+                    region.getId(), region.getSido(), region.getSigungu(), region.coordinate(),
                     reachByRegion.get(region.getId()), score.crowdLevel(), content,
                     heroPhotos.get(region.getId()),
                     // 지역 소개는 부팅 때 조립해 둔 값이다 — 요청마다 89곳을 다시 만들지 않는다(#140).

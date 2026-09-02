@@ -1,5 +1,6 @@
 package com.offway.core.trip.service.dto;
 
+import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
@@ -12,6 +13,7 @@ import java.util.List;
  * @param regionId 지역 식별자
  * @param sido 시도
  * @param sigungu 시군구
+ * @param coordinate 대표 좌표 — 지도 위에 이 지역을 놓는 자리(#404)
  * @param reachMinutes 출발지→지역 도달시간(분)
  * @param crowdLevel 한산도 뱃지(표시용)
  * @param contentCount 볼거리 수(인접 50km 병합 시 합산)
@@ -24,6 +26,7 @@ public record RecommendedRegion(
         long regionId,
         String sido,
         String sigungu,
+        Coordinate coordinate,
         int reachMinutes,
         CrowdLevel crowdLevel,
         int contentCount,
@@ -45,6 +48,7 @@ public record RecommendedRegion(
             long regionId,
             String sido,
             String sigungu,
+            Coordinate coordinate,
             int reachMinutes,
             CrowdLevel crowdLevel,
             RegionContent content,
@@ -52,7 +56,7 @@ public record RecommendedRegion(
             String intro,
             List<Benefit> benefits) {
         return new RecommendedRegion(
-                regionId, sido, sigungu, reachMinutes, crowdLevel,
+                regionId, sido, sigungu, coordinate, reachMinutes, crowdLevel,
                 content.contentCount(),
                 heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl(),
                 content.categories(),
