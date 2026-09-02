@@ -16,6 +16,8 @@ const UPLOADS_API = '/api/v1/admin/uploads';
 
 const POLICIES_API = '/api/v1/admin/policies';
 
+const POLICY_SCOPES_API = `${'/api/v1/admin/policies'}/scopes`;
+
 /**
  * 7대 혜택 분류 — PolicyType 과 짝이다.
  *
@@ -81,6 +83,14 @@ let editing = null;
 /** 정책 목록·편집 대상. 링크와 같은 구조를 따로 든다 — 두 탭이 서로의 상태를 밟지 않게. */
 let policies = [];
 let editingPolicy = null;
+
+/**
+ * 분류별 대상 지역(#393) — 서버가 소유한다.
+ *
+ * POLICY_TYPES 의 scope 문구는 "비수도권 인구감소지역" 처럼 **성격만** 말한다. 그게 몇 곳인지는
+ * 지역 태그를 세야 알고, 그건 서버만 할 수 있다.
+ */
+let policyScopes = null;
 
 /**
  * 업로드 세대. 파일을 연속으로 고르거나 올리는 중에 편집기를 다시 열면 요청이 겹친다.
@@ -686,6 +696,20 @@ function showTab(name) {
     }
 }
 
+/** 이 분류가 닿는 지역. 아직 안 받았으면 null — 화면은 곳 수 없이 성격만 보여준다. */
+function scopeOf(value) {
+    return (policyScopes || []).find((scope) => scope.type === value) || null;
+}
+
+/** 대상 지역을 한 줄로 — "비수도권 인구감소지역 · 85곳". 곳 수를 모르면 성격만. */
+function scopeText(type) {
+    if (!type) {
+        return '';
+    }
+    const scope = scopeOf(type.value);
+    return scope ? `${type.scope} · ${scope.regionCount}곳` : type.scope;
+}
+
 function typeOf(value) {
     return POLICY_TYPES.find((t) => t.value === value) || null;
 }
@@ -742,6 +766,7 @@ function renderPolicies() {
         const type = typeOf(policy.type);
         tr.appendChild(cell(type ? type.name : policy.type, 'type'));
         tr.appendChild(policyTitleCell(policy));
+        tr.appendChild(scopeCell(policy.type));
         tr.appendChild(cell(policyPeriodText(policy), 'period'));
         tr.appendChild(cell(policy.checkedOn || '-', 'checked'));
         tr.appendChild(verifiedCell(policy.verified));
@@ -750,6 +775,27 @@ function renderPolicies() {
     });
 
     $('policy-count').textContent = `${visible.length}건 / 전체 ${policies.length}건`;
+}
+
+/**
+ * 이 정책이 <b>몇 곳에 뜨는지</b>(#393).
+ *
+ * 예전 목록은 이걸 아예 말하지 않아, 85곳짜리와 25곳짜리가 화면에서 똑같아 보였다.
+ */
+function scopeCell(typeValue) {
+    const td = document.createElement('td');
+    td.className = 'scope';
+    const scope = scopeOf(typeValue);
+    if (!scope) {
+        td.textContent = '-';
+        return td;
+    }
+    td.appendChild(el('b', null, `${scope.regionCount}곳`));
+    const type = typeOf(typeValue);
+    if (type) {
+        td.appendChild(el('small', 'by', type.scope));
+    }
+    return td;
 }
 
 function policyTitleCell(policy) {
@@ -804,6 +850,8 @@ async function reloadPolicies() {
             page += 1;
         }
         policies = collected;
+        // 대상 지역은 분류가 정하는 값이라 정책 수와 무관하게 한 번이면 된다.
+        policyScopes = policyScopes || (await call(POLICY_SCOPES_API)).data;
         renderPolicies();
     } catch (error) {
         setPolicyMessage(error.message);
@@ -953,11 +1001,36 @@ function refreshPolicyPreview() {
     $('policy-preview-detail').textContent = draft.benefitDetail;
     $('policy-preview-detail').hidden = !draft.benefitDetail;
 
-    const scope = type ? `대상 지역: ${type.scope}` : '';
+    const scope = type ? `대상 지역: ${scopeText(type)}` : '';
     $('policy-type-note').textContent = scope;
     $('policy-preview-note').textContent = draft.verified
         ? scope
         : '검증을 켜지 않아 앱에 나가지 않습니다.';
+    renderPolicyScope(draft.type);
+}
+
+/**
+ * 분류를 바꾸면 대상이 어떻게 달라지는지 그 자리에서 보인다(#393).
+ *
+ * 숙박세일페스타 85곳과 반값여행 25곳은 60곳 차이다. 분류를 잘못 고르면 그만큼이 조용히 줄어드는데,
+ * 예전 화면은 문구 한 줄만 바뀌어 그 사실이 안 보였다.
+ */
+function renderPolicyScope(typeValue) {
+    const box = $('policy-scope');
+    const scope = scopeOf(typeValue);
+    if (!scope) {
+        box.hidden = true;
+        return;
+    }
+    box.hidden = false;
+    $('policy-scope-summary').textContent = `대상 지역 ${scope.regionCount}곳 — 펼쳐 보기`;
+
+    const list = $('policy-scope-regions');
+    list.innerHTML = '';
+    scope.regions.forEach((region) => list.appendChild(el('span', 'scope-chip', region.name)));
+    if (!scope.regions.length) {
+        list.appendChild(el('span', 'note', '이 분류에 묶인 지역이 아직 없습니다.'));
+    }
 }
 
 

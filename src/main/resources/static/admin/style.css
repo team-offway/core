@@ -424,6 +424,7 @@ nav.tabs .tab.is-active .tab-hint {
 .state-col { width: 72px; }
 .action-col { width: 76px; }
 .type-col { width: 148px; }
+.scope-col { width: 116px; }
 .checked-col { width: 104px; }
 
 /*
@@ -483,6 +484,45 @@ nav.tabs .tab.is-active .tab-hint {
 
 /* 좁은 칸에서 "편집" 이 두 글자로 접히지 않게 — 버튼은 줄바꿈하지 않는다. */
 .grid td button {
+    white-space: nowrap;
+}
+
+/* 이 정책이 몇 곳에 뜨는지 — 숫자를 먼저 읽히게 하고 성격은 아래 작게. */
+.grid td.scope b {
+    font-variant-numeric: tabular-nums;
+}
+
+/* 분류를 고르면 어느 지역에 뜨는지 펼쳐 본다(#393). */
+.scope-box {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: var(--s2) var(--s3);
+    background: var(--surface-2);
+}
+
+.scope-box summary {
+    font-size: var(--t-xs);
+    font-weight: 600;
+    color: var(--brand-ink);
+    cursor: pointer;
+}
+
+.scope-regions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s1);
+    margin-top: var(--s2);
+    max-height: 168px;
+    overflow-y: auto;
+}
+
+.scope-chip {
+    padding: 1px var(--s2);
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    font-size: 11px;
     white-space: nowrap;
 }
 

@@ -171,6 +171,7 @@
                     <tr>
                         <th class="type-col">분류</th>
                         <th>정책명 / 뱃지</th>
+                        <th class="scope-col">대상 지역</th>
                         <th class="period-col">기간</th>
                         <th class="checked-col">확인일</th>
                         <th class="state-col">노출</th>
@@ -370,6 +371,17 @@
                     <select name="type" id="policy-type"></select>
                     <small class="counter" id="policy-type-note"></small>
                 </label>
+
+                <!--
+                  이 분류가 어디에 뜨는지(#393).
+
+                  예전에는 "대상 지역: 비수도권 인구감소지역" 한 줄뿐이라, 그게 몇 곳인지도
+                  어디인지도 알 수 없었다. 어드민이 "이게 완도에 뜨나" 를 답할 수 없었다.
+                -->
+                <details class="scope-box" id="policy-scope">
+                    <summary id="policy-scope-summary">대상 지역</summary>
+                    <div class="scope-regions" id="policy-scope-regions"></div>
+                </details>
 
                 <label>
                     <span class="lab">정책명 <span class="required">필수</span></span>
