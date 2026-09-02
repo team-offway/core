@@ -6,6 +6,7 @@ import static com.offway.core.user.config.TestLogins.loginAsAdmin;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -109,5 +111,98 @@ class AdminExternalApiIntegrationTest {
                 .andExpect(jsonPath("$.data.apis[*].flows[*].mode", hasItem("실호출")))
                 // 화면이 클래스명으로 쓰는 값이라 한글 라벨과 따로 나가야 한다.
                 .andExpect(jsonPath("$.data.apis[*].flows[*].modeName", hasItem("LIVE")));
+    }
+
+    // ── 바꾸기(#403) ─────────────────────────────────────────────────────
+
+    /** 바꾼 뒤에도 <b>현황 전체</b>를 돌려준다 — 화면이 나머지를 다시 묻지 않게. */
+    @Test
+    void 캐시를_끄면_그_자리에서_반영된다() throws Exception {
+        mockMvc.perform(patch(URL + "/{api}", "TOUR_API")
+                        .with(loginAsAdmin(UUID.randomUUID()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cacheEnabled\": false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.apis[?(@.name == 'TOUR_API')].cacheEnabled", hasItem(false)))
+                .andExpect(jsonPath("$.data.apis[?(@.name == 'TOUR_API')].settingDefault", hasItem(false)));
+    }
+
+    @Test
+    void 배치_상한을_걸_수_있다() throws Exception {
+        mockMvc.perform(patch(URL + "/{api}", "TOUR_API")
+                        .with(loginAsAdmin(UUID.randomUUID()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cacheEnabled\": true, \"batchLimit\": 700}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.apis[?(@.name == 'TOUR_API')].batchLimit", hasItem(700)));
+    }
+
+    /**
+     * 일일 한도보다 큰 상한은 <b>무제한과 같은데 화면에는 제한이 걸린 것처럼 보인다.</b>
+     * 조용히 뜻이 다른 값을 받지 않는다.
+     */
+    @Test
+    void 일일_한도를_넘는_상한은_400_이다() throws Exception {
+        mockMvc.perform(patch(URL + "/{api}", "TOUR_API")
+                        .with(loginAsAdmin(UUID.randomUUID()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"batchLimit\": 999999}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EXTAPI-003"));
+    }
+
+    @Test
+    void 음수_상한은_400_이다() throws Exception {
+        mockMvc.perform(patch(URL + "/{api}", "TOUR_API")
+                        .with(loginAsAdmin(UUID.randomUUID()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"batchLimit\": -1}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EXTAPI-002"));
+    }
+
+    @Test
+    void 모르는_연동은_400_이다() throws Exception {
+        mockMvc.perform(patch(URL + "/{api}", "NOT_AN_API")
+                        .with(loginAsAdmin(UUID.randomUUID()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cacheEnabled\": false}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EXTAPI-001"));
+    }
+
+    /**
+     * <b>선택 필드를 빼도 400 이 되지 않는다.</b> Jackson 3 은 선택 필드가 primitive 면 생략됐을 때
+     * 매핑을 깨뜨려, 어드민이 한 칸만 보낸 것이 "값 오류" 로 보고된다(#354 에서 겪었다).
+     */
+    @Test
+    void 빈_본문을_보내도_기본값으로_받는다() throws Exception {
+        mockMvc.perform(patch(URL + "/{api}", "TOUR_API")
+                        .with(loginAsAdmin(UUID.randomUUID()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.apis[?(@.name == 'TOUR_API')].cacheEnabled", hasItem(true)));
+    }
+
+    @Test
+    void 일반_사용자는_설정을_못_바꾼다() throws Exception {
+        mockMvc.perform(patch(URL + "/{api}", "TOUR_API")
+                        .with(loginAs(UUID.randomUUID()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cacheEnabled\": false}"))
+                .andExpect(status().isForbidden());
+    }
+
+    /** 배치는 이름이 코드 상수라 서버가 목록을 들고 있지 않다 — 오타는 아무 배치도 안 막아 해가 없다. */
+    @Test
+    void 배치를_멈출_수_있다() throws Exception {
+        mockMvc.perform(patch(URL + "/batches/{name}", "poi-intro-refresh")
+                        .with(loginAsAdmin(UUID.randomUUID()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\": false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"));
     }
 }

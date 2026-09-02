@@ -1,5 +1,6 @@
 package com.offway.core.weather.infrastructure.kma;
 
+import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -35,7 +36,7 @@ class KmaWeatherClientImplTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body(body)
                 .build();
-        return new KmaWeatherClientImpl(stubbing(response), WITH_KEY, new NoOpCallRecorder());
+        return new KmaWeatherClientImpl(stubbing(response), WITH_KEY, new NoOpCallRecorder(), ExternalApiCachePolicy.ALWAYS_CACHE);
     }
 
     @Test
@@ -69,7 +70,7 @@ class KmaWeatherClientImplTest {
                 })
                 .build();
 
-        assertTrue(new KmaWeatherClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder())
+        assertTrue(new KmaWeatherClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder(), ExternalApiCachePolicy.ALWAYS_CACHE)
                 .dailyForecast(37.5665, 126.9780, DATE).isEmpty());
     }
 
@@ -100,7 +101,7 @@ class KmaWeatherClientImplTest {
                             .build());
                 })
                 .build();
-        KmaWeatherClient client = new KmaWeatherClientImpl(counting, WITH_KEY, new NoOpCallRecorder());
+        KmaWeatherClient client = new KmaWeatherClientImpl(counting, WITH_KEY, new NoOpCallRecorder(), ExternalApiCachePolicy.ALWAYS_CACHE);
 
         DailyWeather first = client.dailyForecast(37.5665, 126.9780, DATE).orElseThrow();
         DailyWeather second = client.dailyForecast(37.5665, 126.9780, DATE.plusDays(1)).orElseThrow();
@@ -130,7 +131,7 @@ class KmaWeatherClientImplTest {
                             .build());
                 })
                 .build();
-        KmaWeatherClient client = new KmaWeatherClientImpl(counting, WITH_KEY, new NoOpCallRecorder());
+        KmaWeatherClient client = new KmaWeatherClientImpl(counting, WITH_KEY, new NoOpCallRecorder(), ExternalApiCachePolicy.ALWAYS_CACHE);
 
         client.dailyForecast(37.5665, 126.9780, DATE); // 서울
         client.dailyForecast(35.1796, 129.0756, DATE); // 부산
@@ -174,7 +175,7 @@ class KmaWeatherClientImplTest {
                             .build());
                 })
                 .build();
-        KmaWeatherClient client = new KmaWeatherClientImpl(counting, WITH_KEY, new NoOpCallRecorder());
+        KmaWeatherClient client = new KmaWeatherClientImpl(counting, WITH_KEY, new NoOpCallRecorder(), ExternalApiCachePolicy.ALWAYS_CACHE);
 
         assertTrue(client.dailyForecast(37.5665, 126.9780, DATE).isEmpty());
         // 빈 결과를 성공 TTL 로 누르면 세 시간 동안 날씨가 통째로 빈다 — 캐시를 비우면 다시 물어야 한다.

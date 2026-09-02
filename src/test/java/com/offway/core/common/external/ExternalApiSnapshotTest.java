@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -26,7 +27,9 @@ class ExternalApiSnapshotTest {
                         DAY1, Map.of(ExternalApi.TOUR_API, 603L, ExternalApi.TOUR_DATA_LAB, 41L),
                         DAY2, Map.of(ExternalApi.TOUR_API, 88L)),
                 Map.of(),
-                List.of());
+                List.of(),
+                Map.of(),
+                Set.of());
     }
 
     @Test

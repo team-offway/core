@@ -1,5 +1,6 @@
 package com.offway.core.transport.service;
 
+import com.offway.core.common.external.ExternalApiCachePolicy;
 import java.time.LocalTime;
 import com.offway.core.leave.domain.StartDayLeave;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,7 +44,7 @@ class TrainAccessServiceTest {
 
     private static TrainAccessService service(StubTrainInfoClient stub) {
         TrainStationRepository repo = () -> MASTER; // findAll 단일 메서드 → 람다
-        return new TrainAccessService(new TrainStationResolver(repo), new TrainRouteService(stub));
+        return new TrainAccessService(new TrainStationResolver(repo), new TrainRouteService(stub, ExternalApiCachePolicy.ALWAYS_CACHE));
     }
 
     private static TrainLeg ktx() {

@@ -1,5 +1,6 @@
 package com.offway.core.transport.service;
 
+import com.offway.core.common.external.ExternalApiCachePolicy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
@@ -21,7 +22,7 @@ class BusArrivalServiceTest {
         StubBusArrivalClient stub = new StubBusArrivalClient();
         stub.respond(() -> new BusArrivalStatus.Arriving(List.of(new BusArrival("1", "농어촌버스", 180, 2))));
 
-        BusArrivalStatus result = new BusArrivalService(stub).arrivalsAt(TERMINAL);
+        BusArrivalStatus result = new BusArrivalService(stub, ExternalApiCachePolicy.ALWAYS_CACHE).arrivalsAt(TERMINAL);
 
         assertEquals(3, assertInstanceOf(BusArrivalStatus.Arriving.class, result)
                 .soonest()
@@ -33,14 +34,14 @@ class BusArrivalServiceTest {
         StubBusArrivalClient stub = new StubBusArrivalClient();
         stub.respond(BusArrivalStatus.Unavailable::new);
 
-        assertInstanceOf(BusArrivalStatus.Unavailable.class, new BusArrivalService(stub).arrivalsAt(TERMINAL));
+        assertInstanceOf(BusArrivalStatus.Unavailable.class, new BusArrivalService(stub, ExternalApiCachePolicy.ALWAYS_CACHE).arrivalsAt(TERMINAL));
     }
 
     @Test
     void 정류소가_다르면_캐시를_공유하지_않는다() {
         StubBusArrivalClient stub = new StubBusArrivalClient();
         stub.respond(() -> new BusArrivalStatus.Arriving(List.of(new BusArrival("1", "농어촌버스", 180, 2))));
-        BusArrivalService service = new BusArrivalService(stub);
+        BusArrivalService service = new BusArrivalService(stub, ExternalApiCachePolicy.ALWAYS_CACHE);
 
         service.arrivalsAt(TERMINAL);
         service.arrivalsAt(OFFICE);
@@ -53,7 +54,7 @@ class BusArrivalServiceTest {
         // 실시간이라 TTL 이 20초로 짧지만, 동시 요청이 몰릴 때 쿼터가 터지는 건 막아야 한다.
         StubBusArrivalClient stub = new StubBusArrivalClient();
         stub.respond(() -> new BusArrivalStatus.Arriving(List.of(new BusArrival("1", "농어촌버스", 180, 2))));
-        BusArrivalService service = new BusArrivalService(stub);
+        BusArrivalService service = new BusArrivalService(stub, ExternalApiCachePolicy.ALWAYS_CACHE);
 
         service.arrivalsAt(TERMINAL);
         service.arrivalsAt(TERMINAL);
