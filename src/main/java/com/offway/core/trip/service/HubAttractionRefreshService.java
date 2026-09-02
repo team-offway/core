@@ -4,6 +4,8 @@ import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.config.BatchBudgetProperties;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiBatchPolicy;
 import com.offway.core.common.logging.DegradeTally;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.region.domain.Region;
@@ -106,6 +108,9 @@ public class HubAttractionRefreshService {
     private final HubAttractionRepository hubAttractionRepository;
     private final RegionRepository regionRepository;
 
+    /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
+    private final ExternalApiBatchPolicy batchPolicy;
+
     /**
      * 하루 한 번 — <b>오늘 이미 돌았으면</b> 외부를 아예 안 부른다.
      *
@@ -135,6 +140,11 @@ public class HubAttractionRefreshService {
     })
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
+            if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TOUR_DATA_LAB)) {
+                // 조용히 넘기지 않는다 — 꺼 둔 줄 모르면 "중심 관광지이 왜 안 채워지지" 가 된다.
+                log.info("중심 관광지 배치가 꺼져 있거나 배치 한도를 넘겨 건너뜁니다");
+                return;
+            }
             LocalDate today = LocalDate.now(SERVICE_ZONE);
             // 확인과 기록을 한 문장으로 묶는다 — 트리거가 둘이라 "확인 → 105콜 → 기록" 사이의 창에 다른
             // 트리거가 들어오면 같은 날 두 번 쏜다. #315 가 같은 자리에서 같은 실수를 했다.

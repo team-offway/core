@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.cache.ExternalDataCache;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.weather.domain.Grid;
 import com.offway.core.weather.domain.SkyState;
@@ -104,6 +105,9 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
     private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** 캐시를 켜고 끄는 스위치(#403). 조회마다 물어, 운영 중 바뀐 값도 곧바로 듣는다. */
+    private final ExternalApiCachePolicy cachePolicy;
+
     /**
      * 격자·발표시각 단위 예보 캐시 — 응답 하나가 담은 <b>5일치 전부</b>를 보관한다.
      *
@@ -112,13 +116,15 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
      * 사정이 호출자와 테스트 stub 까지 번진다. 부르는 쪽은 "이 날짜의 날씨" 만 알면 된다.
      */
     private final ExternalDataCache<ForecastKey, Map<LocalDate, DailyWeather>> cache =
-            new ExternalDataCache<>(MAX_CACHED_FORECASTS, FIRST_LOAD_WAIT);
+            new ExternalDataCache<>(MAX_CACHED_FORECASTS, FIRST_LOAD_WAIT,
+                    this::cacheEnabled);
 
     KmaWeatherClientImpl(WebClient externalWebClient, ExternalApiProperties props,
-            ExternalApiCallRecorder callRecorder) {
+            ExternalApiCallRecorder callRecorder, ExternalApiCachePolicy cachePolicy) {
         this.webClient = externalWebClient;
         this.props = props;
         this.callRecorder = callRecorder;
+        this.cachePolicy = cachePolicy;
     }
 
     /** 같은 격자·같은 발표시각이면 응답이 완전히 같다 — 그 단위가 곧 캐시 키다. */
@@ -327,5 +333,16 @@ class KmaWeatherClientImpl implements KmaWeatherClient {
             return current;
         }
         return current == null ? candidate : Math.max(current, candidate);
+    }
+
+    /**
+     * 캐시를 지금 써도 되나(#403).
+     *
+     * <p>람다로 필드를 직접 읽지 않고 메서드 참조를 쓰는 이유 — 캐시 필드의 초기화식은 생성자가
+     * {@code cachePolicy} 를 넣기 <b>전에</b> 돌아서, 거기서 blank final 을 읽으면 컴파일이 막힌다.
+     * 메서드 본문은 그때 읽히지 않는다.
+     */
+    private boolean cacheEnabled() {
+        return cachePolicy.cacheEnabled(ExternalApi.KMA_WEATHER);
     }
 }

@@ -3,6 +3,8 @@ package com.offway.core.transport.service;
 import com.offway.core.common.cache.ExternalDataCache;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
 import com.offway.core.common.cache.ExternalDataCache.StalePolicy;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.transport.domain.BusArrivalStatus;
 import com.offway.core.transport.domain.BusStop;
 import com.offway.core.transport.infrastructure.tago.BusArrivalClient;
@@ -41,7 +43,10 @@ public class BusArrivalService {
     private static final Duration FIRST_LOAD_WAIT = Duration.ofSeconds(7);
 
     private final BusArrivalClient busArrivalClient;
-    private final ExternalDataCache<String, BusArrivalStatus> cache = new ExternalDataCache<>(MAX_CACHED_STOPS, FIRST_LOAD_WAIT);
+
+    /** 캐시를 켜고 끄는 스위치(#403). 조회마다 물어, 운영 중 바뀐 값도 곧바로 듣는다. */
+    private final ExternalApiCachePolicy cachePolicy;
+    private final ExternalDataCache<String, BusArrivalStatus> cache = new ExternalDataCache<>(MAX_CACHED_STOPS, FIRST_LOAD_WAIT, this::cacheEnabled);
 
     /** 정류소의 실시간 도착 예정 버스. */
     public BusArrivalStatus arrivalsAt(BusStop stop) {
@@ -61,5 +66,16 @@ public class BusArrivalService {
     /** 캐시 무효화 — 운영상 강제 갱신, 통합 테스트 격리용. */
     public void evictCache() {
         cache.evictAll();
+    }
+
+    /**
+     * 캐시를 지금 써도 되나(#403).
+     *
+     * <p>람다로 필드를 직접 읽지 않고 메서드 참조를 쓰는 이유 — 캐시 필드의 초기화식은 생성자가
+     * {@code cachePolicy} 를 넣기 <b>전에</b> 돌아서, 거기서 blank final 을 읽으면 컴파일이 막힌다.
+     * 메서드 본문은 그때 읽히지 않는다.
+     */
+    private boolean cacheEnabled() {
+        return cachePolicy.cacheEnabled(ExternalApi.BUS_ARRIVAL);
     }
 }

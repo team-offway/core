@@ -3,6 +3,8 @@ package com.offway.core.trip.service;
 import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiBatchPolicy;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.trip.domain.FestivalPeriod;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
@@ -109,10 +111,18 @@ public class FestivalPeriodRefreshService {
     private final FestivalPeriodRepository festivalPeriodRepository;
     private final BatchRunRepository batchRunRepository;
 
+    /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
+    private final ExternalApiBatchPolicy batchPolicy;
+
     @Scheduled(cron = WEEKLY_AT_DAWN, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
+            if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TOUR_API)) {
+                // 조용히 넘기지 않는다 — 꺼 둔 줄 모르면 "축제 기간이 왜 안 채워지지" 가 된다.
+                log.info("축제 기간 배치가 꺼져 있거나 배치 한도를 넘겨 건너뜁니다");
+                return;
+            }
             LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
             if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(RUN_INTERVAL))) {
                 log.info("축제 기간을 최근 {}일 안에 이미 받아 갱신을 건너뜁니다", RUN_INTERVAL.toDays());

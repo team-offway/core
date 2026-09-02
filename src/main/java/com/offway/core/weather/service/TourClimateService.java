@@ -2,6 +2,8 @@ package com.offway.core.weather.service;
 
 import com.offway.core.common.cache.ExternalDataCache;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.weather.domain.SigunguKey;
 import com.offway.core.weather.domain.TourClimateIndex;
 import com.offway.core.weather.infrastructure.kma.TourClimateIndexClient;
@@ -53,8 +55,11 @@ public class TourClimateService {
 
     private final TourClimateIndexClient tourClimateIndexClient;
 
+    /** 캐시를 켜고 끄는 스위치(#403). 조회마다 물어, 운영 중 바뀐 값도 곧바로 듣는다. */
+    private final ExternalApiCachePolicy cachePolicy;
+
     private final ExternalDataCache<LocalDate, Map<LocalDate, Map<SigunguKey, TourClimateIndex>>> cache =
-            new ExternalDataCache<>(MAX_CACHED_DAYS, FIRST_LOAD_WAIT);
+            new ExternalDataCache<>(MAX_CACHED_DAYS, FIRST_LOAD_WAIT, this::cacheEnabled);
 
     /**
      * 그 지역·그 날짜의 관광기후지수. 범위 밖·조회 실패·매칭 실패면 빈 Optional.
@@ -100,5 +105,16 @@ public class TourClimateService {
     /** 캐시 무효화 — 운영상 강제 갱신, 통합 테스트 격리용. */
     public void evictCache() {
         cache.evictAll();
+    }
+
+    /**
+     * 캐시를 지금 써도 되나(#403).
+     *
+     * <p>람다로 필드를 직접 읽지 않고 메서드 참조를 쓰는 이유 — 캐시 필드의 초기화식은 생성자가
+     * {@code cachePolicy} 를 넣기 <b>전에</b> 돌아서, 거기서 blank final 을 읽으면 컴파일이 막힌다.
+     * 메서드 본문은 그때 읽히지 않는다.
+     */
+    private boolean cacheEnabled() {
+        return cachePolicy.cacheEnabled(ExternalApi.KMA_WEATHER);
     }
 }

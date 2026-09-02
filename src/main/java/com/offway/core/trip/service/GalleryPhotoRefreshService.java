@@ -1,5 +1,7 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiBatchPolicy;
 import com.offway.core.region.domain.Region;
 import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
@@ -76,6 +78,9 @@ public class GalleryPhotoRefreshService {
     private final RegionRepository regionRepository;
     private final BatchRunRepository batchRunRepository;
 
+    /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
+    private final ExternalApiBatchPolicy batchPolicy;
+
     /**
      * 주 1회 — <b>그 주에 이미 돌았으면</b> 외부를 아예 안 부른다.
      *
@@ -88,6 +93,11 @@ public class GalleryPhotoRefreshService {
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = REFRESH_INTERVAL)
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
+            if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TOUR_GALLERY)) {
+                // 조용히 넘기지 않는다 — 꺼 둔 줄 모르면 "갤러리 사진이 왜 안 채워지지" 가 된다.
+                log.info("갤러리 사진 배치가 꺼져 있거나 배치 한도를 넘겨 건너뜁니다");
+                return;
+            }
             LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
             if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
                 log.info("관광사진 갤러리를 최근 {}에 이미 적재해 건너뜁니다", MIN_INTERVAL);
