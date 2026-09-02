@@ -6,11 +6,16 @@
     <!-- 로그인 결과가 프래그먼트로 오므로 그 주소가 밖으로 새지 않게 리퍼러를 끊는다. -->
     <meta name="referrer" content="no-referrer">
     <title>OffWay 백오피스</title>
+    <link rel="icon" href="/admin/favicon.png" type="image/png">
     <link rel="stylesheet" href="/admin/style.css">
 </head>
 <body>
 <header class="top">
-    <h1>OffWay 백오피스</h1>
+    <a class="brand" href="/admin/">
+        <img class="brand-mark" src="/admin/logo-mark.png" alt="" width="28" height="28">
+        <img class="brand-word" src="/admin/logo-wordmark.png" alt="offway" width="59" height="18">
+        <span class="brand-tag">백오피스</span>
+    </a>
     <div class="who" id="who" hidden>
         <span id="who-label"></span>
         <button type="button" class="ghost" id="logout">로그아웃</button>
@@ -43,111 +48,140 @@
     <button type="button" class="ghost" id="logout-forbidden">다른 계정으로 로그인</button>
 </section>
 
-<!-- 본 화면 -->
+<!--
+  본 화면 — 사이드바 + 무대.
+
+  탭이 아니라 사이드바인 이유: 앞으로 화면이 는다(외부 API 현황 #398, 연동 제어 #403).
+  가로 탭은 넷을 넘기면 줄바꿈이 나고, 그때 다시 갈아엎게 된다.
+
+  다만 클래스 이름은 `nav.tabs .tab` 그대로 둔다 — app.js 의 consoleTabs() 가 이 선택자로
+  잡는다. 모양만 바꾸고 계약은 건드리지 않는다.
+-->
 <main id="console" hidden>
-    <nav class="tabs">
-        <button type="button" class="tab is-active" data-tab="links">바로가기 링크</button>
-        <button type="button" class="tab" data-tab="policies">지역 혜택</button>
+    <nav class="tabs" aria-label="백오피스 메뉴">
+        <button type="button" class="tab is-active" data-tab="links">
+            <span class="tab-name">바로가기 링크</span>
+            <span class="tab-hint">화면에 붙는 카드</span>
+        </button>
+        <button type="button" class="tab" data-tab="policies">
+            <span class="tab-name">지역 혜택</span>
+            <span class="tab-hint">지역에 붙는 뱃지</span>
+        </button>
     </nav>
 
-    <section class="panel" id="tab-links">
-        <p class="panel-note">
-            <b>화면에 붙는 카드입니다.</b> 홈·지역·코스·장소 네 화면에 뜨고, 누르면 바깥 페이지가 열립니다.
-            <em>지역과 무관합니다</em> &mdash; 그 화면을 여는 사람 모두에게 같게 보입니다.
-        </p>
-        <div class="toolbar">
-            <label>
-                면
-                <select id="filter-surface">
-                    <option value="">전체</option>
-                    <option value="HOME">홈</option>
-                    <option value="REGION">지역 상세</option>
-                    <option value="COURSE">코스 상세</option>
-                    <option value="POI">장소 상세</option>
-                </select>
-            </label>
-            <label>
-                게시
-                <select id="filter-published">
-                    <option value="">전체</option>
-                    <option value="true">게시됨</option>
-                    <option value="false">미게시</option>
-                </select>
-            </label>
-            <span class="spacer"></span>
-            <span class="count" id="count"></span>
-            <button type="button" class="ghost" id="reload">새로고침</button>
-            <button type="button" class="primary" id="new-link">새로 만들기</button>
-        </div>
+    <div class="stage">
+        <section class="panel" id="tab-links">
+            <div class="panel-head">
+                <h2>바로가기 링크</h2>
+                <p class="panel-note">
+                    <b>화면에 붙는 카드입니다.</b> 홈·지역·코스·장소 네 화면에 뜨고, 누르면 바깥 페이지가
+                    열립니다. <em>지역과 무관합니다</em> &mdash; 그 화면을 여는 사람 모두에게 같게 보입니다.
+                </p>
+            </div>
 
-        <p class="note" id="list-message" hidden></p>
+            <div class="toolbar">
+                <label>
+                    면
+                    <select id="filter-surface">
+                        <option value="">전체</option>
+                        <option value="HOME">홈</option>
+                        <option value="REGION">지역 상세</option>
+                        <option value="COURSE">코스 상세</option>
+                        <option value="POI">장소 상세</option>
+                    </select>
+                </label>
+                <label>
+                    게시
+                    <select id="filter-published">
+                        <option value="">전체</option>
+                        <option value="true">게시됨</option>
+                        <option value="false">미게시</option>
+                    </select>
+                </label>
+                <span class="spacer"></span>
+                <span class="count" id="count"></span>
+                <button type="button" class="ghost" id="reload">새로고침</button>
+                <button type="button" class="primary" id="new-link">새로 만들기</button>
+            </div>
 
-        <table class="grid">
-            <thead>
-            <tr>
-                <th class="drag-col" title="끌어서 순서를 바꿉니다"></th>
-                <th class="thumb-col">썸네일</th>
-                <th>제목 / 칩 문구</th>
-                <th class="period-col">기간</th>
-                <th class="surface-col">면</th>
-                <th class="order-col">정렬</th>
-                <th class="state-col">노출</th>
-                <th class="action-col"></th>
-            </tr>
-            </thead>
-            <tbody id="rows"></tbody>
-        </table>
-        <p class="note" id="reorder-hint" hidden>
-            순서를 바꾸면 그 자리에서 저장됩니다. 정렬 값은 같은 면 안에서만 뜻이 있습니다.
-        </p>
-    </section>
+            <p class="note" id="list-message" hidden></p>
 
-    <section class="panel" id="tab-policies" hidden>
-        <p class="panel-note">
-            <b>지역에 붙는 혜택 뱃지입니다.</b> 7대 혜택이고, 누르면 대상·기간·신청법을 보는 상세 화면이
-            열립니다. <em>지역마다 다르게 보입니다</em> &mdash; 완도에서 보이는 것과 가평에서 보이는 것이
-            다릅니다.
-        </p>
-        <div class="toolbar">
-            <label>
-                분류
-                <select id="filter-type">
-                    <option value="">전체</option>
-                </select>
-            </label>
-            <label>
-                검증
-                <select id="filter-verified">
-                    <option value="">전체</option>
-                    <option value="true">검증됨 (앱에 나감)</option>
-                    <option value="false">미검증 (안 나감)</option>
-                </select>
-            </label>
-            <span class="spacer"></span>
-            <span class="count" id="policy-count"></span>
-            <button type="button" class="ghost" id="policy-reload">새로고침</button>
-            <button type="button" class="primary" id="new-policy">새로 만들기</button>
-        </div>
+            <div class="grid-wrap">
+                <table class="grid">
+                    <thead>
+                    <tr>
+                        <th class="drag-col"><span class="sr-only">순서</span></th>
+                        <th class="thumb-col">썸네일</th>
+                        <th>제목 / 칩 문구</th>
+                        <th class="period-col">기간</th>
+                        <th class="surface-col">면</th>
+                        <th class="order-col">정렬</th>
+                        <th class="state-col">노출</th>
+                        <th class="action-col"><span class="sr-only">편집</span></th>
+                    </tr>
+                    </thead>
+                    <tbody id="rows"></tbody>
+                </table>
+            </div>
+            <p class="note" id="reorder-hint" hidden>
+                순서를 바꾸면 그 자리에서 저장됩니다. 정렬 값은 같은 면 안에서만 뜻이 있습니다.
+            </p>
+        </section>
 
-        <p class="note" id="policy-message" hidden></p>
+        <section class="panel" id="tab-policies" hidden>
+            <div class="panel-head">
+                <h2>지역 혜택</h2>
+                <p class="panel-note">
+                    <b>지역에 붙는 혜택 뱃지입니다.</b> 7대 혜택이고, 누르면 대상·기간·신청법을 보는 상세
+                    화면이 열립니다. <em>지역마다 다르게 보입니다</em> &mdash; 완도에서 보이는 것과 가평에서
+                    보이는 것이 다릅니다.
+                </p>
+            </div>
 
-        <table class="grid">
-            <thead>
-            <tr>
-                <th class="type-col">분류</th>
-                <th>정책명 / 뱃지</th>
-                <th class="period-col">기간</th>
-                <th class="checked-col">확인일</th>
-                <th class="state-col">노출</th>
-                <th class="action-col"></th>
-            </tr>
-            </thead>
-            <tbody id="policy-rows"></tbody>
-        </table>
-        <p class="note">
-            대상 지역은 분류가 정합니다 &mdash; 여기서 못 고칩니다. 참여 지자체 명단은 아직 배포로 관리합니다.
-        </p>
-    </section>
+            <div class="toolbar">
+                <label>
+                    분류
+                    <select id="filter-type">
+                        <option value="">전체</option>
+                    </select>
+                </label>
+                <label>
+                    검증
+                    <select id="filter-verified">
+                        <option value="">전체</option>
+                        <option value="true">검증됨 (앱에 나감)</option>
+                        <option value="false">미검증 (안 나감)</option>
+                    </select>
+                </label>
+                <span class="spacer"></span>
+                <span class="count" id="policy-count"></span>
+                <button type="button" class="ghost" id="policy-reload">새로고침</button>
+                <button type="button" class="primary" id="new-policy">새로 만들기</button>
+            </div>
+
+            <p class="note" id="policy-message" hidden></p>
+
+            <div class="grid-wrap">
+                <table class="grid">
+                    <thead>
+                    <tr>
+                        <th class="type-col">분류</th>
+                        <th>정책명 / 뱃지</th>
+                        <th class="period-col">기간</th>
+                        <th class="checked-col">확인일</th>
+                        <th class="state-col">노출</th>
+                        <th class="action-col"><span class="sr-only">편집</span></th>
+                    </tr>
+                    </thead>
+                    <tbody id="policy-rows"></tbody>
+                </table>
+            </div>
+            <p class="note">
+                대상 지역은 분류가 정합니다 &mdash; 여기서 못 고칩니다. 참여 지자체 명단은 아직 배포로
+                관리합니다.
+            </p>
+        </section>
+    </div>
 </main>
 
 <!-- 편집 -->
@@ -161,12 +195,12 @@
         <div class="editor-body">
             <div class="fields">
                 <label>
-                    제목 <span class="required">필수</span>
+                    <span class="lab">제목 <span class="required">필수</span></span>
                     <input name="title" maxlength="100" required>
                 </label>
 
                 <label>
-                    칩 문구 <span class="required">필수</span>
+                    <span class="lab">칩 문구 <span class="required">필수</span></span>
                     <input name="chipText" maxlength="30" required>
                     <small class="counter" id="chip-counter">0 / 30</small>
                 </label>
@@ -177,7 +211,7 @@
                 </label>
 
                 <label>
-                    링크 주소 <span class="required">필수</span>
+                    <span class="lab">링크 주소 <span class="required">필수</span></span>
                     <input name="linkUrl" maxlength="1000" placeholder="https://" required>
                     <small class="counter">https 만 받습니다.</small>
                 </label>
@@ -267,13 +301,13 @@
         <div class="editor-body">
             <div class="fields">
                 <label>
-                    분류 <span class="required">필수</span>
+                    <span class="lab">분류 <span class="required">필수</span></span>
                     <select name="type" id="policy-type"></select>
                     <small class="counter" id="policy-type-note"></small>
                 </label>
 
                 <label>
-                    정책명 <span class="required">필수</span>
+                    <span class="lab">정책명 <span class="required">필수</span></span>
                     <input name="name" maxlength="100" required>
                 </label>
 

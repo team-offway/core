@@ -1,88 +1,190 @@
-/* OffWay 백오피스 (#343) — 빌드 도구 없이 브라우저가 그대로 읽는다. */
+/*
+ * OffWay 백오피스 (#343 · #393) — 빌드 도구 없이 브라우저가 그대로 읽는다.
+ *
+ * 값을 직접 박지 않고 토큰을 쓴다. 한 곳을 고치면 화면 전체가 따라오게 하려는 것이고,
+ * 그래야 다음 화면(#398 외부 API 현황 · #403 연동 제어)이 붙어도 결이 안 갈린다.
+ */
 
 :root {
-    --ink: #16202b;
-    --ink-soft: #5b6b7c;
-    --line: #dfe5ec;
+    /* ---- 브랜드 ---------------------------------------------------------
+     * 로고에서 뽑은 색이다. 다만 --brand 는 흰 배경에서 대비가 1.80:1 이라
+     * 글씨나 버튼 배경으로 쓸 수 없다(WCAG AA 는 4.5:1). 그래서 둘로 나눈다.
+     *   --brand      로고·선택 표시·강조 면처럼 "글씨가 아닌" 자리
+     *   --brand-ink  버튼·링크처럼 읽어야 하는 자리 (흰 글씨 4.70:1)
+     */
+    --brand: #18d2fe;
+    --brand-ink: #0a7e9a;
+    --brand-ink-hover: #076a83;
+    --brand-wash: #ebfaff;
+
+    /* ---- 중립 ---- */
+    --ink: #111827;
+    --ink-2: #4b5563;
+    --ink-3: #6b7280;
+    --line: #e5e7eb;
+    --line-soft: #f0f2f5;
     --bg: #f5f7fa;
-    --panel: #ffffff;
-    --accent: #1f6feb;
-    --accent-ink: #ffffff;
-    --danger: #b3261e;
-    --ok: #1a7f4b;
-    --radius: 10px;
-    --gap: 16px;
+    --surface: #ffffff;
+    --surface-2: #fafbfc;
+
+    /* ---- 상태 ---- */
+    --ok: #16a34a;
+    --ok-wash: #e8f6ee;
+    --warn: #d97706;
+    --danger: #dc2626;
+    --danger-wash: #fdeceb;
+
+    /* ---- 간격 4/8/12/16/24/32 ---- */
+    --s1: 4px;
+    --s2: 8px;
+    --s3: 12px;
+    --s4: 16px;
+    --s5: 24px;
+    --s6: 32px;
+
+    /* ---- 글자 12/14/16/20/24 ---- */
+    --t-xs: 12px;
+    --t-sm: 14px;
+    --t-md: 16px;
+    --t-lg: 20px;
+    --t-xl: 24px;
+
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow: 0 1px 2px rgba(17, 24, 39, .06), 0 1px 3px rgba(17, 24, 39, .04);
+    --shadow-lg: 0 12px 32px rgba(17, 24, 39, .16);
+
+    --header-h: 56px;
+    --side-w: 216px;
 }
 
 * {
     box-sizing: border-box;
 }
 
+/* display 를 지정한 요소가 여럿이라, hidden 이 항상 이기게 못 박는다. */
+[hidden] {
+    display: none !important;
+}
+
 body {
     margin: 0;
     background: var(--bg);
     color: var(--ink);
-    font: 15px/1.55 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+    font: var(--t-sm)/1.55 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
 }
 
 h1, h2, h3 {
     margin: 0;
     font-weight: 700;
+    letter-spacing: -.01em;
 }
 
 code {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.92em;
-    background: #eef2f7;
+    font-size: .92em;
+    background: var(--line-soft);
     padding: 1px 5px;
+    border-radius: 4px;
+}
+
+/* 화면에는 안 보이지만 스크린리더가 읽는 라벨. 빈 <th> 를 없애기 위한 것이다. */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* 키보드로 왔을 때만 테두리를 준다. 마우스 클릭에는 안 뜬다. */
+:focus-visible {
+    outline: 2px solid var(--brand-ink);
+    outline-offset: 2px;
     border-radius: 4px;
 }
 
 /* ---------------------------------------------------------------- 머리 */
 
 .top {
+    position: sticky;
+    top: 0;
+    z-index: 10;
     display: flex;
     align-items: center;
-    gap: var(--gap);
-    padding: 14px 24px;
-    background: var(--panel);
+    gap: var(--s4);
+    height: var(--header-h);
+    padding: 0 var(--s5);
+    background: var(--surface);
     border-bottom: 1px solid var(--line);
 }
 
-.top h1 {
-    font-size: 17px;
-    letter-spacing: -0.01em;
+.brand {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    text-decoration: none;
+    color: inherit;
+}
+
+.brand-mark {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: block;
+}
+
+.brand-word {
+    width: 59px;
+    height: 18px;
+    display: block;
+}
+
+/* 워드마크가 곧 서비스명이라, 옆에 붙는 것은 역할만 말한다. */
+.brand-tag {
+    padding-left: var(--s2);
+    margin-left: var(--s1);
+    border-left: 1px solid var(--line);
+    color: var(--ink-3);
+    font-size: var(--t-xs);
+    font-weight: 600;
+    letter-spacing: .02em;
 }
 
 .who {
     margin-left: auto;
     display: flex;
     align-items: center;
-    gap: 10px;
-    color: var(--ink-soft);
-    font-size: 13px;
+    gap: var(--s3);
+    color: var(--ink-3);
+    font-size: var(--t-xs);
 }
 
 /* ---------------------------------------------------------------- 게이트 */
 
 .gate {
-    max-width: 560px;
-    margin: 80px auto;
-    padding: 32px;
-    background: var(--panel);
+    max-width: 520px;
+    margin: 72px auto;
+    padding: var(--s6);
+    background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
     text-align: center;
 }
 
 .gate h2 {
-    font-size: 20px;
-    margin-bottom: 10px;
+    font-size: var(--t-lg);
+    margin-bottom: var(--s3);
 }
 
 .gate p {
-    color: var(--ink-soft);
-    margin: 0 0 18px;
+    color: var(--ink-2);
+    margin: 0 0 var(--s4);
     text-align: left;
 }
 
@@ -94,68 +196,158 @@ code {
 .copy-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--s2);
     justify-content: center;
-    margin-bottom: 16px;
+    margin-bottom: var(--s4);
 }
 
 .copy-row code {
-    font-size: 14px;
-    padding: 8px 12px;
+    font-size: var(--t-sm);
+    padding: var(--s2) var(--s3);
     user-select: all;
 }
 
-/* ---------------------------------------------------------------- 본 화면 */
+/* ---------------------------------------------------------------- 뼈대 */
 
-main {
-    max-width: 1180px;
+#console {
+    display: grid;
+    grid-template-columns: var(--side-w) minmax(0, 1fr);
+    align-items: start;
+    gap: var(--s5);
+    max-width: 1360px;
     margin: 0 auto;
-    padding: 24px;
+    padding: var(--s5);
 }
 
-.tabs {
+/*
+ * 사이드바 — 클래스가 `nav.tabs .tab` 인 것은 app.js 의 consoleTabs() 가 이 선택자로
+ * 잡기 때문이다. 모양만 바꾸고 계약은 그대로 둔다.
+ *
+ * 편집기 안의 썸네일 `.tabs` 와 이름이 겹치므로, 여기 규칙은 전부 `nav.tabs` 로 좁힌다.
+ * 좁히지 않으면 두 벌이 서로를 덮는다(이전 스타일시트가 실제로 그랬다).
+ */
+nav.tabs {
+    position: sticky;
+    top: calc(var(--header-h) + var(--s5));
     display: flex;
-    gap: 6px;
-    margin-bottom: 14px;
-}
-
-.tab {
+    flex-direction: column;
+    gap: var(--s1);
+    padding: var(--s2);
+    background: var(--surface);
     border: 1px solid var(--line);
-    background: var(--panel);
-    color: var(--ink-soft);
-    padding: 7px 16px;
-    border-radius: 999px;
-    cursor: pointer;
-    font-size: 14px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
 }
 
-.tab.is-active {
-    border-color: var(--accent);
-    color: var(--accent);
+nav.tabs .tab {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--ink-2);
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+}
+
+nav.tabs .tab:hover {
+    background: var(--line-soft);
+    color: var(--ink);
+}
+
+nav.tabs .tab.is-active {
+    background: var(--brand-wash);
+    color: var(--ink);
+    /* 선택 표시에만 브랜드 원색을 쓴다 — 글씨가 아니라 면이라 대비 규칙에 걸리지 않는다. */
+    box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.tab-name {
+    font-size: var(--t-sm);
     font-weight: 600;
 }
 
+.tab-hint {
+    font-size: var(--t-xs);
+    color: var(--ink-3);
+}
+
+nav.tabs .tab.is-active .tab-hint {
+    color: var(--brand-ink);
+}
+
+.stage {
+    min-width: 0;
+}
+
+/* ---------------------------------------------------------------- 패널 */
+
 .panel {
-    background: var(--panel);
+    background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 18px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: var(--s5);
+}
+
+.panel-head {
+    margin-bottom: var(--s4);
+}
+
+.panel-head h2 {
+    font-size: var(--t-lg);
+    margin-bottom: var(--s2);
+}
+
+/*
+ * 각 화면이 무엇을 다루는지 한 줄로 말한다.
+ *
+ * "바로가기 링크" 와 "지역 혜택" 은 이름만으로 구분이 안 된다 — 둘 다 앱에 내보내는 외부
+ * 링크라, 팀원이 어느 쪽에서 고쳐야 하는지 헷갈린다. 진짜 차이(화면에 붙나 지역에 붙나)를
+ * 여기서 말한다.
+ */
+.panel-note {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: var(--t-xs);
+    line-height: 1.7;
+}
+
+.panel-note b {
+    color: var(--ink);
+}
+
+.panel-note em {
+    font-style: normal;
+    color: var(--brand-ink);
+    font-weight: 600;
 }
 
 .toolbar {
     display: flex;
     align-items: flex-end;
-    gap: 12px;
+    gap: var(--s3);
     flex-wrap: wrap;
-    margin-bottom: 14px;
+    padding: var(--s3);
+    margin-bottom: var(--s4);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
 }
 
 .toolbar label {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--ink-soft);
+    gap: var(--s1);
+    font-size: var(--t-xs);
+    color: var(--ink-3);
+}
+
+.toolbar select {
+    min-width: 132px;
 }
 
 .spacer {
@@ -163,40 +355,59 @@ main {
 }
 
 .count {
-    font-size: 13px;
-    color: var(--ink-soft);
+    font-size: var(--t-xs);
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
 }
 
 /* ---------------------------------------------------------------- 표 */
 
+/* 좁은 창에서 표만 가로로 스크롤한다 — 페이지 전체가 옆으로 밀리지 않게. */
+.grid-wrap {
+    overflow-x: auto;
+}
+
 .grid {
     width: 100%;
     border-collapse: collapse;
-    font-size: 14px;
+    font-size: var(--t-sm);
 }
 
 .grid th,
 .grid td {
-    padding: 10px 8px;
+    padding: var(--s3) var(--s2);
     border-bottom: 1px solid var(--line);
     text-align: left;
     vertical-align: middle;
 }
 
+/*
+ * 머리행을 sticky 로 붙이지 않는다.
+ *
+ * `.grid-wrap` 이 가로 스크롤 컨테이너라, 그 안에서 sticky 는 뷰포트가 아니라 그 컨테이너를
+ * 기준으로 잡힌다. `top` 을 주면 머리행이 제자리에서 그만큼 아래로 밀리고 **첫 행이 그 밑에
+ * 깔린다** — 실제로 3건 중 2건만 보였다. 목록이 길지 않아 얻는 것도 없다.
+ */
 .grid th {
-    font-size: 12px;
+    background: var(--surface);
+    font-size: var(--t-xs);
     font-weight: 600;
-    color: var(--ink-soft);
-    border-bottom-width: 2px;
+    color: var(--ink-3);
+    white-space: nowrap;
+    border-bottom: 2px solid var(--line);
 }
 
-.grid tbody tr.is-unpublished {
-    background: #fbfbfc;
-    color: var(--ink-soft);
+.grid tbody tr:hover {
+    background: var(--surface-2);
+}
+
+/* 미게시 행은 옅게 — 다만 글씨 대비는 유지한다(--ink-3 는 흰 배경에서 4.8:1). */
+.grid tbody tr.is-unpublished td {
+    color: var(--ink-3);
 }
 
 .grid tbody tr.is-dragging {
-    opacity: 0.45;
+    opacity: .45;
 }
 
 .grid tbody tr[draggable='true'] .drag {
@@ -207,53 +418,72 @@ main {
 
 .drag-col { width: 28px; }
 .thumb-col { width: 72px; }
-.period-col { width: 170px; }
-.surface-col { width: 130px; }
+.period-col { width: 200px; }
+.surface-col { width: 128px; }
 .order-col { width: 52px; }
-.state-col { width: 64px; }
-.action-col { width: 72px; }
+.state-col { width: 72px; }
+.action-col { width: 76px; }
+.type-col { width: 148px; }
+.checked-col { width: 104px; }
+
+/*
+ * 날짜는 줄바꿈하지 않는다. `2026-07-01 ~ 2026-12-31` 이 접히면 `2026-07-01 ~ 2026-` /
+ * `12-31` 이 되어 읽는 사람이 두 번 본다. 자리가 모자라면 표가 가로로 스크롤되게 둔다.
+ */
+.grid td.period,
+.grid td.checked,
+.grid td.order {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
 
 .thumb img {
     width: 56px;
     height: 40px;
     object-fit: cover;
     border-radius: 6px;
-    background: #eef2f7;
+    background: var(--line-soft);
     display: block;
 }
 
 .row-chip {
     display: inline-block;
     margin-top: 3px;
-    padding: 1px 8px;
+    padding: 1px var(--s2);
     border-radius: 999px;
-    background: #eaf1fe;
-    color: #1c4fa1;
-    font-size: 12px;
+    background: var(--brand-wash);
+    color: var(--brand-ink);
+    font-size: var(--t-xs);
 }
 
 .by {
     display: block;
     margin-top: 2px;
-    color: #9aa7b4;
+    color: var(--ink-3);
     font-size: 11px;
 }
 
 .badge {
     display: inline-block;
-    padding: 2px 8px;
+    padding: 2px var(--s2);
     border-radius: 999px;
-    font-size: 12px;
+    font-size: var(--t-xs);
+    font-weight: 600;
 }
 
 .badge.on {
-    background: #e6f4ec;
+    background: var(--ok-wash);
     color: var(--ok);
 }
 
 .badge.off {
-    background: #f0f2f5;
-    color: var(--ink-soft);
+    background: var(--line-soft);
+    color: var(--ink-3);
+}
+
+/* 좁은 칸에서 "편집" 이 두 글자로 접히지 않게 — 버튼은 줄바꿈하지 않는다. */
+.grid td button {
+    white-space: nowrap;
 }
 
 /* ---------------------------------------------------------------- 버튼 */
@@ -261,56 +491,75 @@ main {
 button,
 .primary {
     font: inherit;
-    border-radius: 8px;
-    padding: 7px 14px;
+    font-weight: 600;
+    border-radius: var(--radius);
+    padding: var(--s2) var(--s3);
     cursor: pointer;
     border: 1px solid transparent;
+    transition: background-color .12s ease, border-color .12s ease;
 }
 
 .primary {
-    background: var(--accent);
-    color: var(--accent-ink);
-    border-color: var(--accent);
-    font-weight: 600;
+    background: var(--brand-ink);
+    color: #fff;
+    border-color: var(--brand-ink);
+}
+
+.primary:hover {
+    background: var(--brand-ink-hover);
+    border-color: var(--brand-ink-hover);
 }
 
 .ghost {
-    background: var(--panel);
+    background: var(--surface);
     border-color: var(--line);
     color: var(--ink);
 }
 
+.ghost:hover {
+    background: var(--line-soft);
+}
+
 .danger {
-    background: var(--panel);
+    background: var(--surface);
     border-color: #e8c9c6;
     color: var(--danger);
 }
 
-button:hover,
-.primary:hover {
-    filter: brightness(0.97);
+.danger:hover {
+    background: var(--danger-wash);
+}
+
+button:active {
+    transform: translateY(1px);
+}
+
+button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+    transform: none;
 }
 
 /* ---------------------------------------------------------------- 편집 */
 
 dialog {
     border: none;
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     padding: 0;
     width: min(920px, 94vw);
-    box-shadow: 0 18px 48px rgba(20, 32, 45, 0.22);
+    box-shadow: var(--shadow-lg);
 }
 
 dialog::backdrop {
-    background: rgba(20, 32, 45, 0.42);
+    background: rgba(17, 24, 39, .45);
 }
 
 .editor-head,
 .editor-foot {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 14px 20px;
+    gap: var(--s2);
+    padding: var(--s3) var(--s5);
 }
 
 .editor-head {
@@ -318,7 +567,7 @@ dialog::backdrop {
 }
 
 .editor-head h2 {
-    font-size: 16px;
+    font-size: var(--t-md);
 }
 
 .editor-head .ghost {
@@ -327,14 +576,14 @@ dialog::backdrop {
 
 .editor-foot {
     border-top: 1px solid var(--line);
-    background: #fafbfc;
+    background: var(--surface-2);
 }
 
 .editor-body {
     display: grid;
-    grid-template-columns: 1fr 280px;
-    gap: 24px;
-    padding: 20px;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: var(--s5);
+    padding: var(--s5);
     max-height: 70vh;
     overflow-y: auto;
 }
@@ -342,27 +591,39 @@ dialog::backdrop {
 .fields {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: var(--s3);
 }
 
 .fields label {
     display: flex;
     flex-direction: column;
-    gap: 5px;
-    font-size: 13px;
+    gap: var(--s1);
+    font-size: var(--t-xs);
     font-weight: 600;
 }
 
 .fields label.inline {
     flex-direction: row;
     align-items: center;
-    gap: 6px;
+    gap: var(--s2);
     font-weight: 400;
+}
+
+/*
+ * 머리말과 `필수` 배지를 한 줄로 묶는다.
+ *
+ * label 이 세로 flex 라, 감싸지 않으면 텍스트 노드와 <span> 이 각각 하나의 flex item 이 되어
+ * "제목" / "필수" 로 두 줄로 갈린다.
+ */
+.fields .lab {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s2);
 }
 
 .fields .row {
     display: flex;
-    gap: 12px;
+    gap: var(--s3);
     align-items: flex-end;
 }
 
@@ -371,52 +632,68 @@ dialog::backdrop {
 }
 
 .pull-down {
-    padding-bottom: 8px;
+    padding-bottom: var(--s2);
 }
 
 input,
 select,
 textarea {
     font: inherit;
-    padding: 7px 10px;
+    padding: var(--s2) var(--s3);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--radius);
     background: #fff;
     color: var(--ink);
     width: 100%;
 }
 
+input:hover,
+select:hover,
+textarea:hover {
+    border-color: #cfd6de;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--brand-ink);
+    box-shadow: 0 0 0 3px rgba(10, 126, 154, .14);
+}
+
 input[type='checkbox'] {
     width: auto;
+    accent-color: var(--brand-ink);
 }
 
 fieldset {
     border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 12px 14px;
+    border-radius: var(--radius);
+    padding: var(--s3) var(--s4);
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--s2);
 }
 
 legend {
-    font-size: 12px;
+    font-size: var(--t-xs);
     font-weight: 700;
-    color: var(--ink-soft);
-    padding: 0 4px;
+    color: var(--ink-3);
+    padding: 0 var(--s1);
 }
 
 .required {
-    color: var(--accent);
+    color: var(--brand-ink);
     font-size: 11px;
     font-weight: 600;
 }
 
 .counter {
-    color: var(--ink-soft);
+    color: var(--ink-3);
     font-size: 11px;
     font-weight: 400;
+    line-height: 1.6;
 }
 
 .counter.is-over {
@@ -424,50 +701,68 @@ legend {
     font-weight: 700;
 }
 
-/* 썸네일 — 올리기와 주소 붙여넣기를 탭으로 가른다(#377). 결과는 어느 쪽이든 thumbnailUrl 한 칸이다. */
-.tabs {
+/*
+ * 썸네일 칸의 분절 컨트롤 — 올리기와 주소 붙여넣기를 가른다(#377).
+ * 결과는 어느 쪽이든 thumbnailUrl 한 칸이다.
+ *
+ * `.thumb` 으로 좁힌 이유는 사이드바의 `nav.tabs` 와 클래스 이름이 같기 때문이다.
+ */
+.thumb .tabs {
     display: flex;
-    gap: 4px;
+    gap: var(--s1);
+    padding: var(--s1);
+    background: var(--line-soft);
+    border-radius: var(--radius);
 }
 
-.tab {
+.thumb .tab {
     flex: 1;
-    padding: 6px 10px;
-    font-size: 12px;
+    padding: var(--s1) var(--s2);
+    font-size: var(--t-xs);
     font-weight: 600;
-    color: var(--ink-soft);
+    color: var(--ink-3);
     background: transparent;
-    border: 1px solid var(--line);
+    border: 0;
+    border-radius: 6px;
 }
 
-.tab.is-on {
+.thumb .tab:hover {
     color: var(--ink);
-    border-color: var(--accent);
+}
+
+.thumb .tab.is-on {
+    color: var(--ink);
+    background: var(--surface);
+    box-shadow: var(--shadow);
 }
 
 .note {
-    color: var(--ink-soft);
-    font-size: 12px;
-    margin: 8px 0 0;
+    color: var(--ink-3);
+    font-size: var(--t-xs);
+    line-height: 1.7;
+    margin: var(--s3) 0 0;
 }
 
 .error {
     color: var(--danger);
-    font-size: 13px;
+    font-size: var(--t-sm);
     margin: 0;
+    padding: var(--s2) var(--s3);
+    background: var(--danger-wash);
+    border-radius: var(--radius);
 }
 
 /* ---------------------------------------------------------------- 미리보기 */
 
 .preview h3 {
-    font-size: 12px;
-    color: var(--ink-soft);
-    margin-bottom: 10px;
+    font-size: var(--t-xs);
+    color: var(--ink-3);
+    margin-bottom: var(--s3);
 }
 
 .card {
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
     background: #fff;
 }
@@ -482,21 +777,21 @@ legend {
     display: grid;
     place-items: center;
     height: 100%;
-    color: #90a0b0;
-    font-size: 12px;
+    color: var(--ink-3);
+    font-size: var(--t-xs);
 }
 
 .card-body {
-    padding: 12px;
+    padding: var(--s3);
 }
 
 .card-chip {
     display: inline-block;
     padding: 2px 9px;
     border-radius: 999px;
-    background: #eaf1fe;
-    color: #1c4fa1;
-    font-size: 12px;
+    background: var(--brand-wash);
+    color: var(--brand-ink);
+    font-size: var(--t-xs);
     /* 앱 카드와 같이 한 줄로 접는다 — 여기서 잘리면 앱에서도 잘린다. */
     max-width: 100%;
     overflow: hidden;
@@ -505,57 +800,59 @@ legend {
 }
 
 .card-title {
-    margin: 8px 0 0;
+    margin: var(--s2) 0 0;
     font-weight: 700;
-    font-size: 15px;
+    font-size: var(--t-md);
     line-height: 1.35;
 }
 
 .card-desc {
-    margin: 4px 0 0;
-    color: var(--ink-soft);
-    font-size: 13px;
+    margin: var(--s1) 0 0;
+    color: var(--ink-2);
+    font-size: var(--t-sm);
+}
+
+/* ---------------------------------------------------------------- 좁은 화면 */
+
+@media (max-width: 900px) {
+    #console {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--s4);
+        padding: var(--s4);
+    }
+
+    /* 세로 목록이던 사이드바가 가로 줄로 눕는다. 둘뿐이라 넘치지 않는다. */
+    nav.tabs {
+        position: static;
+        flex-direction: row;
+    }
+
+    nav.tabs .tab {
+        flex: 1;
+    }
+
+    nav.tabs .tab.is-active {
+        box-shadow: inset 0 -3px 0 var(--brand);
+    }
+
+    .panel {
+        padding: var(--s4);
+    }
 }
 
 @media (max-width: 860px) {
     .editor-body {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 
-/* ---------------------------------------------------------------- 탭 설명 */
+/* 움직임을 줄이라고 설정한 사용자에게는 전환을 끈다. */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        transition: none !important;
+    }
 
-/*
- * 각 탭이 무엇을 다루는지 한 줄로 말한다.
- *
- * "바로가기 링크" 와 "지역 혜택" 은 이름만으로 구분이 안 된다 — 둘 다 앱에 내보내는 외부 링크이고,
- * 팀원이 어느 탭에서 고쳐야 하는지 헷갈린다. 진짜 차이(화면에 붙나 지역에 붙나)를 여기서 말한다.
- */
-.panel-note {
-    margin: 0 0 14px;
-    padding: 10px 14px;
-    background: #f4f7fb;
-    border-left: 3px solid var(--accent);
-    border-radius: 0 8px 8px 0;
-    color: var(--ink-soft);
-    font-size: 13px;
-    line-height: 1.6;
-}
-
-.panel-note b {
-    color: var(--ink);
-}
-
-.panel-note em {
-    font-style: normal;
-    color: var(--accent);
-    font-weight: 600;
-}
-
-.type-col { width: 150px; }
-.checked-col { width: 96px; }
-
-/* 좁은 칸에서 "편집" 이 두 글자로 접히지 않게 — 버튼은 줄바꿈하지 않는다. */
-.grid td button {
-    white-space: nowrap;
+    button:active {
+        transform: none;
+    }
 }
