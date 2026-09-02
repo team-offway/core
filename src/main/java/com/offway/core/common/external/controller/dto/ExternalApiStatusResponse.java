@@ -3,6 +3,7 @@ package com.offway.core.common.external.controller.dto;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.DataFlow;
 import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiSetting;
 import com.offway.core.common.external.ExternalApiSnapshot;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
@@ -48,7 +49,11 @@ public record ExternalApiStatusResponse(
             @Schema(example = "4100") long batchTotal,
             @Schema(example = "1130") long requestTotal,
             List<CallerShare> callers,
-            List<Flow> flows) {
+            List<Flow> flows,
+            @Schema(description = "인메모리 캐시를 쓰는지. 끄면 매번 실호출한다", example = "true") boolean cacheEnabled,
+            @Schema(description = "배치가 하루에 쓸 수 있는 상한. null 이면 무제한", example = "700", nullable = true)
+                    Integer batchLimit,
+            @Schema(description = "기본값 그대로인지 — 손댄 연동을 화면이 짚어준다", example = "true") boolean settingDefault) {
     }
 
     /** 누가 태웠나. 많이 쓴 순으로 온다. */
@@ -81,8 +86,9 @@ public record ExternalApiStatusResponse(
     }
 
     public record Batch(
-            @Schema(example = "장소운영시간배치") String name,
-            @Schema(example = "2026-09-02T04:30:00") LocalDateTime lastRunAt) {
+            @Schema(example = "poi-intro-refresh") String name,
+            @Schema(example = "2026-09-02T04:30:00") LocalDateTime lastRunAt,
+            @Schema(description = "꺼 두면 주기가 와도 돌지 않는다", example = "true") boolean enabled) {
     }
 
     public static ExternalApiStatusResponse from(ExternalApiSnapshot snapshot) {
@@ -93,7 +99,8 @@ public record ExternalApiStatusResponse(
                 apis(snapshot),
                 days(snapshot),
                 snapshot.batches().stream()
-                        .map(run -> new Batch(run.getName(), run.getLastRunAt()))
+                        .map(run -> new Batch(
+                                run.getName(), run.getLastRunAt(), snapshot.batchEnabled(run.getName())))
                         .toList());
     }
 
@@ -108,6 +115,7 @@ public record ExternalApiStatusResponse(
 
     private static Api toApi(ExternalApi api, ExternalApiSnapshot snapshot) {
         long todayUsed = snapshot.countOn(snapshot.to(), api);
+        ExternalApiSetting setting = snapshot.settingOf(api);
         Map<String, Long> byCaller = snapshot.callers().getOrDefault(api, Map.of());
 
         long requestTotal = byCaller.entrySet().stream()
@@ -140,7 +148,10 @@ public record ExternalApiStatusResponse(
                                 flow.mode().label(),
                                 flow.mode().detail(),
                                 flow.note()))
-                        .toList());
+                        .toList(),
+                setting.cacheEnabled(),
+                setting.batchLimit(),
+                setting.isDefault());
     }
 
     private static int usedRate(long used, int limit) {

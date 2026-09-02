@@ -1,8 +1,12 @@
 package com.offway.core.common.external;
 
 import com.offway.core.common.batch.repository.BatchRunRepository;
+import com.offway.core.common.external.controller.dto.BatchSettingRequest;
+import com.offway.core.common.external.controller.dto.ExternalApiSettingRequest;
+import com.offway.core.user.service.AdminAccountService;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +44,8 @@ public class ExternalApiStatusService {
 
     private final ExternalApiCallRepository callRepository;
     private final BatchRunRepository batchRunRepository;
+    private final ExternalApiSettings settings;
+    private final AdminAccountService adminAccountService;
 
     /**
      * {@code days} 일치 현황. 오늘을 포함해 거슬러 센다.
@@ -56,7 +62,47 @@ public class ExternalApiStatusService {
                 today,
                 callRepository.countsBetween(from, today),
                 callRepository.callerCountsBetween(from, today),
-                batchRunRepository.all());
+                batchRunRepository.all(),
+                settings.touched(),
+                settings.disabledBatches());
+    }
+
+    /**
+     * 연동 설정을 바꾸고 <b>바뀐 현황 전체</b>를 돌려준다(#403).
+     *
+     * <p>모르는 연동 이름은 400 이다. 화면이 목록을 서버에서 받으므로 멀쩡한 클라이언트는 안 닿지만,
+     * 경로 변수라 손으로 부를 수 있는 자리다.
+     */
+    @Transactional
+    public ExternalApiSnapshot updateApi(String api, ExternalApiSettingRequest request, UUID adminUserId) {
+        settings.update(
+                parse(api), request.cacheEnabledOrDefault(), request.batchLimit(), labelOf(adminUserId));
+        return snapshot(null);
+    }
+
+    /**
+     * 배치를 멈추거나 다시 돌린다.
+     *
+     * <p>이름이 실제 배치인지는 <b>확인하지 않는다.</b> 배치 이름은 코드의 상수라 목록을 서버가 들고
+     * 있지 않고, 오타로 만든 행은 아무 배치도 안 막아 해가 없다 — 대신 화면에 그대로 보여 눈에 띈다.
+     */
+    @Transactional
+    public ExternalApiSnapshot updateBatch(String name, BatchSettingRequest request, UUID adminUserId) {
+        settings.updateBatch(name, request.enabledOrDefault(), labelOf(adminUserId));
+        return snapshot(null);
+    }
+
+    private static ExternalApi parse(String api) {
+        try {
+            return ExternalApi.valueOf(api);
+        } catch (IllegalArgumentException e) {
+            throw ExternalApiSettingException.unknownApi();
+        }
+    }
+
+    /** 누가 바꿨는지 남긴다 — 배포 없이 바꿀 수 있게 되면서 git blame 이 하던 역할이 사라졌다(#344 와 같은 이유). */
+    private String labelOf(UUID adminUserId) {
+        return adminAccountService.labelOf(adminUserId).orElse(null);
     }
 
     private static int clamp(Integer days) {
