@@ -652,17 +652,37 @@ function consoleTabs() {
     return document.querySelectorAll('nav.tabs .tab');
 }
 
-/** 탭 전환 — 패널만 갈아 끼운다. 각 탭은 자기 데이터를 자기가 들고 있다. */
+/**
+ * 화면 이름 → 패널 id. **여기 한 줄이 화면 하나다.**
+ *
+ * 예전에는 showTab 안에 `$('tab-links').hidden = ...` 을 화면 수만큼 늘어놓았다. 화면이 셋이 되면서
+ * 늘어놓는 방식이 한계에 왔고(#398), 넷째(#403 연동 제어)가 곧 붙는다. 표로 두면 새 화면이 이 객체에
+ * 한 줄 더하는 것으로 끝난다.
+ */
+const PANELS = {
+    links: 'tab-links',
+    policies: 'tab-policies',
+    externals: 'tab-externals',
+};
+
+/** 그 화면을 처음 열 때 한 번 채운다. 각 화면은 자기 데이터를 자기가 들고 있다. */
+const LOADERS = {
+    policies: () => policies.length || reloadPolicies(),
+    externals: () => externals || reloadExternals(),
+};
+
+/** 화면 전환 — 패널만 갈아 끼운다. */
 function showTab(name) {
     // **nav 로 좁힌다.** 썸네일 칸에도 class="tabs" 가 있어, 좁히지 않으면 그 버튼을 누를 때
-    // showTab(undefined) 가 돌아 두 패널이 함께 숨는다.
+    // showTab(undefined) 가 돌아 패널이 전부 숨는다.
     consoleTabs().forEach((tab) => {
         tab.classList.toggle('is-active', tab.dataset.tab === name);
     });
-    $('tab-links').hidden = name !== 'links';
-    $('tab-policies').hidden = name !== 'policies';
-    if (name === 'policies' && !policies.length) {
-        reloadPolicies();
+    Object.entries(PANELS).forEach(([tab, panelId]) => {
+        $(panelId).hidden = tab !== name;
+    });
+    if (LOADERS[name]) {
+        LOADERS[name]();
     }
 }
 
@@ -940,6 +960,215 @@ function refreshPolicyPreview() {
         : '검증을 켜지 않아 앱에 나가지 않습니다.';
 }
 
+
+// ---------------------------------------------------------------- 외부 API
+
+/**
+ * 마지막으로 받은 연동 현황(#398).
+ *
+ * 화면을 다시 열 때 다시 부르지 않는다. 이 값은 배치가 채우는 것이라 몇 초 사이에 바뀌지 않고,
+ * 새로 보고 싶으면 새로고침이 있다.
+ */
+let externals = null;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) {
+        node.className = className;
+    }
+    if (text !== undefined && text !== null) {
+        node.textContent = text;
+    }
+    return node;
+}
+
+function num(value) {
+    return Number(value || 0).toLocaleString('ko-KR');
+}
+
+function setExternalMessage(text) {
+    const node = $('external-message');
+    node.textContent = text || '';
+    node.hidden = !text;
+}
+
+async function reloadExternals() {
+    setExternalMessage('불러오는 중…');
+    try {
+        const days = $('filter-days').value;
+        const body = await call(`/api/v1/admin/external-apis?days=${encodeURIComponent(days)}`);
+        externals = body.data;
+        renderExternals();
+        setExternalMessage(null);
+    } catch (error) {
+        // 실패를 조용히 넘기지 않는다 — 빈 화면은 "연동이 없다" 로 읽힌다.
+        externals = null;
+        $('external-body').hidden = true;
+        setExternalMessage(error.message || DEFAULT_ERROR);
+    }
+}
+
+function renderExternals() {
+    if (!externals) {
+        return;
+    }
+    $('external-body').hidden = false;
+    $('external-count').textContent =
+        `연동 ${externals.apis.length}개 · ${externals.from} ~ ${externals.to} (${externals.days}일)`;
+    renderApiList();
+    renderDailyBars();
+    renderBatches();
+}
+
+function renderApiList() {
+    const list = $('api-list');
+    list.innerHTML = '';
+    externals.apis.forEach((api) => list.appendChild(apiCard(api)));
+}
+
+function apiCard(api) {
+    const card = el('article', 'api-card');
+    if (api.periodTotal === 0) {
+        // 기간 내 한 번도 안 부른 연동. 지우지 않고 옅게 둔다 — 안 쓰는 연동이 보여야 한다.
+        card.classList.add('is-idle');
+    }
+
+    const head = el('div', 'api-head');
+    head.appendChild(el('b', null, api.label));
+    head.appendChild(el('code', null, api.name));
+    head.appendChild(el('span', 'spacer'));
+    head.appendChild(el('span', 'api-today',
+        `오늘 ${num(api.todayUsed)} / ${num(api.dailyLimit)}`));
+    card.appendChild(head);
+
+    card.appendChild(meter(api.todayUsedRate));
+
+    const totals = el('p', 'api-totals');
+    totals.appendChild(el('span', null, `${externals.days}일 합계 ${num(api.periodTotal)}`));
+    totals.appendChild(el('span', 'sep', '·'));
+    totals.appendChild(el('span', null, `배치 ${num(api.batchTotal)}`));
+    totals.appendChild(el('span', 'sep', '·'));
+    // 사용자 요청 몫을 강조한다 — "서비스가 요청마다 실제로 부른다" 를 보이는 값이다.
+    totals.appendChild(el('b', null, `사용자 요청 ${num(api.requestTotal)}`));
+    card.appendChild(totals);
+
+    if (api.callers.length) {
+        card.appendChild(callerLine(api.callers));
+    }
+    if (api.flows.length) {
+        card.appendChild(flowList(api.flows));
+    }
+    return card;
+}
+
+/** 소진율 막대. 70% 를 넘으면 색이 바뀐다 — 디스코드 경보가 우는 지점과 같다. */
+function meter(rate) {
+    const bar = el('div', 'meter');
+    const fill = el('div', 'meter-fill');
+    fill.style.width = `${Math.max(0, Math.min(100, rate))}%`;
+    if (rate >= 90) {
+        fill.classList.add('is-danger');
+    } else if (rate >= 70) {
+        fill.classList.add('is-warn');
+    }
+    bar.appendChild(fill);
+    return bar;
+}
+
+function callerLine(callers) {
+    const line = el('p', 'api-callers');
+    callers.slice(0, 5).forEach((share, index) => {
+        if (index > 0) {
+            line.appendChild(el('span', 'sep', '·'));
+        }
+        const chip = el('span', share.fromRequest ? 'caller is-request' : 'caller');
+        chip.appendChild(el('span', 'caller-name', share.caller));
+        chip.appendChild(el('span', 'caller-count', num(share.count)));
+        line.appendChild(chip);
+    });
+    if (callers.length > 5) {
+        line.appendChild(el('span', 'sep', '·'));
+        line.appendChild(el('span', 'caller', `외 ${callers.length - 5}`));
+    }
+    return line;
+}
+
+/** 어느 화면이 이 API 를 어떻게 쓰나. 서버의 DataFlow 가 소유하는 값이다. */
+function flowList(flows) {
+    const wrap = el('ul', 'flows');
+    flows.forEach((flow) => {
+        const item = el('li');
+        item.appendChild(el('span', `mode mode-${flow.modeName}`, flow.mode));
+        item.appendChild(el('b', null, flow.screen));
+        item.appendChild(el('span', 'flow-note', flow.note));
+        item.title = `${flow.path}\n${flow.modeDetail}`;
+        wrap.appendChild(item);
+    });
+    return wrap;
+}
+
+function renderDailyBars() {
+    const wrap = $('daily-bars');
+    wrap.innerHTML = '';
+    const peak = Math.max(1, ...externals.daily.map((day) => day.total));
+
+    $('daily-note').textContent = externals.daily.some((day) => day.total > 0)
+        ? `가장 많은 날 ${num(peak)}회. 월배치가 도는 날이 튑니다 — 매월 1일과 5일을 보세요.`
+        : '이 기간에 기록이 없습니다.';
+
+    externals.daily.forEach((day) => {
+        const row = el('div', 'bar-row');
+        row.appendChild(el('span', 'bar-date', day.date.slice(5)));
+        const track = el('div', 'bar-track');
+        const fill = el('div', 'bar-fill');
+        fill.style.width = `${(day.total / peak) * 100}%`;
+        track.appendChild(fill);
+        row.appendChild(track);
+        row.appendChild(el('span', 'bar-count', num(day.total)));
+        row.title = Object.entries(day.counts)
+            .sort((a, b) => b[1] - a[1])
+            .map(([api, count]) => `${api} ${num(count)}`)
+            .join('\n') || '기록 없음';
+        wrap.appendChild(row);
+    });
+}
+
+function renderBatches() {
+    const rows = $('batch-rows');
+    rows.innerHTML = '';
+    if (!externals.batches.length) {
+        const tr = document.createElement('tr');
+        const td = cell('아직 기록된 배치가 없습니다.', null);
+        td.colSpan = 2;
+        tr.appendChild(td);
+        rows.appendChild(tr);
+        return;
+    }
+    externals.batches.forEach((batch) => {
+        const tr = document.createElement('tr');
+        tr.appendChild(cell(batch.name, null));
+        tr.appendChild(cell(batchWhen(batch.lastRunAt), 'period'));
+        rows.appendChild(tr);
+    });
+}
+
+/** 마지막 실행을 "언제였나" 로 읽히게. 날짜만 보면 오래된 것인지 한눈에 안 들어온다. */
+function batchWhen(value) {
+    if (!value) {
+        return '-';
+    }
+    const at = new Date(value);
+    const days = Math.floor((Date.now() - at.getTime()) / DAY_MS);
+    const stamp = value.replace('T', ' ').slice(0, 16);
+    if (days <= 0) {
+        return `${stamp} (오늘)`;
+    }
+    return `${stamp} (${days}일 전)`;
+}
+
+
 // ---------------------------------------------------------------- 시작
 
 function showOnly(sectionId) {
@@ -1007,6 +1236,10 @@ function bind() {
     $('policy-cancel').addEventListener('click', () => $('policy-editor').close());
     $('policy-editor-close').addEventListener('click', () => $('policy-editor').close());
     $('policy-form').addEventListener('input', refreshPolicyPreview);
+
+    // 기간을 바꾸면 서버를 다시 부른다 — 목록 필터와 달리 브라우저에 없는 데이터라 걸러낼 수 없다.
+    $('external-reload').addEventListener('click', reloadExternals);
+    $('filter-days').addEventListener('change', reloadExternals);
 
     $('copy-user-id').addEventListener('click', async () => {
         await navigator.clipboard.writeText($('my-user-id').textContent);

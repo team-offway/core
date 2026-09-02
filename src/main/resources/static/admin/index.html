@@ -67,6 +67,10 @@
             <span class="tab-name">지역 혜택</span>
             <span class="tab-hint">지역에 붙는 뱃지</span>
         </button>
+        <button type="button" class="tab" data-tab="externals">
+            <span class="tab-name">외부 API</span>
+            <span class="tab-hint">사용량과 데이터 출처</span>
+        </button>
     </nav>
 
     <div class="stage">
@@ -180,6 +184,58 @@
                 대상 지역은 분류가 정합니다 &mdash; 여기서 못 고칩니다. 참여 지자체 명단은 아직 배포로
                 관리합니다.
             </p>
+        </section>
+
+        <!--
+          외부 API 연동 현황(#398) — 읽기 전용이다. 켜고 끄는 것은 #403 이 맡는다.
+        -->
+        <section class="panel" id="tab-externals" hidden>
+            <div class="panel-head">
+                <h2>외부 API</h2>
+                <p class="panel-note">
+                    <b>우리가 붙어 있는 외부 전부입니다.</b> 오늘 얼마나 썼는지, 그걸 <em>배치가 태웠는지
+                    사용자 요청이 태웠는지</em>, 그리고 어느 화면이 어떤 방식으로 쓰는지를 봅니다.
+                </p>
+            </div>
+
+            <div class="toolbar">
+                <label>
+                    기간
+                    <select id="filter-days">
+                        <option value="7">최근 7일</option>
+                        <option value="14" selected>최근 14일</option>
+                        <option value="30">최근 30일</option>
+                        <option value="90">최근 90일</option>
+                    </select>
+                </label>
+                <span class="spacer"></span>
+                <span class="count" id="external-count"></span>
+                <button type="button" class="ghost" id="external-reload">새로고침</button>
+            </div>
+
+            <p class="note" id="external-message" hidden></p>
+
+            <div id="external-body" hidden>
+                <h3 class="section-label">연동</h3>
+                <div class="api-list" id="api-list"></div>
+
+                <h3 class="section-label">날짜별 호출</h3>
+                <p class="note" id="daily-note"></p>
+                <div class="bars" id="daily-bars"></div>
+
+                <h3 class="section-label">배치</h3>
+                <div class="grid-wrap">
+                    <table class="grid">
+                        <thead>
+                        <tr>
+                            <th>배치</th>
+                            <th class="period-col">마지막 실행</th>
+                        </tr>
+                        </thead>
+                        <tbody id="batch-rows"></tbody>
+                    </table>
+                </div>
+            </div>
         </section>
     </div>
 </main>

@@ -62,6 +62,7 @@ public record ExternalApiStatusResponse(
     public record Flow(
             @Schema(example = "코스 생성") String screen,
             @Schema(example = "POST /api/v1/courses/generate") String path,
+            @Schema(description = "화면이 클래스명으로 쓰는 값", example = "LIVE") String modeName,
             @Schema(example = "실호출") String mode,
             @Schema(example = "요청마다 외부를 부른다. 캐시가 없다") String modeDetail,
             @Schema(example = "슬롯 후보 조회. 관광타입 4종이라 코스 하나에 4콜") String note) {
@@ -135,6 +136,7 @@ public record ExternalApiStatusResponse(
                         .map(flow -> new Flow(
                                 flow.screen().label(),
                                 flow.screen().path(),
+                                flow.mode().name(),
                                 flow.mode().label(),
                                 flow.mode().detail(),
                                 flow.note()))

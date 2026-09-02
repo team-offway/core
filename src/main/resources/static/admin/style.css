@@ -854,6 +854,239 @@ legend {
     font-size: var(--t-sm);
 }
 
+/* ---------------------------------------------------------------- 외부 API */
+
+.section-label {
+    font-size: var(--t-xs);
+    font-weight: 700;
+    color: var(--ink-3);
+    letter-spacing: .02em;
+    margin: var(--s5) 0 var(--s3);
+}
+
+.section-label:first-child {
+    margin-top: 0;
+}
+
+.api-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: var(--s3);
+}
+
+.api-card {
+    padding: var(--s3) var(--s4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+/* 기간 내 한 번도 안 부른 연동. 지우지 않고 옅게 둔다 — 안 쓰는 연동이 보여야 한다. */
+.api-card.is-idle {
+    background: var(--surface-2);
+}
+
+.api-card.is-idle .api-head b {
+    color: var(--ink-3);
+}
+
+.api-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s2);
+    margin-bottom: var(--s2);
+}
+
+.api-head b {
+    font-size: var(--t-sm);
+}
+
+.api-head code {
+    font-size: 11px;
+    color: var(--ink-3);
+    background: transparent;
+    padding: 0;
+}
+
+.api-today {
+    font-size: var(--t-xs);
+    color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.meter {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--line-soft);
+    overflow: hidden;
+}
+
+.meter-fill {
+    height: 100%;
+    background: var(--brand);
+    border-radius: 999px;
+}
+
+/* 70%·90% 에서 색이 바뀐다 — 디스코드 한도 경보가 우는 지점과 같은 눈금이다. */
+.meter-fill.is-warn {
+    background: var(--warn);
+}
+
+.meter-fill.is-danger {
+    background: var(--danger);
+}
+
+.api-totals {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--s1);
+    margin: var(--s2) 0 0;
+    font-size: var(--t-xs);
+    color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.api-totals b {
+    color: var(--ink);
+}
+
+.sep {
+    color: #c4c9d0;
+}
+
+.api-callers {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--s1);
+    margin: var(--s2) 0 0;
+    font-size: 11px;
+}
+
+.caller {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--s1);
+    padding: 1px var(--s2);
+    border-radius: 999px;
+    background: var(--line-soft);
+    color: var(--ink-2);
+}
+
+/* 사용자 요청이 태운 몫만 브랜드 색을 준다 — 심사가 보는 것도, 우리가 지켜야 하는 것도 이쪽이다. */
+.caller.is-request {
+    background: var(--brand-wash);
+    color: var(--brand-ink);
+    font-weight: 600;
+}
+
+.caller-count {
+    font-variant-numeric: tabular-nums;
+}
+
+.flows {
+    list-style: none;
+    margin: var(--s3) 0 0;
+    padding: var(--s3) 0 0;
+    border-top: 1px solid var(--line-soft);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s1);
+}
+
+.flows li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s2);
+    font-size: 11px;
+    color: var(--ink-3);
+}
+
+.flows b {
+    color: var(--ink-2);
+    font-size: var(--t-xs);
+    white-space: nowrap;
+}
+
+.flow-note {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mode {
+    flex: none;
+    width: 44px;
+    text-align: center;
+    padding: 1px 0;
+    border-radius: 4px;
+    font-weight: 700;
+}
+
+/* 실호출만 눈에 띄게 — 한도를 태우는 쪽이고, 캐시로 갈음하지 않았다는 증거이기도 하다. */
+.mode-LIVE {
+    background: var(--brand-wash);
+    color: var(--brand-ink);
+}
+
+.mode-CACHED {
+    background: var(--line-soft);
+    color: var(--ink-2);
+}
+
+.mode-STORED {
+    background: transparent;
+    color: var(--ink-3);
+    border: 1px solid var(--line);
+}
+
+/* ---- 날짜별 막대 ---- */
+
+.bars {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.bar-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    font-size: 11px;
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.bar-date {
+    flex: none;
+    width: 44px;
+}
+
+.bar-track {
+    flex: 1;
+    height: 14px;
+    background: var(--line-soft);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.bar-fill {
+    height: 100%;
+    background: var(--brand);
+    border-radius: 3px;
+    /* 0 이어도 자리를 알 수 있게 최소 폭을 준다. 없으면 빈 날이 아예 안 보인다. */
+    min-width: 2px;
+}
+
+.bar-count {
+    flex: none;
+    width: 56px;
+    text-align: right;
+    color: var(--ink-2);
+}
+
 /* ---------------------------------------------------------------- 좁은 화면 */
 
 @media (max-width: 900px) {
