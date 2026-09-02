@@ -3,6 +3,7 @@ package com.offway.core.policy.controller;
 import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.policy.controller.dto.AdminPolicyRequest;
 import com.offway.core.policy.controller.dto.AdminPolicyResponse;
+import com.offway.core.policy.controller.dto.AdminPolicyScopeResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -106,4 +107,17 @@ public interface AdminPolicyApi {
     @ApiResponse(responseCode = "403", description = "어드민이 아님")
     @ApiResponse(responseCode = "404", description = "없는 정책(POLICY-001)")
     ApiResponseBody<Void> delete(UUID adminUserId, @Parameter(description = "정책 ID", example = "2") long id);
+
+    @Operation(
+            summary = "분류별 대상 지역",
+            description = """
+                    분류를 고르면 **어느 지역에 뜨는지**를 곳 수와 지역 목록으로 돌려준다.
+
+                    분류마다 대상이 크게 갈린다 — 숙박세일페스타 85곳, 반값여행 25곳, 나머지 다섯은
+                    89곳 전부다. 분류를 잘못 고르면 85곳짜리가 25곳짜리로 조용히 줄어든다.
+                    """)
+    @ApiResponse(responseCode = "200", description = "조회 성공")
+    @ApiResponse(responseCode = "401", description = "로그인하지 않았거나 토큰이 만료됨")
+    @ApiResponse(responseCode = "403", description = "어드민 권한이 없음")
+    ApiResponseBody<List<AdminPolicyScopeResponse>> scopes();
 }
