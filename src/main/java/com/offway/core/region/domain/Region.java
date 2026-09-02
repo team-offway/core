@@ -1,5 +1,6 @@
 package com.offway.core.region.domain;
 
+import com.offway.core.transport.domain.Coordinate;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -99,5 +100,19 @@ public class Region {
             }
         }
         return sigungu;
+    }
+
+    /**
+     * 대표 좌표를 값객체로(#404).
+     *
+     * <p><b>두 칸을 따로 꺼내지 않는다.</b> {@code new Coordinate(region.getLat(), region.getLng())} 를
+     * 부르는 곳이 여럿인데, 인자가 같은 타입 둘이라 뒤바꿔도 컴파일이 통과한다 — 위경도가 뒤집히면
+     * 거리 계산이 조용히 틀린 값을 내고, 그게 도달시간·추천 순서까지 흘러간다.
+     *
+     * <p>{@link Coordinate} 생성자가 범위를 검증하므로 여기서 다시 보지 않는다. 두 칸 모두
+     * {@code NOT NULL} 이라 언박싱도 안전하다.
+     */
+    public Coordinate coordinate() {
+        return new Coordinate(lat, lng);
     }
 }

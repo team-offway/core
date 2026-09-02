@@ -1,8 +1,10 @@
 package com.offway.core.trip.service.dto;
 
+import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
+import lombok.Builder;
 import java.util.Comparator;
 import java.util.List;
 
@@ -12,6 +14,7 @@ import java.util.List;
  * @param regionId 지역 식별자
  * @param sido 시도
  * @param sigungu 시군구
+ * @param coordinate 대표 좌표 — 지도 위에 이 지역을 놓는 자리(#404)
  * @param reachMinutes 출발지→지역 도달시간(분)
  * @param crowdLevel 한산도 뱃지(표시용)
  * @param contentCount 볼거리 수(인접 50km 병합 시 합산)
@@ -20,10 +23,12 @@ import java.util.List;
  * @param neighborIncluded 볼거리 부족으로 인접 50km 지역이 병합됐는지
  * @param benefits 이 지역에 적용되는 혜택 뱃지
  */
+@Builder
 public record RecommendedRegion(
         long regionId,
         String sido,
         String sigungu,
+        Coordinate coordinate,
         int reachMinutes,
         CrowdLevel crowdLevel,
         int contentCount,
@@ -45,20 +50,29 @@ public record RecommendedRegion(
             long regionId,
             String sido,
             String sigungu,
+            Coordinate coordinate,
             int reachMinutes,
             CrowdLevel crowdLevel,
             RegionContent content,
             String heroPhotoUrl,
             String intro,
             List<Benefit> benefits) {
-        return new RecommendedRegion(
-                regionId, sido, sigungu, reachMinutes, crowdLevel,
-                content.contentCount(),
-                heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl(),
-                content.categories(),
-                content.neighborIncluded(),
-                intro,
-                benefits);
+        // 이름을 붙여 조립한다 — sido·sigungu 처럼 같은 타입이 붙어 있어 위치 생성자로는 둘을
+        // 맞바꿔도 컴파일이 통과한다. 그러면 "강원특별자치도 · 정선군" 이 뒤집힌 채 화면까지 간다.
+        return RecommendedRegion.builder()
+                .regionId(regionId)
+                .sido(sido)
+                .sigungu(sigungu)
+                .coordinate(coordinate)
+                .reachMinutes(reachMinutes)
+                .crowdLevel(crowdLevel)
+                .contentCount(content.contentCount())
+                .imageUrl(heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl())
+                .categories(content.categories())
+                .neighborIncluded(content.neighborIncluded())
+                .intro(intro)
+                .benefits(benefits)
+                .build();
     }
 
     /** 무드칩에 해당하는 콘텐츠가 이 지역에 있는가(무드 필터용). */
