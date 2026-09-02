@@ -154,8 +154,11 @@ public record ExternalApiStatusResponse(
                 setting.isDefault());
     }
 
+    /** 소진율 상한 — 한도를 넘겨도 게이지가 칸을 넘지 않게 여기서 자른다. */
+    private static final int FULL_RATE = 100;
+
     private static int usedRate(long used, int limit) {
-        return limit <= 0 ? 0 : (int) Math.min(100, used * 100 / limit);
+        return limit <= 0 ? 0 : (int) Math.min(FULL_RATE, used * FULL_RATE / limit);
     }
 
     /** 기록이 없는 날도 <b>0 으로 채운다</b> — 빠진 날이 그래프에서 앞으로 당겨지면 추이가 거짓이 된다. */
