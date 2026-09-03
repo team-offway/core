@@ -72,7 +72,13 @@ public class RegionAccessService {
             // 열차만 보던 시절 이 지역은 도착 지점을 몰라 출발지로 되돌아갔다. 무엇이 그 자리를 채웠는지 남긴다.
             log.debug("도착 지점을 {}(으)로 잡습니다 — 열차 상태={} 지점={}",
                     chosen.mode().label(), train.status(), chosen.toName());
-            chosen = chosen.withDuration(
+            // 출발 지점명을 함께 싣는다(#396). 서버는 이미 이 지점을 찾고 있었는데 조회에만 쓰고
+            // 이름을 버려, 버스·여객선 카드만 "어디서 타는지" 가 빈 채로 나갔다.
+            chosen = chosen
+                    .withFromName(departurePoint(chosen.mode(), originLat, originLng, destTerminal, destPort)
+                            .map(RegionArrival::name)
+                            .orElse(null))
+                    .withDuration(
                             durationOf(chosen.mode(), originLat, originLng, destTerminal, destPort).orElse(null))
                     .withDepartures(departuresOf(
                             chosen.mode(), originLat, originLng, destTerminal, destPort, date, notBefore));
@@ -182,16 +188,44 @@ public class RegionAccessService {
             TransitMode mode, double originLat, double originLng,
             Optional<Terminal> destTerminal, Optional<Port> destPort) {
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+        return departurePoint(mode, originLat, originLng, destTerminal, destPort)
+                .flatMap(from -> arrivalCode(mode, destTerminal, destPort)
+                        .flatMap(toCode -> transitDurationService.minutesFor(mode, from.code(), toCode, now)));
+    }
+
+    /**
+     * 이 수단으로 탈 때 <b>출발 쪽</b> 지점(#396).
+     *
+     * <p>예전에는 소요시간과 시간표가 각자 같은 해석을 했다. 셋째(출발 지점명)를 붙이면서 한 자리로
+     * 모았다 — 세 벌이 갈리면 <b>카드에 뜨는 이름과 실제로 조회한 구간이 어긋난다.</b>
+     *
+     * <p>버스는 <b>도착 터미널과 같은 종류</b>로 찾는다. 고속·시외는 코드 공간이 겹치지 않아, 섞어
+     * 물으면 제공기관이 알 수 없는 코드로 읽는다.
+     *
+     * <p>여객선은 출발 항구가 반경 안에 있어야 한다. 서울에서 울릉도는 여기서 빈 값이 되는데
+     * <b>맞는 답이다</b> — 서울에는 항구가 없다.
+     */
+    private Optional<RegionArrival> departurePoint(
+            TransitMode mode, double originLat, double originLng,
+            Optional<Terminal> destTerminal, Optional<Port> destPort) {
         return switch (mode) {
-            case EXPRESS_BUS, INTERCITY_BUS -> destTerminal.flatMap(arrival ->
-                    busTerminalResolver.nearest(originLat, originLng, arrival.kind())
-                            .flatMap(departure -> transitDurationService.minutesFor(
-                                    mode, departure.code(), arrival.code(), now)));
-            case FERRY -> destPort.flatMap(arrival ->
-                    ferryPortResolver.nearest(originLat, originLng)
-                            .flatMap(departure -> transitDurationService.minutesFor(
-                                    mode, departure.code(), arrival.code(), now)));
+            case EXPRESS_BUS, INTERCITY_BUS -> destTerminal
+                    .flatMap(arrival -> busTerminalResolver.nearest(originLat, originLng, arrival.kind()))
+                    .map(RegionArrival::of);
+            case FERRY -> destPort.isPresent()
+                    ? ferryPortResolver.nearest(originLat, originLng).map(RegionArrival::of)
+                    : Optional.empty();
             // 구간 표를 쓰지 않는 둘. 열차는 실제 시각을 직접 답하고, 자차는 구간이 없다(#379).
+            case TRAIN, CAR -> Optional.empty();
+        };
+    }
+
+    /** 도착 쪽 지점 코드 — 구간 조회의 반대편이다. */
+    private static Optional<String> arrivalCode(
+            TransitMode mode, Optional<Terminal> destTerminal, Optional<Port> destPort) {
+        return switch (mode) {
+            case EXPRESS_BUS, INTERCITY_BUS -> destTerminal.map(Terminal::code);
+            case FERRY -> destPort.map(Port::code);
             case TRAIN, CAR -> Optional.empty();
         };
     }
@@ -209,19 +243,11 @@ public class RegionAccessService {
             TransitMode mode, double originLat, double originLng,
             Optional<Terminal> destTerminal, Optional<Port> destPort, LocalDate date, LocalTime notBefore) {
         LocalDate today = LocalDate.now(SERVICE_ZONE);
-        List<Departure> all = switch (mode) {
-            case EXPRESS_BUS, INTERCITY_BUS -> destTerminal.flatMap(arrival ->
-                            busTerminalResolver.nearest(originLat, originLng, arrival.kind())
-                                    .map(departure -> transitDepartureService.departures(
-                                            mode, departure.code(), arrival.code(), date, today)))
-                    .orElseGet(List::of);
-            case FERRY -> destPort.flatMap(arrival ->
-                            ferryPortResolver.nearest(originLat, originLng)
-                                    .map(departure -> transitDepartureService.departures(
-                                            mode, departure.code(), arrival.code(), date, today)))
-                    .orElseGet(List::of);
-            case TRAIN, CAR -> List.of();
-        };
+        List<Departure> all = departurePoint(mode, originLat, originLng, destTerminal, destPort)
+                .flatMap(from -> arrivalCode(mode, destTerminal, destPort)
+                        .map(toCode -> transitDepartureService.departures(
+                                mode, from.code(), toCode, date, today)))
+                .orElseGet(List::of);
         return Departure.upcoming(all, notBefore);
     }
 }
