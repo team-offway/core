@@ -1,6 +1,8 @@
 package com.offway.core.trip.controller.dto;
 
 import com.offway.core.common.logging.LogSummary;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import com.offway.core.curation.controller.dto.CuratedLinkResponse;
 import com.offway.core.curation.domain.CuratedLink;
 import com.offway.core.trip.domain.PoiContentType;
@@ -8,6 +10,7 @@ import com.offway.core.trip.domain.PoiIntro;
 import com.offway.core.trip.service.dto.PoiDetail;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -68,10 +71,29 @@ public record PoiDetailResponse(
                 example = "숙박 할인", nullable = true) String benefit,
         @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase,
         List<CuratedLinkResponse> curatedLinks)
-        implements LogSummary {
+        implements LogSummary, Attributed {
 
     /** 예: {@code 완도타워 전망대(관광지)}. id 는 경로에 이미 있으므로 되풀이하지 않는다. */
     private static final String LOG_FORMAT = "%s(%s)";
+
+    /**
+     * 이 장소를 만든 기관과, <b>거기에 얹힌 공사 값</b>(#399).
+     *
+     * <p>식별자가 기본 출처를 정한다 — 접두어가 없으면 관광 API 콘텐츠고, {@code LIC-}·{@code HER-} 면
+     * 인허가·국가유산이다.
+     *
+     * <p>그런데 인허가 장소에도 <b>캐치프레이즈는 공사 것</b>("대한민국 구석구석")이다. 그래서 값이 실제로
+     * 실렸을 때만 공사를 더한다 — 붙어 있지도 않은 출처를 표기하지 않으려는 것이고, 반대로 빠뜨리면
+     * 표기 누락이다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        DataSource origin = PlaceDataSources.of(contentId);
+        if (catchphrase == null || origin == DataSource.KTO) {
+            return Set.of(origin);
+        }
+        return Set.of(origin, DataSource.KTO);
+    }
 
     /**
      * 관광지(12) — 우리 89곳 실측 이용시간 100% · 휴무일 100% · 주차 87%.

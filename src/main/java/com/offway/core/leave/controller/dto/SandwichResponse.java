@@ -3,14 +3,28 @@ package com.offway.core.leave.controller.dto;
 import com.offway.core.leave.domain.SandwichHoliday;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 샌드위치 연휴 추천 응답 — API 계약.
  *
  * @param items 추천 연휴 목록 (효율 높은 순)
  */
-public record SandwichResponse(List<Item> items) {
+public record SandwichResponse(List<Item> items) implements Attributed {
+
+    /**
+     * 샌드위치 판정의 재료가 <b>공휴일</b>이고, 그 출처가 한국천문연구원 특일정보다(#399).
+     *
+     * <p>추천이 하나도 없으면 공휴일을 실제로 쓰지 않은 응답이라 표기할 것도 없다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        return items.isEmpty() ? Set.of() : Set.of(DataSource.KASI);
+    }
+
 
     public static SandwichResponse from(List<SandwichHoliday> sandwiches) {
         return new SandwichResponse(sandwiches.stream().map(Item::from).toList());

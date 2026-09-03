@@ -2,8 +2,11 @@ package com.offway.core.itinerary.controller.dto;
 
 import com.offway.core.curation.domain.CuratedLink;
 import com.offway.core.itinerary.service.dto.RegeneratedCourse;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 코스 재생성 응답(#114) — 새 코스와, 그것이 <b>정말 달라졌는지</b>.
@@ -20,7 +23,19 @@ public record CourseRegenerateResponse(
                 long seed,
         @Schema(description = "직전 코스와 충분히 달라졌는가. 거짓이면 후보가 모자란 지역이다", example = "true")
                 boolean differentFromPrevious,
-        @Schema(description = "직전 코스와 겹친 볼거리 비율 (맛집·숙소는 후보가 적어 세지 않는다)", example = "0.25") double overlapRatio) {
+        @Schema(description = "직전 코스와 겹친 볼거리 비율 (맛집·숙소는 후보가 적어 세지 않는다)", example = "0.25") double overlapRatio)
+        implements Attributed {
+
+    /**
+     * 감싼 코스의 출처를 <b>그대로 물려받는다</b>(#399).
+     *
+     * <p>이 응답은 코스를 안에 넣고 재생성 정보만 얹은 것이다. 여기서 안 물려받으면 <b>재생성 화면에서만
+     * 출처가 사라진다</b> — 같은 코스인데 어떻게 받았느냐에 따라 표기가 달라지는 셈이다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        return course.sources();
+    }
 
     public static CourseRegenerateResponse from(RegeneratedCourse regenerated, List<CuratedLink> curatedLinks) {
         return new CourseRegenerateResponse(
