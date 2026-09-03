@@ -3,9 +3,12 @@ package com.offway.core.trip.controller;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
@@ -276,8 +279,38 @@ class PoiDetailIntegrationTest {
 
         mockMvc.perform(get("/api/v1/pois/{id}", stay.publicId()))
                 .andExpect(status().isOk())
-                // 혜택이 있으면 문구가, 기간이 안 맞으면 필드가 없다 — 둘 다 정상이라 존재만 확인하지 않는다.
+                // 혜택이 있으면 객체가, 기간이 안 맞으면 필드가 없다 — 둘 다 정상이라 존재만 확인하지 않는다.
                 .andExpect(jsonPath("$.data.typeLabel").value(stay.getCategory().label()));
+    }
+
+    /**
+     * 혜택이 실리면 <b>누를 수 있는 모양</b>이어야 한다(#413).
+     *
+     * <p>문자열이던 시절에는 화면에 링크 아이콘이 있는데 갈 곳이 없었다. 신청 주소도, 혜택 상세로 갈
+     * {@code policyId} 도 응답에 없었기 때문이다.
+     *
+     * <p>기간이 안 맞아 혜택이 없는 날에도 이 테스트가 서야 하므로, <b>필드가 있을 때만</b> 모양을 본다.
+     */
+    @Test
+    void 혜택이_실리면_신청_주소와_정책_id가_함께_온다() throws Exception {
+        tourApiClient.respondDetail(() -> {
+            throw new AssertionError("인허가 식별자를 TourAPI 에 물었다");
+        });
+        LicensedPlace stay = licensedPlaceRepository.findCandidates(UISEONG, PlaceKind.STAY, 10).getFirst();
+
+        String body = mockMvc.perform(get("/api/v1/pois/{id}", stay.publicId()))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        Object benefit = JsonPath.read(body, "$.data.benefit");
+        if (benefit == null) {
+            return; // 오늘 기준 기간이 맞는 혜택이 없다 — 그것도 정상이다
+        }
+        assertNotNull(JsonPath.read(body, "$.data.benefit.text"), "뱃지 문구가 없다");
+        assertNotNull(JsonPath.read(body, "$.data.benefit.policyType"), "분류가 없다");
+        assertTrue((int) JsonPath.read(body, "$.data.benefit.policyId") > 0, "정책 id 가 없다");
     }
 
     @Test

@@ -10,6 +10,7 @@ import com.offway.core.trip.domain.TripException;
 import com.offway.core.trip.repository.RegionPoiRepository;
 import com.offway.core.trip.service.dto.HomeResult;
 import com.offway.core.trip.service.dto.RegionDetail;
+import com.offway.core.trip.service.dto.RegionBenefit;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -107,7 +108,7 @@ public class RegionDetailService {
     }
 
     /** 이 지역에 걸리는 혜택 하나 — 화면이 뱃지 한 개를 그린다. 홈 카드와 같은 규칙이다. */
-    private HomeResult.Benefit benefitOf(long regionId) {
+    private RegionBenefit benefitOf(long regionId) {
         Map<Long, List<Policy>> matched =
                 policyService.matchForRegions(List.of(regionId), LocalDate.now(SERVICE_ZONE));
         List<Policy> policies = matched.getOrDefault(regionId, List.of());
@@ -115,6 +116,6 @@ public class RegionDetailService {
             return null;
         }
         Policy first = policies.get(0);
-        return new HomeResult.Benefit(first.getId(), first.getType(), first.badgeText());
+        return RegionBenefit.from(first);
     }
 }

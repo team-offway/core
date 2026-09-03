@@ -26,7 +26,7 @@ public record RegionDetailResponse(
         @Schema(example = "동구 · 부산광역시") String name,
         @Schema(example = "금수사와 정공단이 있는 곳", nullable = true) String overview,
         List<String> photos,
-        @Schema(nullable = true) Benefit benefit,
+        @Schema(nullable = true) BenefitResponse benefit,
         List<HighlightSpot> highlightSpots,
         List<CuratedLinkResponse> curatedLinks) {
 
@@ -36,27 +36,12 @@ public record RegionDetailResponse(
                 detail.sigungu() + " · " + detail.sido(),
                 detail.overview(),
                 detail.photos(),
-                detail.benefit() == null ? null : Benefit.from(detail.benefit()),
+                BenefitResponse.from(detail.benefit()),
                 detail.highlightSpots().stream().map(HighlightSpot::from).toList(),
                 CuratedLinkResponse.from(curatedLinks));
     }
 
     /**
-     * 혜택 뱃지 — <b>필드 이름·순서를 홈 응답과 같게 둔다</b>. 같은 값이 두 화면에서 다른 모양으로 오면
-     * 앱이 화면마다 다른 파서를 들어야 한다.
-     *
-     * @param policyId 누르면 이 혜택의 상세로 간다
-     */
-    public record Benefit(
-            @Schema(example = "숙박 할인") String text,
-            @Schema(example = "STAY_FESTA") PolicyType policyType,
-            @Schema(example = "2") long policyId) {
-
-        static Benefit from(HomeResult.Benefit benefit) {
-            return new Benefit(benefit.text(), benefit.type(), benefit.policyId());
-        }
-    }
-
     /**
      * @param poiContentId 누르면 {@code GET /api/v1/pois/{poiContentId}} 로 그대로 이어진다
      * @param catchphrase 구석구석 한 줄 소개. <b>null 일 수 있다</b> — 그 장소가 캐치프레이즈 목록에 없으면
