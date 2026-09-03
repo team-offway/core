@@ -8,6 +8,7 @@ import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.trip.domain.MapSearchLink;
+import com.offway.core.trip.domain.PlaceOrigin;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.itinerary.service.dto.OwnedCourse;
 import lombok.Builder;
@@ -18,13 +19,17 @@ import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.domain.Departure;
 import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.transport.service.dto.TransitOption;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import com.offway.core.weather.domain.DailyWeather;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.stream.IntStream;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 
 /**
@@ -115,7 +120,44 @@ public record CourseResponse(
                         example = "1.25",
                         nullable = true)
                 Double consumedLeaveDays,
-        List<CuratedLinkResponse> curatedLinks) implements LogSummary {
+        List<CuratedLinkResponse> curatedLinks) implements LogSummary, Attributed {
+
+    /**
+     * 코스에는 <b>두 기관</b>이 섞인다(#399) — 슬롯의 장소와 날마다 붙는 날씨다.
+     *
+     * <p>장소는 인허가·국가유산·공사가 섞이므로 실린 것만 센다. 날씨는 예보 범위 밖이거나 조회에
+     * 실패하면 통째로 비므로, 한 날이라도 실렸을 때만 기상청을 더한다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        Set<DataSource> sources = EnumSet.noneOf(DataSource.class);
+        for (Day day : days) {
+            if (day.weather() != null) {
+                sources.add(DataSource.KMA);
+            }
+            for (Item item : day.items()) {
+                sources.add(dataSourceOf(PlaceOrigin.of(item.poiContentId())));
+            }
+        }
+        return Set.copyOf(sources);
+    }
+
+    /**
+     * 장소의 출처를 표기할 기관명으로 옮긴다(#399).
+     *
+     * <p>"어디서 온 값인가" 는 {@link PlaceOrigin}(trip 도메인)이 답한다. <b>trip 의 응답 DTO 를 직접 쓰지
+     * 않는 것이 요점이다</b> — controller 끼리 물리면 trip 의 응답 구현을 바꿀 때 이 응답이 함께 깨진다.
+     *
+     * <p>{@code switch} 가 모든 상수를 덮으므로 <b>새 출처가 생기면 여기서 컴파일이 깨진다.</b> 같은
+     * 매핑이 {@code trip.controller.dto} 에도 있는데, 그 장치 덕에 둘이 조용히 갈리지 않는다.
+     */
+    private static DataSource dataSourceOf(PlaceOrigin origin) {
+        return switch (origin) {
+            case TOUR_API -> DataSource.KTO;
+            case LICENSED -> DataSource.LOCAL_PERMIT;
+            case HERITAGE -> DataSource.KHS;
+        };
+    }
 
     /**
      * 예: {@code 정선군 코스 3일 26슬롯}.

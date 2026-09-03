@@ -1,6 +1,5 @@
 package com.offway.core.trip.service.dto;
 
-import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CategoryCounts;
 import com.offway.core.trip.domain.CrowdLevel;
@@ -48,7 +47,7 @@ public record HomeResult(
             long regionId,
             String regionName,
             String subtitle,
-            Benefit benefit) {
+            RegionBenefit benefit) {
     }
 
     /**
@@ -67,7 +66,7 @@ public record HomeResult(
             CrowdLevel crowdLevel,
             String imageUrl,
             List<Category> categories,
-            Benefit benefit) {
+            RegionBenefit benefit) {
 
         /**
          * 랭킹·혜택에 지역 콘텐츠(이미지·categories)를 얹어 카드를 만든다.
@@ -84,7 +83,7 @@ public record HomeResult(
                 CrowdLevel crowdLevel,
                 RegionContent content,
                 String heroPhotoUrl,
-                Benefit benefit) {
+                RegionBenefit benefit) {
             return new RegionCard(
                     regionId,
                     sido,
@@ -94,13 +93,5 @@ public record HomeResult(
                     content.categories(),
                     benefit);
         }
-    }
-
-    /**
-     * @param policyId 정책 ID
-     * @param type 정책 분류
-     * @param text 뱃지 문구
-     */
-    public record Benefit(long policyId, PolicyType type, String text) {
     }
 }

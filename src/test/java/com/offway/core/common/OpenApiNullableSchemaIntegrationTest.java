@@ -73,6 +73,8 @@ class OpenApiNullableSchemaIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.components.schemas.RegionCard.properties.benefit.nullable").value(true))
                 .andExpect(jsonPath("$.components.schemas.RegionCard.properties.benefit.allOf[0]['$ref']")
-                        .value("#/components/schemas/Benefit"));
+                        // 홈·지역 상세·장소 상세가 한 타입을 공유한다(#413) — 셋이 각자 Benefit 을 들던 시절의
+                        // 이름이 아니다. 이름이 갈리면 앱이 화면마다 다른 파서를 든다.
+                        .value("#/components/schemas/BenefitResponse"));
     }
 }

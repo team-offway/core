@@ -8,6 +8,7 @@ import com.offway.core.region.service.RegionMaster;
 import com.offway.core.trip.domain.RegionContent;
 import com.offway.core.trip.domain.RegionScore;
 import com.offway.core.trip.service.dto.HomeResult;
+import com.offway.core.trip.service.dto.RegionBenefit;
 import java.time.LocalDate;
 import java.util.HashMap;
 import com.offway.core.trip.domain.Category;
@@ -178,7 +179,7 @@ public class HomeService {
             Map<Long, List<Policy>> policiesByRegion) {
         RegionContent content = contents.getOrDefault(region.getId(), RegionContent.EMPTY);
         List<Policy> matched = policiesByRegion.getOrDefault(region.getId(), List.of());
-        HomeResult.Benefit benefit = matched.isEmpty() ? null : toBenefit(matched.get(0));
+        RegionBenefit benefit = matched.isEmpty() ? null : toBenefit(matched.get(0));
         return HomeResult.RegionCard.of(
                 region.getId(),
                 region.getSido(),
@@ -189,7 +190,7 @@ public class HomeService {
                 benefit);
     }
 
-    private static HomeResult.Benefit toBenefit(Policy policy) {
-        return new HomeResult.Benefit(policy.getId(), policy.getType(), policy.badgeText());
+    private static RegionBenefit toBenefit(Policy policy) {
+        return RegionBenefit.from(policy);
     }
 }

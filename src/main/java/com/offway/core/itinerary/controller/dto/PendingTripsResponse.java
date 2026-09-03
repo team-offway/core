@@ -4,9 +4,12 @@ import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.service.dto.PendingTrips;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 홈 진입 모달 "다녀오셨나요?" 가 그릴 것 전부(#116).
@@ -20,7 +23,18 @@ import java.util.List;
 public record PendingTripsResponse(
         @Schema(description = "지금 남은 연차 (설정한 적 없으면 null)", example = "13.0", nullable = true)
                 Double remainingDays,
-        List<Trip> trips) {
+        List<Trip> trips) implements Attributed {
+
+    /**
+     * 깎일 연차가 <b>평일에서 공휴일을 뺀 값</b>이라 특일정보를 지난다(#399).
+     *
+     * <p>지도 썸네일 좌표는 코스 장소에서 오지만 이 응답에는 <b>좌표만</b> 실린다 — 어느 출처의 장소였는지
+     * 가릴 식별자가 없다. 모르는 것을 지어내지 않고, 확실한 것만 적는다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        return trips.isEmpty() ? Set.of() : Set.of(DataSource.KASI);
+    }
 
     public static PendingTripsResponse from(PendingTrips pending) {
         return new PendingTripsResponse(

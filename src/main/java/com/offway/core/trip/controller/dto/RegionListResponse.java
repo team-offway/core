@@ -2,10 +2,13 @@ package com.offway.core.trip.controller.dto;
 
 import com.offway.core.common.logging.LogSummaries;
 import com.offway.core.common.logging.LogSummary;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.service.dto.RegionList;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import java.util.Set;
 import lombok.Builder;
 
 /**
@@ -16,10 +19,20 @@ import lombok.Builder;
  *
  * @param regions 이 페이지의 지역
  */
-public record RegionListResponse(List<Item> regions) implements LogSummary {
+public record RegionListResponse(List<Item> regions) implements LogSummary, Attributed {
 
     public static RegionListResponse from(RegionList regions) {
         return new RegionListResponse(regions.regions().stream().map(Item::from).toList());
+    }
+
+    /**
+     * 지역 카드의 사진·볼거리 분류·한산도는 전부 공사에서 온다(#399) — 관광 API 와 관광빅데이터다.
+     *
+     * <p>목록 이 비면 표기할 것도 없다. 있는 것만 세는 규칙을 여기서도 지킨다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        return regions.isEmpty() ? Set.of() : Set.of(DataSource.KTO);
     }
 
     @Override
