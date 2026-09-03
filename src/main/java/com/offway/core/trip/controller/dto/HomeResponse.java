@@ -81,7 +81,7 @@ public record HomeResponse(
             @Schema(example = "76") long regionId,
             @Schema(example = "정선군") String regionName,
             @Schema(example = "폐광촌에서 다시 태어난 마을", nullable = true) String subtitle,
-            @Schema(nullable = true) Benefit benefit) {
+            @Schema(nullable = true) BenefitResponse benefit) {
 
         /** 이 섹션에 실린 장소들의 출처 — 인허가·국가유산·공사가 섞인다. */
         static Set<DataSource> sourcesOf(List<PlaceCard> cards) {
@@ -97,7 +97,7 @@ public record HomeResponse(
                     card.regionId(),
                     card.regionName(),
                     card.subtitle(),
-                    card.benefit() == null ? null : Benefit.from(card.benefit()));
+                    BenefitResponse.from(card.benefit()));
         }
     }
 
@@ -127,7 +127,7 @@ public record HomeResponse(
                             nullable = true)
                     String imageUrl,
             List<CategoryTagResponse> categories,
-            @Schema(description = "대표 혜택 (없으면 null)", nullable = true) Benefit benefit) {
+            @Schema(description = "대표 혜택 (없으면 null)", nullable = true) BenefitResponse benefit) {
 
         static RegionCard from(HomeResult.RegionCard card) {
             return new RegionCard(
@@ -136,19 +136,8 @@ public record HomeResponse(
                     card.crowdLevel(),
                     card.imageUrl(),
                     card.categories().stream().map(CategoryTagResponse::from).toList(),
-                    card.benefit() == null ? null : Benefit.from(card.benefit()));
+                    BenefitResponse.from(card.benefit()));
         }
     }
 
-    /**
-     * @param text 뱃지 문구
-     * @param policyType 정책 분류
-     * @param policyId 정책 ID
-     */
-    public record Benefit(String text, PolicyType policyType, long policyId) {
-
-        static Benefit from(HomeResult.Benefit benefit) {
-            return new Benefit(benefit.text(), benefit.type(), benefit.policyId());
-        }
-    }
 }
