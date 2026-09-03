@@ -25,7 +25,7 @@ import java.time.LocalDate;
  * 두면 JSON 에 그 필드가 <b>없을 때</b> 매핑이 깨져 요청 전체가 400 이 된다 — 필드 하나를 생략한 것이
  * 값 오류로 보고되는 셈이라 어드민은 어디가 틀렸는지 알 수 없다.
  *
- * @param type 7대 혜택 분류. <b>자유 입력이 아니다</b> — 뱃지 문구와 대상 지역이 여기 묶여 있다
+ * @param type 혜택 분류. <b>자유 입력이 아니다</b> — 뱃지 문구와 대상 지역이 여기 묶여 있다
  * @param name 정책명
  * @param benefitDetail 혜택 상세. 사용자에게 그대로 나간다
  * @param targetAudience 대상. 사용자에게 그대로 나간다

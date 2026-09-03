@@ -19,7 +19,7 @@ const POLICIES_API = '/api/v1/admin/policies';
 const POLICY_SCOPES_API = `${POLICIES_API}/scopes`;
 
 /**
- * 7대 혜택 분류 — PolicyType 과 짝이다.
+ * 혜택 분류 — PolicyType 과 짝이다.
  *
  * **뱃지 문구를 여기 적어 두는 것은 미리보기 때문이다.** 실제 문구는 서버가 badgeText 로 내려주므로
  * 저장된 정책은 그 값을 쓴다. 여기 값은 아직 저장 전인 폼에서 "이 분류를 고르면 뱃지가 뭐가 되나" 를
