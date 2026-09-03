@@ -85,12 +85,25 @@ class AttributedCoverageTest {
     }
 
     /**
-     * 표지 필드가 <b>선언</b>으로 들어 있는지 본다.
+     * 표지 필드가 <b>선언</b>으로 들어 있는지 본다 — 주석·문자열에 이름만 나온 것은 세지 않는다.
      *
-     * <p>주석·문서에 이름만 나온 것과 가르려고 소문자로 낮춰 비교하지 않는다 — 필드명 그대로 찾는다.
+     * <p>이 구분이 필요한 이유가 있다. 이 파일 자신이 {@code poiContentId} 를 문자열로 들고 있고, 응답
+     * DTO 의 javadoc 도 다른 DTO 의 필드명을 자주 인용한다. 그걸 선언으로 세면 <b>그 값을 안 싣는 DTO 가
+     * 설명 한 줄 때문에 걸린다</b> — 그런 오탐이 나면 이 테스트가 무시당한다.
+     *
+     * <p>AST 까지 가지 않고 주석·문자열만 걷어낸다. 파서를 들이는 비용이 이 판정에 비해 크고, 걷어내고
+     * 나면 남는 것은 사실상 선언과 코드뿐이다.
      */
     private static boolean hasKtoMarker(String source) {
-        return KTO_MARKERS.stream().anyMatch(marker -> source.contains(" " + marker) || source.contains("(" + marker));
+        String code = withoutCommentsAndStrings(source);
+        return KTO_MARKERS.stream().anyMatch(marker -> code.contains(" " + marker) || code.contains("(" + marker));
+    }
+
+    /** 블록 주석 · 줄 주석 · 문자열 리터럴을 지운다. 지운 자리는 공백으로 둬서 앞뒤 토큰이 붙지 않게 한다. */
+    private static String withoutCommentsAndStrings(String source) {
+        return source.replaceAll("(?s)/\\*.*?\\*/", " ")
+                .replaceAll("(?m)//.*$", " ")
+                .replaceAll("\"(\\\\.|[^\"\\\\])*\"", " ");
     }
 
     private static boolean declaresSources(String source) {

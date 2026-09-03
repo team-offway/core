@@ -40,16 +40,27 @@ public record RegionDetailResponse(
      *
      * <p>매력 포인트는 인허가·국가유산 장소가 섞일 수 있어 실린 것만 센다. 지역명·혜택은 우리가 만든
      * 값이라 출처가 없다.
+     *
+     * <p><b>캐치프레이즈가 따로 걸린다.</b> 인허가 장소에도 붙는 값인데 그건 공사의 "대한민국 구석구석"
+     * 에서 온다. 소개도 대표 사진도 없는 지역에서 그 한 줄만 실리면, 장소의 기본 출처만 세다가 공사 표기를
+     * 통째로 빠뜨린다.
      */
     @Override
     public Set<DataSource> sources() {
         Set<DataSource> spotSources = PlaceDataSources.of(highlightSpots, HighlightSpot::poiContentId);
-        if (overview == null && photos.isEmpty()) {
+        if (!usesKtoText()) {
             return spotSources;
         }
-        // 소개나 대표 사진이 있으면 그 자체가 공사 값이다 — 장소가 하나도 없어도 표기가 필요하다.
+        // 소개·대표 사진·캐치프레이즈는 그 자체가 공사 값이다 — 장소가 하나도 없어도 표기가 필요하다.
         return Stream.concat(spotSources.stream(), Stream.of(DataSource.KTO))
                 .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** 장소의 출처와 별개로 <b>공사에서 온 글</b>이 실렸나 — 소개·대표 사진·캐치프레이즈. */
+    private boolean usesKtoText() {
+        return overview != null
+                || !photos.isEmpty()
+                || highlightSpots.stream().anyMatch(spot -> spot.catchphrase() != null);
     }
 
     public static RegionDetailResponse from(RegionDetail detail, List<CuratedLink> curatedLinks) {

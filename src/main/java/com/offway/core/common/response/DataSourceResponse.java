@@ -3,6 +3,8 @@ package com.offway.core.common.response;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import java.util.Set;
+import lombok.AccessLevel;
+import lombok.Builder;
 import java.util.stream.Stream;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 
@@ -19,6 +21,7 @@ import io.swagger.v3.oas.annotations.media.ArraySchema;
  * @param key 기관 코드
  * @param label 화면에 쓰는 기관명. 앱은 여기에 "출처: ⓒ" 만 붙인다
  */
+@Builder(access = AccessLevel.PRIVATE)
 public record DataSourceResponse(
         @Schema(example = "KTO") String key,
         @Schema(example = "한국관광공사") String label) {
@@ -33,7 +36,7 @@ public record DataSourceResponse(
     public static List<DataSourceResponse> of(Set<DataSource> sources) {
         return Stream.of(DataSource.values())
                 .filter(sources::contains)
-                .map(source -> new DataSourceResponse(source.name(), source.label()))
+                .map(source -> DataSourceResponse.builder().key(source.name()).label(source.label()).build())
                 .toList();
     }
 }

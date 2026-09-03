@@ -2,6 +2,8 @@ package com.offway.core.common.response;
 
 import com.offway.core.common.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.AccessLevel;
+import lombok.Builder;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -24,6 +26,7 @@ import org.springframework.http.HttpStatusCode;
  *     붙이면 된다. <b>비어 있을 수 있다</b> — 우리가 만든 값만 실린 응답이다. {@link Attributed} 를
  *     구현한 data 에서만 채워진다
  */
+@Builder(access = AccessLevel.PRIVATE)
 public record ApiResponseBody<T>(
         int status,
         @Schema(nullable = true) T data,
@@ -63,7 +66,12 @@ public record ApiResponseBody<T>(
      * 때 어느 쪽이 불릴지 읽는 사람이 알 수 없다.
      */
     public static <T> ApiResponseBody<T> okWithDetail(String detail) {
-        return new ApiResponseBody<>(HttpStatus.OK.value(), null, detail, SUCCESS_CODE, null, NO_SOURCES);
+        return ApiResponseBody.<T>builder()
+                .status(HttpStatus.OK.value())
+                .detail(detail)
+                .code(SUCCESS_CODE)
+                .sources(NO_SOURCES)
+                .build();
     }
 
     public static <T> ApiResponseBody<T> created(T data) {
@@ -76,8 +84,12 @@ public record ApiResponseBody<T>(
 
     /** detail 을 구체 사유로 덮어쓰는 실패 응답 (Bean Validation 필드 메시지 등). */
     public static <T> ApiResponseBody<T> fail(ErrorCode errorCode, String detail) {
-        return new ApiResponseBody<>(
-                errorCode.category().httpStatus().value(), null, detail, errorCode.code(), null, NO_SOURCES);
+        return ApiResponseBody.<T>builder()
+                .status(errorCode.category().httpStatus().value())
+                .detail(detail)
+                .code(errorCode.code())
+                .sources(NO_SOURCES)
+                .build();
     }
 
     /**
@@ -88,12 +100,23 @@ public record ApiResponseBody<T>(
      * category 에서 파생하면 매핑이 없는 status 마다 둘이 어긋난다.
      */
     public static <T> ApiResponseBody<T> fail(HttpStatusCode status, ErrorCode errorCode) {
-        return new ApiResponseBody<>(status.value(), null, errorCode.message(), errorCode.code(), null, NO_SOURCES);
+        return ApiResponseBody.<T>builder()
+                .status(status.value())
+                .detail(errorCode.message())
+                .code(errorCode.code())
+                .sources(NO_SOURCES)
+                .build();
     }
 
     private static <T> ApiResponseBody<T> success(HttpStatus status, T data, PageResponse pageResponse) {
-        return new ApiResponseBody<>(
-                status.value(), data, SUCCESS_DETAIL, SUCCESS_CODE, pageResponse, sourcesOf(data));
+        return ApiResponseBody.<T>builder()
+                .status(status.value())
+                .data(data)
+                .detail(SUCCESS_DETAIL)
+                .code(SUCCESS_CODE)
+                .pageResponse(pageResponse)
+                .sources(sourcesOf(data))
+                .build();
     }
 
     /**
