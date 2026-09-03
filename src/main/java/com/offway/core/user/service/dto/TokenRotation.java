@@ -18,13 +18,20 @@ public sealed interface TokenRotation {
     record Reused(UUID userId) implements TokenRotation {}
 
     /**
-     * <b>방금</b> 회전된 토큰이 다시 왔다 — 탈취가 아니라 정상 앱의 재시도·동시 요청으로 본다.
+     * <b>방금</b> 회전된 토큰이 다시 와서 <b>새 쌍을 다시 발급했다</b>(#389) — 탈취가 아니라 재시도다.
      *
-     * <p>정상 앱도 같은 refresh 를 두 번 쏜다. 401 을 받은 요청 둘이 동시에 재발급을 걸거나, 응답을 못 받고
-     * 타임아웃 재시도를 하면 그렇다. 이것을 {@link Reused} 로 다루면 <b>이긴 요청이 방금 받아 간 정상 토큰까지
-     * 끊겨</b> 사용자가 멀쩡한 토큰을 들고 로그아웃된다. 요청 자체는 거절하되 세션은 살린다.
+     * <p>정상 앱도 같은 refresh 를 두 번 쏜다. 401 을 받은 요청 둘이 동시에 재발급을 걸거나, <b>응답을
+     * 못 받고</b> 타임아웃 재시도를 하면 그렇다. 이것을 {@link Reused} 로 다루면 이긴 요청이 방금 받아 간
+     * 정상 토큰까지 끊겨, 사용자가 멀쩡한 토큰을 들고 로그아웃된다.
+     *
+     * <p><b>거절만 해서도 안 된다.</b> 응답이 유실된 경우 앱에는 "새 토큰" 이 없다 — 서버는 회전했는데 앱은
+     * 옛 토큰을 들고 있고, 다시 보내면 유예 안이면 여기, 밖이면 {@link Reused} 라 어느 쪽이든 로그아웃이다.
+     * 재배포가 잦은 날 access 만료와 겹치면 실제로 닿는다.
+     *
+     * <p>그래서 <b>다시 발급하고</b>, 먼저 나갔지만 아무도 못 받은 후속 토큰은 폐기한다. 탈취 방어는 유예 창
+     * 밖에서 그대로 한다.
      */
-    record Raced() implements TokenRotation {}
+    record Recovered(UUID userId) implements TokenRotation {}
 
     /** 없는 토큰이거나 만료됨. 끊을 대상이 없다. */
     record Invalid() implements TokenRotation {}

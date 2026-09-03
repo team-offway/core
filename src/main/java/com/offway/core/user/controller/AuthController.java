@@ -2,6 +2,7 @@ package com.offway.core.user.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.user.config.LoginUser;
+import com.offway.core.user.controller.dto.LogoutRequest;
 import com.offway.core.user.controller.dto.ReissueRequest;
 import com.offway.core.user.controller.dto.SocialLoginRequest;
 import com.offway.core.user.controller.dto.TokenResponse;
@@ -43,8 +44,9 @@ public class AuthController implements AuthApi {
 
     @Override
     @PostMapping("/logout")
-    public ApiResponseBody<Void> logout(@LoginUser UUID userId) {
-        authService.logout(userId);
+    public ApiResponseBody<Void> logout(
+            @LoginUser UUID userId, @RequestBody(required = false) LogoutRequest request) {
+        authService.logout(userId, LogoutRequest.refreshTokenOrNull(request));
         return ApiResponseBody.ok();
     }
 }

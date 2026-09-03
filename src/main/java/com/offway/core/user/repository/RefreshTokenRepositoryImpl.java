@@ -1,6 +1,7 @@
 package com.offway.core.user.repository;
 
 import com.offway.core.user.domain.RefreshToken;
+import com.offway.core.user.domain.RevokedReason;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -37,11 +38,17 @@ public class RefreshTokenRepositoryImpl implements RefreshTokenRepository {
 
     @Override
     public int claimRotation(String tokenHash, Instant now) {
-        return refreshTokenJpaRepository.claimRotation(tokenHash, now);
+        return refreshTokenJpaRepository.claimRotation(tokenHash, now, RevokedReason.ROTATED);
     }
 
     @Override
-    public int revokeActive(UUID userId, Instant now) {
-        return refreshTokenJpaRepository.revokeActiveByUserId(userId, now);
+    public int revokeActive(UUID userId, Instant now, RevokedReason reason) {
+        return refreshTokenJpaRepository.revokeActiveByUserId(userId, now, reason);
+    }
+
+    @Override
+    public int revokeOne(UUID userId, String tokenHash, Instant now) {
+        return refreshTokenJpaRepository.revokeOneByUserIdAndTokenHash(
+                userId, tokenHash, now, RevokedReason.LOGOUT);
     }
 }

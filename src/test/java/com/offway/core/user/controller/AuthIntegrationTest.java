@@ -2,6 +2,7 @@ package com.offway.core.user.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -26,6 +27,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -400,46 +402,66 @@ class AuthIntegrationTest {
      */
     private static final int CONCURRENT_REISSUES = 2;
 
+    /**
+     * <b>회전 권리는 하나다</b> — 둘 다 토큰을 받더라도 그중 하나만 실제로 회전을 선점한다(#389).
+     *
+     * <p>선점이 갈리지 않으면 두 트랜잭션이 같은 스냅샷({@code revoked_at IS NULL})을 보고 둘 다
+     * "정상 회전" 으로 처리된다 — 그러면 <b>진 요청을 알아볼 방법이 없어져</b> 유예 창 밖의 재사용도
+     * 정상 회전으로 통과한다. 재사용 감지가 서 있는 자리가 여기다.
+     *
+     * <p>진 요청이 <b>거절되지 않고</b> 새 쌍을 받는 것은 #389 에서 바뀐 계약이다. 서로 다른 토큰이어야
+     * 한다는 것으로 "둘 다 선점하지는 않았다" 를 확인한다.
+     */
     @Test
-    void 같은_refresh로_동시에_재발급하면_하나만_성공한다() throws Exception {
-        // 잠금이 없으면 두 트랜잭션이 같은 스냅샷(revoked_at IS NULL)을 보고 둘 다 회전에 성공한다.
-        // 토큰 하나에서 살아 있는 refresh 가 둘 나오고, 그 순간 재사용 감지의 보장이 성립하지 않는다.
+    void 같은_refresh로_동시에_재발급해도_회전은_한_쪽만_선점한다() throws Exception {
         socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
         Tokens issued = login();
 
         List<String> results = reissueConcurrently(issued.refreshToken());
 
-        assertEquals(1, results.stream().filter(result -> !result.startsWith(FAILED)).count(), results.toString());
+        assertEquals(CONCURRENT_REISSUES, results.stream().filter(result -> !result.startsWith(FAILED)).count(),
+                "유예 창 안의 요청은 거절하지 않는다: " + results);
+        assertEquals(CONCURRENT_REISSUES, Set.copyOf(results).size(),
+                "같은 토큰을 둘에게 내주면 안 된다: " + results);
     }
 
     @Test
-    void 동시_재발급에서_진_요청이_세션을_끊지_않는다() throws Exception {
+    void 동시_재발급에서_어느_쪽_토큰도_죽지_않는다() throws Exception {
         // 진 요청을 탈취로 오인해 전체 폐기를 돌리면, 이긴 요청이 방금 받아 간 정상 토큰까지 죽어 사용자가
         // 멀쩡한 토큰을 들고도 로그아웃된다. 회전 직후 유예 창이 막는 자리다.
+        //
+        // 진 쪽 토큰도 살아 있어야 한다(#389). 앱이 둘 중 어느 응답을 먼저 저장할지는 도착 순서가 정하는데,
+        // 한쪽을 죽여 두면 그 순서가 반대일 때 앱이 죽은 토큰을 들고 다음 재발급에서 튕긴다.
         socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
         Tokens issued = login();
 
         List<String> results = reissueConcurrently(issued.refreshToken());
-        String winner = results.stream()
-                .filter(result -> !result.startsWith(FAILED))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("동시 재발급에서 성공한 요청이 없다: " + results));
 
-        mockMvc.perform(reissueRequest(winner)).andExpect(status().isOk());
+        for (String token : results) {
+            assertFalse(token.startsWith(FAILED), "거절된 요청이 있다: " + results);
+            mockMvc.perform(reissueRequest(token)).andExpect(status().isOk());
+        }
     }
 
+    /**
+     * 유예 창 안의 재시도는 <b>거절하지 않고 새 쌍을 다시 준다</b>(#389).
+     *
+     * <p>거절하면 앱은 만료와 구분하지 못해 토큰을 지우고 로그아웃한다. 그런데 이 요청이 오는 대표적인
+     * 상황이 <b>앞선 재발급 응답의 유실</b>(타임아웃 · 재배포 중 연결 끊김)이라, 그때 앱에는 받아 둔
+     * 새 토큰이 없다 — 거절은 곧 로그아웃이다.
+     */
     @Test
-    void 유예_창_안의_재시도는_경보를_울리지_않고_그_요청만_거절한다() throws Exception {
-        // 네트워크 재시도로 같은 refresh 가 곧바로 다시 오는 것은 탈취가 아니다. 그 요청은 거절하되(줄 토큰이
-        // 없다 — 새 토큰은 이미 이긴 요청이 가져갔다) 세션 전체를 끊지는 않는다.
+    void 유예_창_안의_재시도는_새_쌍을_다시_받는다() throws Exception {
         socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
         Tokens issued = login();
         String rotated = JsonPath.read(bodyOf(reissueRequest(issued.refreshToken())), "$.data.refreshToken");
 
-        mockMvc.perform(reissueRequest(issued.refreshToken()))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("USER-003"));
+        String retried = JsonPath.read(
+                bodyOf(reissueRequest(issued.refreshToken())), "$.data.refreshToken");
 
+        assertNotEquals(rotated, retried, "재시도에 앞선 토큰을 그대로 내주면 안 된다");
+        // 먼저 나간 토큰도 살아 있다 — 응답 유실인지 동시 요청인지 서버는 구분할 수 없어서, 유실이라
+        // 단정하고 폐기하면 동시 요청이었을 때 멀쩡한 토큰을 죽인다.
         mockMvc.perform(reissueRequest(rotated)).andExpect(status().isOk());
     }
 
@@ -469,6 +491,7 @@ class AuthIntegrationTest {
         }
     }
 
+    /** 본문 없는 로그아웃은 예전 그대로 — 이 필드를 안 싣는 옛 앱이 계속 돌아야 한다. */
     @Test
     void 로그아웃하면_refresh가_폐기된다() throws Exception {
         socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
@@ -480,6 +503,121 @@ class AuthIntegrationTest {
         mockMvc.perform(reissueRequest(issued.refreshToken()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("USER-003"));
+    }
+
+    // ── 기기별 로그아웃(#389) ──────────────────────────────────
+
+    /**
+     * <b>이 이슈의 본체.</b> 한 기기에서 로그아웃해도 다른 기기는 살아 있어야 한다.
+     *
+     * <p>예전에는 어디서 눌러도 계정의 모든 세션이 끊겼고, 다른 기기는 access 가 살아 있는 동안(최대 1시간)
+     * 멀쩡히 돌다가 재발급하는 순간 튕겼다 — 사용자에게는 "아무것도 안 했는데 랜덤하게 풀린다" 로 보인다.
+     */
+    @Test
+    void refresh를_실어_로그아웃하면_그_기기만_끊긴다() throws Exception {
+        String providerUserId = uniqueProviderUserId();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
+        Tokens phone = login();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
+        Tokens browser = login();
+
+        mockMvc.perform(logoutRequest(browser.accessToken(), browser.refreshToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"));
+
+        mockMvc.perform(reissueRequest(browser.refreshToken()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER-003"));
+        mockMvc.perform(reissueRequest(phone.refreshToken())).andExpect(status().isOk());
+    }
+
+    /** 본문을 비우면 예전처럼 전부 끊는다 — 옛 앱 호환이자 "모든 기기에서 로그아웃" 의 자리다. */
+    @Test
+    void refresh를_안_실으면_모든_기기가_끊긴다() throws Exception {
+        String providerUserId = uniqueProviderUserId();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
+        Tokens phone = login();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
+        Tokens browser = login();
+
+        mockMvc.perform(logoutRequest(browser.accessToken(), null)).andExpect(status().isOk());
+
+        mockMvc.perform(reissueRequest(phone.refreshToken()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER-003"));
+    }
+
+    /**
+     * 남의 refresh 를 실어도 <b>그 사람은 안 끊긴다</b>.
+     *
+     * <p>본문 값을 그대로 믿고 폐기하면 토큰 원문을 아는 사람이 남을 로그아웃시킬 수 있다. access 로
+     * 확인한 주인과 같을 때만 끊는다.
+     */
+    @Test
+    void 남의_refresh를_실어도_그_세션은_안_끊긴다() throws Exception {
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "피해자", null);
+        Tokens victim = login();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "공격자", null);
+        Tokens attacker = login();
+
+        mockMvc.perform(logoutRequest(attacker.accessToken(), victim.refreshToken()))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(reissueRequest(victim.refreshToken())).andExpect(status().isOk());
+    }
+
+    /**
+     * 못 찾아도 <b>200</b> 이다 — 이미 폐기됐거나 없는 토큰.
+     *
+     * <p>어차피 그 기기의 로컬 토큰은 지워진다. 실패로 돌려주면 앱이 "로그아웃이 안 됐다" 로 읽어,
+     * 사용자에게 할 수 있는 것이 없는 오류를 보여 주게 된다.
+     */
+    @Test
+    void 이미_폐기된_refresh로_로그아웃해도_200이다() throws Exception {
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, uniqueProviderUserId(), "세빈", null);
+        Tokens issued = login();
+        mockMvc.perform(logoutRequest(issued.accessToken(), issued.refreshToken())).andExpect(status().isOk());
+
+        mockMvc.perform(logoutRequest(issued.accessToken(), issued.refreshToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"));
+    }
+
+    /**
+     * 로그아웃한 토큰을 <b>한 번 더 보내도</b> 다른 기기가 안 끊긴다.
+     *
+     * <p>앱이 로그아웃 직후 큐에 남아 있던 401 재시도를 한 번 더 쏘는 것은 흔한 뒷북이다. 그걸 탈취로
+     * 읽으면 이 사용자의 남은 세션이 전부 끊겨, <b>기기별 로그아웃을 만들어 놓고 그 뒤에 온 요청 하나가
+     * 결국 전체 로그아웃을 일으킨다.</b>
+     *
+     * <p>유예 창 밖에서 확인한다 — 창 안이면 폐기 시각만으로도 통과해 이 구분이 안 드러난다.
+     */
+    @Test
+    void 로그아웃한_토큰을_다시_보내도_다른_기기는_안_끊긴다() throws Exception {
+        String providerUserId = uniqueProviderUserId();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
+        Tokens phone = login();
+        socialIdentityVerifier.respondWith(AuthProvider.GOOGLE, providerUserId, "세빈", null);
+        Tokens browser = login();
+        mockMvc.perform(logoutRequest(browser.accessToken(), browser.refreshToken())).andExpect(status().isOk());
+        backdateRevocation(browser.refreshToken());
+
+        mockMvc.perform(reissueRequest(browser.refreshToken()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER-003"));
+
+        mockMvc.perform(reissueRequest(phone.refreshToken())).andExpect(status().isOk());
+    }
+
+    /** refreshToken 을 실으면 그 기기만, 안 실으면 전부 — 본문 유무를 한 자리에서 만든다. */
+    private MockHttpServletRequestBuilder logoutRequest(String accessToken, String refreshToken) {
+        MockHttpServletRequestBuilder request =
+                post(LOGOUT_URL).header(HttpHeaders.AUTHORIZATION, BEARER + accessToken);
+        if (refreshToken == null) {
+            return request;
+        }
+        return request.contentType(MediaType.APPLICATION_JSON)
+                .content("{\"refreshToken\": \"%s\"}".formatted(refreshToken));
     }
 
     /**
