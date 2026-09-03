@@ -33,4 +33,14 @@ public record TrainLeg(String trainType, LocalDateTime departAt, LocalDateTime a
     public int durationMinutes() {
         return (int) Duration.between(departAt, arriveAt).toMinutes();
     }
+
+    /**
+     * 화면에 올릴 시간표 한 줄로(#414).
+     *
+     * <p>{@link Departure} 와 모양이 같지만 이 타입은 <b>열차 조회 결과</b>라는 자리를 지킨다 — 화면이
+     * 수단을 가리지 않고 같은 모양으로 받게 하려고 옮기는 것뿐이다.
+     */
+    public Departure toDeparture() {
+        return new Departure(trainType, departAt, arriveAt);
+    }
 }
