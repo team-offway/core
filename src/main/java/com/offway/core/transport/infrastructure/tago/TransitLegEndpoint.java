@@ -12,7 +12,7 @@ import com.offway.core.transport.domain.TransitMode;
  * <p>버스와 배는 파라미터 키가 갈린다 — 버스는 {@code depTerminalId}, 배는 {@code depNodeId} 다. 등급을 담는
  * 필드도 {@code gradeNm}(우등) 과 {@code vihicleNm}(선명, <b>오타가 아니라 실제 필드명</b>)으로 다르다.
  */
-enum TransitLegEndpoint {
+public enum TransitLegEndpoint {
 
     EXPRESS_BUS(
             "ExpBusInfo/GetStrtpntAlocFndExpbusInfo",
@@ -48,7 +48,7 @@ enum TransitLegEndpoint {
      *
      * @throws IllegalArgumentException 열차·자차를 넘긴 경우(불변식 — 호출부가 걸러야 한다)
      */
-    static TransitLegEndpoint of(TransitMode mode) {
+    public static TransitLegEndpoint of(TransitMode mode) {
         return switch (mode) {
             case EXPRESS_BUS -> EXPRESS_BUS;
             case INTERCITY_BUS -> INTERCITY_BUS;
@@ -74,7 +74,14 @@ enum TransitLegEndpoint {
         return vehicleField;
     }
 
-    ExternalApi api() {
+    /**
+     * 이 엔드포인트가 태우는 한도의 주인.
+     *
+     * <p><b>같은 도메인 안에서 열어 둔다</b>(#414). 어느 수단이 어느 TAGO API 를 쓰는지는 여기가 유일한
+     * 정본인데, 캐시 스위치(#403)가 API 별이라 서비스 계층도 그 매핑이 필요하다. 서비스가 자기 switch 를
+     * 또 들면 API 가 늘거나 바뀔 때 두 곳이 조용히 갈린다.
+     */
+    public ExternalApi api() {
         return api;
     }
 }

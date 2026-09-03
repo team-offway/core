@@ -7,10 +7,13 @@ import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.transport.domain.Departure;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.infrastructure.tago.TransitLegClient;
+import com.offway.core.transport.infrastructure.tago.TransitLegEndpoint;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -64,8 +67,17 @@ public class TransitDepartureService {
     private final TransitLegClient transitLegClient;
     private final ExternalApiCachePolicy cachePolicy;
 
-    private final ExternalDataCache<String, List<Departure>> cache =
-            new ExternalDataCache<>(MAX_CACHED_ROUTES, FIRST_LOAD_WAIT, this::cacheEnabled);
+    /**
+     * <b>수단마다 캐시를 따로 둔다.</b>
+     *
+     * <p>캐시 스위치(#403)는 API 별인데 {@link ExternalDataCache} 는 스위치를 하나만 받는다. 셋을 한
+     * 캐시에 담으면 스위치 하나를 끌 때 <b>나머지 둘까지 캐시를 잃는다</b> — 여객선 캐시를 껐는데 시외버스
+     * 시간표가 열 때마다 실호출로 나가는 식이다. 이 PR 이 줄이려는 것이 정확히 그 호출량이다.
+     *
+     * <p>지연 생성한다. 필드 초기화식은 생성자가 {@code cachePolicy} 를 넣기 전에 도는데, 여기서는 그 값을
+     * 읽는 람다를 캐시에 심어야 한다.
+     */
+    private final Map<TransitMode, ExternalDataCache<String, List<Departure>>> caches = new ConcurrentHashMap<>();
 
     /**
      * 그 날짜 그 구간의 운행 편 — <b>조회창 밖이면 빈 목록</b>이다(외부를 안 친다).
@@ -77,8 +89,8 @@ public class TransitDepartureService {
         if (outOfWindow(mode, date, today)) {
             return List.of();
         }
-        String key = mode.name() + "|" + depCode + "|" + arrCode + "|" + date;
-        return cache.get(key, (k, stale) -> {
+        String key = depCode + "|" + arrCode + "|" + date;
+        return cacheFor(mode).get(key, (k, stale) -> {
             List<Departure> fresh = transitLegClient.departures(mode, depCode, arrCode, date);
             if (fresh.isEmpty()) {
                 // 빈 결과를 성공 TTL 로 누르지 않는다. "그 날짜에 운행이 없다" 와 "못 물었다" 가 여기서는
@@ -102,24 +114,22 @@ public class TransitDepartureService {
         return ChronoUnit.DAYS.between(today, date) >= mode.lookaheadDays();
     }
 
-    /** 캐시 무효화 — 운영상 강제 갱신, 통합 테스트 격리용. */
+    /** 캐시 무효화 — 운영상 강제 갱신, 통합 테스트 격리용. 수단을 가리지 않고 전부 비운다. */
     public void evictCache() {
-        cache.evictAll();
+        caches.values().forEach(ExternalDataCache::evictAll);
     }
 
     /**
-     * 캐시를 지금 써도 되나(#403).
+     * 이 수단의 캐시 — <b>그 수단의 스위치만</b> 본다(#403).
      *
-     * <p>이 캐시는 <b>수단 셋을 함께</b> 담는데({@code ExternalDataCache} 는 스위치를 하나만 받는다) 스위치는
-     * API 별이다. 그래서 <b>하나라도 꺼져 있으면 캐시를 안 쓴다</b> — 켜진 쪽까지 실호출로 도는 대가를
-     * 치르지만, 반대(끈 API 의 값이 캐시에서 나가는 것)는 스위치가 안 듣는 것이라 더 나쁘다.
-     *
-     * <p>람다로 필드를 직접 읽지 않는 이유는 {@code TrainRouteService} 와 같다 — 캐시 필드의 초기화식이
-     * 생성자보다 먼저 돈다.
+     * <p>어느 수단이 어느 API 를 쓰는지는 {@link TransitLegEndpoint} 가 소유한다. 여기서 switch 를 또 들면
+     * API 가 늘거나 바뀔 때 두 곳이 조용히 갈린다.
      */
-    private boolean cacheEnabled() {
-        return cachePolicy.cacheEnabled(ExternalApi.EXPRESS_BUS_INFO)
-                && cachePolicy.cacheEnabled(ExternalApi.INTERCITY_BUS_INFO)
-                && cachePolicy.cacheEnabled(ExternalApi.SHIP_INFO);
+    private ExternalDataCache<String, List<Departure>> cacheFor(TransitMode mode) {
+        return caches.computeIfAbsent(mode, m -> {
+            ExternalApi api = TransitLegEndpoint.of(m).api();
+            return new ExternalDataCache<>(
+                    MAX_CACHED_ROUTES, FIRST_LOAD_WAIT, () -> cachePolicy.cacheEnabled(api));
+        });
     }
 }

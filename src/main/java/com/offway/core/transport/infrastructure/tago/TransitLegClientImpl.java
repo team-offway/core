@@ -42,6 +42,14 @@ class TransitLegClientImpl implements TransitLegClient {
     private static final DateTimeFormatter DATE = DateTimeFormatter.BASIC_ISO_DATE; // yyyyMMdd
     private static final DateTimeFormatter PLAN_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
 
+    /**
+     * 빈 시간표를 다시 물어보기까지의 간격 — 로그에만 쓴다.
+     *
+     * <p>실제 값은 {@code TransitDepartureService} 가 소유한다. 여기서는 운영 로그를 보는 사람이
+     * "얼마나 자주 다시 도는가" 를 그 줄에서 바로 알게 하려고 함께 적는다.
+     */
+    private static final int EMPTY_RETRY_MINUTES = 5;
+
     /** 응답 시각 문자열에서 실제로 읽는 길이 — 12자리(분)까지. 14자리로 오는 서비스는 초를 버린다. */
     private static final int PLAN_TIME_LENGTH = 12;
 
@@ -109,7 +117,13 @@ class TransitLegClientImpl implements TransitLegClient {
                         .map(node -> toDeparture(node, endpoint))
                         .flatMap(Optional::stream)
                         .toList();
-                case TagoItems.Empty ignored -> List.of();
+                case TagoItems.Empty ignored -> {
+                    // 조용히 넘기지 않는다. 여기서는 "그 날짜에 운행이 없다" 와 "스키마가 바뀌어 item 이
+                    // 안 온다" 가 같은 모양이라, 안 남기면 뒤쪽을 아무도 모른 채 5분마다 재시도만 돈다.
+                    log.warn("{} 시간표가 비어 있습니다 — 미운행이거나 스키마 변경입니다 {}→{} date={} 재시도={}분 뒤",
+                            mode.label(), depCode, arrCode, date, EMPTY_RETRY_MINUTES);
+                    yield List.of();
+                }
                 case TagoItems.Failed ignored -> {
                     log.warn("{} 시간표 응답이 비정상 resultCode 입니다 {}→{}", mode.label(), depCode, arrCode);
                     yield List.of();
