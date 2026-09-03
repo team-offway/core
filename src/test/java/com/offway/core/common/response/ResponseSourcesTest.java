@@ -58,6 +58,29 @@ class ResponseSourcesTest {
         }
     }
 
+    /**
+     * <b>목록 응답도 출처를 잃지 않는다</b>(#399).
+     *
+     * <p>코스 목록처럼 {@code data} 가 {@code List} 인 응답이 있다. 그 자리를 안 보면 목록 화면에서만
+     * 표기가 사라지는데, 응답은 멀쩡해 보이고 빠진 것은 표기뿐이라 눈에 안 띈다.
+     */
+    @Test
+    void 목록이_실려도_원소의_출처를_모은다() {
+        ApiResponseBody<List<Attributed응답>> body = ApiResponseBody.ok(List.of(
+                new Attributed응답("가", Set.of(DataSource.KTO)),
+                new Attributed응답("나", Set.of(DataSource.KMA)),
+                new Attributed응답("다", Set.of())));
+
+        assertEquals(List.of("KTO", "KMA"), body.sources().stream().map(DataSourceResponse::key).toList());
+    }
+
+    @Test
+    void 출처를_안_밝히는_원소만_든_목록은_비어_있다() {
+        ApiResponseBody<List<평범한응답>> body = ApiResponseBody.ok(List.of(new 평범한응답("값")));
+
+        assertTrue(body.sources().isEmpty());
+    }
+
     @Test
     void 출처를_안_밝히는_data는_빈_집합이다() {
         // null 이 아니라 빈 집합이다 — 앱이 유무를 분기하지 않게.

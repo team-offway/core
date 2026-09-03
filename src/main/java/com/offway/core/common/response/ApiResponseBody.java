@@ -2,7 +2,10 @@ package com.offway.core.common.response;
 
 import com.offway.core.common.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 
@@ -102,6 +105,26 @@ public record ApiResponseBody<T>(
      * <p>실패 응답에는 없다 — 내려간 데이터가 없으므로 빌려온 출처도 없다.
      */
     private static List<DataSourceResponse> sourcesOf(Object data) {
-        return data instanceof Attributed attributed ? DataSourceResponse.of(attributed.sources()) : NO_SOURCES;
+        return DataSourceResponse.of(collect(data));
+    }
+
+    /**
+     * <b>목록도 본다.</b> 코스 목록처럼 {@code data} 가 {@code List} 인 응답이 있는데, 그 자리를 안 보면
+     * 목록 화면에서만 출처가 조용히 사라진다 — 응답은 멀쩡해 보이고 표기만 빠진다.
+     *
+     * <p>중첩은 한 겹만 본다. 목록 안의 목록은 지금 없고, 있다면 그 자체가 응답 모양을 다시 볼 신호다.
+     */
+    private static Set<DataSource> collect(Object data) {
+        if (data instanceof Attributed attributed) {
+            return attributed.sources();
+        }
+        if (data instanceof Collection<?> items) {
+            return items.stream()
+                    .filter(Attributed.class::isInstance)
+                    .map(Attributed.class::cast)
+                    .flatMap(item -> item.sources().stream())
+                    .collect(Collectors.toUnmodifiableSet());
+        }
+        return Set.of();
     }
 }

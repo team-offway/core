@@ -30,10 +30,16 @@ class AttributedCoverageTest {
      * 이 값이 실리면 공사·기상청·천문연구원 중 하나를 반드시 지난다.
      *
      * <p>고른 기준은 <b>다른 출처로는 설명이 안 되는 것</b>이다. {@code imageUrl} 처럼 여러 출처에서
-     *오는 값은 넣지 않는다 — 오탐이 나면 이 테스트가 무시당한다.
+     * 오는 값은 넣지 않는다(큐레이션 썸네일은 어드민이 올린 우리 파일이다) — 오탐이 나면 이 테스트가
+     * 무시당한다.
+     *
+     * <p><b>이 목록은 그물이지 체가 아니다.</b> {@code coverImageUrl} 은 실제로 빠뜨렸다가 나중에
+     * 찾았다 — 코스 목록 카드의 지역 대표 사진이 공사 것인데 위 넷 중 아무것도 안 걸렸다. 표지를
+     * 늘리는 것으로 완전해지지 않으므로, 새 응답 DTO 를 만들 때 <b>"이 값이 어디서 왔나" 를 직접
+     * 묻는 것</b>이 여전히 첫 번째다.
      */
     private static final List<String> KTO_MARKERS =
-            List.of("poiContentId", "catchphrase", "crowdLevel", "contentTypeId");
+            List.of("poiContentId", "catchphrase", "crowdLevel", "contentTypeId", "coverImageUrl");
 
     /**
      * 검사 대상이 이보다 적으면 <b>테스트가 헛돈다</b>.
