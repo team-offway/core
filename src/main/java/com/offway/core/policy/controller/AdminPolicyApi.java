@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 백오피스 — 7대 혜택 CRUD 문서 계약(#344). 매핑은 구현체({@link AdminPolicyController})가 소유한다.
+ * 백오피스 — 혜택 CRUD 문서 계약(#344). 매핑은 구현체({@link AdminPolicyController})가 소유한다.
  *
  * <p><b>여기가 seed SQL 을 대신한다.</b> 정책은 지금까지 {@code R__seed_policies.sql} 이 소유했고, 값을
  * 하나 고치려면 배포가 필요했다. 그 파일은 묘비만 남기고 비웠다.
@@ -25,7 +25,7 @@ import java.util.UUID;
  * <p>어느 지역에 뜨는지는 {@code PolicyType} 이 정한 태그와 {@code region_tag} 가 잇고, 참여 지자체
  * 명단은 {@code R__seed_program_region_tags.sql} 이 소유한다. 그쪽은 이 작업의 범위 밖이다.
  */
-@Tag(name = "어드민 — 정책", description = "7대 혜택을 배포 없이 관리한다")
+@Tag(name = "어드민 — 정책", description = "여행 혜택을 배포 없이 관리한다")
 public interface AdminPolicyApi {
 
     @Operation(
