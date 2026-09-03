@@ -564,22 +564,31 @@ public record CourseResponse(
     /**
      * 대표 말고 이 지역에 닿는 수단 하나(#97).
      *
-     * <p>도착 좌표·운행 편은 담지 않는다 — 화면이 대안에 대해 묻는 것은 "무엇으로, 어디에, 몇 분" 뿐이다.
+     * <p>도착 좌표는 담지 않는다 — 그건 코스 동선의 기준점이라 대표 수단에만 뜻이 있다.
+     *
+     * <p><b>시간표는 담는다</b>(#414). "무엇으로, 어디에, 몇 분" 만으로는 대안을 고를 수 없다 — 시외버스가
+     * 40분 더 걸려도 지금 바로 타는 편이 있으면 그쪽을 고른다.
      *
      * @param mode TRAIN · EXPRESS_BUS · INTERCITY_BUS · FERRY
      * @param modeLabel 화면에 그대로 쓸 한글 수단명
      * @param toPlace 도착 지점명(역·터미널·항구)
      * @param durationMinutes 소요시간(분, 모르면 null)
+     * @param departures 그날 탈 수 있는 편들. 대표 수단과 같은 규칙이고 <b>비어 있는 것이 정상</b>이다
      */
     public record TransitOptionResponse(
             @Schema(example = "FERRY") String mode,
             @Schema(example = "여객선") String modeLabel,
             @Schema(example = "울릉_도동") String toPlace,
-            @Schema(example = "140", nullable = true) Integer durationMinutes) {
+            @Schema(example = "140", nullable = true) Integer durationMinutes,
+            List<DepartureResponse> departures) {
 
         static TransitOptionResponse from(TransitOption option) {
             return new TransitOptionResponse(
-                    option.mode().name(), option.mode().label(), option.toName(), option.durationMinutes());
+                    option.mode().name(),
+                    option.mode().label(),
+                    option.toName(),
+                    option.durationMinutes(),
+                    option.departures().stream().map(DepartureResponse::from).toList());
         }
     }
 
