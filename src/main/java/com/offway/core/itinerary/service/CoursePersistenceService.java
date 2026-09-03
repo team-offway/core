@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class CoursePersistenceService {
 
     private final CourseRepository courseRepository;
@@ -77,7 +79,7 @@ public class CoursePersistenceService {
      */
     @Transactional
     public Course persist(Course course) {
-        Course saved = courseRepository.save(course);
+        Course saved = saveCourse(course);
         saved.totalSlots(); // tx 안에서 days·slots 초기화(직렬화·조립은 tx 밖)
         return saved;
     }
@@ -97,7 +99,7 @@ public class CoursePersistenceService {
      */
     @Transactional
     public CourseShare persistWithShare(Course course) {
-        Course saved = courseRepository.save(course);
+        Course saved = saveCourse(course);
         return courseShareRepository.save(CourseShare.issue(saved.getId(), LocalDateTime.now()));
     }
 
@@ -219,5 +221,37 @@ public class CoursePersistenceService {
         myLeaveService.cancelCourseDeduction(userId, courseId);
         tripOutcomeRepository.deleteAnswer(userId, courseId);
         courseRepository.delete(course);
+    }
+
+    /**
+     * 코스 행을 만드는 <b>유일한 자리</b> — 새 저장 경로가 생겨도 여기를 지난다.
+     *
+     * <p>담기({@link #persist})와 공유만({@link #persistWithShare})이 각자 저장하고 있어, 한쪽에만
+     * 검사를 붙이면 다른 쪽이 조용히 빠진다. 실제로 처음에는 담기에만 붙였다가 리뷰에서 잡혔다(#422).
+     */
+    private Course saveCourse(Course course) {
+        warnIfOriginMissing(course);
+        return courseRepository.save(course);
+    }
+
+    /**
+     * 출발지 없이 저장되는 것을 <b>행을 만드는 시점에</b> 남긴다(#422).
+     *
+     * <p>이 좌표가 없으면 상세에서 도착 정보를 되살릴 방법이 없다 — 결과가 아니라 입력을 저장해 두고
+     * 그때 계산하기 때문이다. 그런데 {@code POST /courses} 의 필수 필드가 아니라 <b>저장은 조용히
+     * 성공한다.</b> 실제로 그렇게 저장된 코스 다섯 건이 상세에서 카드가 빈 채로 있었다.
+     *
+     * <p><b>거절하지 않는 이유</b> — 좌표를 안 싣는 옛 앱이 아직 있을 수 있다. 400 으로 끊으면 그
+     * 사용자는 코스를 <b>아예 못 담는다</b>. 카드 한 줄이 비는 것보다 나쁘다.
+     *
+     * <p>조회가 아니라 여기서 남기는 것은 <b>한 번만 찍히고 조치가 되기 때문</b>이다. 상세는 같은
+     * 코스를 열 때마다 도므로, 거기서 남기면 같은 사실이 수십 줄이 된다.
+     */
+    private void warnIfOriginMissing(Course course) {
+        if (course.origin().isPresent()) {
+            return;
+        }
+        log.warn("출발지 없이 코스를 저장합니다 — 상세에서 도착 정보를 만들 수 없습니다 regionId={} transport={}",
+                course.getRegionId(), course.getTransport());
     }
 }

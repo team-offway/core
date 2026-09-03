@@ -72,32 +72,10 @@ public class CourseStorageService {
         //
         // 열차 접근은 여전히 붙이지 않는다 — 트랜잭션과 무관하게, 클라이언트가 방금 생성 응답에서 받은
         // 값을 갖고 있어 다시 줄 이유가 없다(#187).
-        warnIfOriginMissing(course);
         Course saved = coursePersistenceService.persist(course);
         // 공유 토큰을 저장 응답에 함께 싣는다(#143) — 공유 버튼이 추가 왕복 없이 링크를 만들게.
         // 토큰이 있다고 공개되는 것이 아니다. 링크를 넘겨야 비로소 남이 볼 수 있다.
         return withBenefits(saved, false).withShareToken(shareTokenOf(saved.getId()));
-    }
-
-    /**
-     * 출발지 없이 저장되는 것을 <b>저장 시점에</b> 남긴다(#422).
-     *
-     * <p>이 좌표가 없으면 상세에서 도착 정보를 되살릴 방법이 없다 — 결과가 아니라 입력을 저장해 두고
-     * 그때 계산하기 때문이다. 그런데 {@code POST /courses} 의 필수 필드가 아니라 <b>저장은 조용히
-     * 성공한다.</b> 실제로 그렇게 저장된 코스 다섯 건이 상세에서 카드가 빈 채로 있었다.
-     *
-     * <p><b>거절하지 않는 이유</b> — 좌표를 안 싣는 옛 앱이 아직 있을 수 있다. 400 으로 끊으면 그
-     * 사용자는 코스를 <b>아예 못 담는다</b>. 카드 한 줄이 비는 것보다 나쁘다.
-     *
-     * <p>조회 경로가 아니라 여기서 남기는 것은 <b>한 번만 찍히고 조치가 되기 때문</b>이다. 상세는 같은
-     * 코스를 열 때마다 도므로, 거기서 남기면 같은 사실이 수십 줄이 된다.
-     */
-    private void warnIfOriginMissing(Course course) {
-        if (course.origin().isPresent()) {
-            return;
-        }
-        log.warn("출발지 없이 코스를 저장합니다 — 상세에서 도착 정보를 만들 수 없습니다 regionId={} transport={}",
-                course.getRegionId(), course.getTransport());
     }
 
     /**
