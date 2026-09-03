@@ -1,6 +1,7 @@
 package com.offway.core.user.repository;
 
 import com.offway.core.user.domain.RefreshToken;
+import com.offway.core.user.domain.RevokedReason;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -42,5 +43,16 @@ public interface RefreshTokenRepository {
      *
      * @return 폐기한 행 수
      */
-    int revokeActive(UUID userId, Instant now);
+    int revokeActive(UUID userId, Instant now, RevokedReason reason);
+
+    /**
+     * <b>이 세션 하나만</b> 폐기한다 — 기기별 로그아웃(#389).
+     *
+     * <p>{@code userId} 를 조건에 함께 넣는다. 해시만으로 지우면 남의 토큰 원문을 아는 사람이 그 사람을
+     * 로그아웃시킬 수 있다.
+     *
+     * @return 폐기한 행 수. 0 이면 없거나 이미 폐기됐거나 남의 것이다
+     */
+    int revokeOne(UUID userId, String tokenHash, Instant now);
+
 }

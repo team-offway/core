@@ -1,6 +1,7 @@
 package com.offway.core.user.repository;
 
 import com.offway.core.user.domain.RefreshToken;
+import com.offway.core.user.domain.RevokedReason;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -25,9 +26,12 @@ public interface RefreshTokenJpaRepository extends JpaRepository<RefreshToken, U
      * 영속성 컨텍스트를 우회하기 때문이다 — 지우지 않으면 뒤이어 읽는 엔티티가 UPDATE 이전 상태로 나온다.
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update RefreshToken t set t.revokedAt = :now"
+    @Query("update RefreshToken t set t.revokedAt = :now, t.revokedReason = :reason"
             + " where t.tokenHash = :tokenHash and t.revokedAt is null and t.expiresAt > :now")
-    int claimRotation(@Param("tokenHash") String tokenHash, @Param("now") Instant now);
+    int claimRotation(
+            @Param("tokenHash") String tokenHash,
+            @Param("now") Instant now,
+            @Param("reason") RevokedReason reason);
 
     /**
      * 이 사용자의 살아 있는 토큰을 <b>한 문장으로</b> 폐기한다 — 로그아웃·재사용 감지.
@@ -36,6 +40,24 @@ public interface RefreshTokenJpaRepository extends JpaRepository<RefreshToken, U
      * UNIQUE 인덱스가 함께 갱신된다. 이 표는 삭제 경로가 없어 사용자당 행이 계속 쌓이는 자리라 그 차이가 크다.
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update RefreshToken t set t.revokedAt = :now where t.userId = :userId and t.revokedAt is null")
-    int revokeActiveByUserId(@Param("userId") UUID userId, @Param("now") Instant now);
+    @Query("update RefreshToken t set t.revokedAt = :now, t.revokedReason = :reason"
+            + " where t.userId = :userId and t.revokedAt is null")
+    int revokeActiveByUserId(
+            @Param("userId") UUID userId, @Param("now") Instant now, @Param("reason") RevokedReason reason);
+
+    /**
+     * 이 사용자의 <b>이 토큰 하나만</b> 폐기한다 — 기기별 로그아웃(#389).
+     *
+     * <p>{@code userId} 를 조건에 함께 둔다. 해시만으로 지우면 남의 토큰 원문을 아는 사람이 그 사람을
+     * 로그아웃시킬 수 있다. 읽어서 확인하고 지우지 않고 한 문장으로 합치는 이유는 {@code claimRotation}
+     * 과 같다 — 그 사이에 회전이 끼면 이미 폐기된 행에 다시 시각을 쓴다.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update RefreshToken t set t.revokedAt = :now, t.revokedReason = :reason"
+            + " where t.userId = :userId and t.tokenHash = :tokenHash and t.revokedAt is null")
+    int revokeOneByUserIdAndTokenHash(
+            @Param("userId") UUID userId,
+            @Param("tokenHash") String tokenHash,
+            @Param("now") Instant now,
+            @Param("reason") RevokedReason reason);
 }
