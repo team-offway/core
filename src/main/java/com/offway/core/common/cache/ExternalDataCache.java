@@ -269,7 +269,19 @@ public final class ExternalDataCache<K, V> {
         }
     }
 
+    /**
+     * 지금 조회하면 캐시가 답할 값 — <b>읽는 쪽과 같은 답을 준다</b>.
+     *
+     * <p>그래서 캐시를 끈 동안에는 저장된 값이 남아 있어도 비어 있다고 답한다. 여기만 스위치를 안 보면
+     * "껐는데 옛 값이 나온다" 가 이 통로로 되살아난다 - {@link #get} 이 막은 것과 같은 일이다.
+     *
+     * <p>무엇이 <b>저장돼 있는지</b>가 궁금하면 {@link #size} 를 본다. 둘을 갈라 둔 것은 스위치를 끈 채
+     * "저장을 건너뛰는가" 를 확인하려면 스위치를 안 보는 창구가 하나 필요해서다.
+     */
     public Optional<V> peek(K key) {
+        if (!cacheEnabled.getAsBoolean()) {
+            return Optional.empty();
+        }
         Entry<V> cached = cache.get(key);
         return cached != null && cached.isFresh() ? Optional.ofNullable(cached.value()) : Optional.empty();
     }

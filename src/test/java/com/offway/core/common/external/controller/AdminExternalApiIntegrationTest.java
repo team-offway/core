@@ -33,6 +33,9 @@ class AdminExternalApiIntegrationTest {
 
     private static final String URL = "/api/v1/admin/external-apis";
 
+    /** 멈췄다 되돌리는 대상. 실제 배치 이름이라 되돌리지 않으면 그 배치가 이 JVM 내내 멈춘다. */
+    private static final String BATCH = "poi-intro-refresh";
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -118,24 +121,32 @@ class AdminExternalApiIntegrationTest {
     /** 바꾼 뒤에도 <b>현황 전체</b>를 돌려준다 — 화면이 나머지를 다시 묻지 않게. */
     @Test
     void 캐시를_끄면_그_자리에서_반영된다() throws Exception {
-        mockMvc.perform(patch(URL + "/{api}", "TOUR_API")
-                        .with(loginAsAdmin(UUID.randomUUID()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"cacheEnabled\": false}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("OK"))
-                .andExpect(jsonPath("$.data.apis[?(@.name == 'TOUR_API')].cacheEnabled", hasItem(false)))
-                .andExpect(jsonPath("$.data.apis[?(@.name == 'TOUR_API')].settingDefault", hasItem(false)));
+        try {
+            mockMvc.perform(patch(URL + "/{api}", "TOUR_API")
+                            .with(loginAsAdmin(UUID.randomUUID()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"cacheEnabled\": false}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value("OK"))
+                    .andExpect(jsonPath("$.data.apis[?(@.name == 'TOUR_API')].cacheEnabled", hasItem(false)))
+                    .andExpect(jsonPath("$.data.apis[?(@.name == 'TOUR_API')].settingDefault", hasItem(false)));
+        } finally {
+            restoreApiDefaults();
+        }
     }
 
     @Test
     void 배치_상한을_걸_수_있다() throws Exception {
-        mockMvc.perform(patch(URL + "/{api}", "TOUR_API")
-                        .with(loginAsAdmin(UUID.randomUUID()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"cacheEnabled\": true, \"batchLimit\": 700}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.apis[?(@.name == 'TOUR_API')].batchLimit", hasItem(700)));
+        try {
+            mockMvc.perform(patch(URL + "/{api}", "TOUR_API")
+                            .with(loginAsAdmin(UUID.randomUUID()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"cacheEnabled\": true, \"batchLimit\": 700}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.apis[?(@.name == 'TOUR_API')].batchLimit", hasItem(700)));
+        } finally {
+            restoreApiDefaults();
+        }
     }
 
     /**
@@ -198,11 +209,43 @@ class AdminExternalApiIntegrationTest {
     /** 배치는 이름이 코드 상수라 서버가 목록을 들고 있지 않다 — 오타는 아무 배치도 안 막아 해가 없다. */
     @Test
     void 배치를_멈출_수_있다() throws Exception {
-        mockMvc.perform(patch(URL + "/batches/{name}", "poi-intro-refresh")
+        try {
+            mockMvc.perform(patch(URL + "/batches/{name}", BATCH)
+                            .with(loginAsAdmin(UUID.randomUUID()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"enabled\": false}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value("OK"));
+        } finally {
+            setBatch(true);
+        }
+    }
+
+    // ── 뒷정리 ───────────────────────────────────────────────────────────
+
+    /**
+     * <b>클래스 레벨 {@code @Transactional} 로는 안 되돌려진다.</b>
+     *
+     * <p>롤백이 지우는 것은 행뿐이고, {@code ExternalApiSettings} 가 든 메모리 맵은 그대로 남는다.
+     * 공유 컨텍스트라 그 값이 이 JVM 의 남은 테스트 전부로 새어 나간다 — 캐시가 꺼진 채로, 배치가
+     * 멈춘 채로. 바꾼 테스트가 스스로 되돌린다.
+     *
+     * <p>빈 본문({@code &#123;&#125;})이 곧 기본값이다 — {@code cacheEnabled} 는 생략하면 켠 것으로
+     * 보고 {@code batchLimit} 는 null 이 무제한이다.
+     */
+    private void restoreApiDefaults() throws Exception {
+        mockMvc.perform(patch(URL + "/{api}", "TOUR_API")
                         .with(loginAsAdmin(UUID.randomUUID()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"enabled\": false}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("OK"));
+                        .content("{}"))
+                .andExpect(status().isOk());
+    }
+
+    private void setBatch(boolean enabled) throws Exception {
+        mockMvc.perform(patch(URL + "/batches/{name}", BATCH)
+                        .with(loginAsAdmin(UUID.randomUUID()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\": %s}".formatted(enabled)))
+                .andExpect(status().isOk());
     }
 }

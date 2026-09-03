@@ -61,9 +61,26 @@ class DataFlowTest {
         assertTrue(isSortedByMode(flows));
     }
 
+    /**
+     * 전체 목록은 <b>화면 순서가 먼저</b>다 — {@link DataFlow#using} 과 규칙이 다르다.
+     *
+     * <p>한 API 를 볼 때는 한도를 태우는 방식이 위에 와야 읽히지만, 전체 표는 화면이 묶여 있지
+     * 않으면 같은 화면의 줄이 표 곳곳에 흩어져 "이 화면이 무엇을 부르나" 를 못 읽는다.
+     *
+     * <p>개수만 세면 정렬이 뒤집혀도 초록이라, 실제 순서를 본다.
+     */
     @Test
-    void 전체_목록도_같은_규칙으로_정렬한다() {
-        assertEquals(DataFlow.values().length, DataFlow.all().size());
+    void 전체_목록은_화면_안에서_방식_순으로_정렬한다() {
+        List<DataFlow> flows = DataFlow.all();
+
+        assertEquals(DataFlow.values().length, flows.size());
+        for (int i = 1; i < flows.size(); i++) {
+            DataFlow previous = flows.get(i - 1);
+            DataFlow current = flows.get(i);
+            int byScreen = previous.screen().compareTo(current.screen());
+            assertTrue(byScreen < 0 || (byScreen == 0 && previous.mode().compareTo(current.mode()) <= 0),
+                    previous + " 다음에 " + current + " 가 왔다");
+        }
     }
 
     /**

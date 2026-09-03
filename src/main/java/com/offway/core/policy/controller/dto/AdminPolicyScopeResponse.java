@@ -3,6 +3,7 @@ package com.offway.core.policy.controller.dto;
 import com.offway.core.policy.service.dto.PolicyScope;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import lombok.Builder;
 
 /**
  * 분류를 고르면 어느 지역에 뜨는가(#393).
@@ -13,6 +14,7 @@ import java.util.List;
  * @param regionCount 곳 수. 목록에서 이 숫자만 보여주고, 어느 지역인지는 펼쳐 본다
  * @param regions 대상 지역 전부 — 어드민이 "이게 완도에 뜨나" 를 여기서 답한다
  */
+@Builder
 public record AdminPolicyScopeResponse(
         @Schema(example = "STAY_FESTA") String type,
         @Schema(example = "숙박 할인") String badgeText,
@@ -20,6 +22,7 @@ public record AdminPolicyScopeResponse(
         @Schema(example = "85") int regionCount,
         List<RegionBrief> regions) {
 
+    @Builder
     public record RegionBrief(
             @Schema(example = "17") long id,
             @Schema(example = "전남 완도군") String name) {
@@ -30,13 +33,17 @@ public record AdminPolicyScopeResponse(
     }
 
     public static AdminPolicyScopeResponse from(PolicyScope scope) {
-        return new AdminPolicyScopeResponse(
-                scope.type().name(),
-                scope.type().badgeText(),
-                scope.type().targetTag().name(),
-                scope.regionCount(),
-                scope.regions().stream()
-                        .map(region -> new RegionBrief(region.getId(), region.shortName()))
-                        .toList());
+        return AdminPolicyScopeResponse.builder()
+                .type(scope.type().name())
+                .badgeText(scope.type().badgeText())
+                .tag(scope.type().targetTag().name())
+                .regionCount(scope.regionCount())
+                .regions(scope.regions().stream()
+                        .map(region -> RegionBrief.builder()
+                                .id(region.getId())
+                                .name(region.shortName())
+                                .build())
+                        .toList())
+                .build();
     }
 }

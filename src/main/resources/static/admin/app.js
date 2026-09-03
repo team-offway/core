@@ -16,7 +16,7 @@ const UPLOADS_API = '/api/v1/admin/uploads';
 
 const POLICIES_API = '/api/v1/admin/policies';
 
-const POLICY_SCOPES_API = `${'/api/v1/admin/policies'}/scopes`;
+const POLICY_SCOPES_API = `${POLICIES_API}/scopes`;
 
 /**
  * 7대 혜택 분류 — PolicyType 과 짝이다.
@@ -1196,9 +1196,13 @@ async function applySetting(path, body) {
         renderExternals();
         setExternalMessage(null);
     } catch (error) {
-        setExternalMessage(error.message || DEFAULT_ERROR);
+        // 되돌리기를 기다린 뒤 오류를 다시 세운다. 안 기다리면 reloadExternals 가 '불러오는 중…'
+        // 으로 덮고, 그 재로딩이 성공하면 메시지를 아예 지운다 — 입력칸 값만 조용히 제자리로
+        // 돌아가 "왜 안 바뀌지" 가 된다. 배치 상한을 한도보다 크게 넣었을 때가 그 자리다.
+        const failure = error.message || DEFAULT_ERROR;
         // 실패했으면 화면이 거짓말하지 않게 서버 값으로 되돌린다.
-        reloadExternals();
+        await reloadExternals();
+        setExternalMessage(failure);
     }
 }
 

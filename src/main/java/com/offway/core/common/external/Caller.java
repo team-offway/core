@@ -64,9 +64,14 @@ public record Caller(String name) {
         return REQUEST_METHODS.stream().anyMatch(method -> name.startsWith(method + " "));
     }
 
-    /** {@link #request} 가 앞에 붙이는 값. Spring MVC 가 쓰는 표준 메서드다. */
+    /**
+     * {@link #request} 가 앞에 붙이는 값 - Spring MVC 의 {@code RequestMethod} 전체다.
+     *
+     * <p>하나라도 빠지면 그 메서드로 들어온 요청이 <b>배치로 세어진다.</b> 여기서 세는 값이 "서비스가
+     * 요청마다 실제로 부른다" 를 보이는 자료라, 빠진 쪽은 조용히 반대편에 쌓인다.
+     */
     private static final Set<String> REQUEST_METHODS =
-            Set.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS");
+            Set.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE");
 
     private static String normalize(String raw) {
         String stripped = raw.strip();
