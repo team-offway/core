@@ -726,14 +726,22 @@ class CourseStorageIntegrationTest {
                 .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"));
     }
 
+    /**
+     * 어디서 출발했는지 모르면 몇 분 걸리는지도 모른다 — <b>다만 그 사실을 말한다</b>(#422).
+     *
+     * <p>예전에는 여기서 {@code transitAccess} 가 통째로 빠졌다. 그러면 앱이 "이 값을 모르는 옛
+     * 서버" 와 "서버가 답을 못 하는 코스" 를 구분할 수 없어, 화면이 왜 비었는지 알 방법이 없었다.
+     */
     @Test
-    void 출발지를_모르는_자차_코스는_도착_안내가_없다() throws Exception {
-        // 이 필드가 생기기 전에 저장된 코스가 이 경우다. 어디서 출발했는지 모르면 몇 분 걸리는지도 모른다.
+    void 출발지를_모르는_자차_코스는_도착_안내_대신_이유를_준다() throws Exception {
+        // 이 필드가 생기기 전에 저장된 코스가 이 경우다.
         long courseId = save(carBody(false));
 
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.transitAccess").doesNotExist())
+                .andExpect(jsonPath("$.data.transitAccess.status").value("ORIGIN_UNKNOWN"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").doesNotExist())
+                .andExpect(jsonPath("$.data.transitAccess.durationMinutes").doesNotExist())
                 .andExpect(jsonPath("$.data.days.length()").value(1));
     }
 
@@ -991,5 +999,47 @@ class CourseStorageIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.firstDayChange").doesNotExist())
                 .andExpect(jsonPath("$.data.days.length()").value(2));
+    }
+
+    // ── 출발지 없이 저장된 코스(#422) ────────────────────────────────────
+
+    /** 좌표를 뺀 대중교통 코스 — 앱 옛 버전이 보내던 모양이다. */
+    private static final String TRANSIT_BODY_WITHOUT_ORIGIN = """
+            { "regionId": 16, "density": "PACKED", "transport": "TRANSIT", "days": [
+              { "day": 1, "items": [
+                {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":0}
+              ]}
+            ]}""";
+
+    /**
+     * <b>저장은 여전히 성공한다.</b>
+     *
+     * <p>400 으로 끊지 않는 이유 — 좌표를 안 싣는 옛 앱이 아직 있을 수 있고, 그러면 그 사용자는
+     * 코스를 <b>아예 못 담는다</b>. 카드 한 줄이 비는 것보다 나쁘다.
+     */
+    @Test
+    void 출발지가_없어도_저장은_성공한다() throws Exception {
+        assertTrue(save(TRANSIT_BODY_WITHOUT_ORIGIN) > 0);
+    }
+
+    /**
+     * <b>필드를 빼지 않는다</b> — 앱이 "옛 서버" 와 "답을 못 하는 코스" 를 구분해야 한다(#422).
+     *
+     * <p>예전에는 여기서 {@code transitAccess} 가 통째로 빠져(@JsonInclude NON_NULL), 화면이 왜
+     * 비었는지 알 방법이 없었다. 실기기에서 그 상태를 재현하고서야 원인을 찾았다.
+     */
+    @Test
+    void 출발지_없는_코스의_상세는_이유를_말한다() throws Exception {
+        long courseId = save(TRANSIT_BODY_WITHOUT_ORIGIN);
+
+        mockMvc.perform(get(URL + "/{id}", courseId).with(testSecurityContext()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.transitAccess").exists())
+                .andExpect(jsonPath("$.data.transitAccess.status").value("ORIGIN_UNKNOWN"))
+                // 무엇을 타는지는 출발지가 있어야 정해진다 — 지어내면 그게 거짓말이 된다.
+                .andExpect(jsonPath("$.data.transitAccess.mode").doesNotExist())
+                .andExpect(jsonPath("$.data.transitAccess.departures").isArray())
+                .andExpect(jsonPath("$.data.transitAccess.departures").isEmpty());
     }
 }

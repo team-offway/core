@@ -49,8 +49,9 @@ import java.util.Map;
  *     출발지 없이 저장된 코스(저장 요청에 {@code originLat}·{@code originLng} 를 안 보낸 경우)다. 저장 코스도
  *     출발지가 있으면 조회 시점에 다시 계산해 채운다(#187)
  * @param transitAccess 지역 도착 정보(#97 · #379) — 무엇을 타고 어디에 내리는가. {@code trainAccess} 를 대체한다.
- *     열차·고속버스·시외버스·여객선에 <b>자차까지</b> 한 모양으로 담는다. null 은 지역 좌표를 모르거나
- *     출발지 없이 저장된 코스라는 뜻이고, 그건 오류가 아니다
+ *     열차·고속버스·시외버스·여객선에 <b>자차까지</b> 한 모양으로 담는다.
+ *     <b>항상 있다</b>(#422) — 계산할 근거가 없으면 {@code status=ORIGIN_UNKNOWN} 으로 말한다.
+ *     예전에는 그때 필드가 통째로 빠져, 앱이 "이 값을 모르는 옛 서버" 와 구분할 수 없었다
  * @param curatedLinks 외부 페이지로 나가는 창구(#341). 코스 상세에 켜진 것만, 정렬 순으로.
  *     <b>없으면 빈 목록</b>이라 아래 NON_NULL 규칙과 무관하게 키가 항상 있다
  */
@@ -89,8 +90,8 @@ public record CourseResponse(
         @Schema(
                         description = "지역 도착 정보(#97·#379) — 열차·고속버스·시외버스·여객선·자차를 한 모양으로. "
                                 + "trainAccess 를 대체한다. "
-                                + "출발지 없이 저장된 코스에서만 null 이다",
-                        nullable = true)
+                                + "**항상 있다**(#422). 출발지 없이 저장된 코스는 "
+                                + "status=ORIGIN_UNKNOWN 으로 오고 나머지 값이 비어 있다")
                 TransitAccessResponse transitAccess,
         @Schema(
                         description = "공유 링크 토큰. 공유 URL 은 /c/{shareToken}. "
@@ -519,10 +520,14 @@ public record CourseResponse(
      * <p>수단이 더 늘어도 응답 모양이 안 변하게 {@code mode} 로 가른다. 필드명에서 Station 을 걷은 것도 같은
      * 이유다 — 도착 지점은 역일 수도, 터미널일 수도, 항구일 수도 있다.
      *
-     * @param mode TRAIN · EXPRESS_BUS · INTERCITY_BUS · FERRY · CAR
+     * @param mode TRAIN · EXPRESS_BUS · INTERCITY_BUS · FERRY · CAR.
+     *     <b>ORIGIN_UNKNOWN 일 때만 null</b> — 무엇을 타는지는 출발지가 있어야 정해진다
      * @param modeLabel 화면에 그대로 쓸 한글 수단명(열차·고속버스·시외버스·여객선·자차)
      * @param status AVAILABLE(운행 편 있음, 도착 시각까지 앎) · POINT_ONLY(도착 지점만 앎) ·
-     *     NO_STATION(닿는 지점 없음) · NO_SERVICE_ON_DATE(그날 미운행) · UNAVAILABLE(조회 실패)
+     *     NO_STATION(닿는 지점 없음) · NO_SERVICE_ON_DATE(그날 미운행) · UNAVAILABLE(조회 실패) ·
+     *     <b>ORIGIN_UNKNOWN</b>(저장할 때 출발지를 안 받아 계산할 근거가 없음 — #422).
+     *     <b>이 객체는 항상 있다</b>. 예전에는 근거가 없으면 필드가 통째로 빠져, 앱이 "이 값을 모르는
+     *     옛 서버" 와 "서버가 답을 못 하는 코스" 를 구분할 수 없었다
      * @param fromPlace 출발 지점명(역·터미널·항구, 없으면 null)
      * @param toPlace 도착 지점명(없으면 null)
      * @param vehicleType 운행 편의 등급(AVAILABLE 일 때만, 예: KTX)
@@ -535,8 +540,8 @@ public record CourseResponse(
      */
     @Builder
     public record TransitAccessResponse(
-            @Schema(example = "INTERCITY_BUS") String mode,
-            @Schema(example = "시외버스") String modeLabel,
+            @Schema(example = "INTERCITY_BUS", nullable = true) String mode,
+            @Schema(example = "시외버스", nullable = true) String modeLabel,
             @Schema(example = "POINT_ONLY") String status,
             @Schema(example = "동서울", nullable = true) String fromPlace,
             @Schema(example = "정선", nullable = true) String toPlace,
@@ -550,9 +555,26 @@ public record CourseResponse(
                     + "그때 화면은 이 줄만 접고 소요시간으로 그린다")
                     List<DepartureResponse> departures) {
 
+        /**
+         * 근거가 없을 때 내리는 값(#422) — <b>필드를 빼지 않는다.</b>
+         *
+         * <p>예전에는 {@code null} 을 돌려줘 필드가 통째로 빠졌다. 그러면 앱이 "이 값을 모르는 옛
+         * 서버" 와 "서버가 답을 못 하는 코스" 를 구분할 수 없어, 화면이 왜 비었는지 알 방법이 없었다.
+         *
+         * <p>{@code mode} 는 null 이다. 무엇을 타는지는 출발지가 있어야 정해지는 값이라, 여기서
+         * 지어내면 그게 곧 거짓말이 된다 — 상태만 말하고 나머지는 비운다.
+         */
+        private static TransitAccessResponse originUnknown() {
+            return TransitAccessResponse.builder()
+                    .status(RegionAccess.Status.ORIGIN_UNKNOWN.name())
+                    .alternatives(List.of())
+                    .departures(List.of())
+                    .build();
+        }
+
         static TransitAccessResponse from(RegionAccess access) {
             if (access == null) {
-                return null;
+                return originUnknown();
             }
             boolean hasLeg = access.fastest() != null;
             // 이름을 붙여 조립한다. String 이 다섯 개 연달아 있어 위치 생성자로는 둘을 맞바꿔도
