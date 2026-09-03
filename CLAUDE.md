@@ -234,6 +234,7 @@ git add -A                                                            # 이러�
 | 훅 | 막는 것 |
 |---|---|
 | `.githooks/commit-msg` | 커밋 메시지 타입·형식 (허용 타입의 정본도 이 파일) |
+| `.claude/hooks/gh-account-guard.sh` (SessionStart · PreToolUse) | **다른 GitHub 계정으로 나가는 `gh` 호출** — 아래 참고 |
 | `.claude/hooks/convention-check.sh` (PostToolUse) | 아래 7종 |
 
 - **적용된 Flyway 마이그레이션 수정** — checksum 이 깨져 부팅이 실패한다. 새 timestamp 로 보정 마이그레이션을 추가한다.
@@ -243,6 +244,31 @@ git add -A                                                            # 이러�
 - **HTTP 204** (`HttpStatus.NO_CONTENT`·`noContent()`)
 - **`domain/` 의 public setter·`@Setter`·`@Data`**
 - **`controller/` 의 `@Transactional`**, **테스트의 `@MockBean`·`@SpyBean`·`@DirtiesContext`·`@ActiveProfiles`·`@TestPropertySource`**
+
+### GitHub 계정 — `gh` 는 `sevineleven` 로만 나간다
+
+**`gh` 로 무엇이든 하기 전에 계정부터 본다.** 이슈·PR·코멘트·리뷰 답글·resolve 전부다.
+
+이 머신의 `gh` keyring 에는 계정이 둘 있고 **활성 계정이 예고 없이 회사 계정(`theo-s-park`)으로 바뀌어 있다.** 그 계정으로 나가면 두 가지가 동시에 터진다.
+
+- **회사 메일로 알림이 간다.** 이 레포 활동이 회사 계정 앞으로 쌓인다.
+- **쓰기 권한이 없어 절반만 성공한다.** `gh issue create` 는 **이슈를 만든 뒤 assignee 단계에서만** `ReplaceActorsForAssignable` 로 실패한다 — 에러만 보고 재시도하면 유령 이슈가 남는다(실제로 #408·#412 가 그렇게 남아 알림을 보냈다). `resolveReviewThread` 도 `FORBIDDEN` 으로 죽는다.
+
+고정 장치는 **`.claude/settings.local.json` 의 `env.GH_TOKEN`** 이다(gitignore 대상, 커밋 금지). 그 값이 있으면 keyring 의 활성 계정과 무관하게 `gh` 가 그 토큰을 쓴다.
+
+훅이 두 겹으로 막는다.
+
+- **SessionStart** — `gh api user` 로 실효 계정을 한 번 실측한다. 다르면 세션 시작에서 멈춘다.
+- **PreToolUse(Bash)** — `gh` 호출을 가로채 `GH_TOKEN` 이 없으면 차단한다. 로컬 검사라 매 호출에 네트워크를 쓰지 않는다.
+
+토큰이 만료되거나 계정을 바꿔야 하면 이렇게 다시 채운다.
+
+```bash
+gh auth switch --user sevineleven
+gh auth token --user sevineleven   # 이 값을 .claude/settings.local.json 의 env.GH_TOKEN 에
+```
+
+**권한 에러로 `gh` 명령이 실패하면 재시도하기 전에 `gh issue list` 로 이미 만들어졌는지 먼저 본다.** 위의 "절반만 성공" 때문이다.
 
 **훅에 넣지 않는 것**: 매직 값·rich domain·DIP·다형성·null 중첩 깊이, 그리고 **§성능·외부 호출 전부**(순차 팬아웃·캐시 키 상한·timeout 근거·조용한 실패)처럼 **판단이 필요한 규칙**. 정규식으로 오탐이 나면 훅 자체가 무시당한다. 이들은 `/pre-pr` 의 self-audit 이 담당한다.
 

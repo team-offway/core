@@ -92,3 +92,6 @@ docs/specs/progress-report-*.html
 
 # 파이썬 스크립트(scripts/) 실행 부산물
 __pycache__/
+
+# Claude Code 로컬 설정 — GH_TOKEN 등 시크릿이 들어간다. 절대 커밋하지 않는다.
+.claude/settings.local.json
