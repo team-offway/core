@@ -1,5 +1,6 @@
 package com.offway.core.transport.repository;
 
+import com.offway.core.common.geo.Coordinate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -112,7 +113,7 @@ class BusTerminalSeedIntegrationTest {
 
         assertEquals("태백", terminal.name());
         assertTrue(terminal.coordinate().haversineKmTo(
-                        new com.offway.core.transport.domain.Coordinate(37.1641, 128.9856)) < NEAR_KM,
+                        new com.offway.core.common.geo.Coordinate(37.1641, 128.9856)) < NEAR_KM,
                 "해석된 터미널이 너무 멉니다 — 지오코딩이 다른 지역을 잡았을 수 있습니다");
     }
 }

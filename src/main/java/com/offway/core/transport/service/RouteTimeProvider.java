@@ -1,6 +1,6 @@
 package com.offway.core.transport.service;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 
 /**
  * 자동차 <b>실측 구간 이동시간</b> port — transport 가 코스(itinerary)에 노출한다. 코스 타임라인의 이웃 장소 사이 실제 소요시간을
