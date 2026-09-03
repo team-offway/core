@@ -2,11 +2,16 @@ package com.offway.core.trip.controller.dto;
 
 import com.offway.core.curation.controller.dto.CuratedLinkResponse;
 import com.offway.core.curation.domain.CuratedLink;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.trip.service.dto.HomeResult;
 import com.offway.core.trip.service.dto.RegionDetail;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 지역 상세 응답(#304).
@@ -28,7 +33,24 @@ public record RegionDetailResponse(
         List<String> photos,
         @Schema(nullable = true) Benefit benefit,
         List<HighlightSpot> highlightSpots,
-        List<CuratedLinkResponse> curatedLinks) {
+        List<CuratedLinkResponse> curatedLinks) implements Attributed {
+
+    /**
+     * 이 화면의 값은 <b>거의 다 공사 것</b>이다(#399) — 소개·대표 사진·매력 포인트 장소와 그 캐치프레이즈.
+     *
+     * <p>매력 포인트는 인허가·국가유산 장소가 섞일 수 있어 실린 것만 센다. 지역명·혜택은 우리가 만든
+     * 값이라 출처가 없다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        Set<DataSource> spotSources = PlaceDataSources.of(highlightSpots, HighlightSpot::poiContentId);
+        if (overview == null && photos.isEmpty()) {
+            return spotSources;
+        }
+        // 소개나 대표 사진이 있으면 그 자체가 공사 값이다 — 장소가 하나도 없어도 표기가 필요하다.
+        return Stream.concat(spotSources.stream(), Stream.of(DataSource.KTO))
+                .collect(Collectors.toUnmodifiableSet());
+    }
 
     public static RegionDetailResponse from(RegionDetail detail, List<CuratedLink> curatedLinks) {
         return new RegionDetailResponse(

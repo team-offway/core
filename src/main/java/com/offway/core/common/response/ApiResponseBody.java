@@ -2,6 +2,7 @@ package com.offway.core.common.response;
 
 import com.offway.core.common.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 
@@ -16,13 +17,20 @@ import org.springframework.http.HttpStatusCode;
  * @param detail 사용자 대면 문구.
  * @param code 성공은 {@code OK}, 실패는 도메인 에러코드.
  * @param pageResponse 페이지네이션 메타. 없으면 null.
+ * @param sources 이 응답이 값을 빌려온 기관들(#399). 앱이 이 이름을 출처 문구로 옮긴다. <b>비어 있을 수
+ *     있다</b> — 우리가 만든 값만 실린 응답이다. {@link Attributed} 를 구현한 data 에서만 채워진다
  */
 public record ApiResponseBody<T>(
         int status,
         @Schema(nullable = true) T data,
         String detail,
         String code,
-        @Schema(nullable = true) PageResponse pageResponse) {
+        @Schema(nullable = true) PageResponse pageResponse,
+        @Schema(description = "이 응답에 값을 대준 기관. 앱이 출처 문구로 옮긴다", example = "[\"KTO\",\"LOCAL_PERMIT\"]")
+                Set<DataSource> sources) {
+
+    /** 빌려온 값이 없는 응답 — null 이 아니라 빈 집합이다. 앱이 유무를 분기하지 않게. */
+    private static final Set<DataSource> NO_SOURCES = Set.of();
 
     private static final String SUCCESS_CODE = "OK";
     private static final String SUCCESS_DETAIL = "요청이 정상 처리되었습니다.";
@@ -50,7 +58,7 @@ public record ApiResponseBody<T>(
      * 때 어느 쪽이 불릴지 읽는 사람이 알 수 없다.
      */
     public static <T> ApiResponseBody<T> okWithDetail(String detail) {
-        return new ApiResponseBody<>(HttpStatus.OK.value(), null, detail, SUCCESS_CODE, null);
+        return new ApiResponseBody<>(HttpStatus.OK.value(), null, detail, SUCCESS_CODE, null, NO_SOURCES);
     }
 
     public static <T> ApiResponseBody<T> created(T data) {
@@ -63,7 +71,8 @@ public record ApiResponseBody<T>(
 
     /** detail 을 구체 사유로 덮어쓰는 실패 응답 (Bean Validation 필드 메시지 등). */
     public static <T> ApiResponseBody<T> fail(ErrorCode errorCode, String detail) {
-        return new ApiResponseBody<>(errorCode.category().httpStatus().value(), null, detail, errorCode.code(), null);
+        return new ApiResponseBody<>(
+                errorCode.category().httpStatus().value(), null, detail, errorCode.code(), null, NO_SOURCES);
     }
 
     /**
@@ -74,10 +83,23 @@ public record ApiResponseBody<T>(
      * category 에서 파생하면 매핑이 없는 status 마다 둘이 어긋난다.
      */
     public static <T> ApiResponseBody<T> fail(HttpStatusCode status, ErrorCode errorCode) {
-        return new ApiResponseBody<>(status.value(), null, errorCode.message(), errorCode.code(), null);
+        return new ApiResponseBody<>(status.value(), null, errorCode.message(), errorCode.code(), null, NO_SOURCES);
     }
 
     private static <T> ApiResponseBody<T> success(HttpStatus status, T data, PageResponse pageResponse) {
-        return new ApiResponseBody<>(status.value(), data, SUCCESS_DETAIL, SUCCESS_CODE, pageResponse);
+        return new ApiResponseBody<>(
+                status.value(), data, SUCCESS_DETAIL, SUCCESS_CODE, pageResponse, sourcesOf(data));
+    }
+
+    /**
+     * 출처는 <b>data 가 스스로 밝힌다</b>(#399) — 컨트롤러가 손으로 나열하지 않는다.
+     *
+     * <p>손으로 넘기게 두면 화면이 늘 때마다 빠뜨릴 자리가 하나씩 는다. 표기 누락은 규정 위반이라
+     * "가끔 빠진다" 가 허용되지 않는 값이다.
+     *
+     * <p>실패 응답에는 없다 — 내려간 데이터가 없으므로 빌려온 출처도 없다.
+     */
+    private static Set<DataSource> sourcesOf(Object data) {
+        return data instanceof Attributed attributed ? attributed.sources() : NO_SOURCES;
     }
 }

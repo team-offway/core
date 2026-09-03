@@ -17,12 +17,17 @@ import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.transport.service.dto.TransitOption;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
+import com.offway.core.trip.controller.dto.PlaceDataSources;
 import com.offway.core.weather.domain.DailyWeather;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 import java.util.stream.IntStream;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 
 /**
@@ -113,7 +118,27 @@ public record CourseResponse(
                         example = "1.25",
                         nullable = true)
                 Double consumedLeaveDays,
-        List<CuratedLinkResponse> curatedLinks) implements LogSummary {
+        List<CuratedLinkResponse> curatedLinks) implements LogSummary, Attributed {
+
+    /**
+     * 코스에는 <b>두 기관</b>이 섞인다(#399) — 슬롯의 장소와 날마다 붙는 날씨다.
+     *
+     * <p>장소는 인허가·국가유산·공사가 섞이므로 실린 것만 센다. 날씨는 예보 범위 밖이거나 조회에
+     * 실패하면 통째로 비므로, 한 날이라도 실렸을 때만 기상청을 더한다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        Set<DataSource> sources = EnumSet.noneOf(DataSource.class);
+        for (Day day : days) {
+            if (day.weather() != null) {
+                sources.add(DataSource.KMA);
+            }
+            for (Item item : day.items()) {
+                sources.add(PlaceDataSources.of(item.poiContentId()));
+            }
+        }
+        return Set.copyOf(sources);
+    }
 
     /**
      * 예: {@code 정선군 코스 3일 26슬롯}.
