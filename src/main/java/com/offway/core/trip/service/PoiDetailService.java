@@ -20,6 +20,7 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.PoiDetail;
+import com.offway.core.trip.service.dto.RegionBenefit;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -300,7 +301,7 @@ public class PoiDetailService {
      *
      * <p>기준일은 오늘이다. 장소 상세에는 여행일이 없다 — 코스에서 누르든 목록에서 누르든 같은 화면이다.
      */
-    private String benefitFor(Long regionId, SlotKind slotKind) {
+    private RegionBenefit benefitFor(Long regionId, SlotKind slotKind) {
         if (regionId == null) {
             return null;
         }
@@ -311,7 +312,7 @@ public class PoiDetailService {
                         .map(SlotKind::covering)
                         .filter(slotKind::equals)
                         .isPresent())
-                .map(policy -> policy.getType().badgeText())
+                .map(RegionBenefit::from)
                 .findFirst()
                 .orElse(null);
     }

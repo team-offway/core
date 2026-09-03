@@ -40,18 +40,22 @@ public record PoiDetail(
          */
         String mapSearchUrl,
         /**
-         * 이 장소에서 쓸 수 있는 혜택 문구(#172) — 단정할 수 있을 때만.
+         * 이 장소에서 쓸 수 있는 혜택(#172) — 단정할 수 있을 때만.
          *
          * <p>지역 혜택 중 <b>슬롯 종류가 맞는 것</b>만 옮긴다. 지금은 숙박세일페스타(숙소)뿐이다.
          * 관광 API 콘텐츠는 지역을 알 수 없어 비어 있다 — 상세 응답에 지역 코드가 없다.
+         *
+         * <p>문구 하나가 아니라 <b>홈·지역 상세와 같은 값</b>을 든다(#413). 문자열이던 시절에는 눌러도
+         * 갈 곳이 없었다 — 신청 주소도, 혜택 상세로 갈 {@code policyId} 도 없었다.
          */
-        String benefit,
+        RegionBenefit benefit,
         String catchphrase) {
 
     /** 관광 API 콘텐츠가 아닌 장소 — 보조정보가 없다. */
     public static PoiDetail withoutIntro(
             String contentId, Integer contentTypeId, String typeLabel, String title, String address, String tel,
-            Double lat, Double lng, String imageUrl, String overview, String mapSearchUrl, String benefit) {
+            Double lat, Double lng, String imageUrl, String overview, String mapSearchUrl,
+            RegionBenefit benefit) {
         return new PoiDetail(contentId, contentTypeId, typeLabel, title, address, tel, lat, lng, imageUrl,
                 overview, null, mapSearchUrl, benefit, null);
     }
