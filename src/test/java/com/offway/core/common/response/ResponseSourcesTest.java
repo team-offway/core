@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -23,11 +24,38 @@ class ResponseSourcesTest {
     }
 
     @Test
-    void data가_출처를_밝히면_래퍼가_싣는다() {
+    void data가_출처를_밝히면_기관명까지_함께_나간다() {
+        // 이름만 주면 출처가 하나 늘 때 앱이 배포돼야 화면에 뜬다. 표기 누락은 규정 위반이라 그 공백이
+        // 그대로 위반이 된다.
         ApiResponseBody<Attributed응답> body =
                 ApiResponseBody.ok(new Attributed응답("값", Set.of(DataSource.KTO, DataSource.KHS)));
 
-        assertEquals(Set.of(DataSource.KTO, DataSource.KHS), body.sources());
+        assertEquals(
+                List.of(new DataSourceResponse("KTO", "한국관광공사"), new DataSourceResponse("KHS", "국가유산청")),
+                body.sources());
+    }
+
+    /**
+     * 순서가 <b>요청마다 바뀌지 않는다</b>.
+     *
+     * <p>{@code Set} 을 그대로 실으면 같은 화면에서 출처 차례가 흔들린다. enum 선언 순서를 쓰면 가장
+     * 무겁게 표기해야 하는 한국관광공사가 늘 앞에 온다.
+     */
+    @Test
+    void 출처_순서는_선언_순서다() {
+        ApiResponseBody<Attributed응답> body = ApiResponseBody.ok(
+                new Attributed응답("값", Set.of(DataSource.KASI, DataSource.LOCAL_PERMIT, DataSource.KTO)));
+
+        assertEquals(List.of("KTO", "LOCAL_PERMIT", "KASI"), body.sources().stream().map(DataSourceResponse::key).toList());
+    }
+
+    @Test
+    void 모든_출처가_기관명을_들고_있다() {
+        // 라벨을 빠뜨린 상수가 있으면 그 출처만 화면에서 빈칸으로 나간다.
+        for (DataSource source : DataSource.values()) {
+            assertFalse(source.label().isBlank(), source + " 의 기관명이 비었다");
+            assertFalse(source.detail().isBlank(), source + " 의 활용 내역이 비었다");
+        }
     }
 
     @Test
@@ -50,7 +78,7 @@ class ResponseSourcesTest {
         ApiResponseBody<Attributed응답> body =
                 ApiResponseBody.created(new Attributed응답("값", Set.of(DataSource.KMA)));
 
-        assertEquals(Set.of(DataSource.KMA), body.sources());
+        assertEquals(List.of(new DataSourceResponse("KMA", "기상청")), body.sources());
     }
 
     @Test
@@ -58,7 +86,7 @@ class ResponseSourcesTest {
         ApiResponseBody<Attributed응답> body = ApiResponseBody.ok(
                 new Attributed응답("값", Set.of(DataSource.LOCAL_PERMIT)), new PageResponse(0, 20, 1, 1));
 
-        assertEquals(Set.of(DataSource.LOCAL_PERMIT), body.sources());
+        assertEquals(List.of(new DataSourceResponse("LOCAL_PERMIT", "지방행정인허가데이터개방")), body.sources());
     }
 
     /**

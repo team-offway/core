@@ -2,7 +2,7 @@ package com.offway.core.common.response;
 
 import com.offway.core.common.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.media.Schema;
-import java.util.Set;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 
@@ -17,8 +17,9 @@ import org.springframework.http.HttpStatusCode;
  * @param detail 사용자 대면 문구.
  * @param code 성공은 {@code OK}, 실패는 도메인 에러코드.
  * @param pageResponse 페이지네이션 메타. 없으면 null.
- * @param sources 이 응답이 값을 빌려온 기관들(#399). 앱이 이 이름을 출처 문구로 옮긴다. <b>비어 있을 수
- *     있다</b> — 우리가 만든 값만 실린 응답이다. {@link Attributed} 를 구현한 data 에서만 채워진다
+ * @param sources 출처를 표기해야 하는 기관들(#399) — <b>기관명까지 함께</b> 나간다. 앱은 "출처: ⓒ" 만
+ *     붙이면 된다. <b>비어 있을 수 있다</b> — 우리가 만든 값만 실린 응답이다. {@link Attributed} 를
+ *     구현한 data 에서만 채워진다
  */
 public record ApiResponseBody<T>(
         int status,
@@ -26,11 +27,12 @@ public record ApiResponseBody<T>(
         String detail,
         String code,
         @Schema(nullable = true) PageResponse pageResponse,
-        @Schema(description = "이 응답에 값을 대준 기관. 앱이 출처 문구로 옮긴다", example = "[\"KTO\",\"LOCAL_PERMIT\"]")
-                Set<DataSource> sources) {
+        @Schema(description = "출처를 표기해야 하는 기관. 기관명을 함께 주므로 앱은 \"출처: ⓒ\" 만 붙이면 된다. "
+                        + "교통(TMAP·TAGO)은 표기 대상이 아니라 빠진다")
+                List<DataSourceResponse> sources) {
 
-    /** 빌려온 값이 없는 응답 — null 이 아니라 빈 집합이다. 앱이 유무를 분기하지 않게. */
-    private static final Set<DataSource> NO_SOURCES = Set.of();
+    /** 빌려온 값이 없는 응답 — null 이 아니라 빈 목록이다. 앱이 유무를 분기하지 않게. */
+    private static final List<DataSourceResponse> NO_SOURCES = List.of();
 
     private static final String SUCCESS_CODE = "OK";
     private static final String SUCCESS_DETAIL = "요청이 정상 처리되었습니다.";
@@ -99,7 +101,7 @@ public record ApiResponseBody<T>(
      *
      * <p>실패 응답에는 없다 — 내려간 데이터가 없으므로 빌려온 출처도 없다.
      */
-    private static Set<DataSource> sourcesOf(Object data) {
-        return data instanceof Attributed attributed ? attributed.sources() : NO_SOURCES;
+    private static List<DataSourceResponse> sourcesOf(Object data) {
+        return data instanceof Attributed attributed ? DataSourceResponse.of(attributed.sources()) : NO_SOURCES;
     }
 }

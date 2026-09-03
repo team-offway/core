@@ -3,7 +3,7 @@ package com.offway.core.common.response;
 import java.util.Set;
 
 /**
- * 어느 기관 데이터를 실었는지 <b>스스로 밝히는</b> 응답 DTO(#399).
+ * 출처를 <b>표기해야 하는</b> 기관을 스스로 밝히는 응답 DTO(#399).
  *
  * <p>{@code PageResponse.Paged} 와 같은 접점이다 — DTO 가 구현하면 래퍼가 집어간다. 그래서 컨트롤러는
  * 한 줄도 바뀌지 않는다.
@@ -27,10 +27,12 @@ import java.util.Set;
 public interface Attributed {
 
     /**
-     * 이 응답이 값을 빌려온 기관들. <b>빈 집합이면 표기할 것이 없다</b>(우리가 만든 값만 실린 응답).
+     * 이 응답이 값을 빌려온 기관 중 <b>표기 대상</b>. 빈 집합이면 표기할 것이 없다.
      *
      * <p>실제로 그 값이 있을 때만 담는다 — 사진이 null 인 카드에 {@code KTO} 를 붙이면 안 쓴 출처를
      * 표기하게 된다.
+     *
+     * <p>교통(TMAP·TAGO·코레일)은 값을 대주더라도 담지 않는다. 이유는 {@link DataSource} 에 있다.
      */
     Set<DataSource> sources();
 }
