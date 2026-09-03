@@ -1,6 +1,7 @@
 package com.offway.core.transport.domain;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Comparator;
@@ -61,5 +62,30 @@ public record Departure(String vehicleType, LocalDateTime departAt, LocalDateTim
                 .sorted(Comparator.comparing(Departure::departAt))
                 .limit(MAX_SHOWN)
                 .toList();
+    }
+
+    /**
+     * 이 여행일에 <b>지금부터</b> 탈 수 있는 가장 이른 시각(#422).
+     *
+     * <p>계획한 출발 시각만으로 거르면 <b>오늘 코스에서 이미 지난 차가 목록 맨 위에 뜬다.</b> 종일로 짠
+     * 코스는 계획 시각이 아침이라, 저녁에 그 코스를 열면 아침 차가 그대로 남는다 — 실제로 20:37 에
+     * 오늘 코스를 여니 첫 편이 08:57 이었다.
+     *
+     * <p>반대로 <b>내일 이후</b>는 계획 시각을 그대로 쓴다. 지금 시각은 그 날짜와 아무 상관이 없고,
+     * 늦은 밤에 다음 달 코스를 짜면 하루치가 통째로 사라진다.
+     *
+     * @param date 여행일
+     * @param planned 집을 나서기로 한 시각(연차 근거)
+     * @param now 지금 — 호출자가 서비스 시간대로 넘긴다
+     */
+    public static LocalTime boardableFrom(LocalDate date, LocalTime planned, LocalDateTime now) {
+        Objects.requireNonNull(date, "여행일은 필수입니다");
+        Objects.requireNonNull(planned, "계획 출발 시각은 필수입니다");
+        Objects.requireNonNull(now, "현재 시각은 필수입니다");
+        if (!date.isEqual(now.toLocalDate())) {
+            return planned;
+        }
+        // 오늘이면 둘 중 늦은 쪽 — 계획보다 이르게 나설 수는 없고, 이미 지난 차는 못 탄다.
+        return planned.isAfter(now.toLocalTime()) ? planned : now.toLocalTime();
     }
 }

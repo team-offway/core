@@ -350,6 +350,7 @@ public class CourseStorageService {
                     .orElse(null);
         }
         // 이 필드가 생기기 전에 저장된 코스는 근거가 없다. 지어내지 않는다.
+        // 응답은 그 사실을 ORIGIN_UNKNOWN 으로 말한다(#422) — 필드를 빼면 앱이 옛 서버와 구분 못 한다.
         return course.origin()
                 .map(origin -> regionAccessService.accessTo(
                         origin.lat(),

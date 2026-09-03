@@ -52,10 +52,14 @@ public class RegionAccessService {
     /**
      * 출발 좌표에서 목적지 좌표(지역)까지, 해당 날짜의 대중교통 접근.
      *
-     * @param notBefore 집을 나서는 시각 — 이 시각 이후에 떠나는 편만 고른다(#138)
+     * @param plannedDeparture 집을 나서기로 한 시각 — 이 시각 이후에 떠나는 편만 고른다(#138).
+     *     <b>오늘 코스면 지금 시각이 바닥이 된다</b>(#422)
      */
     public RegionAccess accessTo(
-            double originLat, double originLng, double destLat, double destLng, LocalDate date, LocalTime notBefore) {
+            double originLat, double originLng, double destLat, double destLng, LocalDate date, LocalTime plannedDeparture) {
+        // **여기 한 곳에서 바닥을 정한다**(#422). 오늘 코스면 계획 시각이 이미 지났을 수 있어, 그대로
+        // 쓰면 못 타는 차가 목록 맨 위에 뜬다. 아래 열차·버스·여객선이 전부 이 값을 쓴다.
+        LocalTime notBefore = Departure.boardableFrom(date, plannedDeparture, LocalDateTime.now(SERVICE_ZONE));
         RegionAccess train = trainAccessService.accessTo(originLat, originLng, destLat, destLng, date, notBefore);
         Optional<Terminal> destTerminal = busTerminalResolver.nearest(destLat, destLng);
         Optional<Port> destPort = ferryPortResolver.nearest(destLat, destLng);
