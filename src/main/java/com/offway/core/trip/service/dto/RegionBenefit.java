@@ -2,6 +2,7 @@ package com.offway.core.trip.service.dto;
 
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.domain.PolicyType;
+import java.util.Objects;
 import lombok.Builder;
 
 /**
@@ -22,10 +23,16 @@ import lombok.Builder;
 @Builder
 public record RegionBenefit(long policyId, PolicyType type, String text, String applyUrl) {
 
-    /** 정책에서 화면이 쓸 조각만 뽑는다. */
+    /**
+     * 정책에서 화면이 쓸 조각만 뽑는다.
+     *
+     * <p><b>저장된 정책만 넘어온다.</b> {@code policyId} 는 앱이 혜택 상세로 갈 때 쓰는 값이라 없으면
+     * 뜻이 없다. 실제로 이 자리에는 리포지토리가 찾아온 정책만 오지만, 아직 저장 안 된 것이 오면
+     * 언박싱 NPE 가 나 원인이 안 보인다 — 이름을 붙여 끊는다.
+     */
     public static RegionBenefit from(Policy policy) {
         return RegionBenefit.builder()
-                .policyId(policy.getId())
+                .policyId(Objects.requireNonNull(policy.getId(), "저장된 정책이어야 합니다 — id 가 없습니다"))
                 .type(policy.getType())
                 .text(policy.badgeText())
                 .applyUrl(policy.getApplyUrl())

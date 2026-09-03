@@ -311,6 +311,10 @@ class PoiDetailIntegrationTest {
         assertNotNull(JsonPath.read(body, "$.data.benefit.text"), "뱃지 문구가 없다");
         assertNotNull(JsonPath.read(body, "$.data.benefit.policyType"), "분류가 없다");
         assertTrue((int) JsonPath.read(body, "$.data.benefit.policyId") > 0, "정책 id 가 없다");
+        // applyUrl 은 값이 아니라 <b>키가 있는지</b>를 본다. 주소를 아직 안 적은 정책이 있어(#119) 값은
+        // null 일 수 있지만, 필드가 통째로 빠지면 앱이 "링크가 없는 혜택" 과 "필드를 안 주는 서버" 를
+        // 구분하지 못한다. 이 PR 이 옮기는 값이 정확히 이것이라 존재 자체를 계약으로 잠근다.
+        assertTrue(((java.util.Map<?, ?>) benefit).containsKey("applyUrl"), "applyUrl 필드가 빠졌다: " + benefit);
     }
 
     @Test
