@@ -505,6 +505,27 @@ class CourseStorageIntegrationTest {
                 .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
     }
 
+    /**
+     * <b>어디서 타는지도 함께 내린다</b>(#396).
+     *
+     * <p>버스·여객선은 도착 지점만 뜨고 출발 쪽이 비어, 열차·자차와 같은 카드가 수단에 따라 다른
+     * 모양이 됐다. 정작 서버는 <b>이미 출발 터미널을 찾고 있었다</b> — 구간 소요시간을 물으려고
+     * 해석해 놓고 이름만 버렸다.
+     */
+    @Test
+    void 버스로_가는_코스에도_어디서_타는지_실린다() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"))
+                // 출발지(서울)에서 <b>같은 종류</b>의 최근접 터미널. 값을 못 박는다 — exists() 로 두면
+                // 도착지명이 들어와도 초록이라, 정작 확인하려는 "출발 쪽" 이 맞는지를 못 본다.
+                .andExpect(jsonPath("$.data.transitAccess.fromPlace").value("서울경부"));
+    }
+
     @Test
     void 대표_수단_옆에_이_지역에_닿는_다른_수단도_함께_내린다() throws Exception {
         // 대표 하나만 내리면, 열차로도 갈 수 있다는 걸 아는 사용자에게는 화면이 틀린 것으로 읽힌다.

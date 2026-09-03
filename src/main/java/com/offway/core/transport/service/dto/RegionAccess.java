@@ -158,6 +158,22 @@ public record RegionAccess(
         return toBuilder().durationMinutes(minutes).build();
     }
 
+    /**
+     * 출발 지점명을 얹은 사본(#396) — <b>어디서 타는가</b>.
+     *
+     * <p>버스·여객선은 도착 지점을 정한 뒤에야 출발 쪽을 해석할 수 있다. 고속·시외는 코드 공간이
+     * 갈려 있어 <b>도착 터미널과 같은 종류</b>로 찾아야 하고, 여객선도 마찬가지다 — 그래서 지점을
+     * 고르는 {@code pointOnly} 시점에는 아직 모른다.
+     *
+     * <p>모르면 null 그대로 둔다. 지어내지 않고 화면이 그 조각만 접는다.
+     */
+    public RegionAccess withFromName(String fromName) {
+        if (Objects.equals(this.fromName, fromName)) {
+            return this;
+        }
+        return toBuilder().fromName(fromName).build();
+    }
+
     /** 출발지에서 도착 지점까지의 거리를 얹은 사본(#379). 지점을 고른 뒤라야 잴 수 있어 따로 붙인다. */
     public RegionAccess withDistanceKm(Integer km) {
         if (Objects.equals(distanceKm, km)) {
