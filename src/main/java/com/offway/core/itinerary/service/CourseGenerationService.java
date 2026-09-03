@@ -1,5 +1,7 @@
 package com.offway.core.itinerary.service;
 
+import com.offway.core.common.external.CallerContext;
+import com.offway.core.common.external.RequestUsage;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseNeeds;
 import com.offway.core.itinerary.domain.CandidatePool;
@@ -37,6 +39,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -66,10 +69,34 @@ public class CourseGenerationService {
     private final RegionRepository regionRepository;
     private final RegionAccessService regionAccessService;
     private final UnroutableCoordinateService unroutableCoordinateService;
+    private final CourseUsageAlert courseUsageAlert;
 
     public GeneratedCourse generate(GenerateCourse command) {
         // ① POI 수집 (trip)
         return generate(command, regionPoiService.collect(command.regionId(), command.travelDate()));
+    }
+
+    /**
+     * 코스를 만들고 <b>이 한 건이 태운 외부 호출을 알린다</b>(#421).
+     *
+     * <p>계측을 진입점에 두는 것이 요점이다. 안쪽 {@code generate(command, pois)} 는 재생성이 씨앗을
+     * 바꿔가며 여러 번 부르므로, 거기에 두면 <b>시도마다 알림이 나간다.</b>
+     *
+     * <p>{@code finally} 로 감싸 <b>실패해도 보낸다</b> — 한도는 이미 깎였고, 오히려 "쓰고도 결과가
+     * 없는" 쪽이 더 봐야 하는 숫자다.
+     *
+     * @param userId 알림에 싣는다. 지금은 인증 뒤라 항상 있지만, 열리면 null 이 온다
+     */
+    public GeneratedCourse generate(GenerateCourse command, UUID userId) {
+        RequestUsage usage = CallerContext.beginUsage();
+        boolean succeeded = false;
+        try {
+            GeneratedCourse generated = generate(command);
+            succeeded = true;
+            return generated;
+        } finally {
+            courseUsageAlert.send(userId, command, usage, succeeded, false);
+        }
     }
 
     /**
