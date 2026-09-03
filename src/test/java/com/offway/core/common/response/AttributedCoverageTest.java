@@ -99,11 +99,62 @@ class AttributedCoverageTest {
         return KTO_MARKERS.stream().anyMatch(marker -> code.contains(" " + marker) || code.contains("(" + marker));
     }
 
-    /** 블록 주석 · 줄 주석 · 문자열 리터럴을 지운다. 지운 자리는 공백으로 둬서 앞뒤 토큰이 붙지 않게 한다. */
+    /**
+     * 블록 주석 · 줄 주석 · 문자열 리터럴을 지운다. 지운 자리는 공백으로 둬서 앞뒤 토큰이 붙지 않게 한다.
+     *
+     * <p><b>정규식을 쓰지 않는다.</b> 처음에는 {@code "(\\.|[^"\\])*"} 로 문자열을 지웠는데, 별표 안에
+     * 선택이 들어간 그 모양이 입력 길이만큼 재귀해 <b>긴 파일에서 {@code StackOverflowError} 로 죽는다.</b>
+     * 로컬에서는 통과하고 CI 에서만 깨졌다 — 스택 크기에 달린 문제라 파일이 자라면 언제든 다시 터진다.
+     *
+     * <p>한 번 훑는 스캐너는 입력 길이에 선형이고 재귀가 없다. 이 판정에 필요한 것도 그게 전부다.
+     */
     private static String withoutCommentsAndStrings(String source) {
-        return source.replaceAll("(?s)/\\*.*?\\*/", " ")
-                .replaceAll("(?m)//.*$", " ")
-                .replaceAll("\"(\\\\.|[^\"\\\\])*\"", " ");
+        StringBuilder code = new StringBuilder(source.length());
+        int i = 0;
+        while (i < source.length()) {
+            char c = source.charAt(i);
+            if (c == '/' && i + 1 < source.length() && source.charAt(i + 1) == '*') {
+                int end = source.indexOf("*/", i + 2);
+                i = end < 0 ? source.length() : end + 2;
+                code.append(' ');
+            } else if (c == '/' && i + 1 < source.length() && source.charAt(i + 1) == '/') {
+                int end = source.indexOf('\n', i);
+                i = end < 0 ? source.length() : end;
+                code.append(' ');
+            } else if (c == '"') {
+                i = skipStringLiteral(source, i);
+                code.append(' ');
+            } else {
+                code.append(c);
+                i++;
+            }
+        }
+        return code.toString();
+    }
+
+    /**
+     * 여는 따옴표 자리에서 시작해 <b>닫는 따옴표 다음</b>을 돌려준다.
+     *
+     * <p>텍스트 블록({@code """})도 함께 본다 — 이 레포의 응답 DTO 가 긴 설명에 실제로 쓴다. 안 보면
+     * 블록 안의 따옴표 하나를 문자열의 끝으로 읽어 그 뒤가 통째로 어긋난다.
+     */
+    private static int skipStringLiteral(String source, int start) {
+        if (source.startsWith("\"\"\"", start)) {
+            int end = source.indexOf("\"\"\"", start + 3);
+            return end < 0 ? source.length() : end + 3;
+        }
+        int i = start + 1;
+        while (i < source.length()) {
+            char c = source.charAt(i);
+            if (c == '\\') {
+                i += 2; // 이스케이프된 문자는 닫는 따옴표가 아니다
+            } else if (c == '"' || c == '\n') {
+                return i + 1; // 줄바꿈이면 문자열이 안 닫힌 것이다 — 거기서 끊어 무한루프를 막는다
+            } else {
+                i++;
+            }
+        }
+        return source.length();
     }
 
     private static boolean declaresSources(String source) {
