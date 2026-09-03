@@ -1,6 +1,6 @@
 package com.offway.core.transport.service;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.Station;
 import com.offway.core.transport.domain.Departure;
 import com.offway.core.transport.domain.TrainLeg;

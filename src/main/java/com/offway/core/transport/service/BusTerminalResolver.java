@@ -2,7 +2,7 @@ package com.offway.core.transport.service;
 
 import com.offway.core.transport.domain.BusTerminal;
 import com.offway.core.transport.domain.BusTerminalKind;
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.Terminal;
 import com.offway.core.transport.repository.BusTerminalRepository;
 import java.util.Comparator;
