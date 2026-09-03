@@ -7,7 +7,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 지금 켜져 있는 연동 설정(#403) — <b>읽는 쪽이 매번 DB 를 치지 않게</b> 메모리에 든다.
@@ -30,8 +29,22 @@ public class ExternalApiSettings implements ExternalApiCachePolicy, ExternalApiB
     private final ExternalApiSettingRepository repository;
     private final ExternalApiCallRecorder callRecorder;
 
-    private volatile Map<ExternalApi, ExternalApiSetting> apiSettings = Map.of();
-    private volatile Set<String> disabledBatches = Set.of();
+    /**
+     * 지금 도는 설정 전부 - <b>한 덩어리로 든다.</b>
+     *
+     * <p>연동 설정과 배치 스위치를 각각 volatile 필드로 두면, 둘을 잇달아 갈아 끼우는 사이에 읽은
+     * 쪽이 <b>새 캐시 설정과 옛 배치 설정이 섞인 상태</b>를 본다. 뒤쪽 조회가 실패하면 그 섞인
+     * 상태가 다음 갱신까지 굳는다. 하나로 묶어 두면 그 중간이 아예 없다.
+     *
+     * @param apiSettings 손댄 연동만. 나머지는 {@link ExternalApiSetting#defaultFor} 로 채운다
+     * @param disabledBatches 지금 꺼 둔 배치 이름
+     */
+    private record Snapshot(Map<ExternalApi, ExternalApiSetting> apiSettings, Set<String> disabledBatches) {
+
+        private static final Snapshot EMPTY = new Snapshot(Map.of(), Set.of());
+    }
+
+    private volatile Snapshot snapshot = Snapshot.EMPTY;
 
     /**
      * 주기 갱신 - <b>실패해도 직전 값을 유지한다.</b>
@@ -52,18 +65,25 @@ public class ExternalApiSettings implements ExternalApiCachePolicy, ExternalApiB
         }
     }
 
-    /** 실제로 읽어 담는다 - 실패를 <b>삼키지 않는다</b>. 삼킬지는 부르는 쪽이 정한다. */
+    /**
+     * 실제로 읽어 담는다 - 실패를 <b>삼키지 않는다</b>. 삼킬지는 부르는 쪽이 정한다.
+     *
+     * <p><b>둘 다 읽은 뒤에 한 번에 공개한다.</b> 읽는 도중에 필드를 갈아 끼우면 두 번째 조회가
+     * 실패했을 때 앞쪽만 새 값인 채로 남는다 - 캐시는 새 설정으로, 배치는 옛 스위치로 도는 상태다.
+     * 그건 갱신에 실패한 것보다 나쁘다. 실패하면 아무것도 안 바뀐 채로 예외가 나가야 한다.
+     */
     private void reload() {
-        apiSettings = repository.findApiSettings();
-        disabledBatches = repository.findBatchSettings().entrySet().stream()
+        Map<ExternalApi, ExternalApiSetting> apiSettings = repository.findApiSettings();
+        Set<String> disabledBatches = repository.findBatchSettings().entrySet().stream()
                 .filter(entry -> !entry.getValue())
                 .map(Map.Entry::getKey)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        snapshot = new Snapshot(apiSettings, disabledBatches);
     }
 
     /** 손대지 않은 연동은 기본값이다 — 이 기능이 붙기 전과 같은 동작. */
     public ExternalApiSetting of(ExternalApi api) {
-        return apiSettings.getOrDefault(api, ExternalApiSetting.defaultFor(api));
+        return snapshot.apiSettings().getOrDefault(api, ExternalApiSetting.defaultFor(api));
     }
 
     /**
@@ -79,7 +99,7 @@ public class ExternalApiSettings implements ExternalApiCachePolicy, ExternalApiB
 
     /** 이 배치가 돌아도 되나. 설정이 없으면 돈다. */
     public boolean batchEnabled(String batchName) {
-        return !disabledBatches.contains(batchName);
+        return !snapshot.disabledBatches().contains(batchName);
     }
 
     /**
@@ -107,12 +127,18 @@ public class ExternalApiSettings implements ExternalApiCachePolicy, ExternalApiB
      * <p>저장만 하고 주기 갱신을 기다리면, 어드민은 스위치를 내린 뒤에도 화면에서 옛 값을 본다 —
      * 그러면 한 번 더 누르게 되고 그게 또 안 듣는 것처럼 보인다.
      *
-     * <p><b>반영에 실패하면 저장도 되돌린다.</b> 주기 갱신과 달리 여기서는 실패를 삼키지 않는다 -
-     * 삼키면 행은 바뀌었는데 이 인스턴스는 옛 정책으로 도는 상태가 성공 응답으로 나가, 어드민은
-     * 스위치가 걸린 줄 알고 최대 {@value #REFRESH_INTERVAL} 을 기다린다. 트랜잭션으로 묶어
-     * DB 와 메모리가 같은 결말을 맞게 한다.
+     * <p><b>반영 실패는 삼키지 않는다.</b> 주기 갱신과 달리 여기서는 예외를 그대로 올린다 - 삼키면
+     * 행은 바뀌었는데 이 인스턴스는 옛 정책으로 도는 상태가 성공 응답으로 나가고, 어드민은 스위치가
+     * 걸린 줄 알고 최대 {@value #REFRESH_INTERVAL} 을 기다린다.
+     *
+     * <p><b>트랜잭션으로 묶지 않는다.</b> 저장은 upsert 한 문장이라 그 자체로 원자적이고, 트랜잭션을
+     * 걸면 오히려 <b>커밋되지 않은 값을 메모리에 먼저 공개</b>하게 된다 - 그 뒤 커밋이 깨지면 행은
+     * 없는데 이 인스턴스만 새 정책으로 도는, 되돌릴 수 없는 상태가 남는다. 그래서 순서를 지킨다:
+     * 저장이 끝난 뒤에 읽는다.
+     *
+     * <p>읽기가 실패하면 행은 남고 메모리는 옛 값이다. 이건 실패로 보고되고 {@value #REFRESH_INTERVAL}
+     * 안에 스스로 맞는다 - 조용히 어긋난 채로 성공을 돌려주는 것과는 다르다.
      */
-    @Transactional
     public ExternalApiSetting update(ExternalApi api, boolean cacheEnabled, Integer batchLimit, String updatedBy) {
         ExternalApiSetting setting = new ExternalApiSetting(api, cacheEnabled, batchLimit);
         repository.save(setting, updatedBy);
@@ -121,7 +147,6 @@ public class ExternalApiSettings implements ExternalApiCachePolicy, ExternalApiB
     }
 
     /** 배치를 멈추거나 다시 돌린다. 같은 이유로 그 자리에서 반영한다. */
-    @Transactional
     public void updateBatch(String batchName, boolean enabled, String updatedBy) {
         repository.saveBatch(batchName, enabled, updatedBy);
         reload();
@@ -129,12 +154,12 @@ public class ExternalApiSettings implements ExternalApiCachePolicy, ExternalApiB
 
     /** 지금 손댄 연동 전부 — 화면이 "기본에서 벗어난 것" 을 짚어줄 수 있게. */
     public Map<ExternalApi, ExternalApiSetting> touched() {
-        return apiSettings;
+        return snapshot.apiSettings();
     }
 
     /** 지금 꺼 둔 배치 이름. */
     public Set<String> disabledBatches() {
-        return disabledBatches;
+        return snapshot.disabledBatches();
     }
 
     private long usedToday(ExternalApi api) {
