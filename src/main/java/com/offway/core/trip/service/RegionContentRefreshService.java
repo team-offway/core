@@ -4,6 +4,8 @@ import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.config.BatchBudgetProperties;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiBatchPolicy;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.RegionContent;
@@ -68,6 +70,9 @@ public class RegionContentRefreshService {
     private final BatchRunRepository batchRunRepository;
     private final BatchBudgetProperties batchBudget;
 
+    /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
+    private final ExternalApiBatchPolicy batchPolicy;
+
     /**
      * 주 1회 — <b>그 주에 이미 돌았으면</b> 외부를 아예 안 부른다.
      *
@@ -81,6 +86,11 @@ public class RegionContentRefreshService {
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = REFRESH_INTERVAL)
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
+            if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TOUR_API)) {
+                // 조용히 넘기지 않는다 — 꺼 둔 줄 모르면 "지역 콘텐츠이 왜 안 채워지지" 가 된다.
+                log.info("지역 콘텐츠 배치가 꺼져 있거나 배치 한도를 넘겨 건너뜁니다");
+                return;
+            }
             LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
             if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
                 log.info("지역 콘텐츠를 최근 {}에 이미 갱신해 건너뜁니다", MIN_INTERVAL);

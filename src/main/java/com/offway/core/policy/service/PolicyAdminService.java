@@ -2,10 +2,20 @@ package com.offway.core.policy.service;
 
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.domain.PolicyException;
+import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.policy.repository.PolicyRepository;
 import com.offway.core.policy.service.dto.PolicyCommand;
+import com.offway.core.policy.service.dto.PolicyScope;
+import com.offway.core.region.domain.Region;
+import com.offway.core.region.domain.RegionTagType;
+import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.repository.RegionTagRepository;
 import com.offway.core.user.service.AdminAccountService;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -40,6 +50,27 @@ public class PolicyAdminService {
 
     private final PolicyRepository policyRepository;
     private final AdminAccountService adminAccountService;
+    private final RegionTagRepository regionTagRepository;
+    private final RegionRepository regionRepository;
+
+    /**
+     * 분류마다 <b>어느 지역에 뜨는지</b>(#393).
+     *
+     * <p>분류가 일곱인데 대상 태그는 셋뿐이라, <b>태그 단위로 한 번씩만 조회한다.</b> 분류마다 부르면
+     * 같은 질문을 일곱 번 한다.
+     */
+    @Transactional(readOnly = true)
+    public List<PolicyScope> scopes() {
+        Map<RegionTagType, List<Region>> byTag = Arrays.stream(PolicyType.values())
+                .map(PolicyType::targetTag)
+                .distinct()
+                .collect(Collectors.toMap(
+                        tag -> tag,
+                        tag -> regionRepository.findByIds(regionTagRepository.findRegionIdsByTag(tag))));
+        return Arrays.stream(PolicyType.values())
+                .map(type -> new PolicyScope(type, byTag.getOrDefault(type.targetTag(), List.of())))
+                .toList();
+    }
 
     @Transactional(readOnly = true)
     public Page<Policy> list(Pageable pageable) {

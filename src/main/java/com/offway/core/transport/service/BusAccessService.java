@@ -2,6 +2,8 @@ package com.offway.core.transport.service;
 
 import com.offway.core.common.cache.ExternalDataCache;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.transport.domain.BusCoverage;
 import com.offway.core.transport.domain.BusStopAccess;
 import com.offway.core.transport.infrastructure.tago.BusStopClient;
@@ -56,9 +58,12 @@ public class BusAccessService {
     private static final int MAX_CACHED_COVERAGE = 1;
 
     private final BusStopClient busStopClient;
-    private final ExternalDataCache<String, BusStopAccess> cache = new ExternalDataCache<>(MAX_CACHED_COORDINATES, FIRST_LOAD_WAIT);
+
+    /** 캐시를 켜고 끄는 스위치(#403). 조회마다 물어, 운영 중 바뀐 값도 곧바로 듣는다. */
+    private final ExternalApiCachePolicy cachePolicy;
+    private final ExternalDataCache<String, BusStopAccess> cache = new ExternalDataCache<>(MAX_CACHED_COORDINATES, FIRST_LOAD_WAIT, this::cacheEnabled);
     private final ExternalDataCache<String, Optional<BusCoverage>> coverageCache =
-            new ExternalDataCache<>(MAX_CACHED_COVERAGE, FIRST_LOAD_WAIT);
+            new ExternalDataCache<>(MAX_CACHED_COVERAGE, FIRST_LOAD_WAIT, this::cacheEnabled);
 
     /**
      * 좌표 주변 버스 정류소 조회 결과. 시군구는 <b>커버 여부 판별</b>에 쓴다 — 좌표만으로는 어느 지자체인지 알 수 없다.
@@ -116,5 +121,16 @@ public class BusAccessService {
     private static String cacheKey(double lat, double lng) {
         // Locale.ROOT 고정 — 기본 로케일에 따라 소수점이 쉼표가 되면 키가 환경마다 달라진다.
         return String.format(Locale.ROOT, KEY_FORMAT, lat, lng);
+    }
+
+    /**
+     * 캐시를 지금 써도 되나(#403).
+     *
+     * <p>람다로 필드를 직접 읽지 않고 메서드 참조를 쓰는 이유 — 캐시 필드의 초기화식은 생성자가
+     * {@code cachePolicy} 를 넣기 <b>전에</b> 돌아서, 거기서 blank final 을 읽으면 컴파일이 막힌다.
+     * 메서드 본문은 그때 읽히지 않는다.
+     */
+    private boolean cacheEnabled() {
+        return cachePolicy.cacheEnabled(ExternalApi.BUS_STOP);
     }
 }

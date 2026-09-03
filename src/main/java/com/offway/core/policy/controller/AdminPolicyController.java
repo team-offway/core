@@ -5,6 +5,7 @@ import com.offway.core.common.response.PageResponse;
 import com.offway.core.common.response.Paging;
 import com.offway.core.policy.controller.dto.AdminPolicyRequest;
 import com.offway.core.policy.controller.dto.AdminPolicyResponse;
+import com.offway.core.policy.controller.dto.AdminPolicyScopeResponse;
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.service.PolicyAdminService;
 import com.offway.core.user.config.LoginUser;
@@ -38,6 +39,12 @@ public class AdminPolicyController implements AdminPolicyApi {
             @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
         Page<Policy> found = policyAdminService.list(Paging.of(page, size));
         return ApiResponseBody.ok(AdminPolicyResponse.from(found.getContent()), PageResponse.from(found));
+    }
+
+    @Override
+    @GetMapping("/scopes")
+    public ApiResponseBody<List<AdminPolicyScopeResponse>> scopes() {
+        return ApiResponseBody.ok(AdminPolicyScopeResponse.from(policyAdminService.scopes()));
     }
 
     @Override
