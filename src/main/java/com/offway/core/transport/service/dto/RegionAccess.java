@@ -87,7 +87,22 @@ public record RegionAccess(
          * <p>{@link #NO_SERVICE_ON_DATE} 와 구분한다 — 그쪽은 "물어봤더니 없다", 이쪽은 "아직 안 물었다" 다.
          * 같은 값으로 뭉치면 로그에서 외부 장애와 미구현이 섞인다.
          */
-        POINT_ONLY
+        POINT_ONLY,
+
+        /**
+         * <b>계산할 근거가 없다</b> — 저장할 때 출발지를 안 받았다(#422).
+         *
+         * <p>결과가 아니라 입력(출발 좌표)을 저장해 두고 상세에서 계산하는데, 그 좌표가 없으면 되살릴
+         * 방법이 없다. {@code POST /courses} 의 필수 필드가 아니라 <b>좌표 없이도 저장이 성공</b>하고,
+         * 그렇게 저장된 코스는 상세에서만 도착 정보가 사라졌다.
+         *
+         * <p>다른 상태와 다른 점 — 이건 <b>외부나 노선의 사정이 아니라 우리 데이터가 빈 것</b>이다.
+         * {@link #UNAVAILABLE}(조회 실패)과 섞으면 외부 장애를 찾다가 시간을 버린다.
+         *
+         * <p>이 상태를 만든 이유는 <b>필드가 통째로 빠지던 것</b>을 없애기 위해서다. 없으면 앱이
+         * "이 값을 모르는 옛 서버" 와 "서버가 답을 못 하는 코스" 를 구분할 수 없다.
+         */
+        ORIGIN_UNKNOWN
     }
 
     /**
@@ -100,9 +115,20 @@ public record RegionAccess(
         return Optional.ofNullable(toPoint);
     }
 
-    /** 지역에 닿는 시각 — 실제 운행 편을 찾았을 때만 안다. 1일차에 어느 시간대부터 일정을 넣을지의 근거다. */
+    /**
+     * 지역에 닿는 시각 — 실제 운행 편을 찾았을 때만 안다. 1일차에 어느 시간대부터 일정을 넣을지의 근거다.
+     *
+     * <p>근거는 둘이다. 열차는 {@code fastest}(가장 빠른 편)에서, <b>버스·여객선은 시간표의 첫 편</b>에서
+     * 온다(#422). 뒤쪽이 없던 시절에는 그 둘이 소요시간으로만 답했는데, #414 로 시간표가 붙으면서
+     * 실제 도착 시각을 알게 됐다.
+     *
+     * <p>{@code departures} 는 이미 "탈 수 있는 편만, 이른 순" 이라 첫 편이 곧 가장 이른 도착이다.
+     */
     public Optional<LocalDateTime> arrivalAt() {
-        return Optional.ofNullable(fastest).map(TrainLeg::arriveAt);
+        if (fastest != null) {
+            return Optional.of(fastest.arriveAt());
+        }
+        return departures.stream().findFirst().map(Departure::arriveAt);
     }
 
     /**
@@ -158,9 +184,24 @@ public record RegionAccess(
                 .build();
     }
 
-    /** 시간표를 갈아 끼운다 — 버스·여객선은 도착 지점을 정한 뒤에야 어느 구간을 물을지 알 수 있다(#414). */
+    /**
+     * 시간표를 갈아 끼운다 — 버스·여객선은 도착 지점을 정한 뒤에야 어느 구간을 물을지 알 수 있다(#414).
+     *
+     * <p><b>시간표가 붙으면 상태도 함께 올린다</b>(#422). {@link Status#POINT_ONLY} 는 "아직 안 물었다"
+     * 는 뜻인데, 물어서 편이 나왔는데도 그대로 두면 <b>상태와 값이 서로를 부정한다</b> — 실제로
+     * {@code status=POINT_ONLY} 인데 우등 두 편이 실려 나갔다.
+     *
+     * <p>화면은 목록만 보고 그려서 멀쩡했지만, 상태를 믿는 쪽(첫날 재정렬·로그)이 나중에 어긋난다.
+     *
+     * <p>빈 목록이면 올리지 않는다 — 물어봤는데 없는 것과 못 물은 것은 여전히 다르고, 여기서는
+     * 그 둘을 가릴 근거가 없다(조회창 밖이면 아예 안 물었다).
+     */
     public RegionAccess withDepartures(List<Departure> departures) {
-        return toBuilder().departures(departures).build();
+        RegionAccessBuilder builder = toBuilder().departures(departures);
+        if (status == Status.POINT_ONLY && departures != null && !departures.isEmpty()) {
+            builder.status(Status.AVAILABLE);
+        }
+        return builder.build();
     }
 
     /**

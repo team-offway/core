@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.transport.domain.Departure;
 import com.offway.core.transport.domain.RegionArrival;
 import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.transport.domain.TransitMode;
@@ -180,5 +181,65 @@ class RegionAccessTest {
         RegionAccess 버스 = RegionAccess.pointOnly(시외버스(읍내_터미널)).withDistanceKm(300);
 
         assertSame(버스, 버스.withDistanceKm(300));
+    }
+
+    // ── 시간표가 붙으면 상태도 올라간다(#422) ─────────────────────────────
+
+    private static Departure 편(int 출발시, int 도착시) {
+        LocalDate 여행일 = LocalDate.of(2026, 9, 4);
+        return new Departure("우등", 여행일.atTime(출발시, 40), 여행일.atTime(도착시, 40));
+    }
+
+    /**
+     * <b>{@code POINT_ONLY} 인데 시간표가 실려 나갔다.</b>
+     *
+     * <p>그 상태는 "아직 안 물었다" 는 뜻인데 물어서 편이 나왔으니 서로를 부정한다. 화면은 목록만
+     * 보고 그려 멀쩡했지만, 상태를 믿는 쪽(첫날 재정렬·로그)이 나중에 어긋난다.
+     */
+    @Test
+    void 시간표가_붙으면_지점만_알던_상태가_올라간다() {
+        RegionAccess 지점만 = RegionAccess.pointOnly(시외버스(읍내_터미널));
+        assertEquals(RegionAccess.Status.POINT_ONLY, 지점만.status());
+
+        RegionAccess 시간표붙음 = 지점만.withDepartures(List.of(편(12, 15), 편(18, 21)));
+
+        assertEquals(RegionAccess.Status.AVAILABLE, 시간표붙음.status());
+        assertEquals(2, 시간표붙음.departures().size());
+    }
+
+    /**
+     * <b>빈 목록이면 올리지 않는다.</b>
+     *
+     * <p>"물어봤더니 없다" 와 "못 물었다" 는 여전히 다르고, 여기서는 그 둘을 가릴 근거가 없다 —
+     * 조회창 밖이면 아예 안 묻는다.
+     */
+    @Test
+    void 시간표가_비면_상태를_올리지_않는다() {
+        RegionAccess 지점만 = RegionAccess.pointOnly(시외버스(읍내_터미널));
+
+        assertEquals(RegionAccess.Status.POINT_ONLY, 지점만.withDepartures(List.of()).status());
+    }
+
+    /** 이미 다른 상태면 건드리지 않는다 — 올리는 것은 "아직 안 물었다" 뿐이다. */
+    @Test
+    void 미운행_상태는_시간표가_붙어도_그대로다() {
+        RegionAccess 미운행 = RegionAccess.noServiceOnDate("서울", "완도", 읍내_터미널);
+
+        assertEquals(RegionAccess.Status.NO_SERVICE_ON_DATE,
+                미운행.withDepartures(List.of(편(12, 15))).status());
+    }
+
+    /**
+     * 도착 시각을 <b>시간표 첫 편</b>에서도 안다(#422).
+     *
+     * <p>예전에는 열차의 {@code fastest} 만 봐서, 버스·여객선은 시간표가 있어도 소요시간으로만 답했다.
+     * 그러면 첫날 재정렬이 실제 도착보다 이르거나 늦은 시각을 쓴다.
+     */
+    @Test
+    void 열차가_아니어도_시간표에서_도착_시각을_안다() {
+        RegionAccess 버스 = RegionAccess.pointOnly(시외버스(읍내_터미널))
+                .withDepartures(List.of(편(12, 15), 편(18, 21)));
+
+        assertEquals(LocalDate.of(2026, 9, 4).atTime(15, 40), 버스.arrivalAt().orElseThrow());
     }
 }
