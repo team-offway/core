@@ -138,7 +138,9 @@ public class PolicyAdminService {
         if (!command.verified()) {
             return;
         }
-        boolean overlaps = policyRepository.findVerifiedByType(command.type()).stream()
+        // **잠그고 읽는다**(#391). 안 잠그면 읽기와 쓰기 사이에 창이 남아, 어드민 둘이
+        // 동시에 저장할 때 둘 다 "중복 없음" 을 읽고 둘 다 저장한다.
+        boolean overlaps = policyRepository.findVerifiedByTypeForUpdate(command.type()).stream()
                 .filter(other -> !other.getId().equals(excludedId))
                 .anyMatch(other -> other.periodOverlaps(command.periodStart(), command.periodEnd()));
         if (overlaps) {
