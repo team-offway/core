@@ -17,7 +17,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 7대 혜택의 구체 인스턴스. 뱃지 문구·매칭 대상 지역은 {@link PolicyType} 이 소유하고, 여기서는 정책명·상세·기간·대상 등 인스턴스 데이터를
+ * 혜택의 구체 인스턴스. 뱃지 문구·매칭 대상 지역은 {@link PolicyType} 이 소유하고, 여기서는 정책명·상세·기간·대상 등 인스턴스 데이터를
  * 갖는다.
  *
  * <p>{@code verified=false} 는 존재는 확인됐으나 상세·기간이 미확정인 정책 — 노출 여부는 서비스가 판단한다.
