@@ -14,6 +14,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import com.offway.core.transport.domain.Departure;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +46,7 @@ public class RegionAccessService {
     private final BusTerminalResolver busTerminalResolver;
     private final FerryPortResolver ferryPortResolver;
     private final TransitDurationService transitDurationService;
+    private final TransitDepartureService transitDepartureService;
     private final TravelTimeProvider travelTimeProvider;
 
     /**
@@ -67,7 +69,9 @@ public class RegionAccessService {
             log.debug("도착 지점을 {}(으)로 잡습니다 — 열차 상태={} 지점={}",
                     chosen.mode().label(), train.status(), chosen.toName());
             chosen = chosen.withDuration(
-                    durationOf(chosen.mode(), originLat, originLng, destTerminal, destPort).orElse(null));
+                            durationOf(chosen.mode(), originLat, originLng, destTerminal, destPort).orElse(null))
+                    .withDepartures(departuresOf(
+                            chosen.mode(), originLat, originLng, destTerminal, destPort, date, notBefore));
         }
         return chosen.withDistanceKm(distanceKm(new Coordinate(originLat, originLng), chosen.arrivalPoint()))
                 .withAlternatives(alternativesTo(chosen, train, destTerminal, destPort));
@@ -159,5 +163,34 @@ public class RegionAccessService {
             // 구간 표를 쓰지 않는 둘. 열차는 실제 시각을 직접 답하고, 자차는 구간이 없다(#379).
             case TRAIN, CAR -> Optional.empty();
         };
+    }
+
+    /**
+     * 버스·여객선의 시간표(#414) — <b>여행일이 조회창 안일 때만</b> 채워진다.
+     *
+     * <p>창 밖이면 {@link TransitDepartureService} 가 외부를 안 치고 빈 목록을 준다. 연차 기준으로 다음 달
+     * 코스를 짜는 서비스라 대부분이 창 밖이고, 그때 이 경로는 호출을 한 건도 쓰지 않는다.
+     *
+     * <p>창 안일 때 <b>코스 하나에 한 건</b>이다 — 대표 수단의 구간 하나만 묻는다. 열차는 여기 오지 않는다
+     * ({@code TrainAccessService} 가 이미 받아 둔 하루치에서 고른다).
+     */
+    private List<Departure> departuresOf(
+            TransitMode mode, double originLat, double originLng,
+            Optional<Terminal> destTerminal, Optional<Port> destPort, LocalDate date, LocalTime notBefore) {
+        LocalDate today = LocalDate.now(SERVICE_ZONE);
+        List<Departure> all = switch (mode) {
+            case EXPRESS_BUS, INTERCITY_BUS -> destTerminal.flatMap(arrival ->
+                            busTerminalResolver.nearest(originLat, originLng, arrival.kind())
+                                    .map(departure -> transitDepartureService.departures(
+                                            mode, departure.code(), arrival.code(), date, today)))
+                    .orElseGet(List::of);
+            case FERRY -> destPort.flatMap(arrival ->
+                            ferryPortResolver.nearest(originLat, originLng)
+                                    .map(departure -> transitDepartureService.departures(
+                                            mode, departure.code(), arrival.code(), date, today)))
+                    .orElseGet(List::of);
+            case TRAIN, CAR -> List.of();
+        };
+        return Departure.upcoming(all, notBefore);
     }
 }

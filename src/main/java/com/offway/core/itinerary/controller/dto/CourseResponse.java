@@ -15,12 +15,14 @@ import com.offway.core.itinerary.service.dto.SlotHours;
 import com.offway.core.trip.domain.FestivalPeriod;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.domain.TransitMode;
+import com.offway.core.transport.domain.Departure;
 import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.transport.service.dto.TransitOption;
 import com.offway.core.weather.domain.DailyWeather;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.stream.IntStream;
 import java.util.List;
 import java.util.Map;
@@ -499,7 +501,12 @@ public record CourseResponse(
             @Schema(example = "KTX", nullable = true) String vehicleType,
             @Schema(example = "150", nullable = true) Integer durationMinutes,
             @Schema(example = "200", nullable = true) Integer distanceKm,
-            List<TransitOptionResponse> alternatives) {
+            List<TransitOptionResponse> alternatives,
+            @Schema(description = "그날 탈 수 있는 편 — 이른 순으로 최대 " + Departure.MAX_SHOWN + "편. "
+                    + "<b>비어 있는 것이 정상이다</b>: 버스·여객선은 여행일이 조회창(오늘~+2일, 여객선 +7일) "
+                    + "밖이면 시간표를 물을 수 없고, 열차도 그날 운행이 없거나 막차가 지났으면 빈다. "
+                    + "그때 화면은 이 줄만 접고 소요시간으로 그린다")
+                    List<DepartureResponse> departures) {
 
         static TransitAccessResponse from(RegionAccess access) {
             if (access == null) {
@@ -523,7 +530,34 @@ public record CourseResponse(
                             hasLeg ? Integer.valueOf(access.fastest().durationMinutes()) : access.durationMinutes())
                     .distanceKm(access.distanceKm())
                     .alternatives(access.alternatives().stream().map(TransitOptionResponse::from).toList())
+                    .departures(access.departures().stream().map(DepartureResponse::from).toList())
                     .build();
+        }
+    }
+
+    /**
+     * 시간표 한 줄 — 몇 시 차인가(#414).
+     *
+     * <p><b>시각을 문자열로 내리지 않는다.</b> 표기(오전/오후·24시간)는 화면이 정할 일이고, 서버가 문구를
+     * 만들면 그 선택이 배포 사안이 된다.
+     *
+     * <p>소요시간을 함께 싣는 것은 편마다 다를 수 있어서다 — 무궁화와 KTX 가 같은 구간에 섞이면 카드 위쪽의
+     * 대표 소요시간과 이 줄의 값이 다르다.
+     *
+     * @param vehicleType 등급·편명(KTX · 무궁화 · 우등). <b>없을 수 있다</b> — 여객선처럼 등급이 없는 수단이다
+     */
+    public record DepartureResponse(
+            @Schema(example = "무궁화호", nullable = true) String vehicleType,
+            @Schema(example = "2026-09-05T07:20:00") LocalDateTime departAt,
+            @Schema(example = "2026-09-05T09:49:00") LocalDateTime arriveAt,
+            @Schema(example = "149") int durationMinutes) {
+
+        static DepartureResponse from(Departure departure) {
+            return new DepartureResponse(
+                    departure.vehicleType(),
+                    departure.departAt(),
+                    departure.arriveAt(),
+                    departure.durationMinutes());
         }
     }
 

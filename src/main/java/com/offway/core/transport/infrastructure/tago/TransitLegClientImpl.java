@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.external.ExternalApiCallRecorder;
 import com.offway.core.common.logging.RootCause;
+import com.offway.core.transport.domain.Departure;
 import com.offway.core.transport.domain.MeasuredLeg;
 import com.offway.core.transport.domain.TransitLegResult;
 import com.offway.core.transport.domain.TransitMode;
@@ -79,6 +80,56 @@ class TransitLegClientImpl implements TransitLegClient {
                     mode.label(), depCode, arrCode, RootCause.of(e));
             return new TransitLegResult.Unavailable();
         }
+    }
+
+    /**
+     * 같은 응답에서 <b>시각을 남기고</b> 읽는다(#414) — {@link #measure} 는 소요시간만 남기고 버린다.
+     *
+     * <p>실패와 미운행을 가르지 않고 빈 목록으로 답한다. 시간표는 없어도 화면이 소요시간으로 그려져서,
+     * 여기서 셋을 구분해 봐야 호출부가 할 수 있는 일이 같다 — {@code measure} 는 결과를 DB 에 영구
+     * 기록하므로 반드시 갈라야 했지만 이쪽은 그렇지 않다.
+     */
+    @Override
+    public List<Departure> departures(TransitMode mode, String depCode, String arrCode, LocalDate date) {
+        if (!props.dataGoKr().hasKey()) {
+            return List.of();
+        }
+        TransitLegEndpoint endpoint = TransitLegEndpoint.of(mode);
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(endpoint.url())
+                .queryParam(TagoQuery.SERVICE_KEY, props.dataGoKr().serviceKey())
+                .queryParam(TagoQuery.RESPONSE_TYPE, TagoQuery.RESPONSE_TYPE_JSON)
+                .queryParam(TagoQuery.NUM_OF_ROWS, ROWS)
+                .queryParam(TagoQuery.PAGE_NO, TagoQuery.FIRST_PAGE)
+                .queryParam(endpoint.depKey(), depCode)
+                .queryParam(endpoint.arrKey(), arrCode)
+                .queryParam("depPlandTime", date.format(DATE));
+        try {
+            return switch (TagoItems.parse(call(builder, endpoint), objectMapper)) {
+                case TagoItems.Items(List<JsonNode> nodes) -> nodes.stream()
+                        .map(node -> toDeparture(node, endpoint))
+                        .flatMap(Optional::stream)
+                        .toList();
+                case TagoItems.Empty ignored -> List.of();
+                case TagoItems.Failed ignored -> {
+                    log.warn("{} 시간표 응답이 비정상 resultCode 입니다 {}→{}", mode.label(), depCode, arrCode);
+                    yield List.of();
+                }
+            };
+        } catch (Exception e) {
+            // degrade 한 이유를 남긴다 — 시간표가 조용히 안 뜨면 "원래 없는 날짜" 와 구분이 안 된다.
+            log.warn("{} 시간표 조회 실패 — 소요시간만 그린다 {}→{} cause={}",
+                    mode.label(), depCode, arrCode, RootCause.of(e));
+            return List.of();
+        }
+    }
+
+    private static Optional<Departure> toDeparture(JsonNode node, TransitLegEndpoint endpoint) {
+        LocalDateTime depart = toTime(node.path("depPlandTime").asText());
+        LocalDateTime arrive = toTime(node.path("arrPlandTime").asText());
+        if (depart == null || arrive == null || !arrive.isAfter(depart)) {
+            return Optional.empty();
+        }
+        return Optional.of(new Departure(node.path(endpoint.vehicleField()).asText(null), depart, arrive));
     }
 
     private String call(UriComponentsBuilder builder, TransitLegEndpoint endpoint) {

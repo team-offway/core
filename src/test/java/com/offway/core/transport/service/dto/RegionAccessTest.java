@@ -9,6 +9,7 @@ import com.offway.core.transport.domain.Coordinate;
 import com.offway.core.transport.domain.RegionArrival;
 import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.transport.domain.TransitMode;
+import java.util.List;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -34,7 +35,7 @@ class RegionAccessTest {
     void 운행_편을_찾았으면_더_가까운_터미널이_있어도_열차를_지킨다() {
         // 도착 시각을 아는 결과는 이것뿐이다. 지점 몇 ㎞ 를 얻자고 시각을 버리면 첫날이 통째로 "하루 전부" 가 된다.
         TrainLeg leg = TrainLeg.of("KTX", LocalDateTime.of(2026, 9, 1, 8, 0), LocalDateTime.of(2026, 9, 1, 11, 0));
-        RegionAccess 열차 = RegionAccess.available("서울", "완도역", 먼_역, leg);
+        RegionAccess 열차 = RegionAccess.available("서울", "완도역", 먼_역, leg, List.of());
 
         assertSame(열차, 열차.orNearer(완도군청, 시외버스(읍내_터미널)));
     }
@@ -121,7 +122,7 @@ class RegionAccessTest {
     void 실제_운행_편이_있으면_소요시간보다_그것을_쓴다() {
         // 편을 찾았다는 것은 시각까지 안다는 뜻이라, 추정으로 덮을 이유가 없다.
         TrainLeg leg = TrainLeg.of("KTX", LocalDateTime.of(2026, 9, 1, 9, 0), LocalDateTime.of(2026, 9, 1, 11, 0));
-        RegionAccess 열차 = RegionAccess.available("서울", "완도역", 먼_역, leg).withDuration(999);
+        RegionAccess 열차 = RegionAccess.available("서울", "완도역", 먼_역, leg, List.of()).withDuration(999);
 
         assertEquals(LocalDateTime.of(2026, 9, 1, 11, 0), 열차.arrivalAt(여행일, LocalTime.of(8, 0)).orElseThrow());
     }

@@ -1,6 +1,7 @@
 package com.offway.core.transport.service.dto;
 
 import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.transport.domain.Departure;
 import com.offway.core.transport.domain.RegionArrival;
 import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.transport.domain.TransitMode;
@@ -37,6 +38,9 @@ import lombok.Builder;
  * @param distanceKm 출발지에서 도착 지점까지의 직선거리(㎞, 모르면 null). 화면이 "약 2시간 29분 · 200km"
  *     로 소요시간 옆에 붙인다(#379). 실제 주행거리가 아니라 직선거리다
  * @param alternatives 대표 말고 이 지역에 닿는 다른 수단들. 없으면 빈 목록이다
+ * @param departures 그날 탈 수 있는 편들(#414) — 몇 시 차인가. <b>비어 있는 것이 정상</b>이다:
+ *     버스·여객선은 여행일이 조회창(오늘~+2일, 여객선 +7일) 밖이면 물을 수 없고, 열차도 그날 운행이
+ *     없거나 막차가 지났으면 빈다. 화면은 그때 시간표 줄만 접고 소요시간으로 그린다
  */
 @Builder(toBuilder = true)
 public record RegionAccess(
@@ -48,13 +52,15 @@ public record RegionAccess(
         TrainLeg fastest,
         Integer durationMinutes,
         Integer distanceKm,
-        List<TransitOption> alternatives) {
+        List<TransitOption> alternatives,
+        List<Departure> departures) {
 
     public RegionAccess {
         Objects.requireNonNull(mode, "수단은 null 일 수 없습니다.");
         Objects.requireNonNull(status, "접근 상태는 null 일 수 없습니다.");
         // null 을 그대로 두면 화면과 테스트가 매번 null 검사를 한다. 없는 것은 빈 목록이다.
         alternatives = alternatives == null ? List.of() : List.copyOf(alternatives);
+        departures = departures == null ? List.of() : List.copyOf(departures);
     }
 
     public enum Status {
@@ -139,7 +145,8 @@ public record RegionAccess(
         return toBuilder().alternatives(others).build();
     }
 
-    public static RegionAccess available(String fromName, String toName, Coordinate toPoint, TrainLeg fastest) {
+    public static RegionAccess available(
+            String fromName, String toName, Coordinate toPoint, TrainLeg fastest, List<Departure> departures) {
         return RegionAccess.builder()
                 .mode(TransitMode.TRAIN)
                 .status(Status.AVAILABLE)
@@ -147,7 +154,13 @@ public record RegionAccess(
                 .toName(toName)
                 .toPoint(toPoint)
                 .fastest(fastest)
+                .departures(departures)
                 .build();
+    }
+
+    /** 시간표를 갈아 끼운다 — 버스·여객선은 도착 지점을 정한 뒤에야 어느 구간을 물을지 알 수 있다(#414). */
+    public RegionAccess withDepartures(List<Departure> departures) {
+        return toBuilder().departures(departures).build();
     }
 
     /**
