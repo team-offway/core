@@ -14,7 +14,7 @@ import lombok.Builder;
  * <p>{@code updatedBy} 는 여기 없다. 그 값은 요청이 아니라 <b>토큰이 정한다</b> — 커맨드에 넣으면 어드민이
  * 남의 이름으로 흔적을 남길 수 있다.
  *
- * @param type 7대 혜택 분류. 뱃지 문구와 대상 지역이 여기 묶여 있다
+ * @param type 혜택 분류. 뱃지 문구와 대상 지역이 여기 묶여 있다
  * @param name 정책명
  * @param benefitDetail 혜택 상세. 사용자에게 그대로 나간다
  * @param targetAudience 대상. 사용자에게 그대로 나간다
