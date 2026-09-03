@@ -1,11 +1,14 @@
 package com.offway.core.leave.controller.dto;
 
 import com.offway.core.common.logging.LogSummary;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import com.offway.core.leave.service.dto.AvailableTimeResult;
 import io.swagger.v3.oas.annotations.media.Schema;
 import com.offway.core.leave.domain.StartDayLeave;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.Set;
 
 /**
  * 가용시간(LNT) 산출 응답 — API 계약.
@@ -35,7 +38,18 @@ public record AvailableTimeResponse(
         @Schema(description = "집을 나서는 시각 (FULL_DAY 08시 · HALF_DAY 12시 · QUARTER_DAY 15시)",
                         example = "12:00")
                 LocalTime departureTime)
-        implements LogSummary {
+        implements LogSummary, Attributed {
+
+    /**
+     * 소모 연차는 <b>평일에서 공휴일을 뺀 값</b>이라, 이 숫자가 특일정보를 지난다(#399).
+     *
+     * <p>공휴일이 하나도 안 낀 구간이어도 <b>"공휴일이 없다" 를 확인하는 데</b> 그 데이터를 썼다 — 조건부로
+     * 두지 않는 이유가 그것이다. 다른 응답과 달리 여기서는 값이 안 보인다고 안 쓴 것이 아니다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        return Set.of(DataSource.KASI);
+    }
 
     /** 날짜는 경로·쿼리에 이미 드러나므로 로그에는 계산 결과만 남긴다. */
     private static final String LOG_FORMAT = "%d일 연차%.2f 도달%d분 출발%s";

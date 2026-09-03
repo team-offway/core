@@ -2,7 +2,10 @@ package com.offway.core.leave.controller.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 한 해의 공휴일 목록(#317).
@@ -18,7 +21,17 @@ import java.util.List;
  */
 public record HolidayResponse(
         @Schema(example = "2026") int year,
-        @Schema(example = "[\"2026-01-01\", \"2026-08-15\"]") List<LocalDate> dates) {
+        @Schema(example = "[\"2026-01-01\", \"2026-08-15\"]") List<LocalDate> dates) implements Attributed {
+
+    /**
+     * 공휴일은 한국천문연구원 특일정보에서 온다(#399).
+     *
+     * <p>그 해 공휴일이 하나도 안 실렸으면(조회 실패·범위 밖) 표기할 것도 없다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        return dates.isEmpty() ? Set.of() : Set.of(DataSource.KASI);
+    }
 
     public static HolidayResponse of(int year, List<LocalDate> dates) {
         return new HolidayResponse(year, dates);
