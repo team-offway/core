@@ -16,7 +16,7 @@ import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.service.RegionQuery;
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.CoordinateKey;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.transport.service.RouteOptimizer;

@@ -1,6 +1,6 @@
 package com.offway.core.itinerary.domain;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import jakarta.persistence.CascadeType;
 import com.offway.core.leave.domain.StartDayLeave;
