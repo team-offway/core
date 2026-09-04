@@ -1,7 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.PlaceKind;
@@ -71,7 +71,7 @@ public class RegionPoiService {
     /** 축제 콘텐츠 타입 — 이 타입만 기간을 물어본다(#388). */
     private static final int FESTIVAL_TYPE = PoiContentType.FESTIVAL.contentTypeId();
 
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
     private final LicensedPlaceRepository licensedPlaceRepository;
@@ -85,12 +85,11 @@ public class RegionPoiService {
      * 갈 수 없는 곳이다. 날짜를 인자로 둬서 <b>호출자가 "언제 가는 코스인가" 에 답하게</b> 한다.
      */
     public RegionPois collect(long regionId, LocalDate travelDate) {
-        List<Region> found = regionRepository.findByIds(List.of(regionId));
-        if (found.isEmpty()) {
+        Region region = regionQuery.byId(regionId).orElse(null);
+        if (region == null) {
             log.debug("코스 POI 수집 — 없는 지역 regionId={}", regionId);
             return RegionPois.empty();
         }
-        Region region = found.get(0);
 
         // 볼거리·맛집·숙박을 각각 타입 스코프로 조회한다. 전체타입을 한 번만 뽑으면 인구감소지역처럼 등록 수가 적은 곳에서
         // 맛집·숙박이 볼거리에 밀려 과소표집돼(끼니·숙소가 코스에서 빠짐), 풀마다 독립 조회로 채운다.

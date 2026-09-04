@@ -15,7 +15,7 @@ import com.offway.core.itinerary.service.dto.GenerateCourse;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.CoordinateKey;
 import com.offway.core.transport.domain.TransportMode;
@@ -63,7 +63,7 @@ public class CourseGenerationService {
     private final CourseWeatherProvider courseWeatherProvider;
     private final OpeningHoursProvider openingHoursProvider;
     private final FestivalPeriodProvider festivalPeriodProvider;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final RegionAccessService regionAccessService;
     private final UnroutableCoordinateService unroutableCoordinateService;
 
@@ -103,7 +103,7 @@ public class CourseGenerationService {
         List<PoiCandidate> stays = reorder(stayPool, GeoCluster.nearest(coords(stayPool), hub, needs.stays()));
 
         // 지역은 날씨·열차 접근 양쪽이 쓴다 — 한 번만 읽는다(#129).
-        Region region = regionRepository.findByIds(List.of(command.regionId())).stream().findFirst().orElse(null);
+        Region region = regionQuery.byId(command.regionId()).orElse(null);
 
         // 지역까지 무엇을 타고 가서 어디에 닿는지. 부가 정보라 실패해도 코스는 그대로다.
         // 슬롯 배치보다 앞서야 한다 — 동선의 기준점과 1일차 시작 시간대가 이 결과에서 나온다(#127).
