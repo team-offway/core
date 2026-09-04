@@ -115,6 +115,33 @@ git diff origin/dev...HEAD
 - **Flyway**: 적용된 마이그레이션 수정·삭제 금지(새 timestamp 로 추가), forward-only, MySQL 문법, **FK 제약 추가 금지**(조회 인덱스는 유지).
 - **JPA**: 연관관계는 애그리거트 내부만, 경계를 넘으면 raw ID. default LAZY, `@ManyToOne(fetch = EAGER)` 금지. N+1 은 fetch join·`@EntityGraph`·`@BatchSize` 로 차단.
 
+### 값이 나가는 자리를 센다 — 한 곳만 채우고 끝내지 않는다
+
+**새 값을 더했으면 그 값을 만드는 자리와 내보내는 자리를 세어서 적는다.** 팩토리가 다섯이면 다섯을 다 봤는지, 응답이 넷이면 넷에 다 실었는지. 숫자로 답한다.
+
+이걸 안 세면 기능이 **"될 때도 있고 안 될 때도 있는"** 모양으로 나간다. 실제로 #420(교통 시간표) 하나가 후속 이슈 둘을 남겼다.
+
+| 이슈 | 채운 곳 | 빠뜨린 곳 |
+|---|---|---|
+| #422 | `POST /courses/generate` | `GET /courses/{id}` — **그 카드가 실제로 뜨는 유일한 화면** |
+| #427 | `RegionAccess.available` | `noStation` · `noServiceOnDate` · `unavailable` · `pointOnly` |
+
+**빌더가 이 실패를 가능하게 한다.** `@Builder` 로 만드는 타입에 필드를 더하면, 그 필드를 안 채우는 기존 팩토리들이 **조용히 컴파일된다.** `switch` 가 상수를 덮어 컴파일을 깨는 것과 정반대다. 조립에 빌더를 쓰는 것은 우리 규약이 맞지만, 그 대가가 "빠뜨려도 초록" 이라는 것을 알고 세야 한다.
+
+세는 법은 `grep` 한 줄이다. 오래 걸리지 않는다.
+
+```bash
+# ① 이 타입을 만드는 자리 전부 (팩토리·빌더 호출)
+grep -rn "RegionAccess\.\|RegionAccessBuilder" src/main/java --include=*.java
+
+# ② 이 값을 읽어 내보내는 자리 전부
+grep -rn "totalSlots()\|getPoiContentId()" src/main/java --include=*.java
+```
+
+**같은 값이라도 자리마다 답이 다를 수 있다.** 전부 채우는 것이 답이 아니라, **자리마다 답을 정하는 것**이 답이다. 교통 거점 칸(#415)은 지도 썸네일 좌표에는 **들어가고**(동선이 실제로 역에서 시작한다) 목록의 "N곳" 에는 **안 들어간다**(들르는 곳이지 고른 장소가 아니다). 뺀 자리는 왜 뺐는지 PR 에 적는다.
+
+기계로 못 막는다 — 정규식이 "팩토리 다섯 중 하나가 빠졌다" 를 못 본다. 그래서 훅이 아니라 여기 있다.
+
 ### 작업을 마치기 전 자문 셋 (`CLAUDE.md`)
 
 컨벤션과 별개로, **이 변경이 우리 제약 안에서 사는지**를 셋으로 묻는다. 답을 PR 본문에 남긴다 — "해당 없음" 도 답이다.
@@ -206,6 +233,6 @@ echo "JAVA_HOME=$JAVA_HOME (JDK $FOUND)"
 
 ## 한 줄 요약
 
-`origin/dev` 기준 + up-to-date → 규약 테스트(단위·통합, 내부 모킹 금지) → 컨벤션·하드코딩 self-audit → 응답 전수 문서화 → (전역이면) blast-radius → `./gradlew test`(build 아님) → `/commit` → `/pr`.
+`origin/dev` 기준 + up-to-date → 규약 테스트(단위·통합, 내부 모킹 금지) → 컨벤션·하드코딩 self-audit → **값이 나가는 자리 전수** → 응답 전수 문서화 → (전역이면) blast-radius → `./gradlew test`(build 아님) → `/commit` → `/pr`.
 
 $ARGUMENTS
