@@ -123,9 +123,23 @@ public final class CallerContext {
         USAGE.set(usage);
     }
 
+    /**
+     * 주체만 되돌린다 — <b>집계는 건드리지 않는다</b>.
+     *
+     * <p>예전에는 직전 주체가 없으면 {@link #clear()} 를 불렀는데, 그러면 <b>열려 있는 집계까지 함께
+     * 지워진다</b>. 집계를 연 뒤({@link #beginUsage()}) 주체 없이 {@link #call} 을 한 번 지나면 그
+     * 뒤의 외부 호출이 통째로 안 세어지고, 알림은 조용히 작아진다 — 예외도 로그도 안 남는 실패다.
+     *
+     * <p>집계의 수명은 <b>요청 경계 하나만</b> 소유한다({@code CallerAttributionInterceptor} 의
+     * {@code afterCompletion} → {@link #clear()}). 중첩된 주체 전환이 그 수명에 끼어들지 않게 한다.
+     *
+     * <p>스레드를 넘긴 경우는 {@link #wrap} 이 자기 {@code finally} 에서 되돌리므로 여기서 지울 필요가
+     * 없다. 지금 이 경로를 타는 {@code CallerContext.run(...)} 호출부는 전부 배치라 집계를 연 적이
+     * 없지만, 요청 경로에 하나만 생겨도 위 실패가 시작된다.
+     */
     private static void restore(Caller previous) {
         if (previous == null) {
-            clear();
+            CURRENT.remove();
             return;
         }
         set(previous);
