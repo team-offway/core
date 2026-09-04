@@ -137,7 +137,11 @@ public record CourseResponse(
                 sources.add(DataSource.KMA);
             }
             for (Item item : day.items()) {
-                sources.add(dataSourceOf(PlaceOrigin.of(item.poiContentId())));
+                // 교통 거점 칸(도착·출발)은 장소 풀이 아니라 우리 DB 의 역·터미널이라 식별자가 없다(#415).
+                // 건너뛰지 않으면 접두어 없는 값으로 읽혀 실린 적 없는 기관이 출처에 적힌다.
+                if (item.poiContentId() != null) {
+                    sources.add(dataSourceOf(PlaceOrigin.of(item.poiContentId())));
+                }
             }
         }
         return Set.copyOf(sources);
@@ -302,8 +306,10 @@ public record CourseResponse(
             List<Slot> slots = schedule.getSlots();
             List<Item> items = IntStream.range(0, slots.size())
                     .mapToObj(i -> Item.from(slots.get(i), schedule.distanceFromPrevMeters(i), regionName,
-                            hoursByContentId.get(slots.get(i).getPoiContentId()),
-                            festivalPeriodByContentId.get(slots.get(i).getPoiContentId()),
+                            // 교통 거점 칸은 식별자가 없다(#415). Map.of() 는 get(null) 에서 NPE 라
+                            // 조회 자체를 하지 않는다 — 운영시간·축제 기간이 있을 수 없는 칸이다.
+                            lookup(hoursByContentId, slots.get(i)),
+                            lookup(festivalPeriodByContentId, slots.get(i)),
                             benefitFor(slots.get(i), slotBenefits)))
                     .toList();
             return new Day(
@@ -320,9 +326,10 @@ public record CourseResponse(
     /**
      * @param order 하루 안 방문 순서
      * @param timeOfDay 시간대(MORNING·LUNCH·AFTERNOON·DINNER)
-     * @param kind 장소 종류(SIGHT·FOOD·STAY)
-     * @param categoryLabel 종류 한글 라벨(관광·맛집·숙박) — 카드 표시용
-     * @param poiContentId TourAPI 콘텐츠 ID(장소 상세 조회용)
+     * @param kind 칸 종류(SIGHT·FOOD·STAY, 대중교통 코스의 첫·끝 칸은 ARRIVAL·DEPARTURE)
+     * @param categoryLabel 종류 한글 라벨(관광·맛집·숙박·도착·출발) — 카드 표시용
+     * @param poiContentId TourAPI 콘텐츠 ID(장소 상세 조회용). <b>교통 거점 칸은 없다</b>(#415) — 역·터미널은
+     *     장소 풀이 아니라 장소 상세로 이어지지 않는다
      * @param title 장소명
      * @param imageUrl 대표 이미지(없으면 null)
      * @param address 주소(없으면 null)
@@ -347,7 +354,8 @@ public record CourseResponse(
             String timeOfDay,
             String kind,
             @Schema(example = "관광") String categoryLabel,
-            String poiContentId,
+            @Schema(description = "장소 상세 조회 키. 교통 거점 칸(ARRIVAL·DEPARTURE)에는 없다",
+                    example = "126508", nullable = true) String poiContentId,
             @Schema(example = "완도타워 전망대") String title,
             @Schema(nullable = true) String imageUrl,
             @Schema(example = "전남 완도군", nullable = true) String address,
@@ -671,6 +679,12 @@ public record CourseResponse(
 
     private static String benefitFor(Slot slot, Map<SlotKind, String> slotBenefits) {
         return slotBenefits.get(slot.getKind());
+    }
+
+    /** 장소 식별자로 걸어 둔 값을 꺼낸다 — 식별자가 없는 칸(교통 거점)은 조회하지 않는다(#415). */
+    private static <T> T lookup(Map<String, T> byContentId, Slot slot) {
+        String contentId = slot.getPoiContentId();
+        return contentId == null ? null : byContentId.get(contentId);
     }
 
     /**
