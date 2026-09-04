@@ -30,6 +30,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -410,8 +411,69 @@ class CourseGenerateIntegrationTest {
 
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(transitBody("TRANSIT")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").value(NEAR_STATION))
+                // items[0] 은 도착 칸(역)이다(#415) — 첫 볼거리는 그 다음 칸이다
+                .andExpect(jsonPath("$.data.days[0].items[1].poiContentId").value(NEAR_STATION))
                 .andExpect(jsonPath("$.data.trainAccess.toStation").value(ARRIVAL_STATION));
+    }
+
+    @Test
+    void 대중교통_코스는_역에서_시작해_역에서_끝난다() throws Exception {
+        // 그 두 칸이 없으면 "역에서 첫 장소까지 어떻게 가지" 와 "언제 역으로 나서지" 를 코스 밖에서 계산한다(#415).
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainArrives(arrivingAt(8, 30));
+
+        String body = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("TRANSIT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
+                .andExpect(jsonPath("$.data.days[0].items[0].categoryLabel").value("도착"))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value(ARRIVAL_STATION))
+                .andExpect(jsonPath("$.data.days[0].items[0].order").value(1))
+                .andExpect(jsonPath("$.data.days[0].items[0].travelMinutes").value(0))
+                // 역·터미널은 장소 풀이 아니다 — 상세로 이어지지 않으므로 키를 지어내지 않는다
+                .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").doesNotExist())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        List<Map<String, Object>> lastDay = JsonPath.read(body, "$.data.days[-1:].items[-1:]");
+        Map<String, Object> tail = lastDay.getFirst();
+        assertEquals("DEPARTURE", tail.get("kind"), "마지막 칸은 다시 타는 지점이어야 한다");
+        assertEquals(ARRIVAL_STATION, tail.get("title"));
+        assertFalse(tail.containsKey("poiContentId"), "교통 거점 칸에는 장소 상세 키가 없다");
+    }
+
+    @Test
+    void 역에서_첫_장소까지의_이동시간이_채워진다() throws Exception {
+        // 예전에는 첫날 첫 칸이 곧바로 관광지라 이동시간이 0 이었다 — 역에서 거기까지 가는 시간이 없던 값이다(#415).
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainArrives(arrivingAt(8, 30));
+
+        String body = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("TRANSIT")))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        int distance = JsonPath.read(body, "$.data.days[0].items[1].distanceFromPrevMeters");
+        assertTrue(distance > 0, "역에서 첫 장소까지의 거리가 채워져야 한다");
+    }
+
+    @Test
+    void 자차_코스에는_교통_거점_칸이_없다() throws Exception {
+        // 내릴 역이 없다. 자차에도 접근 정보는 생기지만(#379) 그 도착 지점은 지역 중심이라 칸으로 세우면 거짓이 된다.
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+
+        String body = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        List<String> hubs = JsonPath.read(body,
+                "$.data.days[*].items[?(@.kind == 'ARRIVAL' || @.kind == 'DEPARTURE')].kind");
+        assertTrue(hubs.isEmpty(), "자차 코스에는 도착·출발 칸이 없어야 한다: " + hubs);
     }
 
     @Test
@@ -460,7 +522,7 @@ class CourseGenerateIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.days[0].items[0].timeOfDay").value("MORNING"))
                 // 시각은 몰라도 내리는 역은 안다 — 앵커는 그대로 도착역이다
-                .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").value(NEAR_STATION))
+                .andExpect(jsonPath("$.data.days[0].items[1].poiContentId").value(NEAR_STATION))
                 .andExpect(jsonPath("$.data.trainAccess.status").value("NO_SERVICE_ON_DATE"));
     }
 
