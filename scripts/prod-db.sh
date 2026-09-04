@@ -14,7 +14,8 @@
 #
 # 안전장치:
 #   - 기본이 읽기 전용 계정(offway)이다. 스키마 조회처럼 권한이 필요할 때만 --root.
-#   - INSERT/UPDATE/DELETE/DROP/TRUNCATE/ALTER 가 보이면 한 번 물어본다.
+#   - **조회가 아닌 구문이면 한 번 물어본다.** 위험한 낱말을 나열하는 대신 조회로 인정할 것만
+#     추려 두고, 나머지는 전부 묻는 쪽에 떨어뜨린다(fail closed).
 #     운영 DB 는 EC2 도커 안의 MySQL 하나뿐이고 스케일아웃이 없다.
 #
 # 접속 전제 — 보안그룹에 내 IP 가 22번으로 열려 있어야 한다. 배포 워크플로는 러너 IP 만 잠깐 열고
@@ -51,9 +52,44 @@ elif [ $# -gt 0 ]; then
   SQL="$*"
 fi
 
-# 쓰기로 보이면 한 번 묻는다. 완벽한 판별이 아니라 실수를 늦추는 턱이다.
-if [ -n "$SQL" ] && printf '%s' "$SQL" | grep -Eiq '\b(insert|update|delete|drop|truncate|alter|create|grant)\b'; then
-  echo "⚠️  쓰기로 보이는 구문이 있습니다. 운영 DB 는 하나뿐이고 스케일아웃이 없습니다." >&2
+# 읽기 전용으로 인정하는 구문의 첫 낱말. **이 목록에 없으면 묻는다.**
+#
+# 처음에는 반대로 짰다 — 위험한 낱말(insert·update·drop…)을 나열해 그게 보이면 묻는 방식이었다.
+# 그 방식은 늘 빠지는 게 생긴다. 실제로 `RENAME TABLE`(서비스 접근이 끊긴다)과 `REPLACE INTO`
+# (기존 행을 지우고 다시 넣는다)가 통째로 빠져 확인 없이 실행됐다. 하나를 더해도 다음 것이 또 빠진다.
+#
+# 그래서 뒤집는다. 이 스크립트로 하는 일은 사실상 조회뿐이라 인정 목록이 짧고, 모르는 구문은
+# 자동으로 묻는 쪽에 떨어진다(fail closed). 판별이 완벽할 필요가 없어지는 것이 요점이다.
+READ_ONLY_HEAD='select|show|describe|desc|explain|with'
+
+# 그래도 한 겹 더 둔다 — MySQL 8 은 `WITH cte AS (...) DELETE FROM ...` 를 허용해서,
+# 첫 낱말만 보면 CTE 뒤에 숨은 쓰기를 놓친다.
+WRITE_VERBS='insert|update|delete|replace|drop|truncate|alter|create|rename|grant|revoke|load|call|set|lock|flush|kill|optimize|repair|analyze|handler'
+
+# 주석을 걷어낸다. `-- 여기서 drop 하면 안 된다` 같은 설명에 헛되이 걸리지 않게, 그리고
+# 주석 뒤에 이어 붙인 구문을 놓치지 않게.
+strip_comments() {
+  sed -e 's:/\*[^*]*\*/: :g' -e 's/--[[:space:]].*$//' -e 's/#.*$//'
+}
+
+needs_confirmation() {
+  cleaned=$(printf '%s\n' "$1" | strip_comments)
+
+  # 구문마다 첫 낱말을 뽑는다. 여는 괄호는 건너뛴다 — `(SELECT ...) UNION ...` 도 조회다.
+  heads=$(printf '%s\n' "$cleaned" | tr ';' '\n' \
+            | sed -e 's/^[[:space:](]*//' \
+            | grep -oE '^[A-Za-z_]+' | tr '[:upper:]' '[:lower:]')
+
+  # 첫 낱말이 조회가 아닌 구문이 하나라도 있으면 묻는다.
+  if printf '%s\n' "$heads" | grep -v '^$' | grep -qvE "^($READ_ONLY_HEAD)$"; then
+    return 0
+  fi
+  # CTE 안에 숨은 쓰기.
+  printf '%s' "$cleaned" | grep -qiE "\b($WRITE_VERBS)\b"
+}
+
+if [ -n "$SQL" ] && needs_confirmation "$SQL"; then
+  echo "조회가 아닌 구문이 있습니다. 운영 DB 는 하나뿐이고 스케일아웃이 없습니다." >&2
   printf '%s\n' "$SQL" >&2
   printf '계속할까요? (yes 를 정확히 입력) ' >&2
   read -r answer
