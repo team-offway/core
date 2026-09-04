@@ -228,6 +228,12 @@ class CourseStorageIntegrationTest {
 
         long courseId = save(body);
 
+        // 목록 카드의 "N곳" 은 장소만 센다 — 역·터미널을 함께 세면 대중교통 코스만 부풀어 보인다
+        mockMvc.perform(get(URL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].courseId").value(courseId))
+                .andExpect(jsonPath("$.data[0].placeCount").value(1));
+
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))

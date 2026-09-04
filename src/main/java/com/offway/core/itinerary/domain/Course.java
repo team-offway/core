@@ -528,9 +528,27 @@ public class Course {
         }
     }
 
-    /** 코스 전체 슬롯(장소) 수. */
+    /**
+     * 코스 전체 슬롯 수 — 교통 거점 칸을 <b>포함한</b> 타임라인의 칸 수.
+     *
+     * <p>화면에 "장소 N곳" 으로 나가는 값은 이것이 아니라 {@link #placeCount()} 다.
+     */
     public int totalSlots() {
         return days.stream().mapToInt(DaySchedule::slotCount).sum();
+    }
+
+    /**
+     * 코스가 담은 <b>장소</b> 수 — 목록 카드의 "N곳" 이다.
+     *
+     * <p>교통 거점 칸(도착·출발)은 세지 않는다(#415). 역·터미널은 들르는 곳이지 코스가 고른 장소가
+     * 아니라, 함께 세면 <b>대중교통 코스만 장소가 두 곳 많아 보인다</b> — 같은 밀도로 뽑았는데
+     * 자차 코스와 숫자가 갈린다.
+     */
+    public int placeCount() {
+        return (int) days.stream()
+                .flatMap(day -> day.getSlots().stream())
+                .filter(slot -> slot.getKind().hasPlace())
+                .count();
     }
 
     /**

@@ -69,7 +69,7 @@ public record CourseSummaryResponse(
                 course.getDensity().name(),
                 myCourses.regionName(course),
                 myCourses.regionImage(course),
-                course.totalSlots(),
+                course.placeCount(),
                 myCourses.isDeducted(course),
                 myCourses.shareToken(course));
     }
