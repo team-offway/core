@@ -399,8 +399,10 @@ public class Course {
      * <p><b>걷어내기만 한다.</b> 반대 방향(첫날이 비었는데 이제 일찍 닿는다)은 채울 후보가 저장 코스에 없어
      * 외부를 다시 물어야 하고, 그러면 사용자가 고른 장소가 바뀐다. 그쪽은 호출자가 알려서 재생성을 권한다.
      *
-     * <p><b>숙박은 남긴다.</b> 시간대 판정을 타지 않는 슬롯이다 — 밤늦게 닿아도 잘 곳은 필요하다
-     * (생성 때의 {@code arrangeDay} 와 같은 규칙).
+     * <p><b>숙박과 교통 거점은 남긴다.</b> 시간대 판정을 타지 않는 슬롯이다 — 밤늦게 닿아도 잘 곳은
+     * 필요하고, 도착 칸은 그 늦은 도착 자체다(생성 때의 {@code arrangeDay} 와 같은 규칙). 무엇이 판정을
+     * 타는지는 {@link SlotKind#boundToTimeOfDay()} 가 소유한다 — 여기에 종류를 나열하면 새 종류가 생길
+     * 때마다 이 필터를 찾아와 고쳐야 한다.
      *
      * <p>첫날이 통째로 비면 그 날을 없애고 남은 날의 표시 번호를 다시 붙인다 — "일차는 1부터 연속" 이
      * 이 애그리거트의 불변식이다. 달력 오프셋은 그대로 둔다(#159).
@@ -411,7 +413,7 @@ public class Course {
         Objects.requireNonNull(start, "첫날 가용 시간대가 필요합니다");
         DaySchedule first = days.getFirst();
         List<Slot> kept = first.getSlots().stream()
-                .filter(slot -> slot.getKind() == SlotKind.STAY || start.allows(slot.getTimeOfDay()))
+                .filter(slot -> !slot.getKind().boundToTimeOfDay() || start.allows(slot.getTimeOfDay()))
                 .toList();
         int removed = first.slotCount() - kept.size();
         if (removed == 0) {
