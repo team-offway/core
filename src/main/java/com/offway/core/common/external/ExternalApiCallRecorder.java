@@ -44,6 +44,7 @@ public class ExternalApiCallRecorder {
      * <p>기록 실패가 외부 호출을 막지 않는다. 사용량 집계는 관측이지 기능이 아니다.
      */
     public void record(ExternalApi api) {
+        recordRequestUsage(api);
         try {
             LocalDate today = today();
             long used = repository.recordAndCount(api, today);
@@ -52,6 +53,24 @@ public class ExternalApiCallRecorder {
             notifyIfStepCrossed(api, today, used);
         } catch (RuntimeException e) {
             log.warn("외부 API 사용량 기록 실패 api={} cause={}", api, e.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * 이 요청이 태운 몫을 올린다(#421) — <b>DB 앞에 둔다</b>.
+     *
+     * <p>메모리 카운터 하나라 DB 가 흔들려도 이 숫자는 남는다. 뒤에 두면 저장소가 죽었을 때 요청 집계도
+     * 함께 사라지는데, 정작 그때가 <b>"쓰고도 결과가 없다" 를 봐야 하는 순간</b>이다.
+     *
+     * <p>집계가 안 열려 있으면 아무 일도 안 한다 — 배치는 이 알림 대상이 아니라 여는 곳이 없다.
+     *
+     * <p>{@code record} 의 규칙을 그대로 지킨다 — 여기서 던지면 총량 기록과 10% 알림이 통째로 막힌다.
+     */
+    private void recordRequestUsage(ExternalApi api) {
+        try {
+            CallerContext.usage().ifPresent(usage -> usage.record(api));
+        } catch (RuntimeException e) {
+            log.warn("요청 사용량 집계 실패 api={} cause={}", api, e.getClass().getSimpleName());
         }
     }
 
