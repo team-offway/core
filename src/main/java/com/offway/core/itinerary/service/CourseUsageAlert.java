@@ -84,8 +84,7 @@ public class CourseUsageAlert {
                         regionNameOf(command.regionId()),
                         command.travelDays(),
                         command.transport().label(),
-                        // 전문으로 싣는다 — 로그가 앞 8자를 쓰는 것은 칸 폭 때문이지 가리려는 것이 아니다.
-                        // 디스코드엔 맞출 칸이 없고, 전문이면 복붙으로 바로 조회된다.
+                        // 전문으로 싣는다 — 복붙으로 바로 조회된다.
                         userId == null ? UNKNOWN_USER : userId.toString(),
                         usage.total(),
                         breakdown(usage));
