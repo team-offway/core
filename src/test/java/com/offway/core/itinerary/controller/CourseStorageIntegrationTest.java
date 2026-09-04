@@ -249,6 +249,23 @@ class CourseStorageIntegrationTest {
     }
 
     @Test
+    void 자차_코스에_교통_거점_칸을_보내면_400이다() throws Exception {
+        // 생성은 대중교통일 때만 그 칸을 세우지만, 저장은 클라이언트가 보낸 것을 그대로 받는다(#415).
+        // 막지 않으면 "역에서 시작하는 자차 코스" 가 저장된다.
+        String invalid = """
+                { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"ARRIVAL","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":0},
+                    {"order":2,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":22}
+                  ]}
+                ]}""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(invalid))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    @Test
     void 장소_칸에_식별자가_없으면_400이다() throws Exception {
         // 종류를 봐야 필수인지 정해지므로 필드에 @NotBlank 를 못 건다. 그래도 계약 위반은 400 이어야 한다 —
         // 도메인에만 맡기면 클라이언트 실수가 500 으로 나간다.

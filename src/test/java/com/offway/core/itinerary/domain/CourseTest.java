@@ -268,6 +268,18 @@ class CourseTest {
     }
 
     @Test
+    void 자차_코스에_교통_거점_칸이_있으면_거부한다() {
+        // 생성은 수단으로 가르지만 저장·공유는 클라이언트가 보낸 것을 그대로 받는다(#415).
+        // 만든 쪽만 막으면 들어오는 쪽이 열려 있다.
+        List<DaySchedule> days = List.of(DaySchedule.of(1, List.of(
+                Slot.transitHub(1, TimeOfDay.MORNING, SlotKind.ARRIVAL, "정선역", 37.38, 128.66, 0),
+                slotAt(2, TimeOfDay.MORNING, SlotKind.SIGHT))));
+
+        assertThrows(IllegalArgumentException.class, () -> Course.of(42L, Density.PACKED, TransportMode.CAR,
+                days, LocalDate.of(2026, 9, 11), 1, StartDayLeave.FULL_DAY));
+    }
+
+    @Test
     void 교통_거점_칸은_장소_수에_안_들어간다() {
         // 목록 카드의 "N곳" 이다. 함께 세면 같은 밀도로 뽑았는데 대중교통 코스만 두 곳 많아 보인다(#415).
         Course course = Course.of(42L, Density.PACKED, TransportMode.TRANSIT,

@@ -172,6 +172,7 @@ public class Course {
         requireSequentialDays(days);
         requireIncreasingOffsets(days);
         requireSpanCovers(days, travelDays);
+        requireTransitHubsOnlyOnTransit(transport, days);
         this.userId = userId;
         this.regionId = Objects.requireNonNull(regionId, "지역 ID는 필수입니다");
         this.density = Objects.requireNonNull(density, "일정 밀도는 필수입니다");
@@ -637,6 +638,31 @@ public class Course {
                 throw new IllegalArgumentException(
                         "일차가 갈수록 날짜도 뒤여야 합니다: " + days.get(i - 1).getDayNumber() + "일차=시작+" + previous
                                 + "일, " + days.get(i).getDayNumber() + "일차=시작+" + current + "일");
+            }
+        }
+    }
+
+    /**
+     * 교통 거점 칸(도착·출발)은 <b>대중교통 코스에만</b> 있을 수 있다(#415).
+     *
+     * <p>자차는 내릴 역이 없다. 생성 경로는 이미 수단으로 가르지만 <b>저장·공유는 클라이언트가 보낸
+     * 것을 그대로 받는다</b> — {@code transport: CAR} 에 {@code ARRIVAL} 을 실어 보내면 "역에서
+     * 시작하는 자차 코스" 가 저장된다. 만든 쪽만 막으면 들어오는 쪽이 열려 있다.
+     *
+     * <p>도메인에 두는 이유는 <b>경로가 하나가 아니기 때문</b>이다. 저장·공유·날짜 수정이 각자
+     * {@code Course} 를 만드는데, 요청 DTO 에만 두면 그중 하나만 빠뜨려도 조용히 새어 들어온다.
+     * 여기서 막으면 누가 만들든 같은 결과가 나온다.
+     */
+    private static void requireTransitHubsOnlyOnTransit(TransportMode transport, List<DaySchedule> days) {
+        if (transport == TransportMode.TRANSIT) {
+            return;
+        }
+        for (DaySchedule day : days) {
+            for (Slot slot : day.getSlots()) {
+                if (!slot.getKind().hasPlace()) {
+                    throw new IllegalArgumentException(
+                            "대중교통 코스가 아닌데 " + slot.getKind().label() + " 칸이 있습니다: " + transport);
+                }
             }
         }
     }
