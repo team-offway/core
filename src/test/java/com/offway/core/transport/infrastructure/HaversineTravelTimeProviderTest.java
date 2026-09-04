@@ -3,7 +3,7 @@ package com.offway.core.transport.infrastructure;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.transport.service.TravelTimeProvider;
 import org.junit.jupiter.api.Test;

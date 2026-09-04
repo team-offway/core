@@ -2,7 +2,7 @@ package com.offway.core.region.service;
 
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
