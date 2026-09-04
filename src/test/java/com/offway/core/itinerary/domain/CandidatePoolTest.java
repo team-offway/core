@@ -3,7 +3,7 @@ package com.offway.core.itinerary.domain;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;

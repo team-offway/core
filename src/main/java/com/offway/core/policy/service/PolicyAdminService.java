@@ -8,8 +8,7 @@ import com.offway.core.policy.service.dto.PolicyCommand;
 import com.offway.core.policy.service.dto.PolicyScope;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.domain.RegionTagType;
-import com.offway.core.region.repository.RegionRepository;
-import com.offway.core.region.repository.RegionTagRepository;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.user.service.AdminAccountService;
 import java.util.Arrays;
 import java.util.List;
@@ -50,8 +49,7 @@ public class PolicyAdminService {
 
     private final PolicyRepository policyRepository;
     private final AdminAccountService adminAccountService;
-    private final RegionTagRepository regionTagRepository;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
 
     /**
      * 분류마다 <b>어느 지역에 뜨는지</b>(#393).
@@ -66,7 +64,7 @@ public class PolicyAdminService {
                 .distinct()
                 .collect(Collectors.toMap(
                         tag -> tag,
-                        tag -> regionRepository.findByIds(regionTagRepository.findRegionIdsByTag(tag))));
+                        tag -> regionQuery.byIds(regionQuery.idsWithTag(tag))));
         return Arrays.stream(PolicyType.values())
                 .map(type -> new PolicyScope(type, byTag.getOrDefault(type.targetTag(), List.of())))
                 .toList();
