@@ -16,6 +16,7 @@ import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -63,6 +64,7 @@ public class OpeningHoursProvider {
                 .map(DaySchedule::getSlots)
                 .flatMap(List::stream)
                 .map(Slot::getPoiContentId)
+                .filter(Objects::nonNull) // 교통 거점 칸은 장소가 아니라 운영시간이 없다(#415)
                 .distinct()
                 .toList();
         Map<String, OpeningHours> stored = poiIntroRepository.findByContentIds(contentIds);

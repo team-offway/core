@@ -34,7 +34,7 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "201", description = "저장 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음"
+            description = "코스 구성 오류(순서·좌표 등) · 장소 칸(SIGHT·FOOD·STAY)에 poiContentId 없음 · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음"
                     + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
@@ -62,7 +62,7 @@ public interface CourseStorageApi {
     @ApiResponse(responseCode = "201", description = "발급 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "코스 구성 오류(순서·좌표 등) · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음 · 출발지 위도·경도 중 하나만 보냄"
+            description = "코스 구성 오류(순서·좌표 등) · 장소 칸(SIGHT·FOOD·STAY)에 poiContentId 없음 · Day 날짜가 여행 시작일보다 앞서거나 기간을 넘음 · 출발지 위도·경도 중 하나만 보냄"
                     + " · 첫날 연차 단위가 목록에 없는 값(FULL_DAY·HALF_DAY·QUARTER_DAY)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
