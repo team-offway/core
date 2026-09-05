@@ -1,6 +1,8 @@
 package com.offway.core.trip.controller.dto;
 
 import com.offway.core.common.logging.LogSummary;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import com.offway.core.curation.controller.dto.CuratedLinkResponse;
 import com.offway.core.curation.domain.CuratedLink;
 import com.offway.core.trip.domain.PoiContentType;
@@ -8,6 +10,7 @@ import com.offway.core.trip.domain.PoiIntro;
 import com.offway.core.trip.service.dto.PoiDetail;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -36,7 +39,7 @@ import java.util.function.Function;
  * @param food 음식점 보조정보(음식점이 아니면 null)
  * @param stay 숙박 보조정보(숙박이 아니면 null)
  * @param mapSearchUrl 지도 검색 링크(인허가·국가유산만. 관광 API 콘텐츠는 null)
- * @param benefit 장소 단위 혜택 문구(단정 가능한 것만. 없으면 null)
+ * @param benefit 장소 단위 혜택(단정 가능한 것만. 없으면 null). 홈·지역 상세와 같은 모양이다(#413)
  * @param catchphrase 구석구석 캐치프레이즈(감성 한 줄, 없으면 null)
  * @param curatedLinks 외부 페이지로 나가는 창구(#341). 장소 상세에 켜진 것만, 정렬 순으로.
  *     없으면 빈 목록이다 — 위 블록들과 달리 null 이 아니다
@@ -64,14 +67,34 @@ public record PoiDetailResponse(
                 example = "https://map.naver.com/p/search/%EC%9D%98%EC%84%B1%EA%B5%B0+%EC%98%AC%EC%9D%B8%EB%AA%A8%ED%85%94",
                 nullable = true) String mapSearchUrl,
         @Schema(description = "이 장소에서 쓸 수 있는 혜택(#172). 단정할 수 있는 것만 — 지금은 숙박세일페스타(숙소)뿐이다. "
-                + "관광 API 콘텐츠는 지역을 알 수 없어 비어 있다.",
-                example = "숙박 할인", nullable = true) String benefit,
+                + "관광 API 콘텐츠는 지역을 알 수 없어 비어 있다. "
+                + "홈·지역 상세와 같은 모양이다(#413) — 예전에는 문구 하나짜리 문자열이라 눌러도 갈 곳이 없었다.",
+                nullable = true) BenefitResponse benefit,
         @Schema(example = "바다 위에 뜬 낭만, 완도의 랜드마크", nullable = true) String catchphrase,
         List<CuratedLinkResponse> curatedLinks)
-        implements LogSummary {
+        implements LogSummary, Attributed {
 
     /** 예: {@code 완도타워 전망대(관광지)}. id 는 경로에 이미 있으므로 되풀이하지 않는다. */
     private static final String LOG_FORMAT = "%s(%s)";
+
+    /**
+     * 이 장소를 만든 기관과, <b>거기에 얹힌 공사 값</b>(#399).
+     *
+     * <p>식별자가 기본 출처를 정한다 — 접두어가 없으면 관광 API 콘텐츠고, {@code LIC-}·{@code HER-} 면
+     * 인허가·국가유산이다.
+     *
+     * <p>그런데 인허가 장소에도 <b>캐치프레이즈는 공사 것</b>("대한민국 구석구석")이다. 그래서 값이 실제로
+     * 실렸을 때만 공사를 더한다 — 붙어 있지도 않은 출처를 표기하지 않으려는 것이고, 반대로 빠뜨리면
+     * 표기 누락이다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        DataSource origin = PlaceDataSources.of(contentId);
+        if (catchphrase == null || origin == DataSource.KTO) {
+            return Set.of(origin);
+        }
+        return Set.of(origin, DataSource.KTO);
+    }
 
     /**
      * 관광지(12) — 우리 89곳 실측 이용시간 100% · 휴무일 100% · 주차 87%.
@@ -153,7 +176,7 @@ public record PoiDetailResponse(
                 blockFor(type, PoiContentType.STAY, intro,
                         it -> new Stay(it.checkIn(), it.checkOut(), it.roomCount(), it.reservation())),
                 poi.mapSearchUrl(),
-                poi.benefit(),
+                BenefitResponse.from(poi.benefit()),
                 poi.catchphrase(),
                 CuratedLinkResponse.from(curatedLinks));
     }

@@ -1,6 +1,6 @@
 package com.offway.core.transport.service;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.Port;
 import com.offway.core.transport.domain.RegionArrival;
 import com.offway.core.transport.domain.Terminal;
@@ -14,6 +14,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import com.offway.core.transport.domain.Departure;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,15 +46,20 @@ public class RegionAccessService {
     private final BusTerminalResolver busTerminalResolver;
     private final FerryPortResolver ferryPortResolver;
     private final TransitDurationService transitDurationService;
+    private final TransitDepartureService transitDepartureService;
     private final TravelTimeProvider travelTimeProvider;
 
     /**
      * 출발 좌표에서 목적지 좌표(지역)까지, 해당 날짜의 대중교통 접근.
      *
-     * @param notBefore 집을 나서는 시각 — 이 시각 이후에 떠나는 편만 고른다(#138)
+     * @param plannedDeparture 집을 나서기로 한 시각 — 이 시각 이후에 떠나는 편만 고른다(#138).
+     *     <b>오늘 코스면 지금 시각이 바닥이 된다</b>(#422)
      */
     public RegionAccess accessTo(
-            double originLat, double originLng, double destLat, double destLng, LocalDate date, LocalTime notBefore) {
+            double originLat, double originLng, double destLat, double destLng, LocalDate date, LocalTime plannedDeparture) {
+        // **여기 한 곳에서 바닥을 정한다**(#422). 오늘 코스면 계획 시각이 이미 지났을 수 있어, 그대로
+        // 쓰면 못 타는 차가 목록 맨 위에 뜬다. 아래 열차·버스·여객선이 전부 이 값을 쓴다.
+        LocalTime notBefore = Departure.boardableFrom(date, plannedDeparture, LocalDateTime.now(SERVICE_ZONE));
         RegionAccess train = trainAccessService.accessTo(originLat, originLng, destLat, destLng, date, notBefore);
         Optional<Terminal> destTerminal = busTerminalResolver.nearest(destLat, destLng);
         Optional<Port> destPort = ferryPortResolver.nearest(destLat, destLng);
@@ -66,11 +72,20 @@ public class RegionAccessService {
             // 열차만 보던 시절 이 지역은 도착 지점을 몰라 출발지로 되돌아갔다. 무엇이 그 자리를 채웠는지 남긴다.
             log.debug("도착 지점을 {}(으)로 잡습니다 — 열차 상태={} 지점={}",
                     chosen.mode().label(), train.status(), chosen.toName());
-            chosen = chosen.withDuration(
-                    durationOf(chosen.mode(), originLat, originLng, destTerminal, destPort).orElse(null));
+            // 출발 지점명을 함께 싣는다(#396). 서버는 이미 이 지점을 찾고 있었는데 조회에만 쓰고
+            // 이름을 버려, 버스·여객선 카드만 "어디서 타는지" 가 빈 채로 나갔다.
+            chosen = chosen
+                    .withFromName(departurePoint(chosen.mode(), originLat, originLng, destTerminal, destPort)
+                            .map(RegionArrival::name)
+                            .orElse(null))
+                    .withDuration(
+                            durationOf(chosen.mode(), originLat, originLng, destTerminal, destPort).orElse(null))
+                    .withDepartures(departuresOf(
+                            chosen.mode(), originLat, originLng, destTerminal, destPort, date, notBefore));
         }
         return chosen.withDistanceKm(distanceKm(new Coordinate(originLat, originLng), chosen.arrivalPoint()))
-                .withAlternatives(alternativesTo(chosen, train, destTerminal, destPort));
+                .withAlternatives(alternativesTo(
+                        chosen, train, destTerminal, destPort, originLat, originLng, date, notBefore));
     }
 
     /**
@@ -112,20 +127,46 @@ public class RegionAccessService {
      *
      * <p>소요시간은 여기서 새로 재지 않는다. 대안까지 구간을 물으면 요청 하나에 조회가 수단 수만큼 늘고,
      * 그 값을 화면이 실제로 쓰는지도 아직 모른다. 대표가 가진 값만 그대로 옮긴다.
+     *
+     * <p><b>시간표는 다르다</b>(#414). "무엇으로, 어디에, 몇 분" 만으로는 대안을 고를 수 없다 — 시외버스가
+     * 40분 더 걸려도 지금 바로 타는 편이 있으면 그쪽을 고른다. 그래서 대안에도 붙인다.
+     *
+     * <p>대신 <b>조회창이 그 비용을 막는다</b>. 여행일이 창 밖이면 어느 수단도 안 묻고(대부분의 코스가
+     * 그렇다), 창 안이어도 열차는 이미 받아 둔 하루치에서 고르므로 공짜다. 실제로 느는 것은 버스·여객선
+     * 대안뿐이고, 이 지역에 닿는 수단이 셋을 넘지 않아 <b>코스 하나에 최대 3건</b>이다.
      */
-    private static List<TransitOption> alternativesTo(
-            RegionAccess chosen, RegionAccess train, Optional<Terminal> destTerminal, Optional<Port> destPort) {
+    private List<TransitOption> alternativesTo(
+            RegionAccess chosen, RegionAccess train, Optional<Terminal> destTerminal, Optional<Port> destPort,
+            double originLat, double originLng, LocalDate date, LocalTime notBefore) {
         List<TransitOption> others = new ArrayList<>();
         if (chosen.mode() != TransitMode.TRAIN && train.toName() != null) {
-            others.add(new TransitOption(TransitMode.TRAIN, train.toName(), trainMinutes(train)));
+            others.add(TransitOption.builder()
+                    .mode(TransitMode.TRAIN)
+                    .toName(train.toName())
+                    .durationMinutes(trainMinutes(train))
+                    // 열차 시간표는 이미 대표 계산에서 받아 둔 하루치에 있다 — 호출이 늘지 않는다.
+                    .departures(train.departures())
+                    .build());
         }
         destTerminal
                 .filter(terminal -> TransitMode.of(terminal.kind()) != chosen.mode())
-                .ifPresent(terminal ->
-                        others.add(new TransitOption(TransitMode.of(terminal.kind()), terminal.name(), null)));
+                .ifPresent(terminal -> {
+                    TransitMode mode = TransitMode.of(terminal.kind());
+                    others.add(TransitOption.builder()
+                            .mode(mode)
+                            .toName(terminal.name())
+                            .departures(departuresOf(
+                                    mode, originLat, originLng, destTerminal, destPort, date, notBefore))
+                            .build());
+                });
         destPort
                 .filter(port -> chosen.mode() != TransitMode.FERRY)
-                .ifPresent(port -> others.add(new TransitOption(TransitMode.FERRY, port.name(), null)));
+                .ifPresent(port -> others.add(TransitOption.builder()
+                        .mode(TransitMode.FERRY)
+                        .toName(port.name())
+                        .departures(departuresOf(
+                                TransitMode.FERRY, originLat, originLng, destTerminal, destPort, date, notBefore))
+                        .build()));
         return List.copyOf(others);
     }
 
@@ -147,17 +188,66 @@ public class RegionAccessService {
             TransitMode mode, double originLat, double originLng,
             Optional<Terminal> destTerminal, Optional<Port> destPort) {
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+        return departurePoint(mode, originLat, originLng, destTerminal, destPort)
+                .flatMap(from -> arrivalCode(mode, destTerminal, destPort)
+                        .flatMap(toCode -> transitDurationService.minutesFor(mode, from.code(), toCode, now)));
+    }
+
+    /**
+     * 이 수단으로 탈 때 <b>출발 쪽</b> 지점(#396).
+     *
+     * <p>예전에는 소요시간과 시간표가 각자 같은 해석을 했다. 셋째(출발 지점명)를 붙이면서 한 자리로
+     * 모았다 — 세 벌이 갈리면 <b>카드에 뜨는 이름과 실제로 조회한 구간이 어긋난다.</b>
+     *
+     * <p>버스는 <b>도착 터미널과 같은 종류</b>로 찾는다. 고속·시외는 코드 공간이 겹치지 않아, 섞어
+     * 물으면 제공기관이 알 수 없는 코드로 읽는다.
+     *
+     * <p>여객선은 출발 항구가 반경 안에 있어야 한다. 서울에서 울릉도는 여기서 빈 값이 되는데
+     * <b>맞는 답이다</b> — 서울에는 항구가 없다.
+     */
+    private Optional<RegionArrival> departurePoint(
+            TransitMode mode, double originLat, double originLng,
+            Optional<Terminal> destTerminal, Optional<Port> destPort) {
         return switch (mode) {
-            case EXPRESS_BUS, INTERCITY_BUS -> destTerminal.flatMap(arrival ->
-                    busTerminalResolver.nearest(originLat, originLng, arrival.kind())
-                            .flatMap(departure -> transitDurationService.minutesFor(
-                                    mode, departure.code(), arrival.code(), now)));
-            case FERRY -> destPort.flatMap(arrival ->
-                    ferryPortResolver.nearest(originLat, originLng)
-                            .flatMap(departure -> transitDurationService.minutesFor(
-                                    mode, departure.code(), arrival.code(), now)));
+            case EXPRESS_BUS, INTERCITY_BUS -> destTerminal
+                    .flatMap(arrival -> busTerminalResolver.nearest(originLat, originLng, arrival.kind()))
+                    .map(RegionArrival::of);
+            case FERRY -> destPort.isPresent()
+                    ? ferryPortResolver.nearest(originLat, originLng).map(RegionArrival::of)
+                    : Optional.empty();
             // 구간 표를 쓰지 않는 둘. 열차는 실제 시각을 직접 답하고, 자차는 구간이 없다(#379).
             case TRAIN, CAR -> Optional.empty();
         };
+    }
+
+    /** 도착 쪽 지점 코드 — 구간 조회의 반대편이다. */
+    private static Optional<String> arrivalCode(
+            TransitMode mode, Optional<Terminal> destTerminal, Optional<Port> destPort) {
+        return switch (mode) {
+            case EXPRESS_BUS, INTERCITY_BUS -> destTerminal.map(Terminal::code);
+            case FERRY -> destPort.map(Port::code);
+            case TRAIN, CAR -> Optional.empty();
+        };
+    }
+
+    /**
+     * 버스·여객선의 시간표(#414) — <b>여행일이 조회창 안일 때만</b> 채워진다.
+     *
+     * <p>창 밖이면 {@link TransitDepartureService} 가 외부를 안 치고 빈 목록을 준다. 연차 기준으로 다음 달
+     * 코스를 짜는 서비스라 대부분이 창 밖이고, 그때 이 경로는 호출을 한 건도 쓰지 않는다.
+     *
+     * <p>창 안일 때 <b>코스 하나에 한 건</b>이다 — 대표 수단의 구간 하나만 묻는다. 열차는 여기 오지 않는다
+     * ({@code TrainAccessService} 가 이미 받아 둔 하루치에서 고른다).
+     */
+    private List<Departure> departuresOf(
+            TransitMode mode, double originLat, double originLng,
+            Optional<Terminal> destTerminal, Optional<Port> destPort, LocalDate date, LocalTime notBefore) {
+        LocalDate today = LocalDate.now(SERVICE_ZONE);
+        List<Departure> all = departurePoint(mode, originLat, originLng, destTerminal, destPort)
+                .flatMap(from -> arrivalCode(mode, destTerminal, destPort)
+                        .map(toCode -> transitDepartureService.departures(
+                                mode, from.code(), toCode, date, today)))
+                .orElseGet(List::of);
+        return Departure.upcoming(all, notBefore);
     }
 }

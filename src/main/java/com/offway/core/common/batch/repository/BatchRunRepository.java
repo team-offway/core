@@ -1,7 +1,9 @@
 package com.offway.core.common.batch.repository;
 
+import com.offway.core.common.batch.domain.BatchRun;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /** 배치 실행 기록 port(#226). 구현은 {@link BatchRunRepositoryImpl}. */
 public interface BatchRunRepository {
@@ -42,4 +44,14 @@ public interface BatchRunRepository {
      * @return 이번 호출이 그 날짜를 처음 선점했으면 {@code true}. 이미 누가 잡았으면 {@code false}
      */
     boolean tryStartOn(String name, LocalDate date, LocalDateTime at);
+
+    /**
+     * 기록이 있는 배치 전부 — <b>마지막으로 언제 돌았나</b>(#398).
+     *
+     * <p>한도를 태우는 쪽이 대부분 배치라, 사용량 그래프가 튄 날을 설명하려면 그날 무엇이 돌았는지를
+     * 함께 봐야 한다.
+     *
+     * <p>행 수는 배치 종류만큼이라(현재 열 남짓) 상한을 따로 두지 않는다. 이름 순으로 온다.
+     */
+    List<BatchRun> all();
 }

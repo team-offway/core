@@ -16,8 +16,10 @@ const UPLOADS_API = '/api/v1/admin/uploads';
 
 const POLICIES_API = '/api/v1/admin/policies';
 
+const POLICY_SCOPES_API = `${POLICIES_API}/scopes`;
+
 /**
- * 7대 혜택 분류 — PolicyType 과 짝이다.
+ * 혜택 분류 — PolicyType 과 짝이다.
  *
  * **뱃지 문구를 여기 적어 두는 것은 미리보기 때문이다.** 실제 문구는 서버가 badgeText 로 내려주므로
  * 저장된 정책은 그 값을 쓴다. 여기 값은 아직 저장 전인 폼에서 "이 분류를 고르면 뱃지가 뭐가 되나" 를
@@ -81,6 +83,14 @@ let editing = null;
 /** 정책 목록·편집 대상. 링크와 같은 구조를 따로 든다 — 두 탭이 서로의 상태를 밟지 않게. */
 let policies = [];
 let editingPolicy = null;
+
+/**
+ * 분류별 대상 지역(#393) — 서버가 소유한다.
+ *
+ * POLICY_TYPES 의 scope 문구는 "비수도권 인구감소지역" 처럼 **성격만** 말한다. 그게 몇 곳인지는
+ * 지역 태그를 세야 알고, 그건 서버만 할 수 있다.
+ */
+let policyScopes = null;
 
 /**
  * 업로드 세대. 파일을 연속으로 고르거나 올리는 중에 편집기를 다시 열면 요청이 겹친다.
@@ -652,18 +662,52 @@ function consoleTabs() {
     return document.querySelectorAll('nav.tabs .tab');
 }
 
-/** 탭 전환 — 패널만 갈아 끼운다. 각 탭은 자기 데이터를 자기가 들고 있다. */
+/**
+ * 화면 이름 → 패널 id. **여기 한 줄이 화면 하나다.**
+ *
+ * 예전에는 showTab 안에 `$('tab-links').hidden = ...` 을 화면 수만큼 늘어놓았다. 화면이 셋이 되면서
+ * 늘어놓는 방식이 한계에 왔고(#398), 넷째(#403 연동 제어)가 곧 붙는다. 표로 두면 새 화면이 이 객체에
+ * 한 줄 더하는 것으로 끝난다.
+ */
+const PANELS = {
+    links: 'tab-links',
+    policies: 'tab-policies',
+    externals: 'tab-externals',
+};
+
+/** 그 화면을 처음 열 때 한 번 채운다. 각 화면은 자기 데이터를 자기가 들고 있다. */
+const LOADERS = {
+    policies: () => policies.length || reloadPolicies(),
+    externals: () => externals || reloadExternals(),
+};
+
+/** 화면 전환 — 패널만 갈아 끼운다. */
 function showTab(name) {
     // **nav 로 좁힌다.** 썸네일 칸에도 class="tabs" 가 있어, 좁히지 않으면 그 버튼을 누를 때
-    // showTab(undefined) 가 돌아 두 패널이 함께 숨는다.
+    // showTab(undefined) 가 돌아 패널이 전부 숨는다.
     consoleTabs().forEach((tab) => {
         tab.classList.toggle('is-active', tab.dataset.tab === name);
     });
-    $('tab-links').hidden = name !== 'links';
-    $('tab-policies').hidden = name !== 'policies';
-    if (name === 'policies' && !policies.length) {
-        reloadPolicies();
+    Object.entries(PANELS).forEach(([tab, panelId]) => {
+        $(panelId).hidden = tab !== name;
+    });
+    if (LOADERS[name]) {
+        LOADERS[name]();
     }
+}
+
+/** 이 분류가 닿는 지역. 아직 안 받았으면 null — 화면은 곳 수 없이 성격만 보여준다. */
+function scopeOf(value) {
+    return (policyScopes || []).find((scope) => scope.type === value) || null;
+}
+
+/** 대상 지역을 한 줄로 — "비수도권 인구감소지역 · 85곳". 곳 수를 모르면 성격만. */
+function scopeText(type) {
+    if (!type) {
+        return '';
+    }
+    const scope = scopeOf(type.value);
+    return scope ? `${type.scope} · ${scope.regionCount}곳` : type.scope;
 }
 
 function typeOf(value) {
@@ -722,6 +766,7 @@ function renderPolicies() {
         const type = typeOf(policy.type);
         tr.appendChild(cell(type ? type.name : policy.type, 'type'));
         tr.appendChild(policyTitleCell(policy));
+        tr.appendChild(scopeCell(policy.type));
         tr.appendChild(cell(policyPeriodText(policy), 'period'));
         tr.appendChild(cell(policy.checkedOn || '-', 'checked'));
         tr.appendChild(verifiedCell(policy.verified));
@@ -730,6 +775,27 @@ function renderPolicies() {
     });
 
     $('policy-count').textContent = `${visible.length}건 / 전체 ${policies.length}건`;
+}
+
+/**
+ * 이 정책이 <b>몇 곳에 뜨는지</b>(#393).
+ *
+ * 예전 목록은 이걸 아예 말하지 않아, 85곳짜리와 25곳짜리가 화면에서 똑같아 보였다.
+ */
+function scopeCell(typeValue) {
+    const td = document.createElement('td');
+    td.className = 'scope';
+    const scope = scopeOf(typeValue);
+    if (!scope) {
+        td.textContent = '-';
+        return td;
+    }
+    td.appendChild(el('b', null, `${scope.regionCount}곳`));
+    const type = typeOf(typeValue);
+    if (type) {
+        td.appendChild(el('small', 'by', type.scope));
+    }
+    return td;
 }
 
 function policyTitleCell(policy) {
@@ -784,6 +850,8 @@ async function reloadPolicies() {
             page += 1;
         }
         policies = collected;
+        // 대상 지역은 분류가 정하는 값이라 정책 수와 무관하게 한 번이면 된다.
+        policyScopes = policyScopes || (await call(POLICY_SCOPES_API)).data;
         renderPolicies();
     } catch (error) {
         setPolicyMessage(error.message);
@@ -933,12 +1001,331 @@ function refreshPolicyPreview() {
     $('policy-preview-detail').textContent = draft.benefitDetail;
     $('policy-preview-detail').hidden = !draft.benefitDetail;
 
-    const scope = type ? `대상 지역: ${type.scope}` : '';
+    const scope = type ? `대상 지역: ${scopeText(type)}` : '';
     $('policy-type-note').textContent = scope;
     $('policy-preview-note').textContent = draft.verified
         ? scope
         : '검증을 켜지 않아 앱에 나가지 않습니다.';
+    renderPolicyScope(draft.type);
 }
+
+/**
+ * 분류를 바꾸면 대상이 어떻게 달라지는지 그 자리에서 보인다(#393).
+ *
+ * 숙박세일페스타 85곳과 반값여행 25곳은 60곳 차이다. 분류를 잘못 고르면 그만큼이 조용히 줄어드는데,
+ * 예전 화면은 문구 한 줄만 바뀌어 그 사실이 안 보였다.
+ */
+function renderPolicyScope(typeValue) {
+    const box = $('policy-scope');
+    const scope = scopeOf(typeValue);
+    if (!scope) {
+        box.hidden = true;
+        return;
+    }
+    box.hidden = false;
+    $('policy-scope-summary').textContent = `대상 지역 ${scope.regionCount}곳 — 펼쳐 보기`;
+
+    const list = $('policy-scope-regions');
+    list.innerHTML = '';
+    scope.regions.forEach((region) => list.appendChild(el('span', 'scope-chip', region.name)));
+    if (!scope.regions.length) {
+        list.appendChild(el('span', 'note', '이 분류에 묶인 지역이 아직 없습니다.'));
+    }
+}
+
+
+// ---------------------------------------------------------------- 외부 API
+
+/**
+ * 마지막으로 받은 연동 현황(#398).
+ *
+ * 화면을 다시 열 때 다시 부르지 않는다. 이 값은 배치가 채우는 것이라 몇 초 사이에 바뀌지 않고,
+ * 새로 보고 싶으면 새로고침이 있다.
+ */
+let externals = null;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) {
+        node.className = className;
+    }
+    if (text !== undefined && text !== null) {
+        node.textContent = text;
+    }
+    return node;
+}
+
+function num(value) {
+    return Number(value || 0).toLocaleString('ko-KR');
+}
+
+function setExternalMessage(text) {
+    const node = $('external-message');
+    node.textContent = text || '';
+    node.hidden = !text;
+}
+
+async function reloadExternals() {
+    setExternalMessage('불러오는 중…');
+    try {
+        const days = $('filter-days').value;
+        const body = await call(`/api/v1/admin/external-apis?days=${encodeURIComponent(days)}`);
+        externals = body.data;
+        renderExternals();
+        setExternalMessage(null);
+    } catch (error) {
+        // 실패를 조용히 넘기지 않는다 — 빈 화면은 "연동이 없다" 로 읽힌다.
+        externals = null;
+        $('external-body').hidden = true;
+        setExternalMessage(error.message || DEFAULT_ERROR);
+    }
+}
+
+function renderExternals() {
+    if (!externals) {
+        return;
+    }
+    $('external-body').hidden = false;
+    $('external-count').textContent =
+        `연동 ${externals.apis.length}개 · ${externals.from} ~ ${externals.to} (${externals.days}일)`;
+    renderApiList();
+    renderDailyBars();
+    renderBatches();
+}
+
+function renderApiList() {
+    const list = $('api-list');
+    list.innerHTML = '';
+    externals.apis.forEach((api) => list.appendChild(apiCard(api)));
+}
+
+function apiCard(api) {
+    const card = el('article', 'api-card');
+    if (api.periodTotal === 0) {
+        // 기간 내 한 번도 안 부른 연동. 지우지 않고 옅게 둔다 — 안 쓰는 연동이 보여야 한다.
+        card.classList.add('is-idle');
+    }
+
+    const head = el('div', 'api-head');
+    head.appendChild(el('b', null, api.label));
+    head.appendChild(el('code', null, api.name));
+    head.appendChild(el('span', 'spacer'));
+    head.appendChild(el('span', 'api-today',
+        `오늘 ${num(api.todayUsed)} / ${num(api.dailyLimit)}`));
+    card.appendChild(head);
+
+    card.appendChild(meter(api.todayUsedRate));
+
+    const totals = el('p', 'api-totals');
+    totals.appendChild(el('span', null, `${externals.days}일 합계 ${num(api.periodTotal)}`));
+    totals.appendChild(el('span', 'sep', '·'));
+    totals.appendChild(el('span', null, `배치 ${num(api.batchTotal)}`));
+    totals.appendChild(el('span', 'sep', '·'));
+    // 사용자 요청 몫을 강조한다 — "서비스가 요청마다 실제로 부른다" 를 보이는 값이다.
+    totals.appendChild(el('b', null, `사용자 요청 ${num(api.requestTotal)}`));
+    card.appendChild(totals);
+
+    if (api.callers.length) {
+        card.appendChild(callerLine(api.callers));
+    }
+    if (api.flows.length) {
+        card.appendChild(flowList(api.flows));
+    }
+    card.appendChild(apiControls(api));
+    return card;
+}
+
+/**
+ * 연동 하나를 조절한다(#403).
+ *
+ * 캐시를 끄면 그 연동은 매번 실호출한다 — 한도를 더 태우는 대신 값이 늘 최신이 된다. 그래서 누르기
+ * 전에 지금 무엇이 바뀌는지 곁에 적어 둔다.
+ */
+function apiControls(api) {
+    const row = el('div', 'api-controls');
+
+    const cache = el('label', 'switch');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = api.cacheEnabled;
+    box.addEventListener('change', () => saveApi(api, {cacheEnabled: box.checked, batchLimit: api.batchLimit}));
+    cache.appendChild(box);
+    cache.appendChild(el('span', null, '캐시 사용'));
+    row.appendChild(cache);
+
+    const limit = el('label', 'switch');
+    limit.appendChild(el('span', null, '배치 상한'));
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'limit';
+    input.min = '0';
+    input.max = String(api.dailyLimit);
+    input.placeholder = '무제한';
+    input.value = api.batchLimit === null || api.batchLimit === undefined ? '' : String(api.batchLimit);
+    input.addEventListener('change', () => saveApi(api, {
+        cacheEnabled: api.cacheEnabled,
+        batchLimit: input.value === '' ? null : Number(input.value),
+    }));
+    limit.appendChild(input);
+    row.appendChild(limit);
+
+    row.appendChild(el('span', 'spacer'));
+    if (!api.settingDefault) {
+        // 기본에서 벗어난 것을 드러낸다 — 안 그러면 몇 달 뒤 "왜 이게 꺼져 있지" 가 된다.
+        row.appendChild(el('span', 'touched', '기본값 아님'));
+    }
+    return row;
+}
+
+async function saveApi(api, body) {
+    await applySetting(`/api/v1/admin/external-apis/${encodeURIComponent(api.name)}`, body);
+}
+
+async function saveBatch(name, enabled) {
+    await applySetting(`/api/v1/admin/external-apis/batches/${encodeURIComponent(name)}`, {enabled});
+}
+
+/** 응답이 현황 전체라 그대로 다시 그린다 — 바꾼 한 줄만 고치면 소진율·예상 콜 수가 어긋난다. */
+async function applySetting(path, body) {
+    setExternalMessage('저장 중…');
+    try {
+        const result = await call(path, {method: 'PATCH', body: JSON.stringify(body)});
+        externals = result.data;
+        renderExternals();
+        setExternalMessage(null);
+    } catch (error) {
+        // 되돌리기를 기다린 뒤 오류를 다시 세운다. 안 기다리면 reloadExternals 가 '불러오는 중…'
+        // 으로 덮고, 그 재로딩이 성공하면 메시지를 아예 지운다 — 입력칸 값만 조용히 제자리로
+        // 돌아가 "왜 안 바뀌지" 가 된다. 배치 상한을 한도보다 크게 넣었을 때가 그 자리다.
+        const failure = error.message || DEFAULT_ERROR;
+        // 실패했으면 화면이 거짓말하지 않게 서버 값으로 되돌린다.
+        await reloadExternals();
+        setExternalMessage(failure);
+    }
+}
+
+/** 소진율 막대. 70% 를 넘으면 색이 바뀐다 — 디스코드 경보가 우는 지점과 같다. */
+function meter(rate) {
+    const bar = el('div', 'meter');
+    const fill = el('div', 'meter-fill');
+    fill.style.width = `${Math.max(0, Math.min(100, rate))}%`;
+    if (rate >= 90) {
+        fill.classList.add('is-danger');
+    } else if (rate >= 70) {
+        fill.classList.add('is-warn');
+    }
+    bar.appendChild(fill);
+    return bar;
+}
+
+function callerLine(callers) {
+    const line = el('p', 'api-callers');
+    callers.slice(0, 5).forEach((share, index) => {
+        if (index > 0) {
+            line.appendChild(el('span', 'sep', '·'));
+        }
+        const chip = el('span', share.fromRequest ? 'caller is-request' : 'caller');
+        chip.appendChild(el('span', 'caller-name', share.caller));
+        chip.appendChild(el('span', 'caller-count', num(share.count)));
+        line.appendChild(chip);
+    });
+    if (callers.length > 5) {
+        line.appendChild(el('span', 'sep', '·'));
+        line.appendChild(el('span', 'caller', `외 ${callers.length - 5}`));
+    }
+    return line;
+}
+
+/** 어느 화면이 이 API 를 어떻게 쓰나. 서버의 DataFlow 가 소유하는 값이다. */
+function flowList(flows) {
+    const wrap = el('ul', 'flows');
+    flows.forEach((flow) => {
+        const item = el('li');
+        item.appendChild(el('span', `mode mode-${flow.modeName}`, flow.mode));
+        item.appendChild(el('b', null, flow.screen));
+        item.appendChild(el('span', 'flow-note', flow.note));
+        item.title = `${flow.path}\n${flow.modeDetail}`;
+        wrap.appendChild(item);
+    });
+    return wrap;
+}
+
+function renderDailyBars() {
+    const wrap = $('daily-bars');
+    wrap.innerHTML = '';
+    const peak = Math.max(1, ...externals.daily.map((day) => day.total));
+
+    $('daily-note').textContent = externals.daily.some((day) => day.total > 0)
+        ? `가장 많은 날 ${num(peak)}회. 월배치가 도는 날이 튑니다 — 매월 1일과 5일을 보세요.`
+        : '이 기간에 기록이 없습니다.';
+
+    externals.daily.forEach((day) => {
+        const row = el('div', 'bar-row');
+        row.appendChild(el('span', 'bar-date', day.date.slice(5)));
+        const track = el('div', 'bar-track');
+        const fill = el('div', 'bar-fill');
+        fill.style.width = `${(day.total / peak) * 100}%`;
+        track.appendChild(fill);
+        row.appendChild(track);
+        row.appendChild(el('span', 'bar-count', num(day.total)));
+        row.title = Object.entries(day.counts)
+            .sort((a, b) => b[1] - a[1])
+            .map(([api, count]) => `${api} ${num(count)}`)
+            .join('\n') || '기록 없음';
+        wrap.appendChild(row);
+    });
+}
+
+function renderBatches() {
+    const rows = $('batch-rows');
+    rows.innerHTML = '';
+    if (!externals.batches.length) {
+        const tr = document.createElement('tr');
+        const td = cell('아직 기록된 배치가 없습니다.', null);
+        td.colSpan = 4;
+        tr.appendChild(td);
+        rows.appendChild(tr);
+        return;
+    }
+    externals.batches.forEach((batch) => {
+        const tr = document.createElement('tr');
+        if (!batch.enabled) {
+            tr.classList.add('is-unpublished');
+        }
+        tr.appendChild(cell(batch.name, null));
+        tr.appendChild(cell(batchWhen(batch.lastRunAt), 'period'));
+
+        const state = document.createElement('td');
+        const badge = el('span', batch.enabled ? 'badge on' : 'badge off', batch.enabled ? '동작' : '멈춤');
+        state.appendChild(badge);
+        tr.appendChild(state);
+
+        const action = document.createElement('td');
+        const button = el('button', batch.enabled ? 'danger' : 'ghost', batch.enabled ? '멈추기' : '다시 돌리기');
+        button.type = 'button';
+        button.addEventListener('click', () => saveBatch(batch.name, !batch.enabled));
+        action.appendChild(button);
+        tr.appendChild(action);
+        rows.appendChild(tr);
+    });
+}
+
+/** 마지막 실행을 "언제였나" 로 읽히게. 날짜만 보면 오래된 것인지 한눈에 안 들어온다. */
+function batchWhen(value) {
+    if (!value) {
+        return '-';
+    }
+    const at = new Date(value);
+    const days = Math.floor((Date.now() - at.getTime()) / DAY_MS);
+    const stamp = value.replace('T', ' ').slice(0, 16);
+    if (days <= 0) {
+        return `${stamp} (오늘)`;
+    }
+    return `${stamp} (${days}일 전)`;
+}
+
 
 // ---------------------------------------------------------------- 시작
 
@@ -1007,6 +1394,10 @@ function bind() {
     $('policy-cancel').addEventListener('click', () => $('policy-editor').close());
     $('policy-editor-close').addEventListener('click', () => $('policy-editor').close());
     $('policy-form').addEventListener('input', refreshPolicyPreview);
+
+    // 기간을 바꾸면 서버를 다시 부른다 — 목록 필터와 달리 브라우저에 없는 데이터라 걸러낼 수 없다.
+    $('external-reload').addEventListener('click', reloadExternals);
+    $('filter-days').addEventListener('change', reloadExternals);
 
     $('copy-user-id').addEventListener('click', async () => {
         await navigator.clipboard.writeText($('my-user-id').textContent);

@@ -2,6 +2,8 @@ package com.offway.core.leave.service;
 
 import com.offway.core.common.cache.ExternalDataCache;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.leave.domain.HolidayException;
 import com.offway.core.leave.domain.StoredHolidayMonth;
 import com.offway.core.leave.infrastructure.holiday.HolidayClient;
@@ -60,9 +62,12 @@ public class HolidayProvider {
     private final HolidayClient holidayClient;
     private final HolidayMonthRepository holidayMonthRepository;
 
+    /** 캐시를 켜고 끄는 스위치(#403). 조회마다 물어, 운영 중 바뀐 값도 곧바로 듣는다. */
+    private final ExternalApiCachePolicy cachePolicy;
+
     /** 적재 범위 밖 달에만 쓰는 폴백 캐시. */
     private final ExternalDataCache<YearMonth, HolidayLookup> holidayCache =
-            new ExternalDataCache<>(HOLIDAY_CACHE_MAX_MONTHS, FIRST_LOAD_WAIT);
+            new ExternalDataCache<>(HOLIDAY_CACHE_MAX_MONTHS, FIRST_LOAD_WAIT, this::cacheEnabled);
 
     /** 폴백 캐시를 비운다 — 운영상 강제 갱신(고시 정정 등), 그리고 공유 컨텍스트 통합 테스트의 격리용. */
     public void evictCache() {
@@ -151,5 +156,16 @@ public class HolidayProvider {
         static HolidayLookup failure() {
             return new HolidayLookup(Set.of(), true);
         }
+    }
+
+    /**
+     * 캐시를 지금 써도 되나(#403).
+     *
+     * <p>람다로 필드를 직접 읽지 않고 메서드 참조를 쓰는 이유 — 캐시 필드의 초기화식은 생성자가
+     * {@code cachePolicy} 를 넣기 <b>전에</b> 돌아서, 거기서 blank final 을 읽으면 컴파일이 막힌다.
+     * 메서드 본문은 그때 읽히지 않는다.
+     */
+    private boolean cacheEnabled() {
+        return cachePolicy.cacheEnabled(ExternalApi.HOLIDAY);
     }
 }

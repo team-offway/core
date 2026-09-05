@@ -3,6 +3,7 @@ package com.offway.core.user.service;
 import com.offway.core.user.domain.AuthProvider;
 import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.RefreshToken;
+import com.offway.core.user.domain.RevokedReason;
 import com.offway.core.user.domain.User;
 import com.offway.core.user.domain.UserIdentity;
 import com.offway.core.user.repository.RefreshTokenRepository;
@@ -136,16 +137,43 @@ public class UserPersistenceService {
         if (current.isExpired(now)) {
             return new TokenRotation.Invalid();
         }
-        // 선점에 졌다. 방금 회전된 것이면 정상 앱의 재시도·동시 요청이고, 오래전에 폐기된 것이면 탈취 정황이다.
-        return current.revokedWithin(RefreshToken.ROTATION_GRACE, now)
-                ? new TokenRotation.Raced()
-                : new TokenRotation.Reused(current.getUserId());
+        // 선점에 졌다. 무엇으로 폐기됐는지에 따라 셋으로 갈린다.
+        //
+        // 사유를 함께 보는 것이 핵심이다. 시각만 보면 로그아웃·탈취 폐기도 "방금 폐기됨" 이라 복구 갈래로
+        // 새고, 그러면 끊으려고 끊은 세션이 10초 동안 되살아난다.
+        if (current.recoverableWithin(RefreshToken.ROTATION_GRACE, now)) {
+            // 회전으로 방금 폐기됐다 — 정상 앱의 재시도·동시 요청이라 거절하지 않고 새 쌍을 다시 준다(#389).
+            //
+            // 이긴 요청의 토큰은 건드리지 않는다. 이 요청이 온 이유가 "응답 유실" 인지 "동시 요청" 인지
+            // 서버는 구분할 수 없는데, 유실이라 단정하고 그 토큰을 폐기하면 동시 요청이었을 때 이긴 쪽이
+            // 방금 받아 간 정상 토큰을 죽인다 — 이 이슈가 고치려는 바로 그 증상이다.
+            refreshTokenRepository.save(RefreshToken.issue(current.getUserId(), nextHash, nextExpiry));
+            return new TokenRotation.Recovered(current.getUserId());
+        }
+        if (!current.reuseIsSuspicious()) {
+            // 사용자가 끝낸 세션(로그아웃)이거나 이미 탈취로 끊은 세션이다. 죽은 토큰일 뿐이라 거절만 한다.
+            //
+            // 여기서 탈취로 읽으면 남은 세션까지 끊긴다 — 기기별 로그아웃을 만들어 놓고, 그 뒤에 한 번 더
+            // 온 요청이 결국 전체 로그아웃을 일으키게 된다.
+            return new TokenRotation.Invalid();
+        }
+        return new TokenRotation.Reused(current.getUserId());
     }
 
-    /** 로그아웃 — 살아 있는 refresh 를 모두 폐기한다. access 는 만료까지 유효하다(무상태 JWT 의 대가). */
+    /** 살아 있는 refresh 를 모두 폐기한다 — 탈취 감지·전체 로그아웃. access 는 만료까지 유효하다(무상태 JWT 의 대가). */
     @Transactional
-    public void revokeAllRefreshTokens(UUID userId, Instant now) {
-        revokeActive(userId, now);
+    public void revokeAllRefreshTokens(UUID userId, Instant now, RevokedReason reason) {
+        revokeActive(userId, now, reason);
+    }
+
+    /**
+     * 이 세션 하나만 폐기한다 — 기기별 로그아웃(#389).
+     *
+     * @return 실제로 폐기했으면 true. 없거나 이미 폐기됐거나 남의 것이면 false
+     */
+    @Transactional
+    public boolean revokeRefreshToken(UUID userId, String tokenHash, Instant now) {
+        return refreshTokenRepository.revokeOne(userId, tokenHash, now) > 0;
     }
 
     /**
@@ -175,8 +203,8 @@ public class UserPersistenceService {
     }
 
     /** 트랜잭션 안에서만 호출된다 — 관리 상태 엔티티라 dirty checking 으로 반영된다. self-invocation 을 피하려 private. */
-    private void revokeActive(UUID userId, Instant now) {
+    private void revokeActive(UUID userId, Instant now, RevokedReason reason) {
         // 읽어서 하나씩 고치면 행 수만큼 UPDATE 가 나간다. 이 표는 삭제 경로가 없어 계속 쌓이는 자리다.
-        refreshTokenRepository.revokeActive(userId, now);
+        refreshTokenRepository.revokeActive(userId, now, reason);
     }
 }

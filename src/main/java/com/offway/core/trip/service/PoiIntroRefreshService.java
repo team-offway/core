@@ -4,6 +4,8 @@ import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.config.BatchBudgetProperties;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiBatchPolicy;
 import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.trip.domain.PoiIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
@@ -82,6 +84,9 @@ public class PoiIntroRefreshService {
     private final BatchRunRepository batchRunRepository;
     private final BatchBudgetProperties batchBudget;
 
+    /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
+    private final ExternalApiBatchPolicy batchPolicy;
+
     /**
      * 하루 한 번 — 그날 이미 돌았으면 외부를 아예 안 부른다.
      *
@@ -91,6 +96,11 @@ public class PoiIntroRefreshService {
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = REFRESH_INTERVAL)
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
+            if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TOUR_API)) {
+                // 조용히 넘기지 않는다 — 꺼 둔 줄 모르면 "장소 운영시간이 왜 안 채워지지" 가 된다.
+                log.info("장소 운영시간 배치가 꺼져 있거나 배치 한도를 넘겨 건너뜁니다");
+                return;
+            }
             LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
             if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
                 log.info("장소 운영시간을 최근 {}에 이미 받아 건너뜁니다", MIN_INTERVAL);

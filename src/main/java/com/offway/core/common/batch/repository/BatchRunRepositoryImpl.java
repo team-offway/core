@@ -3,9 +3,11 @@ package com.offway.core.common.batch.repository;
 import com.offway.core.common.batch.domain.BatchRun;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -73,5 +75,11 @@ public class BatchRunRepositoryImpl implements BatchRunRepository {
                     name, lostTheRace.getClass().getSimpleName());
             return false;
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<BatchRun> all() {
+        return jpaRepository.findAll(Sort.by("name"));
     }
 }

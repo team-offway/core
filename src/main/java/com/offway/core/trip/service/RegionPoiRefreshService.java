@@ -4,8 +4,10 @@ import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.config.BatchBudgetProperties;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiBatchPolicy;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.RegionPoi;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
@@ -137,11 +139,14 @@ public class RegionPoiRefreshService {
      */
     private static final List<Integer> CONTENT_TYPES = List.of(39, 32);
 
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final RegionPoiRepository regionPoiRepository;
     private final TourApiClient tourApiClient;
     private final BatchRunRepository batchRunRepository;
     private final BatchBudgetProperties batchBudget;
+
+    /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
+    private final ExternalApiBatchPolicy batchPolicy;
 
     @Schedules({
         @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID),
@@ -149,6 +154,11 @@ public class RegionPoiRefreshService {
     })
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
+            if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TOUR_API)) {
+                // 조용히 넘기지 않는다 — 꺼 둔 줄 모르면 "지역 장소이 왜 안 채워지지" 가 된다.
+                log.info("지역 장소 배치가 꺼져 있거나 배치 한도를 넘겨 건너뜁니다");
+                return;
+            }
             LocalDate today = LocalDate.now(SERVICE_ZONE);
             // 확인과 기록을 한 문장으로 묶는다 — 트리거가 둘이라 "확인 → 267콜 → 기록" 사이의 창에
             // 다른 트리거가 들어오면 같은 날 두 번 쏜다. 선점에 성공한 실행만 아래로 내려간다.
@@ -173,7 +183,7 @@ public class RegionPoiRefreshService {
      * @return 이 실행으로 새로 채운 지역 수
      */
     public int refresh(YearMonth baseYm) {
-        List<Region> all = regionRepository.findAll();
+        List<Region> all = regionQuery.all();
         if (all.isEmpty()) {
             log.info("지역 장소 풀 — 지역 마스터가 비어 있어 건너뜁니다");
             return 0;

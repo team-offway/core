@@ -396,4 +396,27 @@ class CourseShareIntegrationTest {
     private static UUID newUser() {
         return UUID.randomUUID();
     }
+
+    /**
+     * <b>공유 링크로 여는 화면도 이유를 말한다</b>(#422 리뷰).
+     *
+     * <p>처음에는 담기 경로에만 검사를 붙였는데, 공유만 하는 경로도 코스 행을 만든다 — 그쪽으로 저장된
+     * 코스는 경고 없이 남고, 공개 조회는 {@code withBenefits(course, true)} 라 도착 정보를 그린다.
+     * 그래서 검사를 <b>행을 만드는 자리</b>로 옮겼고, 여기서 그 사실을 잠근다.
+     */
+    @Test
+    void 공유만_한_코스도_출발지가_없으면_이유를_말한다() throws Exception {
+        String token = JsonPath.read(
+                mockMvc.perform(post(SHARE_URL)
+                                .with(loginAs(newUser()))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(VALID_BODY))
+                        .andExpect(status().isCreated())
+                        .andReturn().getResponse().getContentAsString(),
+                "$.data.shareToken");
+
+        mockMvc.perform(get(PUBLIC_URL, token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.status").value("ORIGIN_UNKNOWN"));
+    }
 }

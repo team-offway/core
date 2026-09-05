@@ -100,6 +100,56 @@ public class ExternalApiCallRepository {
         return counts;
     }
 
+    /**
+     * 기간의 <b>날짜별 × API별</b> 호출 수(#398). 날짜 오름차순이라 화면이 그대로 그린다.
+     *
+     * <p>하루치만으로는 판단이 안 된다 — 9/1 은 매월 1일이라 월배치가 겹쳐 700콜이었는데, 그 숫자를
+     * 평상시로 알고 계산했다가 틀렸다. <b>월배치가 튀는 날이 보여야 그래프가 읽힌다.</b>
+     *
+     * <p>한 번도 안 부른 (날짜, API) 는 키가 없다. 0 을 채우는 것은 화면의 일이다 — 여기서 채우면
+     * "안 불렀다" 와 "그날 기록 자체가 없다" 가 구분되지 않는다.
+     */
+    public Map<LocalDate, Map<ExternalApi, Long>> countsBetween(LocalDate from, LocalDate to) {
+        Map<LocalDate, Map<ExternalApi, Long>> counts = new LinkedHashMap<>();
+        jdbcTemplate.query(
+                "SELECT call_date, api, call_count FROM external_api_call"
+                        + " WHERE call_date BETWEEN ? AND ? ORDER BY call_date, api",
+                rs -> {
+                    try {
+                        counts.computeIfAbsent(rs.getObject("call_date", LocalDate.class),
+                                        key -> new EnumMap<>(ExternalApi.class))
+                                .put(ExternalApi.valueOf(rs.getString("api")), rs.getLong("call_count"));
+                    } catch (IllegalArgumentException ignored) {
+                        // 코드에서 없어진 API 의 옛 기록. countsOn 과 같은 이유로 무시한다.
+                    }
+                }, from, to);
+        return counts;
+    }
+
+    /**
+     * 기간 <b>합계</b>를 API → (주체 → 호출 수)로(#398).
+     *
+     * <p>이 축이 <b>배치와 사용자 요청을 가른다.</b> 총량만 보면 "우리가 API 를 쓴다" 는 것밖에 모르는데,
+     * 정작 보여야 하는 것은 <b>서비스가 요청마다 실제로 부른다</b>는 쪽이다.
+     */
+    public Map<ExternalApi, Map<String, Long>> callerCountsBetween(LocalDate from, LocalDate to) {
+        Map<ExternalApi, Map<String, Long>> counts = new EnumMap<>(ExternalApi.class);
+        jdbcTemplate.query(
+                "SELECT api, caller, SUM(call_count) AS total FROM external_api_call_caller"
+                        + " WHERE call_date BETWEEN ? AND ? GROUP BY api, caller"
+                        + " ORDER BY total DESC, caller",
+                rs -> {
+                    try {
+                        counts.computeIfAbsent(ExternalApi.valueOf(rs.getString("api")),
+                                        key -> new LinkedHashMap<>())
+                                .put(rs.getString("caller"), rs.getLong("total"));
+                    } catch (IllegalArgumentException ignored) {
+                        // 코드에서 없어진 API 의 옛 기록.
+                    }
+                }, from, to);
+        return counts;
+    }
+
     /** 그날의 API 별 호출 수. 한 번도 안 부른 API 는 키가 없다. */
     public Map<ExternalApi, Long> countsOn(LocalDate date) {
         Map<ExternalApi, Long> counts = new EnumMap<>(ExternalApi.class);

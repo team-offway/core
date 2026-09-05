@@ -2,6 +2,8 @@ package com.offway.core.weather.service;
 
 import com.offway.core.common.cache.ExternalDataCache;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.weather.domain.DailyWeather;
 import com.offway.core.weather.domain.MidLandRegion;
 import com.offway.core.weather.domain.MidTermOutlook;
@@ -60,11 +62,14 @@ public class WeatherService {
     private final KmaWeatherClient kmaWeatherClient;
     private final MidTermForecastClient midTermForecastClient;
 
+    /** 캐시를 켜고 끄는 스위치(#403). 조회마다 물어, 운영 중 바뀐 값도 곧바로 듣는다. */
+    private final ExternalApiCachePolicy cachePolicy;
+
     /**
      * 중기예보 캐시. 단기예보는 좌표 격자라 키가 무한히 늘지만, 중기는 <b>광역 구역 열 개가 전부</b>라 캐시가 자연스럽다.
      */
     private final ExternalDataCache<MidLandRegion, Optional<MidTermOutlook>> midTermCache =
-            new ExternalDataCache<>(MAX_CACHED_REGIONS, FIRST_LOAD_WAIT);
+            new ExternalDataCache<>(MAX_CACHED_REGIONS, FIRST_LOAD_WAIT, this::cacheEnabled);
 
     /**
      * 좌표 지점의 해당 날짜 날씨(없으면 빈 Optional).
@@ -138,5 +143,16 @@ public class WeatherService {
                     return new Loaded<>(fresh, MID_TERM_TTL);
                 },
                 Optional.empty());
+    }
+
+    /**
+     * 캐시를 지금 써도 되나(#403).
+     *
+     * <p>람다로 필드를 직접 읽지 않고 메서드 참조를 쓰는 이유 — 캐시 필드의 초기화식은 생성자가
+     * {@code cachePolicy} 를 넣기 <b>전에</b> 돌아서, 거기서 blank final 을 읽으면 컴파일이 막힌다.
+     * 메서드 본문은 그때 읽히지 않는다.
+     */
+    private boolean cacheEnabled() {
+        return cachePolicy.cacheEnabled(ExternalApi.KMA_WEATHER);
     }
 }

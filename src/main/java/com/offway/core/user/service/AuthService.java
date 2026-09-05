@@ -6,6 +6,7 @@ import com.offway.core.user.domain.AuthProvider;
 import com.offway.core.user.infrastructure.apple.AppleAccountLink;
 import java.util.List;
 import java.util.Optional;
+import com.offway.core.user.domain.RevokedReason;
 import com.offway.core.user.domain.SocialIdentity;
 import com.offway.core.user.domain.UserException;
 import com.offway.core.user.infrastructure.social.SocialIdentityResolver;
@@ -64,8 +65,8 @@ public class AuthService {
         // **성공도 남긴다**(#41). 실패만 찍히면 로그는 "무엇이 잘못됐나" 에만 답하고 "이 사람이 언제
         // 들어왔나" 에는 답하지 못한다 — 계정 문의가 들어왔을 때 정작 필요한 건 후자다.
         //
-        // 식별자를 **전문으로** 남기는 유일한 자리다. 다른 줄은 로그 패턴이 앞 8자만 찍으므로, 그 앞자리로
-        // 이 줄을 찾아오면 전체 값을 얻는다.
+        // 로그인 요청은 아직 인증 전이라 로그 패턴의 신원 칸이 anon 이다. 식별자가 이 줄에 있어야 하는
+        // 이유가 그것이다 — 다른 줄이 전문을 찍게 된 지금도(#41) 이 줄만은 대체되지 않는다.
         log.info(
                 "로그인 성공 userId={} provider={} 신규가입={}",
                 user.userId(), identity.provider(), user.newUser());
@@ -112,14 +113,18 @@ public class AuthService {
                     false);
             case TokenRotation.Reused(UUID userId) -> {
                 log.warn("폐기된 refresh 토큰 재사용 — 사용자 토큰 전체 폐기 userId={}", userId);
-                userPersistenceService.revokeAllRefreshTokens(userId, now);
+                userPersistenceService.revokeAllRefreshTokens(userId, now, RevokedReason.REUSE_DETECTED);
                 throw UserException.invalidRefreshToken();
             }
-            case TokenRotation.Raced ignored -> {
-                // 세션을 끊지 않는다 — 이긴 요청이 방금 받아 간 정상 토큰까지 죽으면 사용자가 멀쩡한 토큰을
-                // 들고 로그아웃된다. 이 요청만 거절하고 클라이언트가 새 토큰으로 다시 오게 둔다.
-                log.info("회전 직후 같은 refresh 가 다시 왔습니다 — 재시도로 보고 이 요청만 거절합니다");
-                throw UserException.invalidRefreshToken();
+            case TokenRotation.Recovered(UUID userId) -> {
+                // 거절하지 않는다(#389). 이 요청이 왔다는 것은 앞선 재발급 응답이 앱에 닿지 않았다는 뜻이고,
+                // 그러면 앱에는 "새 토큰" 이 없다 — 거절하면 앱은 만료와 구분하지 못해 토큰을 지우고 로그아웃된다.
+                log.info("회전 직후 같은 refresh 가 다시 왔습니다 — 응답 유실로 보고 새 쌍을 다시 발급합니다 userId={}", userId);
+                yield new IssuedToken(
+                        tokenIssuer.issueAccessToken(userId, rolesOf(userId)),
+                        nextRefreshToken,
+                        tokenIssuer.accessTokenSeconds(),
+                        false);
             }
             case TokenRotation.Invalid ignored -> {
                 // 조용히 401 을 내리지 않는다(#41) — 이 갈래는 "없는 토큰·만료·이미 폐기됨" 이 전부 모이는
@@ -131,7 +136,20 @@ public class AuthService {
         };
     }
 
-    public void logout(UUID userId) {
+    /**
+     * 로그아웃 — <b>refresh 를 함께 보내면 그 기기만</b> 끊는다(#389).
+     *
+     * <p>예전에는 어느 기기에서 눌러도 그 계정의 모든 세션을 끊었다. 끊긴 티가 바로 나지도 않는다 — 다른
+     * 기기는 access 가 살아 있는 동안(최대 1시간) 멀쩡히 돌다가 재발급하는 순간 튕겨서, 사용자에게는
+     * "아무것도 안 했는데 랜덤하게 풀린다" 로 보인다.
+     *
+     * <p><b>본문이 없으면 예전처럼 전부 끊는다.</b> 이 필드를 안 싣는 옛 앱이 그대로 돌게 하려는 것이고,
+     * 나중에 "모든 기기에서 로그아웃" 을 붙일 때도 이 경로가 그대로 그 기능이 된다.
+     *
+     * <p><b>못 찾아도 200 이다.</b> 이미 폐기됐거나 남의 것이거나 없는 토큰이어도 실패로 돌려주지 않는다 —
+     * 어차피 그 기기의 로컬 토큰은 지워지고, 400 을 주면 앱은 "로그아웃이 안 됐다" 로 읽는다. 로그로 남긴다.
+     */
+    public void logout(UUID userId, String refreshToken) {
         // Basic 으로 들어온 요청은 principal 이 UUID 가 아니라 null 로 온다(@LoginUser 가 JWT 가 넣은 것만 푼다).
         // 그대로 두면 폐기할 대상이 없는데 200 이 나가, 클라이언트는 로그아웃됐다고 믿고 토큰은 살아 있다 —
         // 규약이 막는 '조용한 실패' 다. 애초에 Basic 은 앱의 로그인 수단이 아니므로 401 로 끊는다.
@@ -139,10 +157,19 @@ public class AuthService {
             log.info("로그아웃 요청에 사용자 식별자가 없습니다 — Bearer 로 온 요청이 아닙니다");
             throw UserException.invalidAccessToken();
         }
-        userPersistenceService.revokeAllRefreshTokens(userId, Instant.now());
-        // 세션을 끊은 사실을 남긴다(#41). "왜 갑자기 로그아웃됐나" 는 실제로 들어오는 문의이고, 그 답은
-        // 본인이 눌렀는지(이 줄) 아니면 탈취 의심으로 우리가 끊었는지(위 Reused 줄) 로 갈린다.
-        log.info("로그아웃 — 사용자 토큰 전체 폐기 userId={}", userId);
+        Instant now = Instant.now();
+        if (refreshToken == null || refreshToken.isBlank()) {
+            userPersistenceService.revokeAllRefreshTokens(userId, now, RevokedReason.LOGOUT);
+            // 세션을 끊은 사실을 남긴다(#41). "왜 갑자기 로그아웃됐나" 는 실제로 들어오는 문의이고, 그 답은
+            // 본인이 눌렀는지(이 줄) 아니면 탈취 의심으로 우리가 끊었는지(위 Reused 줄) 로 갈린다.
+            log.info("로그아웃 — refresh 를 안 실어 사용자 토큰 전체 폐기 userId={}", userId);
+            return;
+        }
+        boolean revoked = userPersistenceService.revokeRefreshToken(
+                userId, tokenIssuer.hashRefreshToken(refreshToken), now);
+        // 못 찾은 쪽도 남긴다. 이 줄이 쌓이면 앱이 엉뚱한 토큰을 싣고 있다는 뜻이고, 그때 사용자는
+        // 로그아웃한 줄 알지만 그 기기의 세션은 살아 있다.
+        log.info("로그아웃 — 이 기기 세션만 폐기 userId={} 폐기됨={}", userId, revoked);
     }
 
     /**

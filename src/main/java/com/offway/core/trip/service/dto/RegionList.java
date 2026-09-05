@@ -1,10 +1,12 @@
 package com.offway.core.trip.service.dto;
 
 import com.offway.core.common.response.PageResponse;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
 import java.util.List;
+import lombok.Builder;
 import org.springframework.data.domain.Page;
 
 /**
@@ -34,16 +36,19 @@ public record RegionList(List<Item> regions, int page, int size, long totalEleme
      * @param regionId 지역 ID
      * @param sido 시도
      * @param sigungu 시군구
+     * @param coordinate 대표 좌표 — 지도 위에 이 지역을 놓는 자리(#404)
      * @param crowdLevel 한산도 뱃지
      * @param imageUrl 대표 이미지 URL (없으면 null)
      * @param contentCount 볼거리 수 (인접 50km 병합 시 합산)
      * @param categories 볼거리 카테고리
      * @param neighborIncluded 볼거리 부족으로 인접 50km 지역이 포함됐는지 — {@code contentCount} 가 무엇의 합인지 설명한다
      */
+    @Builder
     public record Item(
             long regionId,
             String sido,
             String sigungu,
+            Coordinate coordinate,
             CrowdLevel crowdLevel,
             String imageUrl,
             int contentCount,
@@ -62,18 +67,22 @@ public record RegionList(List<Item> regions, int page, int size, long totalEleme
                 long regionId,
                 String sido,
                 String sigungu,
+                Coordinate coordinate,
                 CrowdLevel crowdLevel,
                 RegionContent content,
                 String heroPhotoUrl) {
-            return new Item(
-                    regionId,
-                    sido,
-                    sigungu,
-                    crowdLevel,
-                    heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl(),
-                    content.contentCount(),
-                    content.categories(),
-                    content.neighborIncluded());
+            // 이름을 붙여 조립한다 — 같은 타입이 붙어 있어 위치 생성자로는 둘을 맞바꿔도 컴파일이 통과한다.
+            return Item.builder()
+                    .regionId(regionId)
+                    .sido(sido)
+                    .sigungu(sigungu)
+                    .coordinate(coordinate)
+                    .crowdLevel(crowdLevel)
+                    .imageUrl(heroPhotoUrl != null ? heroPhotoUrl : content.imageUrl())
+                    .contentCount(content.contentCount())
+                    .categories(content.categories())
+                    .neighborIncluded(content.neighborIncluded())
+                    .build();
         }
     }
 }

@@ -2,8 +2,11 @@ package com.offway.core.itinerary.controller.dto;
 
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.service.dto.MyCourses;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
+import java.util.Set;
 import java.util.List;
 
 /**
@@ -41,7 +44,20 @@ public record CourseSummaryResponse(
                                 + "아직 링크가 발급된 적 없는 코스는 null 이며, 상세를 한 번 열면 채워진다",
                         example = "a1B2c3D4e5F6g7H8i9J0kL",
                         nullable = true)
-                String shareToken) {
+                String shareToken) implements Attributed {
+
+    /**
+     * 카드 대표 사진이 <b>그 지역의 대표 사진</b>이라 공사에서 온다(#399 · #313).
+     *
+     * <p>못 고른 지역은 null 이고, 그때는 이 응답에 공사 값이 없다 — 나머지(지역명 · 날짜 · 연차)는 우리 값이다.
+     *
+     * <p>이 화면은 {@code data} 가 <b>목록</b>이라 래퍼가 원소마다 물어 합친다. 한 장이라도 사진이 있으면
+     * 표기가 붙는다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        return coverImageUrl == null ? Set.of() : Set.of(DataSource.KTO);
+    }
 
     public static CourseSummaryResponse from(Course course, MyCourses myCourses) {
         return new CourseSummaryResponse(
@@ -53,7 +69,7 @@ public record CourseSummaryResponse(
                 course.getDensity().name(),
                 myCourses.regionName(course),
                 myCourses.regionImage(course),
-                course.totalSlots(),
+                course.placeCount(),
                 myCourses.isDeducted(course),
                 myCourses.shareToken(course));
     }

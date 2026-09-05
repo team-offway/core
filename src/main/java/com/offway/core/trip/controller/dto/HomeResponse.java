@@ -2,12 +2,17 @@ package com.offway.core.trip.controller.dto;
 
 import com.offway.core.curation.controller.dto.CuratedLinkResponse;
 import com.offway.core.curation.domain.CuratedLink;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.service.dto.HomeResult;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 홈 응답 — API 계약.
@@ -23,9 +28,26 @@ public record HomeResponse(
         List<CategoryResponse.Item> filters,
         List<PlaceCard> recommendedPlaces,
         List<RegionCard> recommendedRegions,
-        List<CuratedLinkResponse> curatedLinks) {
+        List<CuratedLinkResponse> curatedLinks) implements Attributed {
 
     private static final String GUEST_NAME = "게스트";
+
+    /**
+     * 장소 카드는 출처가 섞이고, 지역 카드는 <b>있으면 공사</b>다(#399).
+     *
+     * <p>지역 카드의 사진·볼거리 분류·한산도는 전부 공사에서 온다(관광 API · 관광빅데이터). 카드가 하나도
+     * 없는 홈은 없지만, 있는 것만 세는 규칙을 여기서도 지킨다 — 앱 사용자·연차·큐레이션 링크는 우리
+     * 값이라 출처가 없다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        Set<DataSource> placeSources = PlaceCard.sourcesOf(recommendedPlaces);
+        if (recommendedRegions.isEmpty()) {
+            return placeSources;
+        }
+        return Stream.concat(placeSources.stream(), Stream.of(DataSource.KTO))
+                .collect(Collectors.toUnmodifiableSet());
+    }
 
     public static HomeResponse from(HomeResult result, List<CuratedLink> curatedLinks) {
         return new HomeResponse(
@@ -59,7 +81,12 @@ public record HomeResponse(
             @Schema(example = "76") long regionId,
             @Schema(example = "정선군") String regionName,
             @Schema(example = "폐광촌에서 다시 태어난 마을", nullable = true) String subtitle,
-            @Schema(nullable = true) Benefit benefit) {
+            @Schema(nullable = true) BenefitResponse benefit) {
+
+        /** 이 섹션에 실린 장소들의 출처 — 인허가·국가유산·공사가 섞인다. */
+        static Set<DataSource> sourcesOf(List<PlaceCard> cards) {
+            return PlaceDataSources.of(cards, PlaceCard::poiContentId);
+        }
 
         public static PlaceCard from(HomeResult.PlaceCard card) {
             return new PlaceCard(
@@ -70,7 +97,7 @@ public record HomeResponse(
                     card.regionId(),
                     card.regionName(),
                     card.subtitle(),
-                    card.benefit() == null ? null : Benefit.from(card.benefit()));
+                    BenefitResponse.from(card.benefit()));
         }
     }
 
@@ -100,7 +127,7 @@ public record HomeResponse(
                             nullable = true)
                     String imageUrl,
             List<CategoryTagResponse> categories,
-            @Schema(description = "대표 혜택 (없으면 null)", nullable = true) Benefit benefit) {
+            @Schema(description = "대표 혜택 (없으면 null)", nullable = true) BenefitResponse benefit) {
 
         static RegionCard from(HomeResult.RegionCard card) {
             return new RegionCard(
@@ -109,19 +136,8 @@ public record HomeResponse(
                     card.crowdLevel(),
                     card.imageUrl(),
                     card.categories().stream().map(CategoryTagResponse::from).toList(),
-                    card.benefit() == null ? null : Benefit.from(card.benefit()));
+                    BenefitResponse.from(card.benefit()));
         }
     }
 
-    /**
-     * @param text 뱃지 문구
-     * @param policyType 정책 분류
-     * @param policyId 정책 ID
-     */
-    public record Benefit(String text, PolicyType policyType, long policyId) {
-
-        static Benefit from(HomeResult.Benefit benefit) {
-            return new Benefit(benefit.text(), benefit.type(), benefit.policyId());
-        }
-    }
 }

@@ -14,7 +14,7 @@ import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.leave.service.dto.AvailableTimeCommand;
 import com.offway.core.leave.service.dto.MyLeave;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -48,7 +48,7 @@ public class TripOutcomeService {
     private final CourseStorageService courseStorageService;
     private final CourseLeaveDeductionService leaveDeductionService;
     private final TripOutcomeRepository tripOutcomeRepository;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final LeaveService leaveService;
     private final MyLeaveService myLeaveService;
 
@@ -186,7 +186,7 @@ public class TripOutcomeService {
     /** 지역명을 한 번에 — 코스마다 조회하면 N+1 이다. */
     private Map<Long, String> regionNamesOf(List<Course> courses) {
         List<Long> ids = courses.stream().map(Course::getRegionId).distinct().toList();
-        return regionRepository.findByIds(ids).stream()
+        return regionQuery.byIds(ids).stream()
                 .collect(Collectors.toMap(Region::getId, Region::getSigungu, (first, second) -> first));
     }
 

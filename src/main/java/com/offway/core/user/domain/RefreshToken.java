@@ -2,6 +2,8 @@ package com.offway.core.user.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
@@ -10,6 +12,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.AccessLevel;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -60,9 +63,23 @@ public class RefreshToken {
     @Column(name = "revoked_at")
     private Instant revokedAt;
 
+    /**
+     * 왜 폐기됐나(#389) — 살아 있으면 null.
+     *
+     * <p>유예 창 복구가 <b>회전으로 폐기된 것만</b> 되살리게 하려고 든다. 시각만 보면 로그아웃도
+     * "방금 폐기됨" 이라, 로그아웃한 뒤 10초 동안 그 토큰으로 세션이 되살아난다.
+     *
+     * <p>이 컬럼이 붙기 전의 행은 null 이다. 그것들은 복구 대상에서 빠지는데, 안전한 쪽이고 창이 10초라
+     * 실제로 걸릴 행도 없다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "revoked_reason", length = 20)
+    private RevokedReason revokedReason;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Builder(access = AccessLevel.PRIVATE)
     private RefreshToken(UUID userId, String tokenHash, Instant expiresAt) {
         this.userId = userId;
         this.tokenHash = tokenHash;
@@ -77,13 +94,18 @@ public class RefreshToken {
         if (tokenHash.isBlank()) {
             throw new IllegalArgumentException("토큰 해시는 비어 있을 수 없습니다");
         }
-        return new RefreshToken(userId, tokenHash, expiresAt);
+        return RefreshToken.builder()
+                .userId(userId)
+                .tokenHash(tokenHash)
+                .expiresAt(expiresAt)
+                .build();
     }
 
-    /** 회전·로그아웃으로 폐기한다. 이미 폐기됐으면 최초 폐기 시각을 유지한다(재사용 감지의 근거). */
-    public void revoke(Instant now) {
+    /** 회전·로그아웃으로 폐기한다. 이미 폐기됐으면 최초 폐기 시각·사유를 유지한다(재사용 감지의 근거). */
+    public void revoke(Instant now, RevokedReason reason) {
         if (revokedAt == null) {
             this.revokedAt = now;
+            this.revokedReason = Objects.requireNonNull(reason, "폐기 사유는 필수입니다");
         }
     }
 
@@ -99,6 +121,36 @@ public class RefreshToken {
      */
     public boolean revokedWithin(Duration grace, Instant now) {
         return revokedAt != null && !revokedAt.isBefore(now.minus(grace));
+    }
+
+    /**
+     * 유예 창 복구의 대상인가 — <b>회전으로, 방금</b> 폐기된 것만(#389).
+     *
+     * <p>사유를 함께 보지 않으면 로그아웃·탈취 폐기도 "방금 폐기됨" 이라 이 창을 통과한다. 그러면 끊으려고
+     * 끊은 세션이 10초 동안 되살아난다 — 로그아웃이 그 시간만큼 듣지 않는다.
+     */
+    public boolean recoverableWithin(Duration grace, Instant now) {
+        return revokedWithin(grace, now) && revokedReason != null && revokedReason.recoverable();
+    }
+
+    /**
+     * 이 토큰이 다시 온 것이 <b>탈취 정황인가</b> — 아니면 그냥 죽은 토큰인가(#389).
+     *
+     * <p>사유를 모르는 옛 행은 정황으로 본다. 이 컬럼이 붙기 전의 폐기는 회전 아니면 로그아웃인데,
+     * 둘을 가릴 수 없으면 <b>덜 끊는 쪽보다 더 끊는 쪽</b>이 안전하다.
+     */
+    public boolean reuseIsSuspicious() {
+        return revokedReason == null || revokedReason.alarmsOnReuse();
+    }
+
+    /**
+     * 이 사용자의 토큰인가 — <b>남의 세션을 끊지 못하게</b>(#389).
+     *
+     * <p>로그아웃이 본문으로 받은 refresh 를 그대로 믿고 폐기하면, 남의 토큰 원문을 아는 사람이
+     * 그 사람을 로그아웃시킬 수 있다. access 로 확인한 주인과 같은지 여기서 가른다.
+     */
+    public boolean belongsTo(UUID candidate) {
+        return userId.equals(candidate);
     }
 
     public boolean isExpired(Instant now) {

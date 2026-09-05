@@ -1,6 +1,8 @@
 package com.offway.core.common.external;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
@@ -54,5 +56,46 @@ class CallerTest {
     @Test
     void 이름이_null_이면_거절한다() {
         assertThrows(NullPointerException.class, () -> Caller.of(null));
+    }
+
+    // ── 배치인가 사용자 요청인가(#398) ────────────────────────────────────
+
+    /**
+     * <b>이 구분이 심사 자료의 핵심이다.</b> 총량만 보면 "우리가 API 를 쓴다" 까지밖에 못 말하는데,
+     * 정작 보여야 하는 것은 서비스가 요청마다 실제로 부른다는 쪽이다.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "GET /api/v1/pois/{contentId}",
+        "POST /api/v1/courses/generate",
+        "PUT /api/v1/admin/policies/{id}",
+        "PATCH /api/v1/admin/curated-links/{id}",
+        "DELETE /api/v1/admin/policies/{id}",
+    })
+    void 요청이_만든_이름은_사용자_요청으로_센다(String name) {
+        assertTrue(Caller.of(name).fromRequest());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"축제기간배치", "갤러리사진배치", "장소운영시간배치", "지역방문자일별배치", "미상"})
+    void 배치_이름은_사용자_요청이_아니다(String name) {
+        assertFalse(Caller.of(name).fromRequest());
+    }
+
+    /**
+     * 메서드처럼 <b>보이기만</b> 하는 이름에 속지 않는다.
+     *
+     * <p>판정 기준이 "메서드 + 공백" 이라, 공백 없이 이어 붙은 이름은 요청이 아니다.
+     * {@link Caller#request} 가 반드시 공백을 넣기 때문이다.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"GETTING 어쩌구", "POSTBOX", "GET"})
+    void 메서드처럼_보이는_이름은_요청이_아니다(String name) {
+        assertFalse(Caller.of(name).fromRequest());
+    }
+
+    @Test
+    void request_가_만든_것은_항상_요청이다() {
+        assertTrue(Caller.request("GET", "/api/v1/home").fromRequest());
     }
 }

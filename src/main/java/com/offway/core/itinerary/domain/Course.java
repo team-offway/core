@@ -1,6 +1,6 @@
 package com.offway.core.itinerary.domain;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import jakarta.persistence.CascadeType;
 import com.offway.core.leave.domain.StartDayLeave;
@@ -172,6 +172,7 @@ public class Course {
         requireSequentialDays(days);
         requireIncreasingOffsets(days);
         requireSpanCovers(days, travelDays);
+        requireTransitHubsOnlyOnTransit(transport, days);
         this.userId = userId;
         this.regionId = Objects.requireNonNull(regionId, "지역 ID는 필수입니다");
         this.density = Objects.requireNonNull(density, "일정 밀도는 필수입니다");
@@ -399,8 +400,10 @@ public class Course {
      * <p><b>걷어내기만 한다.</b> 반대 방향(첫날이 비었는데 이제 일찍 닿는다)은 채울 후보가 저장 코스에 없어
      * 외부를 다시 물어야 하고, 그러면 사용자가 고른 장소가 바뀐다. 그쪽은 호출자가 알려서 재생성을 권한다.
      *
-     * <p><b>숙박은 남긴다.</b> 시간대 판정을 타지 않는 슬롯이다 — 밤늦게 닿아도 잘 곳은 필요하다
-     * (생성 때의 {@code arrangeDay} 와 같은 규칙).
+     * <p><b>숙박과 교통 거점은 남긴다.</b> 시간대 판정을 타지 않는 슬롯이다 — 밤늦게 닿아도 잘 곳은
+     * 필요하고, 도착 칸은 그 늦은 도착 자체다(생성 때의 {@code arrangeDay} 와 같은 규칙). 무엇이 판정을
+     * 타는지는 {@link SlotKind#boundToTimeOfDay()} 가 소유한다 — 여기에 종류를 나열하면 새 종류가 생길
+     * 때마다 이 필터를 찾아와 고쳐야 한다.
      *
      * <p>첫날이 통째로 비면 그 날을 없애고 남은 날의 표시 번호를 다시 붙인다 — "일차는 1부터 연속" 이
      * 이 애그리거트의 불변식이다. 달력 오프셋은 그대로 둔다(#159).
@@ -411,7 +414,7 @@ public class Course {
         Objects.requireNonNull(start, "첫날 가용 시간대가 필요합니다");
         DaySchedule first = days.getFirst();
         List<Slot> kept = first.getSlots().stream()
-                .filter(slot -> slot.getKind() == SlotKind.STAY || start.allows(slot.getTimeOfDay()))
+                .filter(slot -> !slot.getKind().boundToTimeOfDay() || start.allows(slot.getTimeOfDay()))
                 .toList();
         int removed = first.slotCount() - kept.size();
         if (removed == 0) {
@@ -469,7 +472,7 @@ public class Course {
      *
      * <p>혜택 매칭이 이 값을 쓴다. 정책에는 유효기간이 있어({@code Policy#isActiveOn}) 기준일이 곧 결과를
      * 가른다 — 오늘로 매칭하면 <b>여행 전에 끝나는 혜택이 보이고, 여행 기간에 시작하는 혜택은 안 보인다</b>.
-     * 숙박세일페스타처럼 기간이 정해진 것이 7대 혜택의 절반이라 드문 일이 아니다(#213).
+     * 숙박세일페스타처럼 기간이 정해진 혜택이 흔해서 드문 일이 아니다(#213).
      *
      * <p>날짜가 없으면 정책을 아예 안 보여주는 선택지도 있었다. 그러지 않은 이유 — 그 코스도 언젠가는 가는
      * 여행이고, 오늘 유효한 혜택은 대개 가까운 미래에도 유효하다. 아무것도 안 보여주는 쪽이 더 틀린다.
@@ -526,9 +529,27 @@ public class Course {
         }
     }
 
-    /** 코스 전체 슬롯(장소) 수. */
+    /**
+     * 코스 전체 슬롯 수 — 교통 거점 칸을 <b>포함한</b> 타임라인의 칸 수.
+     *
+     * <p>화면에 "장소 N곳" 으로 나가는 값은 이것이 아니라 {@link #placeCount()} 다.
+     */
     public int totalSlots() {
         return days.stream().mapToInt(DaySchedule::slotCount).sum();
+    }
+
+    /**
+     * 코스가 담은 <b>장소</b> 수 — 목록 카드의 "N곳" 이다.
+     *
+     * <p>교통 거점 칸(도착·출발)은 세지 않는다(#415). 역·터미널은 들르는 곳이지 코스가 고른 장소가
+     * 아니라, 함께 세면 <b>대중교통 코스만 장소가 두 곳 많아 보인다</b> — 같은 밀도로 뽑았는데
+     * 자차 코스와 숫자가 갈린다.
+     */
+    public int placeCount() {
+        return (int) days.stream()
+                .flatMap(day -> day.getSlots().stream())
+                .filter(slot -> slot.getKind().hasPlace())
+                .count();
     }
 
     /**
@@ -617,6 +638,31 @@ public class Course {
                 throw new IllegalArgumentException(
                         "일차가 갈수록 날짜도 뒤여야 합니다: " + days.get(i - 1).getDayNumber() + "일차=시작+" + previous
                                 + "일, " + days.get(i).getDayNumber() + "일차=시작+" + current + "일");
+            }
+        }
+    }
+
+    /**
+     * 교통 거점 칸(도착·출발)은 <b>대중교통 코스에만</b> 있을 수 있다(#415).
+     *
+     * <p>자차는 내릴 역이 없다. 생성 경로는 이미 수단으로 가르지만 <b>저장·공유는 클라이언트가 보낸
+     * 것을 그대로 받는다</b> — {@code transport: CAR} 에 {@code ARRIVAL} 을 실어 보내면 "역에서
+     * 시작하는 자차 코스" 가 저장된다. 만든 쪽만 막으면 들어오는 쪽이 열려 있다.
+     *
+     * <p>도메인에 두는 이유는 <b>경로가 하나가 아니기 때문</b>이다. 저장·공유·날짜 수정이 각자
+     * {@code Course} 를 만드는데, 요청 DTO 에만 두면 그중 하나만 빠뜨려도 조용히 새어 들어온다.
+     * 여기서 막으면 누가 만들든 같은 결과가 나온다.
+     */
+    private static void requireTransitHubsOnlyOnTransit(TransportMode transport, List<DaySchedule> days) {
+        if (transport == TransportMode.TRANSIT) {
+            return;
+        }
+        for (DaySchedule day : days) {
+            for (Slot slot : day.getSlots()) {
+                if (!slot.getKind().hasPlace()) {
+                    throw new IllegalArgumentException(
+                            "대중교통 코스가 아닌데 " + slot.getKind().label() + " 칸이 있습니다: " + transport);
+                }
             }
         }
     }

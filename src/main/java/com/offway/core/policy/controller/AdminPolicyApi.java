@@ -3,6 +3,7 @@ package com.offway.core.policy.controller;
 import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.policy.controller.dto.AdminPolicyRequest;
 import com.offway.core.policy.controller.dto.AdminPolicyResponse;
+import com.offway.core.policy.controller.dto.AdminPolicyScopeResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -11,7 +12,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 백오피스 — 7대 혜택 CRUD 문서 계약(#344). 매핑은 구현체({@link AdminPolicyController})가 소유한다.
+ * 백오피스 — 혜택 CRUD 문서 계약(#344). 매핑은 구현체({@link AdminPolicyController})가 소유한다.
  *
  * <p><b>여기가 seed SQL 을 대신한다.</b> 정책은 지금까지 {@code R__seed_policies.sql} 이 소유했고, 값을
  * 하나 고치려면 배포가 필요했다. 그 파일은 묘비만 남기고 비웠다.
@@ -24,7 +25,7 @@ import java.util.UUID;
  * <p>어느 지역에 뜨는지는 {@code PolicyType} 이 정한 태그와 {@code region_tag} 가 잇고, 참여 지자체
  * 명단은 {@code R__seed_program_region_tags.sql} 이 소유한다. 그쪽은 이 작업의 범위 밖이다.
  */
-@Tag(name = "어드민 — 정책", description = "7대 혜택을 배포 없이 관리한다")
+@Tag(name = "어드민 — 정책", description = "여행 혜택을 배포 없이 관리한다")
 public interface AdminPolicyApi {
 
     @Operation(
@@ -71,7 +72,7 @@ public interface AdminPolicyApi {
     @ApiResponse(responseCode = "403", description = "어드민이 아님")
     @ApiResponse(
             responseCode = "409",
-            description = "같은 분류가 이미 그 기간에 노출됨(POLICY-004) — 뱃지가 두 개 뜬다")
+            description = "같은 분류가 이미 그 기간에 노출됨(POLICY-004) — 뱃지가 두 개 뜬다 · 같은 분류를 다른 관리자가 저장 중(POLICY-005)")
     ApiResponseBody<AdminPolicyResponse> create(UUID adminUserId, AdminPolicyRequest request);
 
     @Operation(
@@ -89,7 +90,8 @@ public interface AdminPolicyApi {
     @ApiResponse(responseCode = "401", description = "자격증명 없음")
     @ApiResponse(responseCode = "403", description = "어드민이 아님")
     @ApiResponse(responseCode = "404", description = "없는 정책(POLICY-001)")
-    @ApiResponse(responseCode = "409", description = "같은 분류가 이미 그 기간에 노출됨(POLICY-004)")
+    @ApiResponse(responseCode = "409",
+            description = "같은 분류가 이미 그 기간에 노출됨(POLICY-004) · 같은 분류를 다른 관리자가 저장 중(POLICY-005)")
     ApiResponseBody<AdminPolicyResponse> update(
             UUID adminUserId, @Parameter(description = "정책 ID", example = "2") long id, AdminPolicyRequest request);
 
@@ -106,4 +108,17 @@ public interface AdminPolicyApi {
     @ApiResponse(responseCode = "403", description = "어드민이 아님")
     @ApiResponse(responseCode = "404", description = "없는 정책(POLICY-001)")
     ApiResponseBody<Void> delete(UUID adminUserId, @Parameter(description = "정책 ID", example = "2") long id);
+
+    @Operation(
+            summary = "분류별 대상 지역",
+            description = """
+                    분류를 고르면 **어느 지역에 뜨는지**를 곳 수와 지역 목록으로 돌려준다.
+
+                    분류마다 대상이 크게 갈린다 — 숙박세일페스타 85곳, 반값여행 25곳, 나머지 다섯은
+                    89곳 전부다. 분류를 잘못 고르면 85곳짜리가 25곳짜리로 조용히 줄어든다.
+                    """)
+    @ApiResponse(responseCode = "200", description = "조회 성공")
+    @ApiResponse(responseCode = "401", description = "로그인하지 않았거나 토큰이 만료됨")
+    @ApiResponse(responseCode = "403", description = "어드민 권한이 없음")
+    ApiResponseBody<List<AdminPolicyScopeResponse>> scopes();
 }

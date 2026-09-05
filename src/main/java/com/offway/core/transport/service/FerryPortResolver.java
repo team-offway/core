@@ -1,6 +1,6 @@
 package com.offway.core.transport.service;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.FerryPort;
 import com.offway.core.transport.domain.Port;
 import com.offway.core.transport.repository.FerryPortRepository;

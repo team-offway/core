@@ -3,13 +3,14 @@ package com.offway.core.trip.service;
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.region.service.RegionIntroProvider;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.domain.RegionPoi;
 import com.offway.core.trip.domain.TripException;
 import com.offway.core.trip.repository.RegionPoiRepository;
 import com.offway.core.trip.service.dto.HomeResult;
 import com.offway.core.trip.service.dto.RegionDetail;
+import com.offway.core.trip.service.dto.RegionBenefit;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -45,7 +46,7 @@ public class RegionDetailService {
     /** 서비스 기준 시간대. 혜택 매칭이 오늘 날짜를 보므로 서버 로케일에 맡기지 않는다. */
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final RegionPoiRepository regionPoiRepository;
     private final RegionIntroProvider regionIntroProvider;
     private final RegionHeroPhotoProvider regionHeroPhotoProvider;
@@ -59,8 +60,7 @@ public class RegionDetailService {
      * @throws TripException 없는 지역이면 {@code TRIP-002}(404)
      */
     public RegionDetail detail(long regionId) {
-        Region region = regionRepository.findByIds(List.of(regionId)).stream()
-                .findFirst()
+        Region region = regionQuery.byId(regionId)
                 .orElseThrow(TripException::regionNotFound);
 
         List<RegionPoi> spots = regionPoiRepository.findShowable(regionId, MAX_HIGHLIGHT_SPOTS);
@@ -110,7 +110,7 @@ public class RegionDetailService {
     }
 
     /** 이 지역에 걸리는 혜택 하나 — 화면이 뱃지 한 개를 그린다. 홈 카드와 같은 규칙이다. */
-    private HomeResult.Benefit benefitOf(long regionId) {
+    private RegionBenefit benefitOf(long regionId) {
         Map<Long, List<Policy>> matched =
                 policyService.matchForRegions(List.of(regionId), LocalDate.now(SERVICE_ZONE));
         List<Policy> policies = matched.getOrDefault(regionId, List.of());
@@ -118,6 +118,6 @@ public class RegionDetailService {
             return null;
         }
         Policy first = policies.get(0);
-        return new HomeResult.Benefit(first.getId(), first.getType(), first.badgeText());
+        return RegionBenefit.from(first);
     }
 }

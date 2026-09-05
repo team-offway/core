@@ -3,6 +3,8 @@ package com.offway.core.trip.service;
 import com.offway.core.common.cache.ExternalDataCache;
 import com.offway.core.common.cache.ExternalDataCache.Loaded;
 import com.offway.core.common.cache.ExternalDataCache.StalePolicy;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.policy.service.PolicyService;
@@ -18,6 +20,7 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.PoiDetail;
+import com.offway.core.trip.service.dto.RegionBenefit;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -94,6 +97,9 @@ public class PoiDetailService {
     private final HeritagePlaceRepository heritagePlaceRepository;
     private final PolicyService policyService;
 
+    /** 캐시를 켜고 끄는 스위치(#403). 조회마다 물어, 운영 중 바뀐 값도 곧바로 듣는다. */
+    private final ExternalApiCachePolicy cachePolicy;
+
     /**
      * 관광 API 상세 캐시 — 인허가·국가유산은 우리 DB 라 캐시하지 않는다.
      *
@@ -102,7 +108,7 @@ public class PoiDetailService {
      * 캐시가 있었다면 직전 값이 나갔다.
      */
     private final ExternalDataCache<String, CachedDetail> detailCache =
-            new ExternalDataCache<>(MAX_CACHED_DETAILS, FIRST_LOAD_WAIT);
+            new ExternalDataCache<>(MAX_CACHED_DETAILS, FIRST_LOAD_WAIT, this::cacheEnabled);
 
     /**
      * 캐시에 담긴 조회 결과의 상태 — 상태는 boolean 조합이 아니라 이름으로 든다.
@@ -295,7 +301,7 @@ public class PoiDetailService {
      *
      * <p>기준일은 오늘이다. 장소 상세에는 여행일이 없다 — 코스에서 누르든 목록에서 누르든 같은 화면이다.
      */
-    private String benefitFor(Long regionId, SlotKind slotKind) {
+    private RegionBenefit benefitFor(Long regionId, SlotKind slotKind) {
         if (regionId == null) {
             return null;
         }
@@ -306,8 +312,19 @@ public class PoiDetailService {
                         .map(SlotKind::covering)
                         .filter(slotKind::equals)
                         .isPresent())
-                .map(policy -> policy.getType().badgeText())
+                .map(RegionBenefit::from)
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * 캐시를 지금 써도 되나(#403).
+     *
+     * <p>람다로 필드를 직접 읽지 않고 메서드 참조를 쓰는 이유 — 캐시 필드의 초기화식은 생성자가
+     * {@code cachePolicy} 를 넣기 <b>전에</b> 돌아서, 거기서 blank final 을 읽으면 컴파일이 막힌다.
+     * 메서드 본문은 그때 읽히지 않는다.
+     */
+    private boolean cacheEnabled() {
+        return cachePolicy.cacheEnabled(ExternalApi.TOUR_API);
     }
 }

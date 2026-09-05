@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
+import java.util.function.BooleanSupplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -94,6 +95,20 @@ public final class ExternalDataCache<K, V> {
     private final Duration maxWaitForFirstLoad;
 
     /**
+     * 지금 캐시를 써도 되나(#403) — 백오피스가 끄면 거짓이 된다.
+     *
+     * <p><b>값이 아니라 공급자다.</b> 소유 서비스가 설정 빈을 아직 주입받기 전에 이 필드가 만들어지므로
+     * (필드 초기화가 생성자보다 먼저 돈다), 값을 넣으면 항상 그때의 기본값으로 굳는다. 부를 때마다
+     * 묻게 하면 그 순서를 신경 쓰지 않아도 되고, 운영 중 바뀐 값도 곧바로 듣는다.
+     */
+    private final BooleanSupplier cacheEnabled;
+
+    /** 끌 수 없는 캐시 — 설정과 무관한 자리(테스트·순수 계산 캐시)를 위한 것이다. */
+    public ExternalDataCache(int maxEntries, Duration maxWaitForFirstLoad) {
+        this(maxEntries, maxWaitForFirstLoad, () -> true);
+    }
+
+    /**
      * @param maxEntries 보관할 최대 엔트리 수. <b>소유자가 키 공간의 상한을 직접 답해야 한다</b> — 유한한 키(지역 89개·
      *     시도 17개)면 그 수에 여유를 얹고, 무한한 키(좌표·정류소·날짜)면 메모리로 감당할 값을 고른다.
      * @param maxWaitForFirstLoad <b>캐시가 빈 키</b>에 동시 요청이 몰렸을 때, 늦은 쪽이 진행 중인 적재를 기다릴 상한.
@@ -101,8 +116,9 @@ public final class ExternalDataCache<K, V> {
      *     여러 호출을 도는 집계 loader 면 {@link Duration#ZERO} 로 <b>기다리지 않는다</b>(그만큼 기다린 뒤 결국
      *     degrade 하면 즉시 degrade 보다 나쁘다). 이 상한은 <b>이미 값이 있는(stale) 경우엔 쓰이지 않는다</b> —
      *     그때는 지금처럼 즉시 stale 을 준다.
+     * @param cacheEnabled 매 조회마다 묻는다. 거짓이면 읽지도 쓰지도 않고 loader 를 그대로 부른다
      */
-    public ExternalDataCache(int maxEntries, Duration maxWaitForFirstLoad) {
+    public ExternalDataCache(int maxEntries, Duration maxWaitForFirstLoad, BooleanSupplier cacheEnabled) {
         if (maxEntries <= 0) {
             throw new IllegalArgumentException("maxEntries 는 1 이상이어야 합니다: " + maxEntries);
         }
@@ -112,6 +128,7 @@ public final class ExternalDataCache<K, V> {
         }
         this.maxEntries = maxEntries;
         this.maxWaitForFirstLoad = maxWaitForFirstLoad;
+        this.cacheEnabled = Objects.requireNonNull(cacheEnabled, "cacheEnabled");
     }
 
     /**
@@ -138,6 +155,9 @@ public final class ExternalDataCache<K, V> {
      */
     public V get(K key, BiFunction<K, V, Loaded<V>> loader, V noStaleFallback, StalePolicy stalePolicy) {
         Objects.requireNonNull(stalePolicy, "stalePolicy");
+        if (!cacheEnabled.getAsBoolean()) {
+            return bypass(key, loader, noStaleFallback, stalePolicy);
+        }
         Entry<V> cached = cache.get(key);
         if (cached != null && cached.isFresh()) {
             return cached.value();
@@ -228,7 +248,40 @@ public final class ExternalDataCache<K, V> {
      * <p>만료된 값은 주지 않는다. 워밍 주기가 TTL 보다 짧으면 정상 상태에서 늘 신선하고, 워밍이 실패해
      * 만료됐다면 "값이 없다" 가 사실에 가깝다.
      */
+    /**
+     * 캐시를 끈 상태의 조회 — loader 를 그대로 부른다(#403).
+     *
+     * <p><b>읽지도 쓰지도 않는다.</b> 저장만 건너뛰고 읽기를 남기면 껐는데도 옛 값이 나오고, 읽기만
+     * 건너뛰고 저장을 남기면 다시 켰을 때 껐던 동안의 값이 되살아난다.
+     *
+     * <p>loader 는 외부 예외를 스스로 잡아 폴백을 돌려주는 계약이지만, 그 계약을 어긴 loader 가 있어도
+     * 여기서 500 이 나가지 않게 한 겹 더 받는다 — 스위치를 켜고 끄는 것만으로 장애 성격이 달라지면
+     * 안 된다.
+     *
+     * <p>stale 은 넘기지 않는다. 저장한 값이 없으므로 줄 stale 도 없다.
+     */
+    private V bypass(K key, BiFunction<K, V, Loaded<V>> loader, V noStaleFallback, StalePolicy stalePolicy) {
+        try {
+            Loaded<V> loaded = loader.apply(key, null);
+            return loaded != null ? loaded.value() : noStaleFallback;
+        } catch (RuntimeException e) {
+            return stalePolicy.degrade(noStaleFallback, noStaleFallback);
+        }
+    }
+
+    /**
+     * 지금 조회하면 캐시가 답할 값 — <b>읽는 쪽과 같은 답을 준다</b>.
+     *
+     * <p>그래서 캐시를 끈 동안에는 저장된 값이 남아 있어도 비어 있다고 답한다. 여기만 스위치를 안 보면
+     * "껐는데 옛 값이 나온다" 가 이 통로로 되살아난다 - {@link #get} 이 막은 것과 같은 일이다.
+     *
+     * <p>무엇이 <b>저장돼 있는지</b>가 궁금하면 {@link #size} 를 본다. 둘을 갈라 둔 것은 스위치를 끈 채
+     * "저장을 건너뛰는가" 를 확인하려면 스위치를 안 보는 창구가 하나 필요해서다.
+     */
     public Optional<V> peek(K key) {
+        if (!cacheEnabled.getAsBoolean()) {
+            return Optional.empty();
+        }
         Entry<V> cached = cache.get(key);
         return cached != null && cached.isFresh() ? Optional.ofNullable(cached.value()) : Optional.empty();
     }

@@ -26,7 +26,7 @@ public record RegionDetail(
         String sigungu,
         String overview,
         List<String> photos,
-        HomeResult.Benefit benefit,
+        RegionBenefit benefit,
         List<Spot> highlightSpots,
         RegionVisitMetrics visitMetrics) {
 

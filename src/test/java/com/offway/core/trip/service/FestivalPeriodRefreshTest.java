@@ -3,6 +3,7 @@ package com.offway.core.trip.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.offway.core.common.external.ExternalApiBatchPolicy;
 import com.offway.core.trip.domain.FestivalPeriod;
 import com.offway.core.trip.infrastructure.tour.dto.TourFestival;
 import com.offway.core.trip.infrastructure.tour.dto.TourFestivalResult;
@@ -82,7 +83,14 @@ class FestivalPeriodRefreshTest {
                     public boolean tryStartOn(String name, LocalDate date, java.time.LocalDateTime at) {
                         return true;
                     }
-                });
+
+                    @Override
+                    public java.util.List<com.offway.core.common.batch.domain.BatchRun> all() {
+                        // 이 테스트는 정리 판정만 본다 — 실행 이력을 읽는 경로가 아니다.
+                        return java.util.List.of();
+                    }
+                },
+                ExternalApiBatchPolicy.ALWAYS_RUN);
     }
 
     @Test

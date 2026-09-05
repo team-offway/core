@@ -17,6 +17,7 @@ import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.policy.repository.PolicyJpaRepository;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -261,5 +262,41 @@ class AdminPolicyIntegrationTest {
                 .periodStart(LocalDate.of(2026, 1, 1))
                 .verified(false)
                 .build();
+    }
+
+    // ── 이 분류가 어디에 뜨나(#393) ──────────────────────────────────────
+
+    /**
+     * <b>분류마다 대상이 갈린다.</b> 예전 화면은 "대상 지역: 비수도권 인구감소지역" 한 줄뿐이라,
+     * 그게 몇 곳인지도 어디인지도 알 수 없었다 — 어드민이 "이게 완도에 뜨나" 를 답하려면 코드를
+     * 읽어야 했다.
+     */
+    @Test
+    void 분류_전부의_대상_지역을_돌려준다() throws Exception {
+        mockMvc.perform(get(URL + "/scopes").with(loginAsAdmin(UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.length()").value(PolicyType.values().length))
+                .andExpect(jsonPath("$.data[0].type").exists())
+                .andExpect(jsonPath("$.data[0].tag").exists())
+                .andExpect(jsonPath("$.data[0].badgeText").exists());
+    }
+
+    /** 곳 수와 목록이 어긋나면 화면이 거짓말을 한다 — "85곳" 이라 적고 60개만 펼치는 식으로. */
+    @Test
+    void 곳_수와_지역_목록의_길이가_같다() throws Exception {
+        String body = mockMvc.perform(get(URL + "/scopes").with(loginAsAdmin(UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<Integer> counts = JsonPath.read(body, "$.data[*].regionCount");
+        List<Integer> sizes = JsonPath.read(body, "$.data[*].regions.length()");
+        assertEquals(counts, sizes);
+    }
+
+    @Test
+    void 일반_사용자는_대상_지역을_못_본다() throws Exception {
+        mockMvc.perform(get(URL + "/scopes").with(loginAs(UUID.randomUUID())))
+                .andExpect(status().isForbidden());
     }
 }

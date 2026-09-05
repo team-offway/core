@@ -8,7 +8,7 @@ import com.offway.core.notification.domain.NotificationException;
 import com.offway.core.notification.repository.NotificationRepository;
 import com.offway.core.notification.service.dto.MyNotifications;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.HashMap;
@@ -41,7 +41,7 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final CourseRepository courseRepository;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
 
     /**
      * 소유자의 알림 한 페이지 + 안읽음 전체 수.
@@ -81,8 +81,7 @@ public class NotificationService {
             return Map.of();
         }
         List<Course> courses = courseRepository.findByIds(courseIds);
-        Map<Long, String> nameByRegionId = regionRepository
-                .findByIds(courses.stream().map(Course::getRegionId).distinct().toList())
+        Map<Long, String> nameByRegionId = regionQuery.byIds(courses.stream().map(Course::getRegionId).distinct().toList())
                 .stream()
                 .collect(Collectors.toMap(Region::getId, Region::shortName));
         Map<Long, String> byCourseId = new HashMap<>();

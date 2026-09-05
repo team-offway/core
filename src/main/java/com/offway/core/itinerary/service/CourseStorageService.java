@@ -14,7 +14,7 @@ import com.offway.core.itinerary.service.dto.MyCourses;
 import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.service.RegionImageProvider;
 import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.transport.domain.TransportMode;
@@ -52,7 +52,7 @@ public class CourseStorageService {
 
     private final CourseRepository courseRepository;
     private final PolicyService policyService;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final CourseWeatherProvider courseWeatherProvider;
     private final OpeningHoursProvider openingHoursProvider;
     private final FestivalPeriodProvider festivalPeriodProvider;
@@ -350,6 +350,7 @@ public class CourseStorageService {
                     .orElse(null);
         }
         // 이 필드가 생기기 전에 저장된 코스는 근거가 없다. 지어내지 않는다.
+        // 응답은 그 사실을 ORIGIN_UNKNOWN 으로 말한다(#422) — 필드를 빼면 앱이 옛 서버와 구분 못 한다.
         return course.origin()
                 .map(origin -> regionAccessService.accessTo(
                         origin.lat(),
@@ -394,7 +395,7 @@ public class CourseStorageService {
         if (regionIds.isEmpty()) {
             return Map.of();
         }
-        return regionRepository.findByIds(regionIds).stream()
+        return regionQuery.byIds(regionIds).stream()
                 .collect(Collectors.toMap(Region::getId, Region::getSigungu, (a, b) -> a));
     }
 
@@ -421,9 +422,7 @@ public class CourseStorageService {
 
     /** 코스 지역 — 슬롯 표시명·날씨·열차 접근이 모두 이 값을 쓴다. 한 번만 읽는다. */
     private Region regionOf(Course course) {
-        return regionRepository.findByIds(List.of(course.getRegionId())).stream()
-                .findFirst()
-                .orElse(null);
+        return regionQuery.byId(course.getRegionId()).orElse(null);
     }
 
     private GeneratedCourse assemble(Course course, Region region, RegionAccess regionAccess) {

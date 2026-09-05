@@ -1,5 +1,7 @@
 package com.offway.core.itinerary.service;
 
+import com.offway.core.common.external.CallerContext;
+import com.offway.core.common.external.RequestUsage;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseNeeds;
 import com.offway.core.itinerary.domain.CandidatePool;
@@ -15,8 +17,8 @@ import com.offway.core.itinerary.service.dto.GenerateCourse;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.region.service.RegionQuery;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.CoordinateKey;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.transport.service.RouteOptimizer;
@@ -37,6 +39,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -63,13 +66,37 @@ public class CourseGenerationService {
     private final CourseWeatherProvider courseWeatherProvider;
     private final OpeningHoursProvider openingHoursProvider;
     private final FestivalPeriodProvider festivalPeriodProvider;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final RegionAccessService regionAccessService;
     private final UnroutableCoordinateService unroutableCoordinateService;
+    private final CourseUsageAlert courseUsageAlert;
 
     public GeneratedCourse generate(GenerateCourse command) {
         // ① POI 수집 (trip)
         return generate(command, regionPoiService.collect(command.regionId(), command.travelDate()));
+    }
+
+    /**
+     * 코스를 만들고 <b>이 한 건이 태운 외부 호출을 알린다</b>(#421).
+     *
+     * <p>계측을 진입점에 두는 것이 요점이다. 안쪽 {@code generate(command, pois)} 는 재생성이 씨앗을
+     * 바꿔가며 여러 번 부르므로, 거기에 두면 <b>시도마다 알림이 나간다.</b>
+     *
+     * <p>{@code finally} 로 감싸 <b>실패해도 보낸다</b> — 한도는 이미 깎였고, 오히려 "쓰고도 결과가
+     * 없는" 쪽이 더 봐야 하는 숫자다.
+     *
+     * @param userId 알림에 싣는다. 지금은 인증 뒤라 항상 있지만, 열리면 null 이 온다
+     */
+    public GeneratedCourse generate(GenerateCourse command, UUID userId) {
+        RequestUsage usage = CallerContext.beginUsage();
+        boolean succeeded = false;
+        try {
+            GeneratedCourse generated = generate(command);
+            succeeded = true;
+            return generated;
+        } finally {
+            courseUsageAlert.send(userId, command, usage, succeeded, false);
+        }
     }
 
     /**
@@ -103,7 +130,7 @@ public class CourseGenerationService {
         List<PoiCandidate> stays = reorder(stayPool, GeoCluster.nearest(coords(stayPool), hub, needs.stays()));
 
         // 지역은 날씨·열차 접근 양쪽이 쓴다 — 한 번만 읽는다(#129).
-        Region region = regionRepository.findByIds(List.of(command.regionId())).stream().findFirst().orElse(null);
+        Region region = regionQuery.byId(command.regionId()).orElse(null);
 
         // 지역까지 무엇을 타고 가서 어디에 닿는지. 부가 정보라 실패해도 코스는 그대로다.
         // 슬롯 배치보다 앞서야 한다 — 동선의 기준점과 1일차 시작 시간대가 이 결과에서 나온다(#127).
@@ -115,8 +142,10 @@ public class CourseGenerationService {
                 nearestNeighborOrder(sights, command.transport(), regionAnchor(command, regionAccess));
 
         // ⑥ 슬롯 배치 → ⑨ 조립. 첫날은 도착 시각 이후 남는 시간대만 쓴다.
-        List<DaySchedule> days =
-                buildDays(command, firstDayStart(command, regionAccess), orderedSights, foods, stays);
+        // 대중교통이면 첫 칸·끝 칸에 내린 지점(역·터미널·항구)을 세운다(#415).
+        List<DaySchedule> days = buildDays(
+                command, firstDayStart(command, regionAccess), orderedSights, foods, stays,
+                transitHub(command, regionAccess));
         // 기간은 days.size() 가 아니라 **요청한 일수**다. 일정이 없는 날은 코스에서 빠지므로(#159) 둘이 갈린다 —
         // 첫날이 이동뿐이어도 그날은 여행 중이고, 연차도 그만큼 나간다(#164).
         Course course = Course.of(
@@ -298,7 +327,7 @@ public class CourseGenerationService {
      * 후보는 사라지지 않고 그대로 이튿날 몫이 된다.
      */
     private List<DaySchedule> buildDays(GenerateCourse command, DayStart firstDayStart,
-            List<PoiCandidate> sights, List<PoiCandidate> foods, List<PoiCandidate> stays) {
+            List<PoiCandidate> sights, List<PoiCandidate> foods, List<PoiCandidate> stays, TransitHub hub) {
         int perDaySights = command.density().sightsPerDay();
         List<DaySchedule> days = new ArrayList<>();
         int si = 0;
@@ -327,8 +356,95 @@ public class CourseGenerationService {
         if (days.isEmpty()) {
             throw ItineraryException.courseNotBuildable();
         }
+        addTransitHubSlots(days, hub, command.transport());
         fillDayGaps(days, command.transport());
         return days;
+    }
+
+    /**
+     * 대중교통 코스의 <b>첫 칸과 끝 칸</b>을 내린 지점으로 채운다(#415).
+     *
+     * <p>기차에서 내려 역에서 시작하고 마지막에 다시 역으로 간다. 그 두 칸이 없으면 "역에서 첫 장소까지
+     * 어떻게 가지" 와 "언제 역으로 나서지" 를 사용자가 코스 밖에서 따로 계산한다.
+     *
+     * <p><b>남아 있는 날에 붙인다.</b> 자정을 넘겨 닿으면 1일차가 통째로 빠지는데(#159), 그때 도착은
+     * 실제로 그 다음 날 아침에 일어난다. 요청한 1일차가 아니라 <b>목록의 첫 날</b>에 붙여야 맞는 이유다.
+     *
+     * <p><b>시간대는 이웃 칸에서 가져온다.</b> 도착 칸은 뒤따르는 첫 일정과, 출발 칸은 앞선 마지막 일정과
+     * 같은 시간대다. 여기서 시각을 새로 정하면 {@link DayStart} 가 이미 내린 판단과 갈린다 — 실제 출발
+     * 시각(몇 시 차)은 교통 카드의 시간표가 답한다(#414).
+     *
+     * <p>여기서 {@link DaySchedule} 을 새로 만드는 것은 안전하다 — 아직 영속 전이라 {@code orphanRemoval}
+     * 이 관여하지 않는다(저장 뒤에 같은 짓을 하면 슬롯이 지워진다. {@code Course.renumber} 주석 참고).
+     */
+    private void addTransitHubSlots(List<DaySchedule> days, TransitHub hub, TransportMode transport) {
+        if (hub == null) {
+            return; // 자차이거나, 내린 지점을 모른다 — 지어내지 않는다
+        }
+        DaySchedule first = days.getFirst();
+        List<Slot> opened = withArrival(first.getSlots(), hub, transport);
+        days.set(0, DaySchedule.of(first.getDayNumber(), first.getDayOffset(), opened));
+
+        int lastIndex = days.size() - 1;
+        // 하루짜리 코스면 방금 도착 칸을 붙인 그 날이다 — 원본이 아니라 갱신된 쪽을 다시 읽는다.
+        DaySchedule last = days.get(lastIndex);
+        List<Slot> closed = withDeparture(last.getSlots(), hub, transport);
+        days.set(lastIndex, DaySchedule.of(last.getDayNumber(), last.getDayOffset(), closed));
+    }
+
+    /** 하루의 맨 앞에 도착 칸을 세우고, 뒤 슬롯의 순서·이동시간을 다시 매긴다. */
+    private List<Slot> withArrival(List<Slot> slots, TransitHub hub, TransportMode transport) {
+        Slot head = slots.getFirst();
+        List<Slot> opened = new ArrayList<>();
+        opened.add(Slot.transitHub(1, head.getTimeOfDay(), SlotKind.ARRIVAL, hub.name(),
+                hub.point().lat(), hub.point().lng(), 0));
+        for (int i = 0; i < slots.size(); i++) {
+            Slot slot = slots.get(i);
+            // 첫 장소의 이동시간이 0 에서 "역에서 여기까지" 로 바뀐다 — 이 이슈가 채우려던 값이다.
+            int travel = i == 0
+                    ? legMinutes(hub.point(), new Coordinate(slot.getLat(), slot.getLng()), transport)
+                    : slot.getTravelMinutesFromPrev();
+            opened.add(renumbered(slot, i + 2, travel));
+        }
+        return opened;
+    }
+
+    /** 하루의 맨 뒤에 출발 칸을 잇는다 — 마지막 장소에서 지점까지의 이동시간을 함께 잰다. */
+    private List<Slot> withDeparture(List<Slot> slots, TransitHub hub, TransportMode transport) {
+        Slot tail = slots.getLast();
+        List<Slot> closed = new ArrayList<>(slots);
+        closed.add(Slot.transitHub(slots.size() + 1, tail.getTimeOfDay(), SlotKind.DEPARTURE, hub.name(),
+                hub.point().lat(), hub.point().lng(),
+                legMinutes(new Coordinate(tail.getLat(), tail.getLng()), hub.point(), transport)));
+        return closed;
+    }
+
+    /** 순서와 이동시간만 바꾼 같은 슬롯 — 나머지 값은 그대로 옮긴다. */
+    private static Slot renumbered(Slot slot, int orderInDay, int travelMinutesFromPrev) {
+        return Slot.of(orderInDay, slot.getTimeOfDay(), slot.getKind(), slot.getPoiContentId(),
+                slot.getPoiContentTypeId(), slot.getTitle(), slot.getLat(), slot.getLng(), travelMinutesFromPrev,
+                new SlotDisplay(slot.getImageUrl(), slot.getAddress(), slot.getCatchphrase(), slot.getTel()));
+    }
+
+    /**
+     * 대중교통 코스가 내리는 지점 — 이름과 좌표가 <b>둘 다</b> 있을 때만.
+     *
+     * <p>자차는 내릴 역이 없다. 대중교통이라도 오지라 역이 안 잡히거나 접근 조회가 실패하면 지점을
+     * 모르는데, 그때는 지금처럼 관광지로 시작한다 — 모르는 것을 지어내지 않는다.
+     */
+    private static TransitHub transitHub(GenerateCourse command, RegionAccess regionAccess) {
+        if (command.transport() != TransportMode.TRANSIT || regionAccess == null) {
+            return null;
+        }
+        String name = regionAccess.toName();
+        return regionAccess.arrivalPoint()
+                .filter(point -> name != null && !name.isBlank())
+                .map(point -> new TransitHub(name, point))
+                .orElse(null);
+    }
+
+    /** 대중교통 코스가 내리고 다시 타는 지점 — 역·터미널·항구를 한 모양으로 접는다. */
+    private record TransitHub(String name, Coordinate point) {
     }
 
     /**

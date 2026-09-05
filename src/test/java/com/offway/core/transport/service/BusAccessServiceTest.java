@@ -1,5 +1,6 @@
 package com.offway.core.transport.service;
 
+import com.offway.core.common.external.ExternalApiCachePolicy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
@@ -41,7 +42,7 @@ class BusAccessServiceTest {
         StubBusStopClient stub = stubCovering();
         stub.respond(() -> new BusStopAccess.Available(List.of(TERMINAL)));
 
-        BusStopAccess result = new BusAccessService(stub).nearbyStops(SIDO, COVERED, LAT, LNG);
+        BusStopAccess result = new BusAccessService(stub, ExternalApiCachePolicy.ALWAYS_CACHE).nearbyStops(SIDO, COVERED, LAT, LNG);
 
         assertEquals("태백터미널", assertInstanceOf(BusStopAccess.Available.class, result)
                 .nearest()
@@ -55,7 +56,7 @@ class BusAccessServiceTest {
         stub.respond(BusStopAccess.NoStopNearby::new);
 
         assertInstanceOf(
-                BusStopAccess.NoStopNearby.class, new BusAccessService(stub).nearbyStops(SIDO, COVERED, LAT, LNG));
+                BusStopAccess.NoStopNearby.class, new BusAccessService(stub, ExternalApiCachePolicy.ALWAYS_CACHE).nearbyStops(SIDO, COVERED, LAT, LNG));
     }
 
     @Test
@@ -63,7 +64,7 @@ class BusAccessServiceTest {
         // 정선은 버스가 없는 게 아니라 TAGO 에 데이터가 없다. 조회해봐야 빈 결과라 "정류소 없음"으로 오인된다.
         StubBusStopClient stub = stubCovering();
 
-        BusStopAccess result = new BusAccessService(stub).nearbyStops(SIDO, UNCOVERED, LAT, LNG);
+        BusStopAccess result = new BusAccessService(stub, ExternalApiCachePolicy.ALWAYS_CACHE).nearbyStops(SIDO, UNCOVERED, LAT, LNG);
 
         assertInstanceOf(BusStopAccess.NotCovered.class, result);
         assertEquals(0, stub.callCount());
@@ -75,7 +76,7 @@ class BusAccessServiceTest {
         StubBusStopClient stub = new StubBusStopClient();
         stub.respondCoverage(Optional::empty);
 
-        BusStopAccess result = new BusAccessService(stub).nearbyStops(SIDO, COVERED, LAT, LNG);
+        BusStopAccess result = new BusAccessService(stub, ExternalApiCachePolicy.ALWAYS_CACHE).nearbyStops(SIDO, COVERED, LAT, LNG);
 
         assertInstanceOf(BusStopAccess.Unavailable.class, result);
         assertEquals(0, stub.callCount());
@@ -86,7 +87,7 @@ class BusAccessServiceTest {
         // 138곳 목록은 거의 변하지 않는다. 지역마다 다시 부르면 쿼터만 태운다.
         StubBusStopClient stub = stubCovering();
         stub.respond(() -> new BusStopAccess.Available(List.of(TERMINAL)));
-        BusAccessService service = new BusAccessService(stub);
+        BusAccessService service = new BusAccessService(stub, ExternalApiCachePolicy.ALWAYS_CACHE);
 
         service.nearbyStops(SIDO, COVERED, LAT, LNG);
         service.nearbyStops(SIDO, UNCOVERED, LAT, LNG);
@@ -98,7 +99,7 @@ class BusAccessServiceTest {
     void 같은_좌표를_다시_물으면_외부를_다시_부르지_않는다() {
         StubBusStopClient stub = stubCovering();
         stub.respond(() -> new BusStopAccess.Available(List.of(TERMINAL)));
-        BusAccessService service = new BusAccessService(stub);
+        BusAccessService service = new BusAccessService(stub, ExternalApiCachePolicy.ALWAYS_CACHE);
 
         service.nearbyStops(SIDO, COVERED, LAT, LNG);
         service.nearbyStops(SIDO, COVERED, LAT, LNG);
@@ -111,7 +112,7 @@ class BusAccessServiceTest {
         // 좌표를 그대로 키로 쓰면 소수점 끝자리마다 키가 생겨 캐시가 무력화되고 맵이 무한히 커진다.
         StubBusStopClient stub = stubCovering();
         stub.respond(() -> new BusStopAccess.Available(List.of(TERMINAL)));
-        BusAccessService service = new BusAccessService(stub);
+        BusAccessService service = new BusAccessService(stub, ExternalApiCachePolicy.ALWAYS_CACHE);
 
         service.nearbyStops(SIDO, COVERED, LAT, LNG);
         service.nearbyStops(SIDO, COVERED, LAT + 0.000001, LNG + 0.000001);
@@ -123,7 +124,7 @@ class BusAccessServiceTest {
     void 캐시를_비우면_다시_조회한다() {
         StubBusStopClient stub = stubCovering();
         stub.respond(() -> new BusStopAccess.Available(List.of(TERMINAL)));
-        BusAccessService service = new BusAccessService(stub);
+        BusAccessService service = new BusAccessService(stub, ExternalApiCachePolicy.ALWAYS_CACHE);
 
         service.nearbyStops(SIDO, COVERED, LAT, LNG);
         service.evictCache();

@@ -1,11 +1,14 @@
 package com.offway.core.transport.service;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.Station;
+import com.offway.core.transport.domain.Departure;
+import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.transport.domain.TrainAvailability;
 import com.offway.core.transport.service.dto.RegionAccess;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,7 +56,9 @@ public class TrainAccessService {
         TrainAvailability availability = trainRouteService.fastestTrain(from.get().id(), to.get().id(), date);
         return switch (availability) {
             case TrainAvailability.Available a -> a.fastestDepartingFrom(notBefore)
-                    .map(leg -> RegionAccess.available(fromName, toName, toPoint, leg))
+                    // 시간표는 <b>공짜다</b>(#414). 하루치를 이미 받아 캐시에 들고 있어서(#138) 여기서
+                    // 화면에 올릴 편을 고르는 데 외부 호출이 한 건도 늘지 않는다.
+                    .map(leg -> RegionAccess.available(fromName, toName, toPoint, leg, upcoming(a, notBefore)))
                     .orElseGet(() -> {
                         // 그날 운행은 있는데 이 시각 이후 편이 없다 — 막차가 지났다. 사용자에게는 "그날 열차가
                         // 없음" 과 같은 결과라 같은 상태로 답한다. 다만 이유가 달라 로그로 가른다.
@@ -71,5 +76,15 @@ public class TrainAccessService {
                 yield RegionAccess.unavailable(fromName, toName, toPoint);
             }
         };
+    }
+
+    /**
+     * 화면에 올릴 편 — 집을 나서는 시각 이후, 이른 순으로(#414).
+     *
+     * <p>{@code fastestDepartingFrom} 과 <b>정렬이 다르다</b>. 그쪽은 코스를 짜려고 가장 빨리 닿는 편을
+     * 고르지만, 시간표는 "다음 차가 몇 시인가" 라 출발 순이 맞다.
+     */
+    private static List<Departure> upcoming(TrainAvailability.Available available, LocalTime notBefore) {
+        return Departure.upcoming(available.legs().stream().map(TrainLeg::toDeparture).toList(), notBefore);
     }
 }

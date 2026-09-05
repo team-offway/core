@@ -2,11 +2,14 @@ package com.offway.core.trip.controller.dto;
 
 import com.offway.core.common.logging.LogSummaries;
 import com.offway.core.common.logging.LogSummary;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import com.offway.core.trip.domain.PlaceCategory;
 import com.offway.core.trip.domain.PlaceKind;
 import com.offway.core.trip.service.dto.RegionPlaces;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 지역 장소 목록 응답(#144) — 숙소·맛집·카페·관광명소 탭 하나의 내용.
@@ -21,7 +24,7 @@ public record RegionPlacesResponse(
         @Schema(description = "장소 종류", example = "STAY") PlaceKind kind,
         @Schema(description = "종류 표시명", example = "숙소") String kindLabel,
         @Schema(description = "이 종류의 분류 목록(필터 칩)") List<CategoryResponse> categories,
-        @Schema(description = "장소 목록") List<PlaceResponse> places) implements LogSummary {
+        @Schema(description = "장소 목록") List<PlaceResponse> places) implements LogSummary, Attributed {
 
     public static RegionPlacesResponse from(PlaceKind kind, RegionPlaces places) {
         return new RegionPlacesResponse(
@@ -29,6 +32,17 @@ public record RegionPlacesResponse(
                 kind.label(),
                 PlaceCategory.of(kind).stream().map(CategoryResponse::from).toList(),
                 places.places().stream().map(PlaceResponse::from).toList());
+    }
+
+    /**
+     * 이 페이지에 실린 장소들의 출처만 담는다(#399).
+     *
+     * <p>고정 집합으로 두지 않는다 — 인허가 장소만 있는 페이지에 국가유산청을 붙이면 <b>안 쓴 출처를
+     * 표기</b>하게 된다. 그것도 잘못된 표기다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        return PlaceDataSources.of(places, PlaceResponse::id);
     }
 
     @Override

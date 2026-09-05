@@ -2,11 +2,16 @@ package com.offway.core.trip.controller.dto;
 
 import com.offway.core.curation.controller.dto.CuratedLinkResponse;
 import com.offway.core.curation.domain.CuratedLink;
+import com.offway.core.common.response.Attributed;
+import com.offway.core.common.response.DataSource;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.trip.service.dto.HomeResult;
 import com.offway.core.trip.service.dto.RegionDetail;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 지역 상세 응답(#304).
@@ -26,9 +31,37 @@ public record RegionDetailResponse(
         @Schema(example = "동구 · 부산광역시") String name,
         @Schema(example = "금수사와 정공단이 있는 곳", nullable = true) String overview,
         List<String> photos,
-        @Schema(nullable = true) Benefit benefit,
+        @Schema(nullable = true) BenefitResponse benefit,
         List<HighlightSpot> highlightSpots,
-        List<CuratedLinkResponse> curatedLinks) {
+        List<CuratedLinkResponse> curatedLinks) implements Attributed {
+
+    /**
+     * 이 화면의 값은 <b>거의 다 공사 것</b>이다(#399) — 소개·대표 사진·매력 포인트 장소와 그 캐치프레이즈.
+     *
+     * <p>매력 포인트는 인허가·국가유산 장소가 섞일 수 있어 실린 것만 센다. 지역명·혜택은 우리가 만든
+     * 값이라 출처가 없다.
+     *
+     * <p><b>캐치프레이즈가 따로 걸린다.</b> 인허가 장소에도 붙는 값인데 그건 공사의 "대한민국 구석구석"
+     * 에서 온다. 소개도 대표 사진도 없는 지역에서 그 한 줄만 실리면, 장소의 기본 출처만 세다가 공사 표기를
+     * 통째로 빠뜨린다.
+     */
+    @Override
+    public Set<DataSource> sources() {
+        Set<DataSource> spotSources = PlaceDataSources.of(highlightSpots, HighlightSpot::poiContentId);
+        if (!usesKtoText()) {
+            return spotSources;
+        }
+        // 소개·대표 사진·캐치프레이즈는 그 자체가 공사 값이다 — 장소가 하나도 없어도 표기가 필요하다.
+        return Stream.concat(spotSources.stream(), Stream.of(DataSource.KTO))
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** 장소의 출처와 별개로 <b>공사에서 온 글</b>이 실렸나 — 소개·대표 사진·캐치프레이즈. */
+    private boolean usesKtoText() {
+        return overview != null
+                || !photos.isEmpty()
+                || highlightSpots.stream().anyMatch(spot -> spot.catchphrase() != null);
+    }
 
     public static RegionDetailResponse from(RegionDetail detail, List<CuratedLink> curatedLinks) {
         return new RegionDetailResponse(
@@ -36,27 +69,12 @@ public record RegionDetailResponse(
                 detail.sigungu() + " · " + detail.sido(),
                 detail.overview(),
                 detail.photos(),
-                detail.benefit() == null ? null : Benefit.from(detail.benefit()),
+                BenefitResponse.from(detail.benefit()),
                 detail.highlightSpots().stream().map(HighlightSpot::from).toList(),
                 CuratedLinkResponse.from(curatedLinks));
     }
 
     /**
-     * 혜택 뱃지 — <b>필드 이름·순서를 홈 응답과 같게 둔다</b>. 같은 값이 두 화면에서 다른 모양으로 오면
-     * 앱이 화면마다 다른 파서를 들어야 한다.
-     *
-     * @param policyId 누르면 이 혜택의 상세로 간다
-     */
-    public record Benefit(
-            @Schema(example = "숙박 할인") String text,
-            @Schema(example = "STAY_FESTA") PolicyType policyType,
-            @Schema(example = "2") long policyId) {
-
-        static Benefit from(HomeResult.Benefit benefit) {
-            return new Benefit(benefit.text(), benefit.type(), benefit.policyId());
-        }
-    }
-
     /**
      * @param poiContentId 누르면 {@code GET /api/v1/pois/{poiContentId}} 로 그대로 이어진다
      * @param catchphrase 구석구석 한 줄 소개. <b>null 일 수 있다</b> — 그 장소가 캐치프레이즈 목록에 없으면

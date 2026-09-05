@@ -15,17 +15,30 @@ package com.offway.core.transport.domain;
 public enum TransportMode {
 
     /** 자가용 — 기준. */
-    CAR(75.0),
+    CAR(75.0, "자차"),
 
     /** 대중교통 — 환승·배차로 자차보다 느려 같은 거리에 시간이 더 든다. */
-    TRANSIT(50.0);
+    TRANSIT(50.0, "대중교통");
 
     private static final int MINUTES_PER_HOUR = 60;
 
     private final double averageSpeedKmh;
 
-    TransportMode(double averageSpeedKmh) {
+    /**
+     * 사람이 읽는 이름(#421).
+     *
+     * <p>상수 이름을 그대로 쓰면 알림 줄에 {@code TRANSIT} 이 뜬다. 형제인 {@code TransitMode} 가
+     * 이미 같은 값을 들고 있어, 여기만 없으면 부르는 쪽이 매번 매핑 표를 새로 만든다.
+     */
+    private final String label;
+
+    TransportMode(double averageSpeedKmh, String label) {
         this.averageSpeedKmh = averageSpeedKmh;
+        this.label = label;
+    }
+
+    public String label() {
+        return label;
     }
 
     /** 이동거리(㎞)를 이 수단의 평균속도로 나눠 이동시간(분)으로 환산한다. */
