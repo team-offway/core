@@ -29,16 +29,34 @@ public class TrainStationResolver {
 
     /** 좌표에서 {@value #MAX_KM}㎞ 안 가장 가까운 역. 없으면 빈 Optional. */
     public Optional<Station> nearest(double lat, double lng) {
+        List<Station> candidates = nearestCandidates(lat, lng, 1);
+        return candidates.isEmpty() ? Optional.empty() : Optional.of(candidates.getFirst());
+    }
+
+    /**
+     * 좌표에서 {@value #MAX_KM}㎞ 안 가까운 순으로 최대 {@code limit} 곳(#435).
+     *
+     * <p><b>왜 하나로 끝내지 않는가.</b> 최근접 역이 그 목적지 방면 노선이 아니면 열차가 통째로 사라진다.
+     * 강변역에서 제천에 갈 때 수서(5.80㎞)가 왕십리(6.02㎞)를 <b>0.22㎞ 차이로</b> 이기는데, 수서는 SRT
+     * 전용이라 제천행이 없고 왕십리는 중앙선이라 있다. 거리만으로 하나를 고르면 그 0.22㎞ 때문에
+     * 사용자는 탈 수 있는 열차를 못 본다.
+     *
+     * <p>고르는 일은 여기서 하지 않는다. 이 서비스는 "가까운 순으로 이만큼" 만 답하고, 어느 역에 실제로
+     * 운행이 있는지는 조회해 봐야 아는 {@link TrainAccessService} 의 몫이다.
+     */
+    public List<Station> nearestCandidates(double lat, double lng, int limit) {
         Coordinate target = new Coordinate(lat, lng);
         return stations().stream()
                 .filter(TrainStation::hasCoordinate)
                 .map(s -> Map.entry(s, target.haversineKmTo(new Coordinate(s.getLat(), s.getLng()))))
                 .filter(entry -> entry.getValue() <= MAX_KM)
-                .min(Comparator.comparingDouble(Map.Entry::getValue))
+                .sorted(Comparator.comparingDouble(Map.Entry::getValue))
+                .limit(limit)
                 .map(entry -> new Station(
                         entry.getKey().getCode(),
                         entry.getKey().getName(),
-                        new Coordinate(entry.getKey().getLat(), entry.getKey().getLng())));
+                        new Coordinate(entry.getKey().getLat(), entry.getKey().getLng())))
+                .toList();
     }
 
     /** 캐시 무효화 — 시드 갱신·통합 테스트 격리용. */
