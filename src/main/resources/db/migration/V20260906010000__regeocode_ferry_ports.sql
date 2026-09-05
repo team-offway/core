@@ -40,8 +40,8 @@ UPDATE ferry_port SET lat = 34.58313341, lng = 127.66693362 WHERE code = 'SEA312
 UPDATE ferry_port SET lat = 36.03262102, lng = 126.55591466 WHERE code = 'SEA30110';
 -- 거문도 — 거문도항 · 전남광주통합특별시 여수시 삼산면 거문길 103 · 0.0km 이동
 UPDATE ferry_port SET lat = 34.02750252, lng = 127.30886522 WHERE code = 'SEA31310';
--- 거제 — 저구항 · 경남 거제시 남부면 저구리 216-6 · 16.8km 이동
-UPDATE ferry_port SET lat = 34.73074748, lng = 128.60607382 WHERE code = 'SEA40030';
+-- 거제 — 저구항으로 잡혔다. 거제에는 항구가 여럿이라 어느 곳인지 특정할 수 없어 비운다
+UPDATE ferry_port SET lat = NULL, lng = NULL WHERE code = 'SEA40030';
 -- 거제_고현 — 고현항 방파제 · 경남 거제시 고현동 1105 · 1.7km 이동
 UPDATE ferry_port SET lat = 34.89745319, lng = 128.61443229 WHERE code = 'SEA95010';
 -- 거제_구영 — 구영카페리선착장 · 경남 거제시 장목면 구영리 329-9 · 0.0km 이동
@@ -220,8 +220,9 @@ UPDATE ferry_port SET lat = 34.62781794, lng = 127.53332573 WHERE code = 'SEA326
 UPDATE ferry_port SET lat = 34.29827271, lng = 126.53035927 WHERE code = 'SEA31190';
 -- 마삭도 — 마삭도항 · 전남광주통합특별시 완도군 노화읍 신양리 산 296-2 · 0.1km 이동
 UPDATE ferry_port SET lat = 34.24333708, lng = 126.56726081 WHERE code = 'SEA32630';
--- 마산 — 마산도선착장 · 전남광주통합특별시 신안군 압해읍 매화리 2042-2 · 212.6km 이동
-UPDATE ferry_port SET lat = 34.95261837, lng = 126.24947176 WHERE code = 'SEA40010';
+-- 마산 — 마산항 · 경남 창원시 마산합포구 신포동1가 86 · 창원이다
+-- **신안 `마산도` 와 헷갈리기 쉽다.** 형제 코드(`마산_어시장`·`마산_신마산`)가 전부 창원이라 이쪽이 맞다.
+UPDATE ferry_port SET lat = 35.19648741, lng = 128.57536298 WHERE code = 'SEA40010';
 -- 마산_어시장 — 항구상회 · 경남 창원시 마산합포구 어시장6길 57 · 0.2km 이동
 UPDATE ferry_port SET lat = 35.20427381, lng = 128.57753155 WHERE code = 'SEA97470';
 -- 마산도 — 마산도선착장 · 전남광주통합특별시 신안군 압해읍 매화리 2042-2 · 4.5km 이동
@@ -516,8 +517,8 @@ UPDATE ferry_port SET lat = 37.70043985, lng = 126.38092942 WHERE code = 'SEA964
 UPDATE ferry_port SET lat = 34.63460213, lng = 128.26702077 WHERE code = 'SEA40670';
 -- 용초도 — 용초항 · 경남 통영시 한산면 용호리 · 11.9km 이동
 UPDATE ferry_port SET lat = 34.74529106, lng = 128.48165601 WHERE code = 'SEA40690';
--- 용호도 — 오륙도유람선선착장 · 부산 남구 용호동 산 196-4 · 70.3km 이동
-UPDATE ferry_port SET lat = 35.09982619, lng = 129.12323848 WHERE code = 'SEA96840';
+-- 용호도 — 오륙도유람선선착장(부산)으로 잡혔다. 실제 용호도는 여수이고 확인이 안 돼 비운다
+UPDATE ferry_port SET lat = NULL, lng = NULL WHERE code = 'SEA96840';
 -- 우도 — 우도항(통영) · 경남 통영시 욕지면 연화리 · 181.1km 이동
 UPDATE ferry_port SET lat = 34.65748659, lng = 128.34437111 WHERE code = 'SEA97650';
 -- 울도 — 울도항 · 인천 옹진군 덕적면 울도리 · 새로 채움

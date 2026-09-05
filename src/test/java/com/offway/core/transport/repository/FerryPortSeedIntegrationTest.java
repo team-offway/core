@@ -1,8 +1,10 @@
 package com.offway.core.transport.repository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.FerryPort;
 import com.offway.core.transport.service.FerryPortResolver;
 import java.util.List;
@@ -27,16 +29,20 @@ class FerryPortSeedIntegrationTest {
      *
      * <p><b>387 에서 줄었다.</b> 시드는 이름만으로 좌표를 붙여 동음이의에 걸린 값이 섞여 있었다 —
      * `상노대`(통영 섬)가 철원 상노리에, `쑥섬`(전남 고흥)이 강화 두운리에 박혀 있었다. 항구 계열인지와
-     * 이름·주소가 맞는지를 확인해 통과한 것만 남기니 128곳이 빠지고 43곳이 새로 채워졌다(#452).
+     * 이름·주소가 맞는지를 확인해 통과한 것만 남기니 130곳이 빠지고 43곳이 새로 채워졌다(#452).
      *
      * <p><b>줄어든 것이 손해가 아니다.</b> 틀린 좌표는 resolver 가 엉뚱한 곳을 답하게 한다 — 실제로
      * 철원군 코스의 대표 수단이 여객선으로 떴다. 빈 좌표는 최근접 탐색에서 빠질 뿐이다.
      */
-    private static final int EXPECTED_WITH_COORDINATE = 302;
+    private static final int EXPECTED_WITH_COORDINATE = 300;
 
     /** 철원군청 — 내륙 최북단이다. 30㎞ 안에 항구가 있을 수 없다. */
     private static final double CHEORWON_LAT = 38.1466;
     private static final double CHEORWON_LNG = 127.3133;
+
+    /** 창원 마산항 — 카카오 확인값(경남 창원시 마산합포구 신포동1가 86). */
+    private static final double CHANGWON_MASAN_LAT = 35.19648741;
+    private static final double CHANGWON_MASAN_LNG = 128.57536298;
 
     /** 완도군청 — 완도항이 1㎞ 안에 있다. */
     private static final double WANDO_LAT = 34.3110;
@@ -113,5 +119,34 @@ class FerryPortSeedIntegrationTest {
                 .name();
 
         assertEquals("완도", nearest);
+    }
+
+    /**
+     * 창원 `마산` 이 신안 `마산도` 자리로 가지 않아야 한다(#452).
+     *
+     * <p><b>재지오코딩이 실제로 밟은 함정이다.</b> `마산` 으로 찾다가 신안군 `마산도선착장` 이 잡혀
+     * 212㎞ 옮겨졌다. 코드가 다른 두 항구가 한 자리를 갖게 되는데, 이름이 겹쳐 눈으로 훑을 때도
+     * 그럴듯해 보인다 — 리뷰에서 잡혔다.
+     *
+     * <p>형제 코드가 근거다. `마산_어시장`·`마산_신마산` 이 전부 창원이라 이 코드도 창원 마산항이다.
+     */
+    @Test
+    void 마산은_창원에_있고_신안_마산도와_다른_자리다() {
+        FerryPort masan = port("SEA40010");
+        FerryPort masanIsland = port("SEA32660");
+
+        assertTrue(masan.hasCoordinate(), "창원 마산항 좌표가 비었습니다");
+        assertTrue(new Coordinate(masan.getLat(), masan.getLng())
+                        .haversineKmTo(new Coordinate(CHANGWON_MASAN_LAT, CHANGWON_MASAN_LNG)) <= 1.0,
+                "마산 좌표가 창원에서 벗어났습니다 — 신안 마산도로 다시 끌려갔는지 확인하세요");
+        assertNotEquals(masan.getLat(), masanIsland.getLat(),
+                "마산과 마산도가 같은 좌표입니다 — 두 항구가 한 자리에 있을 수는 없습니다");
+    }
+
+    private FerryPort port(String code) {
+        return portRepository.findAll().stream()
+                .filter(each -> each.getCode().equals(code))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(code + " 항구가 시드에 없습니다"));
     }
 }
