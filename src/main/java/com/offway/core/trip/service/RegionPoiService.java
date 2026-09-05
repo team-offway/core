@@ -119,7 +119,7 @@ public class RegionPoiService {
         List<PoiCandidate> stays = merge(allTypes.stream().filter(RegionPoiService::isStay).toList(),
                 candidates(region, STAY_TYPE));
 
-        RegionPois pois = new RegionPois(sights, foods, stays);
+        RegionPois pois = RegionPois.builder().sights(sights).foods(foods).stays(stays).build();
         log.debug("코스 POI 수집 regionId={} 볼거리={} 맛집={} 숙박={}", regionId, sights.size(), foods.size(), stays.size());
         RegionPois filled = pois.needsSupplement() ? supplement(pois, regionId) : pois;
 
@@ -338,8 +338,11 @@ public class RegionPoiService {
         // **여행일은 안 남긴다**(로깅 규약) — 사용자가 언제 집을 비우는지가 로그에 남는다.
         log.info("그날 열리는 축제를 볼거리에 올렸습니다 regionId={} 축제={}건 볼거리={}→{}",
                 regionId, added.size(), pois.sights().size(), pois.sights().size() + added.size());
-        return new RegionPois(
-                Stream.concat(added.stream(), pois.sights().stream()).toList(), pois.foods(), pois.stays());
+        return RegionPois.builder()
+                .sights(Stream.concat(added.stream(), pois.sights().stream()).toList())
+                .foods(pois.foods())
+                .stays(pois.stays())
+                .build();
     }
 
     /**
@@ -375,11 +378,24 @@ public class RegionPoiService {
                 .build();
     }
 
-    /** 축제가 아니거나, 기간을 모르거나, 그날 열리면 남긴다. */
+    /**
+     * 축제가 아니거나, 기간을 모르거나, 그날 열리면 남긴다.
+     *
+     * <p><b>여행일을 모르면 축제를 뺀다.</b> 언제 가는지 모르면 그날 여는지도 가릴 수 없어, 남기면
+     * 끝난 축제를 코스에 올리게 된다 — #390 이 막으려던 그 일이다. 게다가 기간을 아는 축제는
+     * {@code isOpenOn(null)} 에서 터진다.
+     *
+     * <p>지금은 요청 DTO 가 여행일을 {@code @NotNull} 로 받아 정상 요청으로는 여기에 null 이 안 온다.
+     * 그래도 막아 두는 것은 표준데이터 축제 쪽({@code withOpenFestivals})이 같은 가드를 갖고 있어서다 —
+     * 한쪽만 있으면 나중에 이 경로가 열렸을 때 두 출처가 다르게 동작한다.
+     */
     private static boolean isOpenOrUnknown(
             PoiCandidate candidate, Map<String, FestivalPeriod> periods, LocalDate travelDate) {
         if (candidate.contentTypeId() != FESTIVAL_TYPE) {
             return true;
+        }
+        if (travelDate == null) {
+            return false;
         }
         FestivalPeriod period = periods.get(candidate.contentId());
         return period == null || period.isOpenOn(travelDate);
