@@ -69,9 +69,19 @@ class CourseUsageAlertTest {
     }
 
     private static GenerateCourse command() {
-        return new GenerateCourse(
-                16L, 3, Density.PACKED, TransportMode.TRANSIT,
-                37.5547, 126.9707, LocalDate.of(2026, 9, 11), StartDayLeave.FULL_DAY, 1L, Set.of());
+        // 이름을 붙여 조립한다 — 필드가 늘 때마다 위치를 세지 않게(#453 에서 transitMode 가 늘었다).
+        return GenerateCourse.builder()
+                .regionId(16L)
+                .travelDays(3)
+                .density(Density.PACKED)
+                .transport(TransportMode.TRANSIT)
+                .originLat(37.5547)
+                .originLng(126.9707)
+                .travelDate(LocalDate.of(2026, 9, 11))
+                .startDayLeave(StartDayLeave.FULL_DAY)
+                .seed(1L)
+                .excludePoiContentIds(Set.of())
+                .build();
     }
 
     private static RequestUsage usage() {
