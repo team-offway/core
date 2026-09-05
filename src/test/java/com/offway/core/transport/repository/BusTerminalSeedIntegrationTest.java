@@ -185,8 +185,12 @@ class BusTerminalSeedIntegrationTest {
                 .nearest(SEOUL_STATION_LAT, SEOUL_STATION_LNG, BusTerminalKind.INTERCITY)
                 .orElseThrow(() -> new AssertionError("서울역 근처에 시외버스 터미널이 없다"));
 
-        assertNotEquals("김포공항", nearest.name(),
+        // **코드로 본다.** 이름으로 보면 두 코드 중 하나만 막힌다 — NAI0750503 이 다시 어긋나면
+        // 뽑히는 이름이 "김포공항(도심공항)" 이라 이름 단언은 그대로 통과한다.
+        assertNotEquals("NAI0750501", nearest.code(),
                 "김포공항이 서울역 최근접으로 뽑혔다 — 좌표가 다시 어긋났다");
+        assertNotEquals("NAI0750503", nearest.code(),
+                "김포공항(도심공항)이 서울역 최근접으로 뽑혔다 — 좌표가 다시 어긋났다");
     }
 
     /**
