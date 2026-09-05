@@ -67,6 +67,34 @@ class PopularityTrendTest {
     }
 
     /**
+     * <b>반올림한 값으로 문턱을 넘지 못한다.</b>
+     *
+     * <p>9.6% 는 표시할 땐 10 이지만 실제로는 하한에 못 미친다. 반올림한 숫자로 판정하면 "늘고
+     * 있어요" 가 뜨고, 그 카드를 보고 고른 사용자에게는 우리가 없는 상승을 지어낸 셈이 된다.
+     */
+    @ParameterizedTest
+    @CsvSource({
+        "109.6, 10, false", // 표시는 10 이지만 잰 값은 9.6 — 상승이 아니다
+        "109.9, 10, false",
+        "110.0, 10, true", // 여기서부터 진짜 10%
+    })
+    void 표시값이_10이어도_잰_값이_모자라면_상승이_아니다(
+            double recentMean, int expectedPercent, boolean rising) {
+        PopularityTrend trend = PopularityTrend.of(
+                window(recentMean, THREE_MONTHS), window(100, THREE_MONTHS)).orElseThrow();
+
+        assertEquals(expectedPercent, trend.percent(), "표시용 숫자는 반올림한다");
+        assertEquals(rising, trend.rising(), "판정은 잰 값 그대로 본다");
+    }
+
+    /** 못 미쳐도 <b>값 자체는 낸다</b> — "재 보니 안 늘었다" 와 "아직 못 잰다" 는 다르다. */
+    @Test
+    void 상승이_아니어도_추세는_비어_있지_않다() {
+        assertTrue(PopularityTrend.of(window(109.6, THREE_MONTHS), window(100, THREE_MONTHS))
+                .isPresent());
+    }
+
+    /**
      * <b>작년 치가 없으면 값을 내지 않는다.</b> 직전 기간으로 대신하면 계절이 증감으로 둔갑한다 —
      * 여름엔 바다를 낀 지역이 전부 "+40%" 가 된다.
      */

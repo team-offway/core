@@ -89,20 +89,24 @@ class RegionVisitMetricsIntegrationTest {
     }
 
     /**
-     * <b>지표는 관광빅데이터에서 온 값이라 공사 표기가 걸린다</b>(#399).
+     * <b>출처 표기는 여기서 보지 않는다(의도적 생략).</b>
      *
-     * <p>매력 포인트도 소개도 없는 지역에서 지표만 실릴 수 있는데, 그때 표기가 빠지면 실제로 공사
-     * 데이터를 쓰고도 안 쓴 것처럼 보인다.
+     * <p>"지표만 실려도 공사가 붙는가" 는 {@code RegionDetailResponseSourcesTest} 가 잠근다. 그쪽은
+     * 응답 객체를 직접 조립해 <b>지표 외에 공사 값이 하나도 없는 상태</b>를 만들 수 있다.
+     *
+     * <p>여기서는 못 만든다. 지역의 소개·대표 사진이 공유 컨텍스트의 상태라, 다른 테스트가 무엇을
+     * 남겼느냐에 따라 지표 없이도 공사가 붙는다. 실제로 이 테스트를 단독으로 돌리면 통과하고 전체로
+     * 돌리면 앞의 단언이 깨졌다 — <b>그 상태에서 뒤만 단언하면 지표를 통째로 지워도 초록이 된다.</b>
      */
     @Test
-    void 지표가_실리면_출처에_한국관광공사가_걸린다() throws Exception {
+    void 지표가_응답에_실린다() throws Exception {
         Region region = anyRegion();
         심는다(region.getLegalCode());
 
         mockMvc.perform(get(URL, region.getId()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sources[*].key")
-                        .value(org.hamcrest.Matchers.hasItem("KTO")));
+                .andExpect(jsonPath("$.data.visitMetrics.quietestDay").exists())
+                .andExpect(jsonPath("$.data.visitMetrics.trend").exists());
     }
 
     /**

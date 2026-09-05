@@ -115,6 +115,28 @@ class WeeklyVisitPatternTest {
         assertEquals(shown, quietest.isPresent());
     }
 
+    /**
+     * <b>반올림한 값으로 문턱을 넘지 못한다.</b>
+     *
+     * <p>격차 9.5% 는 표시할 땐 10 이지만 실제로는 하한에 못 미친다. 반올림한 숫자로 자격을 판정하면
+     * "화요일에 가장 한산해요" 가 뜨고, 사용자는 체감도 안 되는 차이 때문에 연차 날짜를 옮긴다.
+     */
+    @ParameterizedTest
+    @CsvSource({
+        "90.5, false", // 잰 값 9.5% — 반올림하면 10 이지만 하한 미달
+        "90.1, false", // 9.9%
+        "90.0, true", // 정확히 10%
+    })
+    void 표시값이_10이어도_잰_격차가_모자라면_고르지_않는다(double tuesdayValue, boolean shown) {
+        Map<DayOfWeek, Double> perDay = flat(100);
+        perDay.put(DayOfWeek.TUESDAY, tuesdayValue);
+
+        Optional<QuietestDay> quietest =
+                WeeklyVisitPattern.of(weeks(ENOUGH_WEEKS, perDay)).orElseThrow().quietest();
+
+        assertEquals(shown, quietest.isPresent());
+    }
+
     @Test
     void 모든_요일이_같으면_한산한_날이_없다() {
         Optional<QuietestDay> quietest =
