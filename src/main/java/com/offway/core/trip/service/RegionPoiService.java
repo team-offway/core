@@ -112,17 +112,24 @@ public class RegionPoiService {
         // 볼거리로 샌다 — 실측(89곳 전수)에서 AC05(숙박) 625건이 타입 28(레포츠)로 왔다. 숙박 조회
         // (contentTypeId=32)에는 안 잡히는 값이라, 그동안 지방 숙소가 통째로 빠지고 있었다.
         List<PoiCandidate> allTypes = candidates(region, null);
-        List<PoiCandidate> sights = withOpenFestivals(
-                withoutClosedFestivals(allTypes.stream().filter(c -> isSight(c)).toList(), travelDate),
-                regionId, travelDate);
+        List<PoiCandidate> sights =
+                withoutClosedFestivals(allTypes.stream().filter(c -> isSight(c)).toList(), travelDate);
         List<PoiCandidate> foods = merge(allTypes.stream().filter(c -> LCLS_FOOD.equals(c.lclsSystm1())).toList(),
                 candidates(region, FOOD_TYPE));
         List<PoiCandidate> stays = merge(allTypes.stream().filter(RegionPoiService::isStay).toList(),
                 candidates(region, STAY_TYPE));
 
-        RegionPois pois = new RegionPois(sights, foods, stays);
+        RegionPois pois = RegionPois.builder().sights(sights).foods(foods).stays(stays).build();
         log.debug("코스 POI 수집 regionId={} 볼거리={} 맛집={} 숙박={}", regionId, sights.size(), foods.size(), stays.size());
-        return pois.needsSupplement() ? supplement(pois, regionId) : pois;
+        RegionPois filled = pois.needsSupplement() ? supplement(pois, regionId) : pois;
+
+        // **축제는 보충 판정이 끝난 뒤에 붙인다**(#433). 앞에 붙이면 축제가 볼거리 수에 섞여
+        // needsMoreSights() 를 넘겨버려, 국가유산·인허가 보충이 통째로 안 돈다.
+        //
+        // 실측이 그 대가를 보여준다 — 우리 DB 볼거리가 지역당 평균 82개인데, TourAPI 15개 + 축제
+        // 4건이 19개로 "충분" 판정을 받으면 그 82개를 아예 안 쓴다. 축제 4건을 얻고 후보 풀을
+        // 97개에서 19개로 줄이는 셈이라, 동선을 고를 여지가 그만큼 사라진다.
+        return withOpenFestivals(filled, regionId, travelDate);
     }
 
     /**
@@ -278,6 +285,11 @@ public class RegionPoiService {
     /**
      * <b>그날 열리는 축제를 볼거리 맨 앞에 올린다</b>(#433).
      *
+     * <h2>보충 판정이 끝난 뒤에 붙인다</h2>
+     *
+     * <p><b>순서가 중요하다.</b> 축제를 먼저 붙이면 그 수가 볼거리에 섞여 {@code needsMoreSights()} 를
+     * 넘겨버리고, 국가유산·인허가 보충이 통째로 안 돈다 — 축제 몇 건을 얻고 후보 풀 수십 개를 잃는다.
+     *
      * <h2>왜 보충이 아니라 항상인가</h2>
      *
      * <p>인허가·국가유산은 TourAPI 가 못 채웠을 때만 쓴다({@code supplement}). 축제는 다르다 —
@@ -300,17 +312,17 @@ public class RegionPoiService {
      * <p>좌표까지 보지 않는다. 축제명은 고유성이 높고("안동국제탈춤페스티벌"), 좌표는 출처마다 정밀도가
      * 달라 같은 축제를 둘로 세기 쉽다.
      */
-    private List<PoiCandidate> withOpenFestivals(
-            List<PoiCandidate> sights, long regionId, LocalDate travelDate) {
+    private RegionPois withOpenFestivals(RegionPois pois, long regionId, LocalDate travelDate) {
         if (travelDate == null) {
-            return sights;
+            return pois;
         }
         List<FestivalPlace> open = festivalPlaceRepository.findOpenOn(regionId, travelDate, OPEN_FESTIVAL_LIMIT);
         if (open.isEmpty()) {
-            return sights;
+            return pois;
         }
 
-        Set<String> existingNames = sights.stream()
+        // 보충까지 끝난 볼거리 전체와 견준다 — 국가유산·인허가에도 같은 축제가 있을 수 있다.
+        Set<String> existingNames = pois.sights().stream()
                 .map(candidate -> normalizedName(candidate.title()))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
@@ -319,14 +331,18 @@ public class RegionPoiService {
                 .map(RegionPoiService::toCandidate)
                 .toList();
         if (added.isEmpty()) {
-            return sights;
+            return pois;
         }
 
         // 무엇이 늘었는지 남긴다 — 축제가 코스에 들어간 이유를 나중에 설명할 수 있어야 한다.
         // **여행일은 안 남긴다**(로깅 규약) — 사용자가 언제 집을 비우는지가 로그에 남는다.
         log.info("그날 열리는 축제를 볼거리에 올렸습니다 regionId={} 축제={}건 볼거리={}→{}",
-                regionId, added.size(), sights.size(), sights.size() + added.size());
-        return Stream.concat(added.stream(), sights.stream()).toList();
+                regionId, added.size(), pois.sights().size(), pois.sights().size() + added.size());
+        return RegionPois.builder()
+                .sights(Stream.concat(added.stream(), pois.sights().stream()).toList())
+                .foods(pois.foods())
+                .stays(pois.stays())
+                .build();
     }
 
     /**
@@ -362,11 +378,24 @@ public class RegionPoiService {
                 .build();
     }
 
-    /** 축제가 아니거나, 기간을 모르거나, 그날 열리면 남긴다. */
+    /**
+     * 축제가 아니거나, 기간을 모르거나, 그날 열리면 남긴다.
+     *
+     * <p><b>여행일을 모르면 축제를 뺀다.</b> 언제 가는지 모르면 그날 여는지도 가릴 수 없어, 남기면
+     * 끝난 축제를 코스에 올리게 된다 — #390 이 막으려던 그 일이다. 게다가 기간을 아는 축제는
+     * {@code isOpenOn(null)} 에서 터진다.
+     *
+     * <p>지금은 요청 DTO 가 여행일을 {@code @NotNull} 로 받아 정상 요청으로는 여기에 null 이 안 온다.
+     * 그래도 막아 두는 것은 표준데이터 축제 쪽({@code withOpenFestivals})이 같은 가드를 갖고 있어서다 —
+     * 한쪽만 있으면 나중에 이 경로가 열렸을 때 두 출처가 다르게 동작한다.
+     */
     private static boolean isOpenOrUnknown(
             PoiCandidate candidate, Map<String, FestivalPeriod> periods, LocalDate travelDate) {
         if (candidate.contentTypeId() != FESTIVAL_TYPE) {
             return true;
+        }
+        if (travelDate == null) {
+            return false;
         }
         FestivalPeriod period = periods.get(candidate.contentId());
         return period == null || period.isOpenOn(travelDate);

@@ -11,7 +11,13 @@ import com.offway.core.trip.infrastructure.festival.FestivalStandardClient;
 import com.offway.core.trip.infrastructure.festival.StubFestivalStandardClient;
 import com.offway.core.trip.infrastructure.festival.dto.StandardFestival;
 import com.offway.core.trip.infrastructure.festival.dto.StandardFestivalResult;
+import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
+import com.offway.core.trip.infrastructure.tour.TourApiClient;
+import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
+import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import com.offway.core.trip.repository.FestivalPlaceRepository;
+import com.offway.core.trip.service.dto.PoiCandidate;
+import com.offway.core.trip.service.dto.RegionPois;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -57,6 +63,15 @@ class FestivalPoolIntegrationTest {
 
     @Autowired
     private FestivalStandardClient festivalStandardClient;
+
+    @Autowired
+    private TourApiClient tourApiClient;
+
+    @Autowired
+    private RegionPoiService regionPoiService;
+
+    @Autowired
+    private com.offway.core.trip.repository.HeritagePlaceRepository heritagePlaceRepository;
 
     @Test
     void 우리_지역_축제만_저장한다() {
@@ -234,6 +249,135 @@ class FestivalPoolIntegrationTest {
                 .findOpenOn(region.getId(), LocalDate.of(2026, 12, 25), 10).isEmpty());
     }
 
+    /**
+     * <b>축제가 국가유산 보충을 막지 않는다</b>(#433).
+     *
+     * <h2>왜 이걸 잠그나</h2>
+     *
+     * <p>축제를 볼거리에 <b>먼저</b> 붙이면 그 수가 {@code needsMoreSights()}(18개)에 섞여 "충분" 판정을
+     * 받는다. 그러면 국가유산·인허가 보충이 통째로 안 돈다.
+     *
+     * <p>실측이 그 대가를 보여준다 — 우리 DB 볼거리가 지역당 <b>평균 82개</b>인데, TourAPI 15개 +
+     * 축제 4건이 19개로 충분 판정을 받으면 그 82개를 아예 안 쓴다. <b>축제 몇 건을 얻고 후보 풀
+     * 수십 개를 잃는</b> 셈이라 동선을 고를 여지가 그만큼 사라진다.
+     *
+     * <p>순서를 되돌려도 테스트가 초록이면 아무도 모른다 — 코스는 여전히 나오고 슬롯도 차기 때문이다.
+     */
+    @Test
+    void 축제가_국가유산_보충을_막지_않는다() {
+        Region region = 국가유산이_있는_지역();
+        StubFestivalStandardClient stub = stub();
+        stub.respond(page -> page == 1
+                ? new StandardFestivalResult(List.of(
+                        축제(region.getSigungu(), "축제하나"), 축제(region.getSigungu(), "축제둘"),
+                        축제(region.getSigungu(), "축제셋"), 축제(region.getSigungu(), "축제넷")), 4)
+                : StandardFestivalResult.empty());
+        refreshService.refresh(FIRST_RUN);
+
+        // TourAPI 가 볼거리 15개만 준다 — 보충 문턱(18)에 못 미친다.
+        ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지(15), 15));
+
+        RegionPois pois = regionPoiService.collect(region.getId(), DURING);
+
+        List<String> ids = pois.sights().stream().map(PoiCandidate::contentId).toList();
+        assertTrue(ids.stream().anyMatch(id -> id.startsWith("FST-")), "축제가 들어가야 한다: " + ids);
+        assertTrue(ids.stream().anyMatch(id -> id.startsWith("HER-")),
+                "국가유산 보충이 돌아야 한다 — 축제가 판정을 넘겨버리면 여기가 빈다: " + ids);
+    }
+
+    /** 축제가 <b>맨 앞</b>이다 — 첫 생성의 씨앗이 0이라 그 자리가 곧 군집의 시작점이 된다. */
+    @Test
+    void 축제가_볼거리_맨_앞에_온다() {
+        Region region = 국가유산이_있는_지역();
+        StubFestivalStandardClient stub = stub();
+        stub.respond(page -> page == 1
+                ? new StandardFestivalResult(List.of(축제(region.getSigungu(), "맨앞축제")), 1)
+                : StandardFestivalResult.empty());
+        refreshService.refresh(FIRST_RUN);
+        ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지(15), 15));
+
+        RegionPois pois = regionPoiService.collect(region.getId(), DURING);
+
+        assertTrue(pois.sights().get(0).contentId().startsWith("FST-"),
+                "축제가 맨 앞이 아니면 첫 생성에서 씨앗이 되지 못한다");
+    }
+
+    /** 여행일을 모르면 축제를 안 넣는다 — 언제 여는지로 거를 수 없으면 끝난 축제를 올리게 된다. */
+    @Test
+    void 여행일을_모르면_축제를_넣지_않는다() {
+        Region region = 국가유산이_있는_지역();
+        StubFestivalStandardClient stub = stub();
+        stub.respond(page -> page == 1
+                ? new StandardFestivalResult(List.of(축제(region.getSigungu(), "날짜없음축제")), 1)
+                : StandardFestivalResult.empty());
+        refreshService.refresh(FIRST_RUN);
+        ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지(15), 15));
+
+        RegionPois pois = regionPoiService.collect(region.getId(), null);
+
+        assertTrue(pois.sights().stream().noneMatch(c -> c.contentId().startsWith("FST-")));
+    }
+
+    /**
+     * <b>여행일을 모르면 TourAPI 축제도 뺀다.</b>
+     *
+     * <p>표준데이터 축제만 막고 TourAPI 축제(타입 15)를 남기면 두 출처가 다르게 동작한다. 게다가 그
+     * 후보의 기간을 알고 있으면 {@code isOpenOn(null)} 에서 터진다.
+     *
+     * <p>지금은 요청 DTO 가 여행일을 {@code @NotNull} 로 받아 정상 요청으로는 닿지 않는 경로다. 그래도
+     * 잠그는 것은 <b>두 출처의 동작을 같게 두기 위해서</b>다.
+     */
+    @Test
+    void 여행일을_모르면_TourAPI_축제도_뺀다() {
+        Region region = 국가유산이_있는_지역();
+        // 볼거리 14개 + 축제(타입 15) 하나.
+        List<TourPoi> withFestival = new ArrayList<>(관광지(14));
+        withFestival.add(new TourPoi(
+                "C-FESTIVAL", 15, "VE", "타입15축제", "주소",
+                36.52, 128.72, "http://img/f.jpg", null, null));
+        ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(withFestival, withFestival.size()));
+
+        RegionPois pois = regionPoiService.collect(region.getId(), null);
+
+        assertTrue(pois.sights().stream().noneMatch(c -> "C-FESTIVAL".equals(c.contentId())),
+                "여행일을 모르는데 축제가 남았다 — 끝난 축제를 코스에 올리게 된다");
+    }
+
+    /** 여행일이 있으면 기간을 모르는 TourAPI 축제는 남긴다 — 모른다고 버리면 멀쩡한 후보를 잃는다. */
+    @Test
+    void 여행일이_있고_기간을_모르면_TourAPI_축제는_남는다() {
+        Region region = 국가유산이_있는_지역();
+        List<TourPoi> withFestival = new ArrayList<>(관광지(14));
+        withFestival.add(new TourPoi(
+                "C-FESTIVAL", 15, "VE", "타입15축제", "주소",
+                36.52, 128.72, "http://img/f.jpg", null, null));
+        ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(withFestival, withFestival.size()));
+
+        RegionPois pois = regionPoiService.collect(region.getId(), DURING);
+
+        assertTrue(pois.sights().stream().anyMatch(c -> "C-FESTIVAL".equals(c.contentId())),
+                "기간을 모르는 축제까지 빼면 후보가 근거 없이 준다");
+    }
+
+    /** TourAPI 볼거리 픽스처 — 좌표가 있어야 후보로 산다. */
+    private static List<TourPoi> 관광지(int count) {
+        List<TourPoi> pois = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            pois.add(new TourPoi(
+                    "C-" + i, 12, "VE", "관광지" + i, "주소",
+                    36.5 + i * 0.001, 128.7 + i * 0.001, "http://img/" + i + ".jpg", null, null));
+        }
+        return pois;
+    }
+
+    /** 국가유산이 실제로 있는 지역이라야 "보충이 돌았나" 를 볼 수 있다. */
+    private Region 국가유산이_있는_지역() {
+        return regionRepository.findAll().stream()
+                .filter(r -> !heritagePlaceRepository.findVisitableCandidates(r.getId(), 1).isEmpty())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("국가유산이 있는 지역이 없어 이 테스트가 성립하지 않는다"));
+    }
+
     private StubFestivalStandardClient stub() {
         return (StubFestivalStandardClient) festivalStandardClient;
     }
@@ -267,6 +411,16 @@ class FestivalPoolIntegrationTest {
         @Primary
         FestivalStandardClient stubFestivalStandardClient() {
             return new StubFestivalStandardClient();
+        }
+
+        /**
+         * 볼거리 수를 우리가 정하려면 TourAPI 도 잡아야 한다 — 축제가 <b>보충 판정을 넘겨버리는지</b>
+         * 를 보는 것이 목적이라, "TourAPI 가 18개에 못 미치는 지역" 을 만들어야 한다.
+         */
+        @Bean
+        @Primary
+        TourApiClient stubTourApiClient() {
+            return new StubTourApiClient();
         }
     }
 }

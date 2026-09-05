@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import lombok.Builder;
 
 /**
  * 한 지역의 코스 후보 POI 를 세 풀로 분류한 결과(course-logic ①: 볼거리풀·맛집풀·숙박풀). itinerary 가 이 풀에서 필요 수만큼
@@ -15,7 +16,12 @@ import java.util.Set;
  * @param sights 볼거리(관광지·문화·축제·레포츠)
  * @param foods 맛집(음식점)
  * @param stays 숙박
+ *
+ * <p><b>빌더로 조립한다.</b> 세 칸이 전부 {@code List<PoiCandidate>} 라, 위치 생성자로는 맛집과 숙박을
+ * 맞바꿔도 컴파일이 통과한다 — 끼니 자리에 숙소가 들어가고 잘 곳이 사라진 코스가 나갈 때까지 아무도
+ * 모른다.
  */
+@Builder
 public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, List<PoiCandidate> stays) {
 
     /**
@@ -42,7 +48,7 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, Li
     }
 
     public static RegionPois empty() {
-        return new RegionPois(List.of(), List.of(), List.of());
+        return RegionPois.builder().sights(List.of()).foods(List.of()).stays(List.of()).build();
     }
 
     /** 어느 풀이라도 가장 긴 코스를 못 채우는가. */
@@ -75,10 +81,11 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, Li
      */
     public RegionPois supplementedWith(
             List<PoiCandidate> moreSights, List<PoiCandidate> moreFoods, List<PoiCandidate> moreStays) {
-        return new RegionPois(
-                merge(sights, moreSights, MIN_SIGHTS),
-                merge(foods, moreFoods, MIN_FOODS),
-                merge(stays, moreStays, MIN_STAYS));
+        return RegionPois.builder()
+                .sights(merge(sights, moreSights, MIN_SIGHTS))
+                .foods(merge(foods, moreFoods, MIN_FOODS))
+                .stays(merge(stays, moreStays, MIN_STAYS))
+                .build();
     }
 
     private static List<PoiCandidate> merge(List<PoiCandidate> base, List<PoiCandidate> extra, int minimum) {
