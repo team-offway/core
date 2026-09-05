@@ -46,6 +46,7 @@ final class PlaceDataSources {
             case TOUR_API -> DataSource.KTO;
             case LICENSED -> DataSource.LOCAL_PERMIT;
             case HERITAGE -> DataSource.KHS;
+            case FESTIVAL -> DataSource.PUBLIC_DATA_PORTAL;
         };
     }
 }
