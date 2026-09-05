@@ -146,6 +146,13 @@ public class RegionVisitorDailyRefreshService {
         }
         if (fetchedMonths > 0) {
             log.info("지역 방문자 일별 적재 완료 받은달={}개 저장={}행", fetchedMonths, inserted);
+            return inserted;
+        }
+        // 한 달도 안 받은 것은 보통 정상이다 — 이미 다 갖고 있으면 외부를 부르지 않는다.
+        // 그런데 표까지 비어 있으면 얘기가 다르다. 지표가 전부 빈 채로 나가는데, 개별 월 미발행
+        // 로그는 info 라(원본이 완결된 달만 발행하므로 그 자체는 정상) 아무도 못 본다.
+        if (dailyRepository.latestDate().isEmpty()) {
+            log.warn("지역 방문자 일별 — 한 달도 받지 못했고 표가 비어 있습니다. 한산한 요일·인기 추세가 전부 빈 채로 나갑니다");
         }
         return inserted;
     }
@@ -179,8 +186,15 @@ public class RegionVisitorDailyRefreshService {
                     .map(RegionVisitorDailyRefreshService::toEntity)
                     .forEach(collected::add);
             fetched += result.items().size();
-            if (result.items().isEmpty() || fetched >= result.totalCount()) {
-                break;
+            if (fetched >= result.totalCount()) {
+                break; // 다 받았다. 미발행(totalCount=0)도 여기로 온다
+            }
+            if (result.items().isEmpty()) {
+                // 더 있다는데 빈 페이지가 왔다 = 부분 수집이다. 저장하면 hasMonth 가 참이 되어
+                // 그 달을 다시는 안 받는다 — 빠진 날만큼 요일 평균이 틀어진 채 영영 굳는다.
+                log.warn("지역 방문자 일별 — {} 이 {}/{}건에서 빈 페이지를 줘 그 달을 버립니다",
+                        month, fetched, result.totalCount());
+                return 0;
             }
             if (page == FIRST_PAGE + MAX_PAGES_PER_MONTH - 1) {
                 // 상한에 걸렸다 = 부분 수집이다. 위 주석대로 버린다.
