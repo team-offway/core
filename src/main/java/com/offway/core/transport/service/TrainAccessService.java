@@ -104,7 +104,7 @@ public class TrainAccessService {
         String fromName = from.name();
         TrainAvailability availability = trainRouteService.fastestTrain(from.id(), to.id(), date);
         return switch (availability) {
-            case TrainAvailability.Available a -> a.fastestDepartingFrom(notBefore)
+            case TrainAvailability.Available a -> a.earliestArrivalDepartingFrom(notBefore)
                     // 시간표는 <b>공짜다</b>(#414). 하루치를 이미 받아 캐시에 들고 있어서(#138) 여기서
                     // 화면에 올릴 편을 고르는 데 외부 호출이 한 건도 늘지 않는다.
                     .map(leg -> RegionAccess.available(fromName, toName, toPoint, leg, upcoming(a, notBefore)))
@@ -130,7 +130,7 @@ public class TrainAccessService {
     /**
      * 화면에 올릴 편 — 집을 나서는 시각 이후, 이른 순으로(#414).
      *
-     * <p>{@code fastestDepartingFrom} 과 <b>정렬이 다르다</b>. 그쪽은 코스를 짜려고 가장 빨리 닿는 편을
+     * <p>{@code earliestArrivalDepartingFrom} 과 <b>정렬이 다르다</b>. 그쪽은 코스를 짜려고 가장 일찍 닿는 편을
      * 고르지만, 시간표는 "다음 차가 몇 시인가" 라 출발 순이 맞다.
      */
     private static List<Departure> upcoming(TrainAvailability.Available available, LocalTime notBefore) {

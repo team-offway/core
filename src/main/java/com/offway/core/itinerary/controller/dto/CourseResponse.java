@@ -535,13 +535,13 @@ public record CourseResponse(
             if (access == null || access.mode() != TransitMode.TRAIN) {
                 return null;
             }
-            boolean hasTrain = access.fastest() != null;
+            boolean hasTrain = access.chosen() != null;
             return new TrainAccessResponse(
                     access.status().name(),
                     access.fromName(),
                     access.toName(),
-                    hasTrain ? access.fastest().trainType() : null,
-                    hasTrain ? access.fastest().durationMinutes() : null);
+                    hasTrain ? access.chosen().trainType() : null,
+                    hasTrain ? access.chosen().durationMinutes() : null);
         }
     }
 
@@ -607,7 +607,7 @@ public record CourseResponse(
             if (access == null) {
                 return originUnknown();
             }
-            boolean hasLeg = access.fastest() != null;
+            boolean hasLeg = access.chosen() != null;
             // 이름을 붙여 조립한다. String 이 다섯 개 연달아 있어 위치 생성자로는 둘을 맞바꿔도
             // 컴파일이 통과한다 — 수단 라벨 자리에 상태가 들어가는 종류의 사고다.
             return TransitAccessResponse.builder()
@@ -616,13 +616,13 @@ public record CourseResponse(
                     .status(access.status().name())
                     .fromPlace(access.fromName())
                     .toPlace(access.toName())
-                    .vehicleType(hasLeg ? access.fastest().trainType() : null)
+                    .vehicleType(hasLeg ? access.chosen().trainType() : null)
                     // 열차는 실제 편에서, 버스·여객선은 저장해 둔 구간 측정값에서 온다(#107).
                     //
                     // Integer.valueOf 가 필요하다. 한쪽이 int(TrainLeg.durationMinutes)이고 다른 쪽이
                     // Integer 면 삼항 전체가 int 로 언박싱돼, 소요시간을 모르는 코스마다 NPE 가 난다.
                     .durationMinutes(
-                            hasLeg ? Integer.valueOf(access.fastest().durationMinutes()) : access.durationMinutes())
+                            hasLeg ? Integer.valueOf(access.chosen().durationMinutes()) : access.durationMinutes())
                     .distanceKm(access.distanceKm())
                     .alternatives(access.alternatives().stream().map(TransitOptionResponse::from).toList())
                     .departures(access.departures().stream().map(DepartureResponse::from).toList())
