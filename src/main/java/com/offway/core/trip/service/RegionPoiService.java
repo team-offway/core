@@ -178,18 +178,17 @@ public class RegionPoiService {
      * 한 줄 홍보 문구가 아니라 수백 자짜리 해설이라, 카드에 그대로 흘리면 레이아웃이 무너진다. 그건 상세에서 쓴다.
      */
     private static PoiCandidate toCandidate(HeritagePlace heritage) {
-        return new PoiCandidate(
-                heritage.publicId(),
-                NON_TOUR_CONTENT_TYPE,
-                heritage.getName(),
-                heritage.getLat(),
-                heritage.getLng(),
-                heritage.getImageUrl(),
-                heritage.getAddress(),
-                null,  // 캐치프레이즈는 TourAPI 콘텐츠에만 붙는다
-                null,  // 국가유산청은 전화를 주지 않는다
-                null,  // TourAPI 분류체계 밖이라 대분류가 없다 — 이미 볼거리로 정해져 넘어온다
-                null);
+        return PoiCandidate.builder()
+                .contentId(heritage.publicId())
+                .contentTypeId(NON_TOUR_CONTENT_TYPE)
+                .title(heritage.getName())
+                .lat(heritage.getLat())
+                .lng(heritage.getLng())
+                .imageUrl(heritage.getImageUrl())
+                .address(heritage.getAddress())
+                // 캐치프레이즈는 TourAPI 콘텐츠에만 붙고, 국가유산청은 전화를 주지 않는다.
+                // TourAPI 분류체계 밖이라 대분류도 없다 — 이미 볼거리로 정해져 넘어온다.
+                .build();
     }
 
     /**
@@ -207,18 +206,17 @@ public class RegionPoiService {
      * 콘텐츠 타입은 "TourAPI 아님" 을 뜻하는 0 으로 둔다.
      */
     private static PoiCandidate toCandidate(LicensedPlace place) {
-        return new PoiCandidate(
-                place.publicId(),
-                NON_TOUR_CONTENT_TYPE,
-                place.getName(),
-                place.getLat(),
-                place.getLng(),
-                null, // 인허가 데이터에는 사진이 없다
-                place.getAddress(),
-                null, // 캐치프레이즈도 TourAPI 콘텐츠에만 붙는다
-                place.getTel(), // 49% 가 채워져 있다 — 있는 것을 버리지 않는다
-                null,           // TourAPI 분류체계 밖이라 대분류가 없다 — 호출부가 kind 로 이미 갈랐다
-                null);
+        return PoiCandidate.builder()
+                .contentId(place.publicId())
+                .contentTypeId(NON_TOUR_CONTENT_TYPE)
+                .title(place.getName())
+                .lat(place.getLat())
+                .lng(place.getLng())
+                // 인허가 데이터에는 사진이 없고, 캐치프레이즈도 TourAPI 콘텐츠에만 붙는다.
+                .address(place.getAddress())
+                .tel(place.getTel()) // 49% 가 채워져 있다 — 있는 것을 버리지 않는다
+                // 대분류는 호출부가 kind 로 이미 갈랐다.
+                .build();
     }
 
     /**
@@ -352,18 +350,16 @@ public class RegionPoiService {
      * 흘리면 레이아웃이 무너진다. 국가유산 설명을 뺀 것과 같은 판단이다.
      */
     private static PoiCandidate toCandidate(FestivalPlace festival) {
-        return new PoiCandidate(
-                festival.publicId(),
-                NON_TOUR_CONTENT_TYPE,
-                festival.getName(),
-                festival.getLat(),
-                festival.getLng(),
-                null, // 표준데이터는 사진을 주지 않는다
-                festival.getAddress(),
-                null, // 캐치프레이즈는 TourAPI 콘텐츠에만 붙는다
-                festival.getTel(),
-                null, // TourAPI 분류체계 밖이라 대분류가 없다 — 이미 볼거리로 정해져 넘어온다
-                null);
+        return PoiCandidate.builder()
+                .contentId(festival.publicId())
+                .contentTypeId(NON_TOUR_CONTENT_TYPE)
+                .title(festival.getName())
+                .lat(festival.getLat())
+                .lng(festival.getLng())
+                // 표준데이터는 사진을 주지 않는다. 캐치프레이즈·대분류도 TourAPI 콘텐츠 것이다.
+                .address(festival.getAddress())
+                .tel(festival.getTel())
+                .build();
     }
 
     /** 축제가 아니거나, 기간을 모르거나, 그날 열리면 남긴다. */
@@ -439,12 +435,19 @@ public class RegionPoiService {
             return null;
         }
         // 추천 한 줄(catchphrase)·주소는 코스 슬롯을 트리플식으로 인라인 렌더하기 위한 표시 정보다.
-        return new PoiCandidate(
-                poi.contentId(), poi.contentTypeId(), poi.title(), poi.lat(), poi.lng(),
-                poi.firstImage(), poi.address(), catchphraseProvider.forContentId(poi.contentId()).orElse(null),
+        return PoiCandidate.builder()
+                .contentId(poi.contentId())
+                .contentTypeId(poi.contentTypeId())
+                .title(poi.title())
+                .lat(poi.lat())
+                .lng(poi.lng())
+                .imageUrl(poi.firstImage())
+                .address(poi.address())
+                .catchphrase(catchphraseProvider.forContentId(poi.contentId()).orElse(null))
                 // 후보 조회 응답에 이미 들어 있다. 여기서 안 들고 가면 상세를 다시 불러야 얻는다.
-                poi.tel(),
-                poi.lclsSystm1(),
-                poi.lclsSystm2());
+                .tel(poi.tel())
+                .lclsSystm1(poi.lclsSystm1())
+                .lclsSystm2(poi.lclsSystm2())
+                .build();
     }
 }
