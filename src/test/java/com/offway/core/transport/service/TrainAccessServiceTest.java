@@ -16,6 +16,7 @@ import com.offway.core.transport.service.dto.RegionAccess;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 /** TrainAccessService — 좌표 최근접 역해석 + 열차 조회를 조립한 4-way 결과. 역 마스터는 stub 리포지토리로, 열차는 stub 클라이언트로 격리. */
@@ -42,8 +43,28 @@ class TrainAccessServiceTest {
             TrainStation.of("NATH13421", "경주", 35.7980, 129.1405),
             TrainStation.of("NAT610226", "정선", 37.3878, 128.6716)); // 코드는 시드 마스터와 일치
 
+    // ── #435 후보 역 픽스처 — 강변역 주변 실좌표(시드와 동일)
+    /** 강변역 — 이 좌표에서 수서 5.80㎞ · 왕십리 6.02㎞ · 청량리 6.71㎞ 순이다. */
+    private static final double GANGBYEON_LAT = 37.5350;
+    private static final double GANGBYEON_LNG = 127.0946;
+    private static final double JECHEON_LAT = 37.1285;
+    private static final double JECHEON_LNG = 128.205339;
+    private static final String SUSEO = "NATH30000";
+    private static final String WANGSIMNI = "NAT130104";
+
+    /** 강변역 주변 세 역 + 목적지 제천. 순서를 섞어 둔다 — 거리로 정렬하는지 보려는 것이지 입력 순서가 아니다. */
+    private static final List<TrainStation> METRO_MASTER = List.of(
+            TrainStation.of("NAT130126", "청량리", 37.580787, 127.044959),
+            TrainStation.of(SUSEO, "수서", 37.483661, 127.106067),
+            TrainStation.of(WANGSIMNI, "왕십리", 37.561428, 127.034960),
+            TrainStation.of("NAT021549", "제천", JECHEON_LAT, JECHEON_LNG));
+
     private static TrainAccessService service(StubTrainInfoClient stub) {
-        TrainStationRepository repo = () -> MASTER; // findAll 단일 메서드 → 람다
+        return service(stub, MASTER);
+    }
+
+    private static TrainAccessService service(StubTrainInfoClient stub, List<TrainStation> master) {
+        TrainStationRepository repo = () -> master; // findAll 단일 메서드 → 람다
         return new TrainAccessService(new TrainStationResolver(repo), new TrainRouteService(stub, ExternalApiCachePolicy.ALWAYS_CACHE));
     }
 
@@ -196,5 +217,70 @@ class TrainAccessServiceTest {
                         StartDayLeave.FULL_DAY.departureTime());
 
         assertEquals(LocalDateTime.of(2026, 5, 1, 13, 0), access.arrivalAt().orElseThrow());
+    }
+
+    /**
+     * 최근접 역에 그 방면 열차가 없으면 다음 후보로 넘어간다(#435).
+     *
+     * <p>실제로 겪은 상황이다 — 강변역에서 제천에 갈 때 최근접은 수서(5.80㎞)인데 SRT 전용이라 제천행이
+     * 없고, 제천행이 서는 왕십리는 6.02㎞ 다. <b>0.22㎞ 차이로</b> 밀려서 예전에는 탈 수 있는 열차가
+     * 통째로 사라졌다.
+     */
+    @Test
+    void 최근접_역에_운행이_없으면_다음_후보_역을_쓴다() {
+        StubTrainInfoClient stub = new StubTrainInfoClient();
+        stub.respondByDeparture(departure -> SUSEO.equals(departure)
+                ? new TrainAvailability.NoServiceOnDate()
+                : new TrainAvailability.Available(List.of(ktx())));
+
+        RegionAccess access = service(stub, METRO_MASTER)
+                .accessTo(GANGBYEON_LAT, GANGBYEON_LNG, JECHEON_LAT, JECHEON_LNG, DATE, DEPART_AT);
+
+        assertEquals(RegionAccess.Status.AVAILABLE, access.status());
+        // 화면에 뜨는 출발역도 실제로 조회한 역이라야 한다 — 수서라고 적어 두면 거기 가서 못 탄다.
+        assertEquals("왕십리", access.fromName());
+        assertTrue(access.arrivalAt().isPresent(), "운행을 찾았으면 도착 시각을 안다");
+    }
+
+    /**
+     * 후보를 다 물어도 없으면 <b>최근접 역이 답한 사유</b>를 돌려준다.
+     *
+     * <p>더 먼 역의 사유로 바꾸지 않는다 — 사용자에게 가장 가까운 역이 기준이고, 로그로 원인을 따라갈 때도
+     * 그쪽이 자연스럽다.
+     */
+    @Test
+    void 후보를_다_물어도_없으면_최근접_역의_사유를_준다() {
+        StubTrainInfoClient stub = new StubTrainInfoClient();
+        stub.respond(TrainAvailability.NoServiceOnDate::new);
+
+        RegionAccess access = service(stub, METRO_MASTER)
+                .accessTo(GANGBYEON_LAT, GANGBYEON_LNG, JECHEON_LAT, JECHEON_LNG, DATE, DEPART_AT);
+
+        assertEquals(RegionAccess.Status.NO_SERVICE_ON_DATE, access.status());
+        assertEquals("수서", access.fromName());
+        // 도착 지점은 조회 결과와 무관하게 남는다 — 코스 동선의 기준점이라 여기서 잃으면 안 된다(#127).
+        assertEquals(new Coordinate(JECHEON_LAT, JECHEON_LNG), access.arrivalPoint().orElseThrow());
+    }
+
+    /**
+     * 조회가 실패하면 다음 후보를 <b>묻지 않는다</b>.
+     *
+     * <p>외부 장애라 다른 역을 물어도 같은 실패가 돌아오는데, 조회 하나가 최대 6초다. 후보 수만큼 곱하면
+     * 코스 응답이 그만큼 늦어진다 — 얻는 것 없이 사용자만 기다린다.
+     */
+    @Test
+    void 조회가_실패하면_다음_후보를_묻지_않는다() {
+        AtomicInteger calls = new AtomicInteger();
+        StubTrainInfoClient stub = new StubTrainInfoClient();
+        stub.respondByDeparture(departure -> {
+            calls.incrementAndGet();
+            return new TrainAvailability.Unavailable();
+        });
+
+        RegionAccess access = service(stub, METRO_MASTER)
+                .accessTo(GANGBYEON_LAT, GANGBYEON_LNG, JECHEON_LAT, JECHEON_LNG, DATE, DEPART_AT);
+
+        assertEquals(RegionAccess.Status.UNAVAILABLE, access.status());
+        assertEquals(1, calls.get(), "외부 실패 뒤에도 후보를 계속 물으면 응답만 느려진다");
     }
 }
