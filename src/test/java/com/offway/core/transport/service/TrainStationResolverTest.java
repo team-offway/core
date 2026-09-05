@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.offway.core.transport.domain.Station;
 import com.offway.core.transport.domain.TrainStation;
 import com.offway.core.transport.repository.TrainStationRepository;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -75,5 +77,28 @@ class TrainStationResolverTest {
         assertEquals(
                 resolver.nearestCandidates(SEOUL_LAT, SEOUL_LNG, 3).getFirst(),
                 resolver.nearest(SEOUL_LAT, SEOUL_LNG).orElseThrow());
+    }
+
+    /**
+     * 역 마스터가 비어 있으면 <b>캐시하지 않는다</b>(규약: 빈 응답을 성공으로 캐시하지 않는다).
+     *
+     * <p>빈 결과를 성공으로 굳히면 그 뒤 모든 좌표가 "열차로 못 감" 이 된다 — 재시작 전까지 열차 기능이
+     * 통째로 죽는다. 값이 없다는 점에서 실패와 결과가 같으니 다음 조회에서 다시 읽어야 한다.
+     */
+    @Test
+    void 역_마스터가_비면_캐시하지_않고_다음에_다시_읽는다() {
+        AtomicInteger reads = new AtomicInteger();
+        List<TrainStation> loaded = new ArrayList<>();
+        TrainStationResolver retrying = new TrainStationResolver(() -> {
+            reads.incrementAndGet();
+            return List.copyOf(loaded);
+        });
+
+        assertTrue(retrying.nearest(SEOUL_LAT, SEOUL_LNG).isEmpty(), "비어 있으면 해석되지 않는다");
+        loaded.add(TrainStation.of("NAT010000", "서울", 37.553261, 126.969133));
+
+        // 빈 결과를 캐시했다면 두 번째 조회도 비어 있고 읽기도 한 번에 그친다.
+        assertEquals("서울", retrying.nearest(SEOUL_LAT, SEOUL_LNG).orElseThrow().name());
+        assertEquals(2, reads.get(), "빈 결과 뒤에는 다시 읽어야 한다");
     }
 }
