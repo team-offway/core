@@ -2,15 +2,19 @@ package com.offway.core.transport.repository;
 
 import com.offway.core.common.geo.Coordinate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.transport.domain.BusTerminal;
 import com.offway.core.transport.domain.BusTerminalKind;
+import com.offway.core.transport.domain.Terminal;
 import com.offway.core.transport.service.BusTerminalResolver;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -52,6 +56,13 @@ class BusTerminalSeedIntegrationTest {
 
     /** 터미널이 이보다 멀면 "그 지역 터미널" 로 보지 않는다 — resolver 상한과 같은 값. */
     private static final double NEAR_KM = 30.0;
+
+    /** 정정한 좌표에서 이만큼 벗어나면 다른 자리로 본다. */
+    private static final double CORRECTED_TOLERANCE_KM = 1.0;
+
+    /** 서울역 — 89곳 전수 실측(#443)이 쓴 출발 좌표 그대로다. */
+    private static final double SEOUL_STATION_LAT = 37.5547;
+    private static final double SEOUL_STATION_LNG = 126.9707;
 
     @Autowired
     private BusTerminalRepository terminalRepository;
@@ -115,5 +126,58 @@ class BusTerminalSeedIntegrationTest {
         assertTrue(terminal.coordinate().haversineKmTo(
                         new com.offway.core.common.geo.Coordinate(37.1641, 128.9856)) < NEAR_KM,
                 "해석된 터미널이 너무 멉니다 — 지오코딩이 다른 지역을 잡았을 수 있습니다");
+    }
+
+    /**
+     * 서울권 세 터미널이 제자리에 있어야 한다(#436).
+     *
+     * <p><b>왜 값으로 못 박는가.</b> 이 셋은 이름으로 좌표를 붙이다 엉뚱한 자리에 놓였던 곳이고, 시드를
+     * 다시 만들면 같은 자리로 돌아가기 쉽다. 특히 김포공항은 서울역에서 <b>0.2㎞</b> 떨어진 자리에
+     * 놓여 있어, 서울 출발 시외버스 코스 30곳의 출발 터미널을 전부 끌어당겼다(#443).
+     *
+     * <p>허용 오차는 1㎞다 — 좌표를 더 정밀하게 다듬는 것은 막지 않되 다른 자리로 옮겨가는 것은 잡는다.
+     */
+    @ParameterizedTest(name = "{1}")
+    @MethodSource("correctedSeoulTerminals")
+    void 서울권_터미널이_제자리에_있다(String code, String name, double lat, double lng) {
+        Terminal terminal = terminalRepository.findAll().stream()
+                .filter(each -> each.getCode().equals(code))
+                .findFirst()
+                .map(each -> new Terminal(each.getCode(), each.getName(), each.getKind(),
+                        new Coordinate(each.getLat(), each.getLng())))
+                .orElseThrow(() -> new AssertionError(name + " 터미널이 시드에 없습니다"));
+
+        double off = terminal.coordinate().haversineKmTo(new Coordinate(lat, lng));
+
+        assertTrue(off <= CORRECTED_TOLERANCE_KM,
+                "%s(%s) 좌표가 확인된 위치에서 %.1f㎞ 벗어났습니다".formatted(name, code, off));
+    }
+
+    private static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> correctedSeoulTerminals() {
+        return java.util.stream.Stream.of(
+                org.junit.jupiter.params.provider.Arguments.of(
+                        "NAI0511601", "동서울", 37.53393134, 127.09476219),
+                org.junit.jupiter.params.provider.Arguments.of(
+                        "NAI0750501", "김포공항", 37.55994673, 126.80279331),
+                org.junit.jupiter.params.provider.Arguments.of(
+                        "NAI0750503", "김포공항(도심공항)", 37.55994673, 126.80279331),
+                org.junit.jupiter.params.provider.Arguments.of(
+                        "NAI0671801", "서울남부", 37.48473869, 127.01618622));
+    }
+
+    /**
+     * 김포공항이 서울역을 끌어당기지 않아야 한다(#436).
+     *
+     * <p>좌표를 값으로 고정하는 것과 별개로, <b>증상 자체</b>를 남긴다 — 서울역에서 김포공항이 최근접
+     * 시외버스 터미널로 뽑히면 그때가 이 버그의 재발이다.
+     */
+    @Test
+    void 서울역의_최근접_시외버스_터미널은_김포공항이_아니다() {
+        Terminal nearest = resolver
+                .nearest(SEOUL_STATION_LAT, SEOUL_STATION_LNG, BusTerminalKind.INTERCITY)
+                .orElseThrow(() -> new AssertionError("서울역 근처에 시외버스 터미널이 없다"));
+
+        assertNotEquals("김포공항", nearest.name(),
+                "김포공항이 서울역 최근접으로 뽑혔다 — 좌표가 다시 어긋났다");
     }
 }
