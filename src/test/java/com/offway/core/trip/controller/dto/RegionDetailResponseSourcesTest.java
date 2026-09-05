@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.response.DataSource;
 import com.offway.core.trip.controller.dto.RegionDetailResponse.HighlightSpot;
+import java.time.DayOfWeek;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -21,8 +22,17 @@ class RegionDetailResponseSourcesTest {
         return new HighlightSpot(id, "이름", "http://img/1.jpg", catchphrase);
     }
 
+    private static final RegionVisitMetricsResponse 지표없음 = new RegionVisitMetricsResponse(null, null);
+
     private static RegionDetailResponse 지역상세(String overview, List<String> photos, List<HighlightSpot> spots) {
-        return new RegionDetailResponse(1L, "동구 · 부산광역시", overview, photos, null, spots, List.of());
+        return 지역상세(overview, photos, spots, 지표없음);
+    }
+
+    private static RegionDetailResponse 지역상세(
+            String overview, List<String> photos, List<HighlightSpot> spots,
+            RegionVisitMetricsResponse metrics) {
+        return new RegionDetailResponse(
+                1L, "동구 · 부산광역시", overview, photos, null, spots, List.of(), metrics);
     }
 
     @Test
@@ -66,5 +76,29 @@ class RegionDetailResponseSourcesTest {
     @Test
     void 우리_값만_실린_지역은_표기할_출처가_없다() {
         assertTrue(지역상세(null, List.of(), List.of()).sources().isEmpty());
+    }
+
+    /**
+     * <b>방문 지표만 있어도 공사가 붙는다.</b>
+     *
+     * <p>한산한 요일과 인기 추세는 관광빅데이터에서 온 값이다. 소개도 대표 사진도 매력 포인트도 없는
+     * 지역에서 지표만 실리면, 실제로 공사 데이터를 쓰고도 표기가 통째로 빠진다.
+     */
+    @Test
+    void 방문_지표만_있어도_공사가_붙는다() {
+        RegionVisitMetricsResponse 지표 = new RegionVisitMetricsResponse(
+                new RegionVisitMetricsResponse.QuietestDayResponse(DayOfWeek.TUESDAY, "화요일", 30), null);
+
+        RegionDetailResponse 응답 = 지역상세(null, List.of(), List.of(), 지표);
+
+        assertEquals(Set.of(DataSource.KTO), 응답.sources());
+    }
+
+    @Test
+    void 인기_추세만_있어도_공사가_붙는다() {
+        RegionVisitMetricsResponse 지표 = new RegionVisitMetricsResponse(
+                null, new RegionVisitMetricsResponse.TrendResponse(40, true));
+
+        assertEquals(Set.of(DataSource.KTO), 지역상세(null, List.of(), List.of(), 지표).sources());
     }
 }
