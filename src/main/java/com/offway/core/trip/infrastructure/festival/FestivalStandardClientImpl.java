@@ -30,8 +30,13 @@ import org.springframework.web.util.UriComponentsBuilder;
  * 아래 상수는 표준데이터 계열의 통상 표기를 따른 것이고, <b>실호출 한 번으로 확정해야 한다.</b>
  *
  * <p>그래서 <b>못 찾으면 조용히 넘어가지 않는다</b> — 응답에 행은 있는데 축제명을 하나도 못 읽으면
- * warn 을 남기고 빈 결과를 준다. 그러지 않으면 필드명이 틀렸을 때 "축제 0건" 이 정상처럼 보이고,
- * 그건 이 레포가 가장 경계하는 조용한 실패다.
+ * <b>던진다.</b> 필드명이 틀렸을 때 "축제 0건" 이 정상처럼 보이면 안 되고, 그보다 나쁜 것은 그
+ * 페이지가 <b>성공한 빈 페이지로 세어져</b> 취소 정리가 이번 회차를 온전한 것으로 판정하는 것이다 —
+ * 그러면 못 읽은 페이지의 축제들이 취소로 간주돼 지워진다.
+ *
+ * <p><b>"이름을 못 읽음" 과 "좌표가 없어 제외" 는 다르다.</b> 후자는 446건 중 101건이나 되는 정상
+ * 상황이라, 그걸로 던지면 좌표 없는 행만 모인 페이지에서 멀쩡한 적재가 멈춘다. 이름을 읽은 행 수를
+ * 따로 세어 가른다.
  */
 @Slf4j
 @Component
@@ -135,22 +140,39 @@ class FestivalStandardClientImpl implements FestivalStandardClient {
 
         List<StandardFestival> parsed = new ArrayList<>();
         int rows = 0;
+        int namedRows = 0;
         for (JsonNode node : items.isArray() ? items : objectMapper.createArrayNode().add(items)) {
             rows++;
-            StandardFestival festival = toFestival(node);
+            String name = text(node, F_NAME);
+            if (name == null) {
+                continue; // 이름조차 못 읽었다 — 필드명 오류 후보다. 아래에서 함께 판정한다
+            }
+            namedRows++;
+            StandardFestival festival = toFestival(node, name);
             if (festival != null) {
                 parsed.add(festival);
             }
         }
 
-        // **행은 왔는데 이름을 하나도 못 읽었다 = 필드명이 틀렸다.** 조용히 0건으로 넘기면 그 사실이
-        // 어디에도 안 남는다. 위 클래스 주석의 "실호출로 확정 필요" 가 여기서 드러난다.
-        if (rows > 0 && parsed.isEmpty()) {
-            log.warn("문화축제표준데이터 {}행을 받았지만 한 건도 읽지 못했습니다 — 응답 필드명을 확인하세요"
-                    + " (기대한 이름: {}) 실제 키: {}", rows, F_NAME, fieldNamesOf(items));
-            return new StandardFestivalResult(List.of(), totalCount);
+        // **행은 왔는데 이름을 하나도 못 읽었다 = 필드명이 틀렸다.**
+        //
+        // 처음에는 warn 만 남기고 빈 결과를 돌려줬는데, 그게 더 나빴다 — 호출자에게는 "성공한 빈
+        // 페이지" 로 보여 실패로 세어지지 않고, 다른 페이지가 하나라도 저장되면 취소 정리가 이번
+        // 회차를 온전한 것으로 판정한다. 그러면 **못 읽은 페이지의 축제들이 취소로 간주돼 지워진다.**
+        //
+        // 그래서 던진다. 던져야 그 페이지가 failedPages 로 세어지고 정리가 통째로 건너뛰어진다.
+        if (rows > 0 && namedRows == 0) {
+            throw new IllegalStateException(
+                    "문화축제표준데이터 %d행을 받았지만 축제명을 하나도 읽지 못했습니다 — 응답 필드명을 확인하세요 (기대한 이름: %s) 실제 키: %s"
+                            .formatted(rows, F_NAME, fieldNamesOf(items)));
         }
-        log.debug("문화축제표준데이터 page={} 받은행={} 읽은건={} 전체={}", pageNo, rows, parsed.size(), totalCount);
+        if (namedRows > parsed.size()) {
+            // 이름은 읽혔는데 좌표·기간이 없어 빠진 것들이다. 정상이지만(446 중 101건이 좌표 없음)
+            // 갑자기 늘면 원본이 바뀐 신호라 남긴다.
+            log.info("문화축제표준데이터 page={} 좌표·기간이 없어 {}건을 뺐습니다", pageNo, namedRows - parsed.size());
+        }
+        log.debug("문화축제표준데이터 page={} 받은행={} 이름읽음={} 쓸수있음={} 전체={}",
+                pageNo, rows, namedRows, parsed.size(), totalCount);
         return new StandardFestivalResult(parsed, totalCount);
     }
 
@@ -163,16 +185,14 @@ class FestivalStandardClientImpl implements FestivalStandardClient {
     }
 
     /**
-     * 한 행을 옮긴다. 필수값이 없거나 형식이 어긋나면 <b>그 한 건만</b> 건너뛴다(null).
+     * 한 행을 옮긴다. 좌표·기간이 없거나 형식이 어긋나면 <b>그 한 건만</b> 건너뛴다(null).
      *
      * <p>좌표 없는 행이 446건 중 101건이라 흔한 경우이고, 그 한 건 때문에 전체 페이지를 502로 터뜨릴
-     * 이유가 없다.
+     * 이유가 없다. <b>이름을 못 읽는 것은 다른 문제라</b> 호출자가 먼저 가른다.
+     *
+     * @param name 호출자가 이미 읽어 둔 축제명 — 여기서 다시 읽지 않는다
      */
-    private static StandardFestival toFestival(JsonNode node) {
-        String name = text(node, F_NAME);
-        if (name == null) {
-            return null;
-        }
+    private static StandardFestival toFestival(JsonNode node, String name) {
         String address = firstNonBlank(text(node, F_ROAD_ADDRESS), text(node, F_JIBUN_ADDRESS));
         StandardFestival festival = new StandardFestival(
                 name,
