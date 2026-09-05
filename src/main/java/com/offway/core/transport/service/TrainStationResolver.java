@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
  * <p>이전 방식(광역 역목록 라이브 조회 + 시군구명 이름매칭)의 한계를 없앤다: 역 없는 오지도 <b>근교 최근접 역</b>(예: 경주역)을
  * 잡고, 출발지도 큐레이션 없이 실좌표로 해석한다. 역이 없는 진짜 오지({@value #MAX_KM}㎞ 밖)는 빈 Optional = "열차로 못 감".
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TrainStationResolver {
@@ -79,10 +81,11 @@ public class TrainStationResolver {
         return byDistance.stream()
                 .filter(entry -> entry.getValue() <= cutoff)
                 .limit(limit)
-                .map(entry -> new Station(
-                        entry.getKey().getCode(),
-                        entry.getKey().getName(),
-                        new Coordinate(entry.getKey().getLat(), entry.getKey().getLng())))
+                .map(entry -> Station.builder()
+                        .id(entry.getKey().getCode())
+                        .name(entry.getKey().getName())
+                        .coordinate(new Coordinate(entry.getKey().getLat(), entry.getKey().getLng()))
+                        .build())
                 .toList();
     }
 
@@ -91,12 +94,25 @@ public class TrainStationResolver {
         cache = null;
     }
 
+    /**
+     * 역 마스터 — 한 번 읽어 들고 있는다.
+     *
+     * <p><b>빈 결과는 캐시하지 않는다</b>(규약: 빈 응답을 성공으로 캐시하지 않는다). 시드가 아직 안
+     * 올라왔거나 조회가 이상하게 빈 채로 돌아오면, 그걸 성공으로 굳히는 순간 이후 모든 좌표가
+     * {@code NO_STATION} 이 된다 — 재시작 전까지 열차 기능이 통째로 죽는다. 값이 없다는 점에서
+     * 실패와 결과가 같으니 다음 조회에서 다시 읽는다.
+     */
     private List<TrainStation> stations() {
         List<TrainStation> local = cache;
-        if (local == null) {
-            local = stationRepository.findAll();
-            cache = local;
+        if (local != null) {
+            return local;
         }
-        return local;
+        List<TrainStation> loaded = stationRepository.findAll();
+        if (loaded.isEmpty()) {
+            log.warn("역 마스터가 비어 있다 — 캐시하지 않고 다음 조회에서 다시 읽는다");
+            return loaded;
+        }
+        cache = loaded;
+        return loaded;
     }
 }

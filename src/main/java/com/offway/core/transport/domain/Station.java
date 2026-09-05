@@ -2,6 +2,7 @@ package com.offway.core.transport.domain;
 
 import com.offway.core.common.geo.Coordinate;
 import java.util.Objects;
+import lombok.Builder;
 
 /**
  * 기차역 한 곳 — TAGO 역 코드·역명과 좌표. 지역(시군구명)·출발지를 역으로 해석할 때 쓴다.
@@ -14,6 +15,7 @@ import java.util.Objects;
  * @param name 역명(예: 서울·정선)
  * @param coordinate 역 좌표 — 해석 자체가 좌표 최근접이라 해석된 역은 좌표를 반드시 가진다
  */
+@Builder
 public record Station(String id, String name, Coordinate coordinate) {
 
     public Station {
