@@ -1,8 +1,11 @@
 package com.offway.core.trip.repository;
 
+import com.offway.core.trip.domain.RegionDailyTourists;
 import com.offway.core.trip.domain.RegionVisitorDaily;
+import com.offway.core.trip.domain.VisitorType;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -31,6 +34,19 @@ public class RegionVisitorDailyRepositoryImpl implements RegionVisitorDailyRepos
             return List.of();
         }
         return jpaRepository.findBySignguCodeInAndBaseDateBetween(signguCodes, from, to);
+    }
+
+    /**
+     * 관광객으로 셀 유형을 <b>도메인에서 가져와</b> 넘긴다. 쿼리에 {@code <> LOCAL} 을 박지 않는 이유는
+     * {@link VisitorType#isTourist()} 하나만 정본으로 두기 위해서다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<RegionDailyTourists> sumTouristsByDate(LocalDate from, LocalDate to) {
+        List<VisitorType> touristTypes = Arrays.stream(VisitorType.values())
+                .filter(VisitorType::isTourist)
+                .toList();
+        return jpaRepository.sumTouristsByRegionAndDate(from, to, touristTypes);
     }
 
     @Override

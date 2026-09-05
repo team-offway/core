@@ -1,5 +1,6 @@
 package com.offway.core.trip.repository;
 
+import com.offway.core.trip.domain.RegionDailyTourists;
 import com.offway.core.trip.domain.RegionVisitorDaily;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -12,6 +13,14 @@ public interface RegionVisitorDailyRepository {
 
     /** 그 지역들의 그 기간 방문자. 혼잡도 계산이 읽는 유일한 모양이다. */
     List<RegionVisitorDaily> findBetween(Collection<String> signguCodes, LocalDate from, LocalDate to);
+
+    /**
+     * 기간 내 <b>지역·날짜별 관광객 합</b> — 요일 패턴과 인기 추세가 읽는 모양.
+     *
+     * <p>거주자는 빠진 채로 온다. 접는 일을 DB 가 하므로 15개월을 물어도 올라오는 행이 12만이 아니라
+     * 4만이다.
+     */
+    List<RegionDailyTourists> sumTouristsByDate(LocalDate from, LocalDate to);
 
     /**
      * 그 달을 이미 받았는가.
