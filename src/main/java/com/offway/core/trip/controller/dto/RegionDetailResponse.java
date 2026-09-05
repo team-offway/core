@@ -8,6 +8,7 @@ import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.trip.service.dto.HomeResult;
 import com.offway.core.trip.service.dto.RegionDetail;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -28,6 +29,7 @@ import java.util.stream.Stream;
  * @param visitMetrics 한산한 요일·인기 추세(#394). <b>객체는 항상 있고 안의 두 값이 각각 null 일 수
  *     있다</b> — 아직 못 재는 지역이면 둘 다 비고, 화면은 그 줄을 지운다
  */
+@Builder
 public record RegionDetailResponse(
         @Schema(example = "1") long regionId,
         @Schema(example = "동구 · 부산광역시") String name,
@@ -78,16 +80,22 @@ public record RegionDetailResponse(
                 && (visitMetrics.quietestDay() != null || visitMetrics.trend() != null);
     }
 
+    /**
+     * 이름을 붙여 조립한다 — {@code name}·{@code overview} 가 나란한 {@code String} 이라 위치
+     * 생성자로는 둘을 맞바꿔도 컴파일이 통과하고, 뒤집힌 값은 화면에 소개 자리에 지역명이 뜰 때까지
+     * 아무도 모른다. {@code RecommendedRegion} 이 같은 이유로 빌더를 쓴다.
+     */
     public static RegionDetailResponse from(RegionDetail detail, List<CuratedLink> curatedLinks) {
-        return new RegionDetailResponse(
-                detail.regionId(),
-                detail.sigungu() + " · " + detail.sido(),
-                detail.overview(),
-                detail.photos(),
-                BenefitResponse.from(detail.benefit()),
-                detail.highlightSpots().stream().map(HighlightSpot::from).toList(),
-                CuratedLinkResponse.from(curatedLinks),
-                RegionVisitMetricsResponse.from(detail.visitMetrics()));
+        return RegionDetailResponse.builder()
+                .regionId(detail.regionId())
+                .name(detail.sigungu() + " · " + detail.sido())
+                .overview(detail.overview())
+                .photos(detail.photos())
+                .benefit(BenefitResponse.from(detail.benefit()))
+                .highlightSpots(detail.highlightSpots().stream().map(HighlightSpot::from).toList())
+                .curatedLinks(CuratedLinkResponse.from(curatedLinks))
+                .visitMetrics(RegionVisitMetricsResponse.from(detail.visitMetrics()))
+                .build();
     }
 
     /**
