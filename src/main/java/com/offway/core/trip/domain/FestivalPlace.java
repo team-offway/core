@@ -236,6 +236,20 @@ public class FestivalPlace {
         return value.trim();
     }
 
+    /**
+     * 이 좌표를 담을 수 있는가 — <b>어댑터가 먼저 물어보는 자리</b>.
+     *
+     * <p>판정을 공개하는 이유는 {@code toPlace()} 에서 터지는 것을 막기 위해서다. 지자체가 좌표를
+     * 0 으로 올린 행 하나가 예외를 던지면 <b>그달 적재가 통째로 실패한다</b> — 그 한 건만 건너뛰면
+     * 될 일이다.
+     *
+     * <p>범위를 어댑터에 복사해 적지 않는다. 두 곳에 적으면 한쪽만 바뀐다.
+     */
+    public static boolean isInKorea(double lat, double lng) {
+        return Double.isFinite(lat) && lat >= MIN_LAT && lat <= MAX_LAT
+                && Double.isFinite(lng) && lng >= MIN_LNG && lng <= MAX_LNG;
+    }
+
     private static void requireInKorea(double lat, double lng) {
         if (!Double.isFinite(lat) || lat < MIN_LAT || lat > MAX_LAT) {
             throw new IllegalArgumentException("위도가 대한민국 범위를 벗어났습니다: " + lat);
