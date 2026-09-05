@@ -8,8 +8,9 @@ import java.util.function.Function;
 /**
  * 장소 식별자가 <b>어느 출처에서 온 값인지</b>(#399).
  *
- * <p>장소 풀이 셋에서 온다 — TourAPI · 지방행정인허가 · 국가유산청. 앞의 둘은 식별자에 접두어가 붙어
- * 있고({@code LIC-} · {@code HER-}), 접두어가 없으면 TourAPI 의 {@code contentId} 다.
+ * <p>장소 풀이 넷에서 온다 — TourAPI · 지방행정인허가 · 국가유산청 · 문화축제표준데이터. TourAPI 를 뺀
+ * 셋은 식별자에 접두어가 붙어 있고({@code LIC-} · {@code HER-} · {@code FST-}), 접두어가 없으면
+ * TourAPI 의 {@code contentId} 다.
  *
  * <p><b>접두어를 여기서 다시 적지 않는다.</b> 각 도메인 타입이 이미 파싱을 소유하므로
  * ({@code parsePublicId}) 그것에 물어본다. 접두어 문자열을 또 들면 한쪽만 바뀌었을 때 조용히 틀린 출처가
@@ -34,19 +35,25 @@ public enum PlaceOrigin {
     LICENSED,
 
     /** 국가유산청 — {@code HER-} 접두어. */
-    HERITAGE;
+    HERITAGE,
+
+    /** 전국문화축제표준데이터 — {@code FST-} 접두어(#433). */
+    FESTIVAL;
 
     /**
      * 이 식별자를 낸 곳.
      *
-     * <p>접두어가 없으면 TourAPI 로 본다. 장소 풀에 들어오는 경로가 셋뿐이고 나머지 둘은 반드시 접두어를
+     * <p>접두어가 없으면 TourAPI 로 본다. 장소 풀에 들어오는 경로가 넷뿐이고 나머지 셋은 반드시 접두어를
      * 달기 때문이다 — 접두어 없는 값은 TourAPI 를 지난 것뿐이다.
      */
     public static PlaceOrigin of(String placeId) {
         if (LicensedPlace.parsePublicId(placeId).isPresent()) {
             return LICENSED;
         }
-        return HeritagePlace.parsePublicId(placeId).isPresent() ? HERITAGE : TOUR_API;
+        if (HeritagePlace.parsePublicId(placeId).isPresent()) {
+            return HERITAGE;
+        }
+        return FestivalPlace.parsePublicId(placeId).isPresent() ? FESTIVAL : TOUR_API;
     }
 
     /**

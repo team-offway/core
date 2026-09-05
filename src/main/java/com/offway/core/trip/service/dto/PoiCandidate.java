@@ -1,5 +1,7 @@
 package com.offway.core.trip.service.dto;
 
+import lombok.Builder;
+
 /**
  * 코스 생성이 배치할 후보 장소 한 건 — trip 이 TourAPI 에서 모아 다른 도메인(itinerary)에 넘기는 값. 어떤 풀(볼거리·맛집·숙박)에
  * 담기는지는 {@link RegionPois} 의 리스트 소속으로 표현한다(종류 필드 대신).
@@ -12,7 +14,12 @@ package com.offway.core.trip.service.dto;
  * @param imageUrl 대표 이미지(없으면 null)
  * @param address 주소(없으면 null)
  * @param catchphrase 구석구석 캐치프레이즈(추천 한 줄, 없으면 null)
+ *
+ * <p><b>빌더로 조립한다.</b> 열한 칸 중 여섯이 {@code String} 이고 그중 넷이 대개 {@code null} 이라,
+ * 위치 생성자로는 두 칸을 맞바꿔도 컴파일이 통과한다 — 주소 자리에 캐치프레이즈가 들어가도 화면이
+ * 이상해질 때까지 아무도 모른다.
  */
+@Builder
 public record PoiCandidate(
         String contentId, int contentTypeId, String title, double lat, double lng,
         String imageUrl, String address, String catchphrase, String tel,

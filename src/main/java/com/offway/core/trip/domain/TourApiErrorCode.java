@@ -25,7 +25,11 @@ public enum TourApiErrorCode implements ErrorCode {
      * <p>"조회 불가"를 "장소 없음(404)"과 분리하기 위한 별도 코드다. 키가 없으면 상세 조회를 빈 결과로 돌려주면 안 된다 —
      * 그러면 모든 장소가 존재하지 않는 것으로 둔갑한다.
      */
-    TOUR_SERVICE_UNAVAILABLE("TOUR-004", ErrorCategory.EXTERNAL_API, "관광 정보 서비스를 사용할 수 없습니다.");
+    TOUR_SERVICE_UNAVAILABLE("TOUR-004", ErrorCategory.EXTERNAL_API, "관광 정보 서비스를 사용할 수 없습니다."),
+
+    /** 전국문화축제표준데이터 호출·파싱 실패(#433). 적재 배치만 타는 경로라 사용자가 직접 보는 일은 드물다. */
+    FESTIVAL_STANDARD_LOOKUP_FAILED(
+            "TOUR-005", ErrorCategory.EXTERNAL_API, "축제 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
 
     private final String code;
     private final ErrorCategory category;
