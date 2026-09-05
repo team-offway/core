@@ -45,6 +45,18 @@ public class BusTerminal {
     @Column(nullable = false, length = 16)
     private BusTerminalKind kind;
 
+    /**
+     * 터미널인가, 지나가며 서는 정류소인가(#446).
+     *
+     * <p>TAGO 목록에는 잠실역·광나루역·DDP 같은 <b>경유 정류소가 섞여 있다.</b> 좌표 최근접으로만 고르면
+     * 그런 곳이 출발 지점으로 뽑히는데, 정류소는 특정 노선만 서므로 "거기서 타세요" 가 틀린 안내가 될 수 있다.
+     *
+     * <p><b>근거를 못 찾은 행은 {@code true} 다.</b> 정류소로 잘못 낮추면 멀쩡한 터미널이 뒤로 밀리는데,
+     * 반대는 지금까지의 동작과 같을 뿐이다.
+     */
+    @Column(nullable = false)
+    private boolean isTerminal = true;
+
     private Double lat;
 
     private Double lng;
