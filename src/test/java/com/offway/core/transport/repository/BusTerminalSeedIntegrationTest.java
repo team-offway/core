@@ -64,6 +64,10 @@ class BusTerminalSeedIntegrationTest {
     /** 정정한 좌표에서 이만큼 벗어나면 다른 자리로 본다. */
     private static final double CORRECTED_TOLERANCE_KM = 1.0;
 
+    /** 광나루역 정류소 자리 — 여기서 그 정류소는 0㎞, 동서울 터미널은 1.4㎞다. */
+    private static final double GWANGNARU_STOP_LAT = 37.5453;
+    private static final double GWANGNARU_STOP_LNG = 127.1035;
+
     /** 광주 충장로 — 도심 한복판이다. 유스퀘어까지 약 3.8㎞. */
     private static final double GWANGJU_LAT = 35.1489;
     private static final double GWANGJU_LNG = 126.9190;
@@ -151,8 +155,13 @@ class BusTerminalSeedIntegrationTest {
         Terminal terminal = terminalRepository.findAll().stream()
                 .filter(each -> each.getCode().equals(code))
                 .findFirst()
-                .map(each -> new Terminal(each.getCode(), each.getName(), each.getKind(),
-                        new Coordinate(each.getLat(), each.getLng())))
+                .map(each -> Terminal.builder()
+                        .code(each.getCode())
+                        .name(each.getName())
+                        .kind(each.getKind())
+                        .coordinate(new Coordinate(each.getLat(), each.getLng()))
+                        .isTerminal(each.isTerminal())
+                        .build())
                 .orElseThrow(() -> new AssertionError(name + " 터미널이 시드에 없습니다"));
 
         double off = terminal.coordinate().haversineKmTo(new Coordinate(lat, lng));
@@ -209,5 +218,45 @@ class BusTerminalSeedIntegrationTest {
                 .orElseThrow(() -> new AssertionError("광주 도심 근처에 시외버스 터미널이 없다"));
 
         assertEquals("광주(유·스퀘어)", nearest.name());
+    }
+
+    /**
+     * 정류소 바로 앞에 서 있어도 <b>터미널</b>을 준다(#446).
+     *
+     * <p>광나루역 정류소 좌표에서 재면 그 정류소가 <b>0㎞</b>이고 동서울은 1.4㎞다. 거리만 보면 정류소가
+     * 이긴다 — 그런데 정류소는 지나가며 서는 곳이라 특정 노선만 선다. "광나루역에서 타세요" 는 그 노선이
+     * 목적지로 갈 때만 맞는 말이고, 구간 소요시간·출발 시각 조회도 터미널 코드를 전제한다.
+     *
+     * <p><b>서울역으로 재면 이 규칙이 안 드러난다.</b> #436 으로 DDP 좌표가 비면서 서울역 최근접이
+     * 이미 터미널이 됐다 — 규칙을 지워도 통과한다. 정류소가 실제로 이기는 자리에서 재야 한다.
+     */
+    @Test
+    void 정류소가_더_가까워도_터미널을_앞세운다() {
+        Terminal nearest = resolver
+                .nearest(GWANGNARU_STOP_LAT, GWANGNARU_STOP_LNG, BusTerminalKind.INTERCITY)
+                .orElseThrow(() -> new AssertionError("광나루역 근처에 시외버스 터미널이 없다"));
+
+        assertEquals("동서울", nearest.name());
+        assertTrue(nearest.isTerminal(), "정류소가 뽑혔다 — 터미널을 앞세우는 규칙이 깨졌다");
+    }
+
+    /**
+     * 반경 안에 터미널이 없으면 <b>정류소를 그대로 쓴다</b>(#446).
+     *
+     * <p>정류소를 버리면 인구감소지역 커버리지가 86곳에서 83곳으로 준다. 우선순위만 바꾸는 것이지
+     * 목록에서 빼는 것이 아니다 — 그 세 곳에는 정류소가 유일한 접점이다.
+     */
+    @Test
+    void 정류소가_유일한_접점인_지역이_있다() {
+        long onlyStop = regionRepository.findAll().stream()
+                .filter(region -> resolver.nearest(region.getLat(), region.getLng(), null)
+                        .filter(terminal -> !terminal.isTerminal())
+                        .isPresent())
+                .count();
+
+        // 정류소를 목록에서 빼면 이 지역들이 버스로 못 가는 곳이 된다 — 커버리지 86 → 83.
+        // 우선순위만 바꾸는 것이지 빼는 것이 아님을 여기서 지킨다.
+        assertTrue(onlyStop > 0,
+                "정류소가 최근접인 지역이 하나도 없다 — 정류소가 목록에서 빠졌는지 확인하세요");
     }
 }
