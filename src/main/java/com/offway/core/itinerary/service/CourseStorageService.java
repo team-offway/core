@@ -15,6 +15,8 @@ import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.service.RegionQuery;
+import com.offway.core.trip.domain.RegionVisitMetrics;
+import com.offway.core.trip.service.RegionVisitMetricsService;
 import com.offway.core.trip.service.RegionImageProvider;
 import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.transport.domain.TransportMode;
@@ -61,6 +63,7 @@ public class CourseStorageService {
     private final MyLeaveService myLeaveService;
     private final RegionAccessService regionAccessService;
     private final RegionImageProvider regionImageProvider;
+    private final RegionVisitMetricsService regionVisitMetricsService;
 
     /** 이미 조립된 사용자 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
     public GeneratedCourse save(Course course) {
@@ -446,6 +449,10 @@ public class CourseStorageService {
                 .weatherByDay(weatherByDay)
                 .regionAccess(regionAccess)
                 .regionName(region == null ? null : region.getSigungu())
+                // 지명이 아니라 법정 시군구코드로 찾는다 — 같은 이름이 전국에 여럿이다. DB 만 읽는다.
+                .visitMetrics(region == null
+                        ? RegionVisitMetrics.none()
+                        : regionVisitMetricsService.of(region.getLegalCode()))
                 // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
                 .hoursByContentId(openingHoursProvider.forCourse(course))
                 .festivalPeriodByContentId(festivalPeriodProvider.forCourse(course))

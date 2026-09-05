@@ -7,6 +7,7 @@ import com.offway.core.region.service.RegionIntroProvider;
 import com.offway.core.region.service.RegionMaster;
 import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.service.TravelTimeProvider;
+import com.offway.core.trip.domain.RegionVisitMetrics;
 import com.offway.core.trip.domain.RegionContent;
 import com.offway.core.trip.domain.RegionScore;
 import com.offway.core.trip.service.dto.RecommendRegions;
@@ -44,6 +45,7 @@ public class RegionRecommendationService {
     private final RegionContentProvider regionContentProvider;
     private final RegionHeroPhotoProvider regionHeroPhotoProvider;
     private final PolicyService policyService;
+    private final RegionVisitMetricsService regionVisitMetricsService;
 
     public List<RecommendedRegion> recommend(RecommendRegions command) {
         Coordinate origin = new Coordinate(command.originLat(), command.originLng());
@@ -89,6 +91,8 @@ public class RegionRecommendationService {
         // 대표 사진은 DB 만 읽는다(#196) — 외부 호출이 늘지 않는다. 추천 요청에 여행 날짜가 없어 계절 정렬은
         // 하지 않는다(날짜를 받게 되면 그때 넘긴다).
         Map<Long, String> heroPhotos = regionHeroPhotoProvider.heroPhotoUrls(candidateIds, null);
+        // 후보마다 따로 물으면 "재료가 새로 들어왔나" 질의가 후보 수만큼 나간다. 한 번만 받는다.
+        Map<String, RegionVisitMetrics> metricsByCode = regionVisitMetricsService.all();
 
         List<RecommendedRegion> result = new ArrayList<>();
         for (RegionScore score : candidates) {
@@ -104,11 +108,13 @@ public class RegionRecommendationService {
                     heroPhotos.get(region.getId()),
                     // 지역 소개는 부팅 때 조립해 둔 값이다 — 요청마다 89곳을 다시 만들지 않는다(#140).
                     regionIntroProvider.of(region.getId()).text(),
-                    benefits));
+                    benefits,
+                    // 지명이 아니라 법정 시군구코드로 찾는다 — 같은 이름이 전국에 여럿이다.
+                    metricsByCode.getOrDefault(region.getLegalCode(), RegionVisitMetrics.none())));
         }
 
-        // 4. 무드 필터 — 해당 카테고리 콘텐츠가 있는 지역을 앞세운다(재정렬). 매칭이 하나도 없으면 랭킹 순 유지(빈 결과 방지, F6)
-        List<RecommendedRegion> ordered = RecommendedRegion.orderByMood(result, command.mood());
+        // 4. 추천순 재정렬 — 무드 → 혜택 → 최근 인기 상승 → 랭킹. 무드는 매칭이 하나도 없으면 빠진다(F6)
+        List<RecommendedRegion> ordered = RecommendedRegion.orderForRecommendation(result, command.mood());
         log.debug("여행지 추천 reachable={} 노출={} mood={}", reachable.size(), ordered.size(), command.mood());
         return ordered;
     }

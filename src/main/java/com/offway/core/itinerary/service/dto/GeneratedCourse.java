@@ -4,6 +4,7 @@ import com.offway.core.itinerary.domain.Course;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.trip.domain.OpeningHours;
+import com.offway.core.trip.domain.RegionVisitMetrics;
 import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
 import com.offway.core.trip.domain.FestivalPeriod;
@@ -27,6 +28,9 @@ import lombok.Builder;
  * @param shareToken 공유 링크 토큰(#143). <b>소유자에게만</b> 준다 — 저장·상세·날짜수정 응답에 채우고(#259),
  *     공유 링크로 여는 공개 조회에는 null 이다. 링크를 받은 사람에게 토큰을 되돌려줄 이유가 없다
  * @param firstDayChange 날짜 수정으로 <b>첫날 판단이 뒤집혔을 때만</b> 실린다(#214). 그 밖에는 null
+ * @param visitMetrics 코스 지역의 한산한 요일·인기 추세(#394) — 코스 확정·내 코스 상세가 같은 모양으로
+ *     그린다. <b>생성과 저장 양쪽에서 채운다</b>: 한쪽만 채우면 저장한 코스를 다시 열었을 때 값이
+ *     사라진다(#169 와 같은 실수)
  */
 @Builder(toBuilder = true)
 public record GeneratedCourse(
@@ -44,7 +48,8 @@ public record GeneratedCourse(
          */
         Map<String, FestivalPeriod> festivalPeriodByContentId,
         String shareToken,
-        FirstDayChange firstDayChange) {
+        FirstDayChange firstDayChange,
+        RegionVisitMetrics visitMetrics) {
 
     public GeneratedCourse {
         benefits = List.copyOf(benefits);

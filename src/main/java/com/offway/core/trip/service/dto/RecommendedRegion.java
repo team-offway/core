@@ -4,6 +4,7 @@ import com.offway.core.common.geo.Coordinate;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.CrowdLevel;
 import com.offway.core.trip.domain.RegionContent;
+import com.offway.core.trip.domain.RegionVisitMetrics;
 import lombok.Builder;
 import java.util.Comparator;
 import java.util.List;
@@ -22,6 +23,7 @@ import java.util.List;
  * @param categories 이 지역에 존재하는 카테고리(무드칩과 동일 분류)
  * @param neighborIncluded 볼거리 부족으로 인접 50km 지역이 병합됐는지
  * @param benefits 이 지역에 적용되는 혜택 뱃지
+ * @param visitMetrics 한산한 요일·인기 추세(#394). 카드의 "최근 인기 상승" 칩과 정렬이 이 값을 쓴다
  */
 @Builder
 public record RecommendedRegion(
@@ -36,7 +38,8 @@ public record RecommendedRegion(
         List<Category> categories,
         boolean neighborIncluded,
         String intro,
-        List<Benefit> benefits) {
+        List<Benefit> benefits,
+        RegionVisitMetrics visitMetrics) {
 
     /**
      * 랭킹·도달·혜택에 지역 콘텐츠를 얹어 결과 한 건을 만든다.
@@ -56,7 +59,8 @@ public record RecommendedRegion(
             RegionContent content,
             String heroPhotoUrl,
             String intro,
-            List<Benefit> benefits) {
+            List<Benefit> benefits,
+            RegionVisitMetrics visitMetrics) {
         // 이름을 붙여 조립한다 — sido·sigungu 처럼 같은 타입이 붙어 있어 위치 생성자로는 둘을
         // 맞바꿔도 컴파일이 통과한다. 그러면 "강원특별자치도 · 정선군" 이 뒤집힌 채 화면까지 간다.
         return RecommendedRegion.builder()
@@ -72,6 +76,7 @@ public record RecommendedRegion(
                 .neighborIncluded(content.neighborIncluded())
                 .intro(intro)
                 .benefits(benefits)
+                .visitMetrics(visitMetrics)
                 .build();
     }
 
@@ -80,21 +85,46 @@ public record RecommendedRegion(
         return categories.contains(mood);
     }
 
+    /** 혜택 뱃지가 붙는가 — 추천순이 이것을 가장 앞세운다. */
+    public boolean hasBenefit() {
+        return !benefits.isEmpty();
+    }
+
+    /** "최근 인기 상승" 칩이 붙는가. 아직 못 재는 지역이면 거짓이다. */
+    public boolean isRising() {
+        return visitMetrics != null && visitMetrics.isRising();
+    }
+
     /**
-     * 무드칩 매칭 지역을 앞세운 재정렬(F6). 안정 정렬이라 그룹 내부는 원래(랭킹) 순서를 지킨다. 필터가 없거나({@code null}·
-     * {@code ALL}) 매칭이 하나도 없으면 원본 순서 그대로 — 무드 때문에 결과가 비지 않게 한다.
+     * 추천순 재정렬 — <b>무드 → 혜택 → 최근 인기 상승 → 랭킹</b>.
+     *
+     * <p>순서에 이유가 있다. 무드는 사용자가 <b>직접 고른</b> 조건이라 가장 강하다. 혜택은 그 지역에
+     * 가면 실제로 받는 것이라 다음이고, 인기 상승은 우리가 관측으로 얹는 참고값이라 그다음이다.
+     * 셋이 갈리지 않는 지역들은 원래(랭킹) 순서를 지킨다 — 안정 정렬이다.
+     *
+     * <p>무드는 매칭이 하나도 없으면 <b>정렬에서 빠진다</b>. 그러면 전부 같은 값이 되어 순서만
+     * 흔들 뿐인데, 무드 때문에 결과가 비어 보이는 것을 막으려는 기존 판단이다(F6).
      */
-    public static List<RecommendedRegion> orderByMood(List<RecommendedRegion> regions, Category mood) {
+    public static List<RecommendedRegion> orderForRecommendation(
+            List<RecommendedRegion> regions, Category mood) {
+        // Boolean 은 false < true 라, 참을 앞세우려면 역순으로 비교한다. Comparator 를 이어 붙인 뒤
+        // reversed() 를 부르면 이어 붙인 전체가 뒤집히므로 키마다 역순을 준다.
+        Comparator<RecommendedRegion> order =
+                Comparator.comparing(RecommendedRegion::hasBenefit, Comparator.reverseOrder())
+                        .thenComparing(RecommendedRegion::isRising, Comparator.reverseOrder());
+        if (usesMood(regions, mood)) {
+            order = Comparator.comparing(
+                            (RecommendedRegion region) -> region.matchesMood(mood), Comparator.reverseOrder())
+                    .thenComparing(order);
+        }
+        return regions.stream().sorted(order).toList();
+    }
+
+    private static boolean usesMood(List<RecommendedRegion> regions, Category mood) {
         if (mood == null || mood == Category.ALL) {
-            return regions;
+            return false;
         }
-        boolean anyMatch = regions.stream().anyMatch(region -> region.matchesMood(mood));
-        if (!anyMatch) {
-            return regions;
-        }
-        return regions.stream()
-                .sorted(Comparator.comparing((RecommendedRegion region) -> region.matchesMood(mood)).reversed())
-                .toList();
+        return regions.stream().anyMatch(region -> region.matchesMood(mood));
     }
 
     /**

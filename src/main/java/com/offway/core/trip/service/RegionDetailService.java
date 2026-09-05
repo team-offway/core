@@ -52,6 +52,7 @@ public class RegionDetailService {
     private final RegionHeroPhotoProvider regionHeroPhotoProvider;
     private final PolicyService policyService;
     private final CatchphraseProvider catchphraseProvider;
+    private final RegionVisitMetricsService regionVisitMetricsService;
 
     /**
      * 그 지역의 상세.
@@ -78,6 +79,8 @@ public class RegionDetailService {
                 .photos(photosOf(regionId))
                 .benefit(benefitOf(regionId))
                 .highlightSpots(toSpots(spots))
+                // 지명이 아니라 법정 시군구코드로 찾는다 — 동구 6곳·중구 6곳처럼 같은 이름이 전국에 여럿이다.
+                .visitMetrics(regionVisitMetricsService.of(region.getLegalCode()))
                 .build();
     }
 

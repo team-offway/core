@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>혼잡도 설계 — 서버가 무엇을 언제 내는가</title>
+<style>
+:root{--ink:#111214;--dim:#8a8f98;--mid:#4a4f57;--line:#e4e5e8;--page:#f1f1f2;--card:#fff;
+ --hot:#d9342b;--ok:#1a7f4b;--warn:#b8791a;--blue:#1f6feb;--purple:#6b46c1;--dark:#141517;}
+*{box-sizing:border-box}
+body{margin:0;padding:34px 36px 30px;background:var(--page);color:var(--ink);
+ font-family:"Pretendard","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif;line-height:1.6;letter-spacing:-.01em}
+.wrap{max-width:1680px;margin:0 auto}
+.top{display:flex;align-items:flex-start;justify-content:space-between}
+.brand{font-size:19px;font-weight:800}.brand span{font-weight:500;color:var(--dim);font-size:14px}
+.tag{font-size:12px;color:var(--dim)}
+.lead{margin:10px 0 22px;font-size:15px;color:var(--mid);max-width:1150px}.lead b{color:var(--ink)}
+h2{font-size:13px;font-weight:700;color:var(--dim);letter-spacing:.02em;margin:28px 0 12px;
+ padding-bottom:8px;border-bottom:1px solid var(--line)}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#eef0f3;padding:1px 5px;border-radius:4px}
+pre{margin:0;background:#16181c;color:#dfe3e8;border-radius:8px;padding:11px 13px;
+ font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.7;overflow-x:auto}
+pre .k{color:#7fb2ff}pre .s{color:#9ae6a0}pre .n{color:#f0a868}pre .c{color:#6d7684}
+/* 정정 */
+.fix{background:#fff5f4;border:1px solid #f3c9c5;border-left:4px solid var(--hot);border-radius:8px;
+ padding:14px 18px;margin-bottom:22px}
+.fix b{color:var(--hot)}
+.fix p{margin:0;font-size:13.5px;color:var(--mid)}
+/* 타임라인 */
+.tl{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px}
+.tlrow{display:grid;grid-template-columns:150px 26px 1fr 190px;gap:0 16px;align-items:start;position:relative}
+.tlrow+.tlrow{margin-top:2px}
+.when{font-size:12.5px;font-weight:700;text-align:right;padding-top:9px;color:var(--mid)}
+.dot{position:relative;padding-top:9px;display:flex;justify-content:center}
+.dot i{width:11px;height:11px;border-radius:50%;background:var(--blue);z-index:1;flex:none;margin-top:4px}
+.dot.done i{background:var(--ok)}.dot.rep i{background:var(--purple)}
+.dot::before{content:"";position:absolute;top:0;bottom:-2px;width:2px;background:var(--line)}
+.tlrow:first-child .dot::before{top:18px}
+.tlrow:last-child .dot::before{bottom:auto;height:18px}
+.what{padding:8px 0 14px}
+.what h4{margin:0 0 3px;font-size:14.5px;font-weight:700}
+.what p{margin:0;font-size:12.5px;color:var(--mid)}
+.cost{padding:9px 0 0;text-align:right;font-size:12px;color:var(--dim);font-family:ui-monospace,Menlo,monospace}
+.cost b{color:var(--ink)}
+/* 기준 */
+.basis{display:grid;grid-template-columns:1.25fr 1fr;gap:16px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.box.pick{border:2px solid var(--blue)}
+.box h3{margin:0 0 6px;font-size:15.5px}
+.box p{margin:0 0 12px;font-size:13px;color:var(--mid)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+th{font-size:11.5px;color:var(--dim);font-weight:700}
+td.num{text-align:right;font-family:ui-monospace,Menlo,monospace}
+tr.win td{background:#f4f8ff}
+.ok{color:var(--ok);font-weight:700}.no{color:var(--hot);font-weight:700}
+/* 표현 */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.opt{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px 18px;display:flex;flex-direction:column}
+.opt h3{margin:0 0 3px;font-size:15px}
+.opt .why{font-size:12.5px;color:var(--mid);margin:0 0 12px;min-height:38px}
+.mock{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;margin-top:12px}
+.mock .ph{height:56px;background:linear-gradient(120deg,#dfe5ec,#eef2f7)}
+.mock .bd{padding:10px 12px 12px}
+.mock .nm{font-weight:700;font-size:13.5px;margin-bottom:7px}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600}
+.b-low{background:#e6f4ec;color:var(--ok)}.b-mid{background:#fdf3e3;color:var(--warn)}
+.b-high{background:#fdeceb;color:var(--hot)}.b-null{background:#f0f2f5;color:var(--dim)}
+.bar{height:7px;border-radius:99px;background:#eceef1;overflow:hidden;margin:8px 0 5px}
+.bar i{display:block;height:100%;border-radius:99px;background:var(--blue)}
+.bar.hot i{background:var(--hot)}
+.meta{font-size:11.5px;color:var(--dim)}
+.big{font-size:13px;font-weight:700}.big s{text-decoration:none;font-weight:500;color:var(--dim);font-size:11.5px}
+.donut{width:52px;height:52px;border-radius:50%;background:conic-gradient(var(--hot) 0 82%,#eceef1 82% 100%);display:grid;place-items:center}
+.donut b{width:37px;height:37px;background:#fff;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700}
+/* 함정 */
+.trap{background:var(--dark);color:#e8eaed;border-radius:12px;padding:20px 22px}
+.trap h3{margin:0 0 4px;font-size:15px;color:#fff}
+.trap p{margin:0 0 14px;font-size:13px;color:#b6bcc4;max-width:940px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:26px}
+.split h4{margin:0 0 8px;font-size:12px;color:#8a929c;font-weight:700}
+.dist{display:grid;grid-template-columns:92px 1fr 58px;gap:5px 12px;align-items:center;font-size:12px}
+.dist .nm{color:#cfd4da}
+.dist .tr{height:15px;background:#26292f;border-radius:4px;overflow:hidden}
+.dist .tr i{display:block;height:100%;background:#d9342b;border-radius:4px}
+.dist .tr.b i{background:#4f9cf9}
+.dist .v{text-align:right;font-family:ui-monospace,Menlo,monospace;color:#e8eaed}
+/* 권고 */
+.rec{background:var(--card);border:2px solid var(--blue);border-radius:12px;padding:18px 20px}
+.rec h3{margin:0 0 8px;font-size:16px}
+.rec .cols{display:grid;grid-template-columns:1.05fr 1fr;gap:24px;align-items:start}
+.rec ul{margin:4px 0 0;padding-left:17px;font-size:13px;color:var(--mid)}
+.rec li{margin-bottom:6px}.rec li b{color:var(--ink)}
+.foot{display:flex;justify-content:space-between;margin-top:24px;font-size:11.5px;color:var(--dim)}
+</style></head><body><div class="wrap">
+
+<div class="top">
+  <div class="brand">혼잡도 <span>· 서버가 무엇을 언제 내는가</span></div>
+  <div class="tag">#394 · 디자인 결정용 · 2판</div>
+</div>
+
+<div class="fix">
+  <p><b>1판 정정.</b> “12개월 뒤에 된다” 고 적었는데 <b>틀렸습니다.</b> 백필이 <b>과거로</b> 거슬러 가서
+  첫 실행에 지난 <b>열다섯 달</b>을 한꺼번에 받습니다 — 데이터가 쌓이길 기다릴 필요가 없습니다.</p>
+  <p><b>2판 정정.</b> “배포 5분 뒤면 전부 나온다” 는 <b>보장이 아닙니다.</b> 외부가 실패하거나 아직
+  발행되지 않은 달은 그 회차에 안 채워지고, <b>다음 적재에서 다시 받습니다.</b> 그 달의 지표는
+  그때까지 비어 있고 화면은 그 줄을 지웁니다 — 틀린 값이 나가지는 않습니다.</p>
+  <p><b>왜 열두 달이 아니라 열다섯 달인가.</b> 인기 추세를 <b>작년 같은 기간</b>과 견주기 때문입니다.
+  직전 기간과 견주면 계절이 증감으로 둔갑해, 여름엔 바다를 낀 지역이 전부 “+40%” 가 됩니다.</p>
+</div>
+
+<p class="lead">
+  기준은 <b>관광 밀도</b>(관광객 ÷ 면적)입니다. 그 위에 여섯 가지 표현을 낼 수 있고,
+  <b>수집이 성공한 달부터 채워집니다.</b> 디자인이 무엇을 그릴지에 따라 서버가 무엇을 채울지 정해집니다.
+  <b>아래 방문자 숫자는 모양을 보이기 위한 예시입니다</b>(면적은 실제값).
+</p>
+
+<h2>① 서버가 언제 무엇을 하나</h2>
+<div class="tl">
+  <div class="tlrow">
+    <div class="when">배포 + 4분</div>
+    <div class="dot done"><i></i></div>
+    <div class="what"><h4>백필 — 지난 15개월을 한 번에</h4>
+      <p>2025-09 ~ 2026-08 을 거슬러 받는다. <b>앞으로 쌓는 게 아니라 과거를 가져온다.</b>
+         이미 받은 달은 건너뛰므로 두 번째 배포부터는 아무것도 안 받는다.</p></div>
+    <div class="cost">월 3콜 × 12<br><b>= 36콜</b><br>한도 1,000 의 3.6%</div>
+  </div>
+  <div class="tlrow">
+    <div class="when">배포 + 5분 (성공한 달)</div>
+    <div class="dot done"><i></i></div>
+    <div class="what"><h4>전 항목이 채워진다</h4>
+      <p>요일 패턴·계절성·여행일 예상까지 <b>전부</b> 나온다. 데이터가 쌓이길 기다릴 필요는 없다 —
+      다만 외부 실패·미발행으로 빠진 달은 다음 적재에서 다시 받는다.</p></div>
+    <div class="cost">계산만<br><b>외부 호출 0</b></div>
+  </div>
+  <div class="tlrow">
+    <div class="when">매월 5일 04:40</div>
+    <div class="dot rep"><i></i></div>
+    <div class="what"><h4>지난달 한 달만 추가</h4>
+      <p>원본이 <b>완결된 달만 월 단위로 발행</b>한다. 값이 불변이라 이미 받은 달은 <b>외부를 부르지 않는다</b>
+         — 재배포가 잦아도 같은 답을 다시 받지 않는다.</p></div>
+    <div class="cost"><b>3콜</b><br>발행 전이면 0콜</div>
+  </div>
+  <div class="tlrow">
+    <div class="when">요청마다</div>
+    <div class="dot"><i></i></div>
+    <div class="what"><h4>여행일 기준 계산</h4>
+      <p>사용자가 고른 날짜에 그 지역의 요일계수·월계수를 곱한다. <b>DB 만 읽는다.</b></p></div>
+    <div class="cost"><b>외부 호출 0</b></div>
+  </div>
+</div>
+
+<h2>② 무엇을 기준으로 재나 — 관광 밀도</h2>
+<div class="basis">
+  <div class="box pick">
+    <h3>관광객 ÷ 면적 (km²)</h3>
+    <p>“이 지역에 가면 사람이 많나” 는 결국 <b>밀도 질문</b>입니다. 절대 방문자로 재면
+       <b>“붐빔” 이 “큰 지역” 과 거의 같은 말</b>이 됩니다.</p>
+    <table>
+      <tr><th>지역</th><th class="num">일평균 관광객</th><th class="num">면적 km²</th><th class="num">밀도</th><th>절대 순위</th><th>밀도 순위</th></tr>
+      <tr class="win"><td>울릉군</td><td class="num">3,000</td><td class="num">72.9</td><td class="num">41.2</td><td class="no">하위권</td><td class="ok">상위권</td></tr>
+      <tr><td>완도군</td><td class="num">8,400</td><td class="num">396</td><td class="num">21.2</td><td>중위</td><td>중위</td></tr>
+      <tr><td>안동시</td><td class="num">42,000</td><td class="num">1,521</td><td class="num">27.6</td><td class="ok">최상위</td><td>중상위</td></tr>
+    </table>
+    <p style="margin:12px 0 0;font-size:12.5px">
+      <b>울릉도가 뒤집힙니다.</b> 절대값으로는 하위권인데 실제로는 섬이 꽉 찹니다.
+      밀도가 체감에 가깝습니다.</p>
+  </div>
+  <div class="box">
+    <h3>대안과 한계</h3>
+    <table>
+      <tr><th>기준</th><th>말하는 것</th><th>지금</th></tr>
+      <tr class="win"><td><b>관광 밀도</b></td><td>얼마나 몰려 있나</td><td class="ok">면적 넣으면 됨</td></tr>
+      <tr><td>절대 관광객</td><td>총 몇 명</td><td class="ok">지금도 됨</td></tr>
+      <tr><td>거주인구 대비</td><td>생활 밀도</td><td class="no">인구 데이터 없음</td></tr>
+      <tr><td>자기 평소 대비</td><td>성수기인가</td><td class="ok">백필 직후 됨</td></tr>
+    </table>
+    <p style="margin:14px 0 0;font-size:12.5px">
+      <b>밀도의 한계도 있습니다.</b> 면적이 큰 군은 대부분 산인데 관광객은 읍내에 몰립니다 —
+      산악 지역이 실제보다 한산해 보입니다. 나중에 “가용 면적” 으로 정교화할 수 있습니다.</p>
+    <p style="margin:10px 0 0;font-size:12.5px">
+      <b>면적은 외부 호출이 필요 없습니다.</b> 89행짜리 정적 값이라 시드에 넣으면 끝입니다.</p>
+  </div>
+</div>
+
+<h2>③ 낼 수 있는 표현 — 수집이 성공한 달부터</h2>
+<div class="grid">
+
+  <div class="opt">
+    <h3>① 뱃지</h3>
+    <p class="why">3단계든 5단계든 서버가 정하기 나름. 목록에서 훑기 좋습니다.</p>
+    <pre><span class="k">"level"</span>: <span class="s">"LOW"</span>  <span class="c">// 또는 5단계</span></pre>
+    <div class="mock"><div class="ph"></div><div class="bd">
+      <div class="nm">완도군 · 전남광주통합특별시</div><span class="badge b-low">한산</span></div></div>
+  </div>
+
+  <div class="opt">
+    <h3>② 백분위</h3>
+    <p class="why">순위를 %로. <b>“혼잡률 %” 의 안전한 형태</b>입니다 — 0~100 이 고르게 채워집니다.</p>
+    <pre><span class="k">"percentile"</span>: <span class="n">87</span>
+<span class="c">// 89곳 중 87% 보다 밀도가 높다</span></pre>
+    <div class="mock"><div class="ph"></div><div class="bd">
+      <div class="nm">울릉군 · 경상북도</div>
+      <div class="bar hot"><i style="width:87%"></i></div>
+      <div class="meta">상위 13% · 붐비는 편</div></div></div>
+  </div>
+
+  <div class="opt">
+    <h3>③ 순위</h3>
+    <p class="why">가장 정직하지만 “12위” 가 사용자에게 무슨 뜻인지 애매합니다.</p>
+    <pre><span class="k">"rank"</span>: <span class="n">12</span>, <span class="k">"outOf"</span>: <span class="n">89</span></pre>
+    <div class="mock"><div class="ph"></div><div class="bd">
+      <div class="nm">안동시 · 경상북도</div>
+      <div class="big">12위 <s>/ 89곳</s></div></div></div>
+  </div>
+
+  <div class="opt">
+    <h3>④ 자기 대비 — 성수기</h3>
+    <p class="why"><b>지역 크기가 아예 안 걸립니다.</b> “울릉군 기준으로 지금 성수기” 가 성립합니다.</p>
+    <pre><span class="k">"crowdRate"</span>: <span class="n">82</span>,  <span class="c">// 연중 최대 대비</span>
+<span class="k">"peakMonth"</span>: <span class="n">8</span></pre>
+    <div class="mock"><div class="ph"></div><div class="bd">
+      <div class="nm">완도군 · 9월</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+        <div class="donut"><b>82%</b></div>
+        <div class="meta">연중 최대치의 82%<br>가장 붐비는 달: 8월</div></div></div></div>
+  </div>
+
+  <div class="opt">
+    <h3>⑤ 요일 패턴</h3>
+    <p class="why">“토요일은 평일의 1.4배”. 며칠에 갈지 정하는 데 직접 쓰입니다.</p>
+    <pre><span class="k">"weekdayFactor"</span>: <span class="n">1.4</span></pre>
+    <div class="mock"><div class="ph"></div><div class="bd">
+      <div class="nm">완도군 · 토요일</div>
+      <div class="bar"><i style="width:70%"></i></div>
+      <div class="meta">평일의 1.4배 · 화요일이 가장 한산</div></div></div>
+  </div>
+
+  <div class="opt">
+    <h3>⑥ 여행일 기준 예상</h3>
+    <p class="why">④ × ⑤ 를 <b>사용자가 고른 날짜</b>에 적용. 평소 한산해도 그날은 붐빌 수 있습니다.</p>
+    <pre><span class="k">"expectedLevel"</span>: <span class="s">"HIGH"</span></pre>
+    <div class="mock"><div class="ph"></div><div class="bd">
+      <div class="nm">완도군 · 8월 15일 (토)</div><span class="badge b-high">붐빔</span>
+      <div class="meta" style="margin-top:6px">평소엔 한산하지만 그날은 붐빕니다</div></div></div>
+  </div>
+
+</div>
+
+<h2>④ null 은 언제인가 · 함정</h2>
+<div class="basis">
+  <div class="box">
+    <h3>데이터가 쌓이길 기다릴 필요는 없습니다</h3>
+    <p><code>null</code> 이 나오는 경우는 셋뿐이고, <b>“데이터가 쌓일 때까지” 는 여기 없습니다.</b></p>
+    <table>
+      <tr><th>언제</th><th>왜</th></tr>
+      <tr><td>배포 직후 4분</td><td>백필이 아직 안 돌았다</td></tr>
+      <tr class="win"><td><b>관측이 없는 지역</b></td><td>원본에 그 지역이 없다 — <b>지금은 “한산” 으로 거짓말 중</b></td></tr>
+      <tr><td>지난달 미발행</td><td>그 달만 빈다</td></tr>
+    </table>
+    <div class="mock" style="max-width:280px">
+      <div class="ph"></div><div class="bd">
+        <div class="nm">관측 없는 지역</div><span class="badge b-null">정보 없음</span>
+        <div class="meta" style="margin-top:6px">뱃지를 안 그린다</div></div></div>
+  </div>
+  <div class="trap">
+    <h3>“최대값 대비 %” 는 쓰면 안 됩니다</h3>
+    <p>관광 방문자는 롱테일이라 1위를 100%로 두면 대부분이 한 자릿수가 됩니다.
+       89곳이 <b>인구감소지역</b>이라 왜곡이 더 심합니다. <b>백분위</b>로 바꾸면 고르게 퍼집니다.</p>
+    <div class="split">
+      <div><h4>✗ 최대값 대비 %</h4>
+        <div class="dist">
+          <span class="nm">1위</span><span class="tr"><i style="width:100%"></i></span><span class="v">100%</span>
+          <span class="nm">10위</span><span class="tr"><i style="width:31%"></i></span><span class="v">31%</span>
+          <span class="nm">40위</span><span class="tr"><i style="width:6%"></i></span><span class="v">6%</span>
+          <span class="nm">80위</span><span class="tr"><i style="width:1%"></i></span><span class="v">1%</span>
+        </div></div>
+      <div><h4>✓ 백분위</h4>
+        <div class="dist">
+          <span class="nm">1위</span><span class="tr b"><i style="width:100%"></i></span><span class="v">99</span>
+          <span class="nm">10위</span><span class="tr b"><i style="width:89%"></i></span><span class="v">89</span>
+          <span class="nm">40위</span><span class="tr b"><i style="width:55%"></i></span><span class="v">55</span>
+          <span class="nm">80위</span><span class="tr b"><i style="width:10%"></i></span><span class="v">10</span>
+        </div></div>
+    </div>
+  </div>
+</div>
+
+<h2>⑤ 제 권고</h2>
+<div class="rec">
+  <div class="cols">
+    <div>
+      <h3>뱃지 + 백분위 + 성수기, 전부 지금부터</h3>
+      <pre style="margin-top:10px"><span class="k">"crowd"</span>: {
+  <span class="k">"level"</span>:         <span class="s">"LOW"</span>,     <span class="c">// ① 뱃지</span>
+  <span class="k">"percentile"</span>:    <span class="n">21</span>,        <span class="c">// ② 게이지·근거</span>
+  <span class="k">"crowdRate"</span>:     <span class="n">45</span>,        <span class="c">// ④ 이 지역 연중 최대 대비</span>
+  <span class="k">"peakMonth"</span>:     <span class="n">8</span>,         <span class="c">// ④ 가장 붐비는 달</span>
+  <span class="k">"expectedLevel"</span>: <span class="s">"HIGH"</span>,    <span class="c">// ⑥ 여행일 기준</span>
+  <span class="k">"basis"</span>:         <span class="s">"DENSITY"</span>  <span class="c">// 무엇으로 쟀는지</span>
+}</pre>
+    </div>
+    <div>
+      <ul>
+        <li><b>기준은 관광 밀도</b>(관광객 ÷ 면적). 절대값으로 재면 “붐빔” 이 “큰 지역” 과 같은 말이 됩니다.</li>
+        <li><b>level 은 percentile 에서 나옵니다.</b> 지금 코드의 어림수 임계(3000·10000)가 통째로 사라집니다.</li>
+        <li><b>rank·outOf 는 뺐습니다.</b> percentile 이 같은 정보를 더 읽히게 주고 분모가 필요 없습니다.</li>
+        <li><b>수집이 성공한 달부터 채워집니다.</b> 열다섯 달을 한 번에 받으므로 데이터가
+        쌓이길 기다릴 필요는 없고, 빠진 달은 다음 적재에서 다시 받습니다.</li>
+        <li><b>관측이 없으면 전부 null.</b> “모른다” 를 “한산” 으로 속이지 않습니다 —
+            <span style="color:var(--hot)">앱이 null 을 다뤄야 하는 유일한 변경</span>입니다.</li>
+        <li><b>디자인 자유도</b> — 뱃지만 쓰면 level, 게이지면 percentile, 도넛이면 crowdRate. 전부 한 응답에 있습니다.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="foot">
+  <span>OffWay core · #394 혼잡도 설계 (2판)</span>
+  <span>면적은 실제값 · 방문자 수치는 모양을 보이기 위한 예시</span>
+</div>
+
+</div></body></html>

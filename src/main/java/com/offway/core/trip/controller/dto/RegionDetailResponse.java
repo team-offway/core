@@ -8,6 +8,7 @@ import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.trip.service.dto.HomeResult;
 import com.offway.core.trip.service.dto.RegionDetail;
 import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Builder;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -25,7 +26,10 @@ import java.util.stream.Stream;
  *     목록 중간에 회색 판이 낀다. 그 지역에 사진 있는 장소가 적으면 목록도 짧다
  * @param curatedLinks 외부 페이지로 나가는 창구(#341). 지역 상세에 켜진 것만, 정렬 순으로.
  *     없으면 <b>빈 목록</b>이다
+ * @param visitMetrics 한산한 요일·인기 추세(#394). <b>객체는 항상 있고 안의 두 값이 각각 null 일 수
+ *     있다</b> — 아직 못 재는 지역이면 둘 다 비고, 화면은 그 줄을 지운다
  */
+@Builder
 public record RegionDetailResponse(
         @Schema(example = "1") long regionId,
         @Schema(example = "동구 · 부산광역시") String name,
@@ -33,7 +37,8 @@ public record RegionDetailResponse(
         List<String> photos,
         @Schema(nullable = true) BenefitResponse benefit,
         List<HighlightSpot> highlightSpots,
-        List<CuratedLinkResponse> curatedLinks) implements Attributed {
+        List<CuratedLinkResponse> curatedLinks,
+        RegionVisitMetricsResponse visitMetrics) implements Attributed {
 
     /**
      * 이 화면의 값은 <b>거의 다 공사 것</b>이다(#399) — 소개·대표 사진·매력 포인트 장소와 그 캐치프레이즈.
@@ -48,30 +53,49 @@ public record RegionDetailResponse(
     @Override
     public Set<DataSource> sources() {
         Set<DataSource> spotSources = PlaceDataSources.of(highlightSpots, HighlightSpot::poiContentId);
-        if (!usesKtoText()) {
+        if (!usesKtoValue()) {
             return spotSources;
         }
-        // 소개·대표 사진·캐치프레이즈는 그 자체가 공사 값이다 — 장소가 하나도 없어도 표기가 필요하다.
+        // 소개·대표 사진·캐치프레이즈·방문 지표는 그 자체가 공사 값이다 — 장소가 하나도 없어도 표기가 필요하다.
         return Stream.concat(spotSources.stream(), Stream.of(DataSource.KTO))
                 .collect(Collectors.toUnmodifiableSet());
     }
 
-    /** 장소의 출처와 별개로 <b>공사에서 온 글</b>이 실렸나 — 소개·대표 사진·캐치프레이즈. */
-    private boolean usesKtoText() {
+    /**
+     * 장소의 출처와 별개로 <b>공사에서 온 값</b>이 실렸나 — 소개·대표 사진·캐치프레이즈·방문 지표.
+     *
+     * <p><b>지표가 여기 걸린다.</b> 한산한 요일과 인기 추세는 관광빅데이터에서 나온 값인데,
+     * 소개도 대표 사진도 없는 지역에서 지표만 실리면 공사 표기가 통째로 빠진다. 캐치프레이즈를
+     * 따로 세는 것과 같은 이유다.
+     */
+    private boolean usesKtoValue() {
         return overview != null
                 || !photos.isEmpty()
-                || highlightSpots.stream().anyMatch(spot -> spot.catchphrase() != null);
+                || highlightSpots.stream().anyMatch(spot -> spot.catchphrase() != null)
+                || hasVisitMetrics();
     }
 
+    private boolean hasVisitMetrics() {
+        return visitMetrics != null
+                && (visitMetrics.quietestDay() != null || visitMetrics.trend() != null);
+    }
+
+    /**
+     * 이름을 붙여 조립한다 — {@code name}·{@code overview} 가 나란한 {@code String} 이라 위치
+     * 생성자로는 둘을 맞바꿔도 컴파일이 통과하고, 뒤집힌 값은 화면에 소개 자리에 지역명이 뜰 때까지
+     * 아무도 모른다. {@code RecommendedRegion} 이 같은 이유로 빌더를 쓴다.
+     */
     public static RegionDetailResponse from(RegionDetail detail, List<CuratedLink> curatedLinks) {
-        return new RegionDetailResponse(
-                detail.regionId(),
-                detail.sigungu() + " · " + detail.sido(),
-                detail.overview(),
-                detail.photos(),
-                BenefitResponse.from(detail.benefit()),
-                detail.highlightSpots().stream().map(HighlightSpot::from).toList(),
-                CuratedLinkResponse.from(curatedLinks));
+        return RegionDetailResponse.builder()
+                .regionId(detail.regionId())
+                .name(detail.sigungu() + " · " + detail.sido())
+                .overview(detail.overview())
+                .photos(detail.photos())
+                .benefit(BenefitResponse.from(detail.benefit()))
+                .highlightSpots(detail.highlightSpots().stream().map(HighlightSpot::from).toList())
+                .curatedLinks(CuratedLinkResponse.from(curatedLinks))
+                .visitMetrics(RegionVisitMetricsResponse.from(detail.visitMetrics()))
+                .build();
     }
 
     /**
