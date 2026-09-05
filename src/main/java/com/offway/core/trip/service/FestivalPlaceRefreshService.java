@@ -118,19 +118,42 @@ public class FestivalPlaceRefreshService {
                 log.info("축제 풀을 최근 {}일 안에 이미 받아 갱신을 건너뜁니다", RUN_INTERVAL.toDays());
                 return;
             }
-            // **성공한 회차만 기록한다.** 부르기 전에 적으면 첫 페이지가 깨진 날에도 25일을 건너뛴다.
-            if (refresh() > 0) {
+            // **온전히 받은 회차만 기록한다.** 저장 건수만 보면 안 된다 — 둘째 페이지가 깨져도 첫
+            // 페이지 것은 저장되므로 건수가 양수이고, 그걸로 마커를 남기면 반쪽짜리 목록을 들고
+            // 25일을 버틴다. 부르기 전에 적으면 첫 페이지가 깨진 날에도 같은 일이 생긴다.
+            RefreshOutcome outcome = refresh();
+            if (outcome.complete() && outcome.saved() > 0) {
                 batchRunRepository.markStarted(BATCH_NAME, now);
             }
         });
     }
 
     /**
+     * 한 회차의 결과.
+     *
+     * <p><b>저장 건수와 회차 완결성은 다른 값이다.</b> 둘째 페이지가 깨져도 첫 페이지 것은 저장되므로
+     * 건수만 보고 "다 됐다" 고 판정하면, 마커가 남아 다음 갱신이 25일 막힌다 — 반쪽짜리 축제 목록을
+     * 그동안 그대로 쓰게 된다.
+     *
+     * @param saved 저장한 건수
+     * @param complete 페이지를 하나도 빠뜨리지 않고 받았나
+     */
+    public record RefreshOutcome(int saved, boolean complete) {
+
+        private static final RefreshOutcome NOTHING = new RefreshOutcome(0, false);
+
+        /** 이번 회차는 없던 일이다 — 마커도 남기지 않는다. */
+        static RefreshOutcome nothing() {
+            return NOTHING;
+        }
+    }
+
+    /**
      * 전국 축제를 받아 우리 89곳 것만 저장한다.
      *
-     * @return 저장한 건수. 0이면 이번 회차는 없던 일이다
+     * @return 저장 건수와 회차 완결성
      */
-    public int refresh() {
+    public RefreshOutcome refresh() {
         // **초 단위로 자른다.** fetched_at 이 DATETIME(소수점 없음)이라, 나노초가 붙은 값을 넣으면
         // MySQL 이 반올림하거나 버린다. 그 결과가 저장값보다 커지는 순간 아래 취소 정리가 **방금 넣은
         // 축제를 지운다** — 실행 시각의 밀리초에 따라 되기도 안 되기도 하는, 되돌릴 수 없는 손실이다.
@@ -144,11 +167,11 @@ public class FestivalPlaceRefreshService {
      * 이 값보다 오래된 행을 지우므로, 두 회차가 같은 초에 돌면 뒤 회차가 앞 회차를 못 걷어낸다.
      * 운영은 25일 간격이라 닿지 않는 경계지만, 테스트가 시계에 기대지 않으려면 열려 있어야 한다.
      */
-    public int refresh(LocalDateTime fetchedAt) {
+    public RefreshOutcome refresh(LocalDateTime fetchedAt) {
         Map<String, Long> regionIdBySigungu = regionIdsBySigungu();
         if (regionIdBySigungu.isEmpty()) {
             log.info("축제 풀 — 지역 마스터가 비어 있어 건너뜁니다");
-            return 0;
+            return RefreshOutcome.nothing();
         }
 
         LocalDateTime deadline = LocalDateTime.now(SERVICE_ZONE).plus(TOTAL_DEADLINE);
@@ -158,7 +181,7 @@ public class FestivalPlaceRefreshService {
         } catch (RuntimeException e) {
             // 첫 페이지가 깨지면 이번 회차는 없던 일이다. 기존 값을 덮지 않으므로 화면은 그대로다.
             log.warn("축제 풀 첫 페이지 조회 실패 — 이번 회차를 건너뜁니다 cause={}", RootCause.label(e));
-            return 0;
+            return RefreshOutcome.nothing();
         }
 
         int totalPages = first.totalPages(ROWS_PER_PAGE);
@@ -200,8 +223,9 @@ public class FestivalPlaceRefreshService {
      * <p><b>못 붙인 것을 센다.</b> 전국 1,305건 중 우리 89곳 밖이 대부분이라 그 자체는 정상이지만,
      * 붙은 것이 0이면 지역명 매칭이 깨졌다는 신호다.
      */
-    private int save(List<StandardFestival> collected, Map<String, Long> regionIdBySigungu,
+    private RefreshOutcome save(List<StandardFestival> collected, Map<String, Long> regionIdBySigungu,
             LocalDateTime fetchedAt, int totalPages, int pagesToRead, int failedPages) {
+        boolean complete = totalPages <= pagesToRead && failedPages == 0;
         List<FestivalPlace> ours = new ArrayList<>();
         int unusable = 0;
         for (StandardFestival festival : collected) {
@@ -220,14 +244,14 @@ public class FestivalPlaceRefreshService {
             // 빈 결과를 성공으로 남기지 않는다 — 다음 회차에 다시 받게 한다.
             log.warn("축제 풀 — 받은 {}건 중 우리 지역에 붙은 것이 없습니다. 지역명 매칭을 확인하세요",
                     collected.size());
-            return 0;
+            return RefreshOutcome.nothing();
         }
 
         int saved = festivalPlaceRepository.upsertAll(ours);
-        int removed = removeCancelled(fetchedAt, totalPages, pagesToRead, failedPages);
-        log.info("축제 풀 저장 완료 받은건수={} 우리지역={}건 저장={}건 좌표·기간없음={}건 취소정리={}건",
-                collected.size(), ours.size(), saved, unusable, removed);
-        return saved;
+        int removed = removeCancelled(fetchedAt, complete);
+        log.info("축제 풀 저장 완료 받은건수={} 우리지역={}건 저장={}건 좌표·기간없음={}건 취소정리={}건 온전={}",
+                collected.size(), ours.size(), saved, unusable, removed, complete);
+        return new RefreshOutcome(saved, complete);
     }
 
     /**
@@ -236,10 +260,9 @@ public class FestivalPlaceRefreshService {
      * <p>페이지 상한에 걸렸거나 한 페이지라도 실패했으면 "이번에 안 온 것 = 취소됨" 이 성립하지 않는다.
      * 그때 지우면 멀쩡한 축제를 우리가 없앤다 — 조용히, 되돌릴 수 없게.
      */
-    private int removeCancelled(LocalDateTime fetchedAt, int totalPages, int pagesToRead, int failedPages) {
-        if (totalPages > pagesToRead || failedPages > 0) {
-            log.info("이번 회차는 온전하지 않아 취소 정리를 건너뜁니다 전체페이지={} 읽음={} 실패={}",
-                    totalPages, pagesToRead, failedPages);
+    private int removeCancelled(LocalDateTime fetchedAt, boolean complete) {
+        if (!complete) {
+            log.info("이번 회차는 온전하지 않아 취소 정리를 건너뜁니다");
             return 0;
         }
         int removed = festivalPlaceRepository.deleteFetchedBefore(fetchedAt);
