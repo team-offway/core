@@ -104,10 +104,12 @@ jobs:
           echo "--- 서버 공인 IP ---"
           curl -s --max-time 10 https://checkip.amazonaws.com || echo "(조회 실패)"
           echo "--- TourAPI (정선 관광지) ---"
-          curl -s --max-time 25 \
-            "https://apis.data.go.kr/B551011/KorService2/areaBasedList2?serviceKey=${K}&MobileOS=ETC&MobileApp=offway&_type=json&numOfRows=1&pageNo=1&areaCode=32&sigunguCode=11&contentTypeId=12" \
-            | head -c 400
-          echo
+          # **파이프로 자르지 않는다** — head 가 파이프를 닫으면 curl 이 SIGPIPE 로 죽고, pipefail +
+          # Actions 의 기본 `-e` 가 그걸 스텝 실패로 만든다. 응답이 400바이트를 넘는 것이 정상이라
+          # 진단하려는 순간 진단이 죽는다(같은 함정이 배포 알림을 이틀 막았다).
+          BODY=$(curl -s --max-time 25 \
+            "https://apis.data.go.kr/B551011/KorService2/areaBasedList2?serviceKey=${K}&MobileOS=ETC&MobileApp=offway&_type=json&numOfRows=1&pageNo=1&areaCode=32&sigunguCode=11&contentTypeId=12")
+          printf '%s\n' "${BODY:0:400}"
           echo "--- 컨테이너 안에서 같은 호출 ---"
           docker exec offway-core sh -c 'curl -s --max-time 25 "https://apis.data.go.kr/B551011/KorService2/areaBasedList2?serviceKey=$DATA_GO_KR_SERVICE_KEY&MobileOS=ETC&MobileApp=offway&_type=json&numOfRows=1&pageNo=1&areaCode=32&sigunguCode=11&contentTypeId=12" | head -c 400' 2>&1 || echo "(컨테이너에 curl 이 없을 수 있음)"
           REMOTE
@@ -238,11 +240,11 @@ jobs:
           U=$(grep '^OFFWAY_BASIC_USERNAME=' ~/offway/env.prod | cut -d= -f2-)
           P=$(grep '^OFFWAY_BASIC_PASSWORD=' ~/offway/env.prod | cut -d= -f2- | sed 's/^{[a-z]*}//')
           echo "--- 코스 생성 호출 ---"
-          curl -s --max-time 90 -u "$U:$P" -X POST http://localhost:8080/api/v1/courses/generate \
+          # 위와 같은 이유로 파이프를 쓰지 않는다 — 코스 응답은 수 KB 라 반드시 SIGPIPE 가 난다.
+          COURSE=$(curl -s --max-time 90 -u "$U:$P" -X POST http://localhost:8080/api/v1/courses/generate \
             -H 'Content-Type: application/json' \
-            -d '{"regionId":16,"travelDays":2,"density":"PACKED","transport":"TRANSIT","originLat":37.5665,"originLng":126.9780,"travelDate":"2026-08-14"}' \
-            | head -c 500
-          echo
+            -d '{"regionId":16,"travelDays":2,"density":"PACKED","transport":"TRANSIT","originLat":37.5665,"originLng":126.9780,"travelDate":"2026-08-14"}')
+          printf '%s\n' "${COURSE:0:500}"
           echo "--- 그 직후 로그 60줄 ---"
           docker logs --tail 60 offway-core 2>&1
           REMOTE
