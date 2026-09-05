@@ -65,8 +65,12 @@ class RegionArrivalTest {
 
     @Test
     void 터미널은_고속인지_시외인지를_스스로_안다() {
-        Terminal 고속 = new Terminal("NAEK010", "서울경부", BusTerminalKind.EXPRESS, 정선군청);
-        Terminal 시외 = new Terminal("NAI2613201", "정선", BusTerminalKind.INTERCITY, 정선군청);
+        Terminal 고속 = Terminal.builder()
+                .code("NAEK010").name("서울경부").kind(BusTerminalKind.EXPRESS).coordinate(정선군청)
+                .isTerminal(true).build();
+        Terminal 시외 = Terminal.builder()
+                .code("NAI2613201").name("정선").kind(BusTerminalKind.INTERCITY).coordinate(정선군청)
+                .isTerminal(true).build();
 
         assertEquals(TransitMode.EXPRESS_BUS, RegionArrival.of(고속).mode());
         assertEquals(TransitMode.INTERCITY_BUS, RegionArrival.of(시외).mode());

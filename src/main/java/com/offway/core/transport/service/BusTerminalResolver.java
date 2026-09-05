@@ -52,12 +52,22 @@ public class BusTerminalResolver {
                 .filter(t -> kind == null || t.getKind() == kind)
                 .map(t -> Map.entry(t, target.haversineKmTo(new Coordinate(t.getLat(), t.getLng()))))
                 .filter(entry -> entry.getValue() <= MAX_KM)
-                .min(Comparator.comparingDouble(Map.Entry::getValue))
-                .map(entry -> new Terminal(
-                        entry.getKey().getCode(),
-                        entry.getKey().getName(),
-                        entry.getKey().getKind(),
-                        new Coordinate(entry.getKey().getLat(), entry.getKey().getLng())));
+                // **터미널을 정류소보다 앞세운다**(#446). 거리만 보면 경유 정류소가 이긴다 — 서울역에서
+                // DDP(3.8㎞)가 동서울(11㎞)을 이겼다. 정류소는 특정 노선만 서므로 "거기서 타세요" 가
+                // 틀린 안내가 될 수 있고, 구간 소요시간·출발 시각 조회도 터미널 코드를 전제한다.
+                //
+                // 반경({@value #MAX_KM}㎞) 안이면 거리를 접고 종류를 먼저 본다. 그 반경이 이미 "이보다
+                // 멀면 그 지역 터미널로 안 본다" 는 선이라, 그 안에서는 어느 쪽이든 갈 만하다고 본 것이다.
+                .min(Comparator.<Map.Entry<BusTerminal, Double>, Boolean>comparing(
+                                entry -> !entry.getKey().isTerminal())
+                        .thenComparing(Map.Entry::getValue))
+                .map(entry -> Terminal.builder()
+                        .code(entry.getKey().getCode())
+                        .name(entry.getKey().getName())
+                        .kind(entry.getKey().getKind())
+                        .coordinate(new Coordinate(entry.getKey().getLat(), entry.getKey().getLng()))
+                        .isTerminal(entry.getKey().isTerminal())
+                        .build());
     }
 
     /** 캐시 무효화 — 시드 갱신·통합 테스트 격리용. */

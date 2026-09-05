@@ -1,5 +1,14 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.external.CallerContext;
+import jakarta.annotation.PreDestroy;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.domain.HeritagePlace;
@@ -69,6 +78,45 @@ public class RegionPoiService {
     private static final int FOOD_TYPE = 39;
     private static final int STAY_TYPE = 32;
 
+    /**
+     * 전체타입 조회의 자리표시자(#434). {@code contentTypeId} 는 전체타입일 때 {@code null} 인데,
+     * {@link ConcurrentHashMap} 은 null 키를 받지 않아 결과를 담을 수가 없다. 실제 타입 번호와 겹치지
+     * 않는 값을 써 조회 시점에 다시 {@code null} 로 되돌린다.
+     */
+    private static final Integer ALL_TYPES_SCOPE = 0;
+
+    /** 병렬로 조회할 세 스코프 — 전체타입·맛집·숙박. */
+    private static final List<Integer> POI_SCOPES = List.of(ALL_TYPES_SCOPE, FOOD_TYPE, STAY_TYPE);
+
+    /**
+     * 세 조회 전체의 시간 상한(#434).
+     *
+     * <p>호출 하나의 상한은 {@code TourApiClientImpl} 이 갖는다(시도 6초 · 재시도 포함 8초). 셋이 동시에
+     * 그 상한을 쳐도 여기서 끝난다 — 재시도까지 감안한 8초에 여유 2초를 얹었다.
+     *
+     * <p><b>기다림만 끊는다.</b> 이미 나간 호출은 각자 read-timeout 까지 스레드를 문다. 남은 예산을
+     * 클라이언트까지 내리는 것은 포트 소비자가 여럿이라 별도 작업이다.
+     */
+    private static final long POI_FANOUT_DEADLINE_SECONDS = 10;
+
+    /**
+     * 세 스코프 조회 전용 풀. 요청마다 만들지 않고 빈이 소유한다 — 코스 생성은 매 요청이라 풀 생성 비용을
+     * 거기에 얹을 이유가 없다.
+     *
+     * <p>스레드는 셋이다. 이 팬아웃은 <b>항상 세 갈래</b>라 더 둘 이유가 없고, 상한이 곧 TourAPI 에 거는
+     * 동시 부하다. 데몬으로 둬 종료를 막지 않는다(전부 재시도 가능한 조회다).
+     */
+    private final ExecutorService poiFanoutExecutor = Executors.newFixedThreadPool(POI_SCOPES.size(), runnable -> {
+        Thread thread = new Thread(runnable, "region-poi-fanout");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    @PreDestroy
+    void shutdownPoiFanout() {
+        poiFanoutExecutor.shutdownNow();
+    }
+
     /** TourAPI 콘텐츠가 아님을 뜻하는 타입 — 인허가·국가유산이 함께 쓴다. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
     private static final int NON_TOUR_CONTENT_TYPE = 0;
 
@@ -111,13 +159,17 @@ public class RegionPoiService {
         // **전체타입 응답은 대분류(lclsSystm1)로 가른다**(#304). contentTypeId 로 가르면 야영장·캠핑장이
         // 볼거리로 샌다 — 실측(89곳 전수)에서 AC05(숙박) 625건이 타입 28(레포츠)로 왔다. 숙박 조회
         // (contentTypeId=32)에는 안 잡히는 값이라, 그동안 지방 숙소가 통째로 빠지고 있었다.
-        List<PoiCandidate> allTypes = candidates(region, null);
+        //
+        // **셋을 동시에 부른다**(#434). 순차로 돌면 외부가 느려질 때 지연이 셋만큼 곱해진다 — 운영에서
+        // `tour 18002ms×3`(6초 timeout 세 번)이 그대로 사용자 대기 시간이 된 요청을 봤다.
+        Map<Integer, List<PoiCandidate>> byScope = candidatesInParallel(region);
+        List<PoiCandidate> allTypes = byScope.getOrDefault(ALL_TYPES_SCOPE, List.of());
         List<PoiCandidate> sights =
                 withoutClosedFestivals(allTypes.stream().filter(c -> isSight(c)).toList(), travelDate);
         List<PoiCandidate> foods = merge(allTypes.stream().filter(c -> LCLS_FOOD.equals(c.lclsSystm1())).toList(),
-                candidates(region, FOOD_TYPE));
+                byScope.getOrDefault(FOOD_TYPE, List.of()));
         List<PoiCandidate> stays = merge(allTypes.stream().filter(RegionPoiService::isStay).toList(),
-                candidates(region, STAY_TYPE));
+                byScope.getOrDefault(STAY_TYPE, List.of()));
 
         RegionPois pois = RegionPois.builder().sights(sights).foods(foods).stays(stays).build();
         log.debug("코스 POI 수집 regionId={} 볼거리={} 맛집={} 숙박={}", regionId, sights.size(), foods.size(), stays.size());
@@ -399,6 +451,50 @@ public class RegionPoiService {
         }
         FestivalPeriod period = periods.get(candidate.contentId());
         return period == null || period.isOpenOn(travelDate);
+    }
+
+    /**
+     * 세 타입 스코프를 <b>동시에</b> 조회한다(#434).
+     *
+     * <p><b>왜 병렬인가.</b> 셋은 서로를 기다릴 이유가 없는 독립 조회인데 순차로 돌고 있었다. TourAPI 가
+     * 느려지면 호출 하나의 상한(6초)이 셋으로 곱해져 <b>18초가 그대로 사용자 대기 시간</b>이 된다. 실제로
+     * 운영에서 그 요청을 봤고, 거기에 날씨·열차가 얹혀 30초가 나왔다(성능 규약 "팬아웃은 병렬, 순차 루프 금지").
+     *
+     * <p><b>전체 상한을 따로 둔다.</b> 호출 하나의 timeout 과 작업 전체의 deadline 은 별개다 — 셋이 동시에
+     * 상한을 쳐도 {@value #POI_FANOUT_DEADLINE_SECONDS} 초 안에는 결론이 난다.
+     *
+     * <p>상한에 걸리면 <b>그 스코프만</b> 빈 목록이 된다. 조회 실패는 이미 정상 흐름이고(인허가·국가유산으로
+     * 보충한다 — #144·#160), 여기서 예외를 올리면 멀쩡한 두 스코프까지 버리게 된다.
+     */
+    private Map<Integer, List<PoiCandidate>> candidatesInParallel(Region region) {
+        Map<Integer, List<PoiCandidate>> byScope = new ConcurrentHashMap<>();
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        for (Integer scope : POI_SCOPES) {
+            // 맥락을 붙여 넘긴다(#285·#421). 스레드가 바뀌면 호출 주체와 사용량 집계가 통째로 미상이 된다.
+            futures.add(CompletableFuture.runAsync(
+                    CallerContext.wrap(() -> byScope.put(scope, candidates(region, scopeOf(scope)))),
+                    poiFanoutExecutor));
+        }
+        try {
+            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                    .get(POI_FANOUT_DEADLINE_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            log.warn("코스 POI 조회 시간 상한({}초) 초과 — {}/{}개 스코프만 채웁니다 regionId={}",
+                    POI_FANOUT_DEADLINE_SECONDS, byScope.size(), POI_SCOPES.size(), region.getId());
+        } catch (ExecutionException e) {
+            log.warn("코스 POI 조회가 예외로 끝났습니다 — {}/{}개 스코프만 채웁니다 regionId={}",
+                    byScope.size(), POI_SCOPES.size(), region.getId(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("코스 POI 조회가 중단됐습니다 — {}/{}개 스코프만 채웁니다 regionId={}",
+                    byScope.size(), POI_SCOPES.size(), region.getId());
+        }
+        return byScope;
+    }
+
+    /** 맵 키로 쓰려고 전체타입을 자리표시자로 바꾼 것을 되돌린다 — {@code null} 은 키가 될 수 없다. */
+    private static Integer scopeOf(Integer scope) {
+        return ALL_TYPES_SCOPE.equals(scope) ? null : scope;
     }
 
     private List<PoiCandidate> candidates(Region region, Integer contentTypeId) {
