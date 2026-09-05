@@ -27,6 +27,8 @@ import com.offway.core.transport.service.RegionAccessService;
 import com.offway.core.transport.service.UnroutableCoordinateService;
 import com.offway.core.transport.service.TravelTimeProvider;
 import com.offway.core.transport.service.dto.RegionAccess;
+import com.offway.core.trip.domain.RegionVisitMetrics;
+import com.offway.core.trip.service.RegionVisitMetricsService;
 import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.service.dto.RegionPois;
@@ -70,6 +72,7 @@ public class CourseGenerationService {
     private final RegionAccessService regionAccessService;
     private final UnroutableCoordinateService unroutableCoordinateService;
     private final CourseUsageAlert courseUsageAlert;
+    private final RegionVisitMetricsService regionVisitMetricsService;
 
     public GeneratedCourse generate(GenerateCourse command) {
         // ① POI 수집 (trip)
@@ -173,6 +176,10 @@ public class CourseGenerationService {
                 .weatherByDay(weatherByDay)
                 .regionAccess(regionAccess)
                 .regionName(region == null ? null : region.getSigungu())
+                // 지명이 아니라 법정 시군구코드로 찾는다 — 같은 이름이 전국에 여럿이다. DB 만 읽는다.
+                .visitMetrics(region == null
+                        ? RegionVisitMetrics.none()
+                        : regionVisitMetricsService.of(region.getLegalCode()))
                 // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
                 .hoursByContentId(openingHoursProvider.forCourse(course))
                 .festivalPeriodByContentId(festivalPeriodProvider.forCourse(course))

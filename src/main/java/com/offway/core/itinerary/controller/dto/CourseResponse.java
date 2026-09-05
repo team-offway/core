@@ -7,6 +7,7 @@ import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
+import com.offway.core.trip.controller.dto.RegionVisitMetricsResponse;
 import com.offway.core.trip.domain.MapSearchLink;
 import com.offway.core.trip.domain.PlaceOrigin;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
@@ -121,17 +122,28 @@ public record CourseResponse(
                         example = "1.25",
                         nullable = true)
                 Double consumedLeaveDays,
-        List<CuratedLinkResponse> curatedLinks) implements LogSummary, Attributed {
+        List<CuratedLinkResponse> curatedLinks,
+        @Schema(
+                        description = "코스 지역의 한산한 요일·인기 추세(#394). 지역 상세와 같은 모양이라 "
+                                + "같은 컴포넌트로 그린다. 안의 두 값은 각각 null 일 수 있고, "
+                                + "그러면 그 줄을 지운다")
+                RegionVisitMetricsResponse visitMetrics) implements LogSummary, Attributed {
 
     /**
-     * 코스에는 <b>두 기관</b>이 섞인다(#399) — 슬롯의 장소와 날마다 붙는 날씨다.
+     * 코스에는 <b>여러 기관</b>이 섞인다(#399) — 슬롯의 장소, 날마다 붙는 날씨, 그리고 방문 지표다.
      *
      * <p>장소는 인허가·국가유산·공사가 섞이므로 실린 것만 센다. 날씨는 예보 범위 밖이거나 조회에
      * 실패하면 통째로 비므로, 한 날이라도 실렸을 때만 기상청을 더한다.
+     *
+     * <p><b>방문 지표도 공사 값이다</b>(#394) — 관광빅데이터에서 온다. 장소가 전부 인허가이고 날씨도
+     * 없는 코스에서 지표만 실리면, 실제로 공사 데이터를 쓰고도 표기가 빠진다.
      */
     @Override
     public Set<DataSource> sources() {
         Set<DataSource> sources = EnumSet.noneOf(DataSource.class);
+        if (hasVisitMetrics()) {
+            sources.add(DataSource.KTO);
+        }
         for (Day day : days) {
             if (day.weather() != null) {
                 sources.add(DataSource.KMA);
@@ -145,6 +157,11 @@ public record CourseResponse(
             }
         }
         return Set.copyOf(sources);
+    }
+
+    private boolean hasVisitMetrics() {
+        return visitMetrics != null
+                && (visitMetrics.quietestDay() != null || visitMetrics.trend() != null);
     }
 
     /**
@@ -203,6 +220,11 @@ public record CourseResponse(
                 .shareToken(generated.shareToken())
                 .firstDayChange(generated.firstDayChange() == null ? null : generated.firstDayChange().name())
                 .curatedLinks(CuratedLinkResponse.from(curatedLinks))
+                // 지역 지표는 trip 이 소유한 값이라 그 응답 조각을 그대로 문다. 위의 출처 매핑과 다른
+                // 자리다 — 저기는 "무슨 기관인가" 를 판정하는 로직이라 도메인(PlaceOrigin)을 봐야 하고,
+                // 여기는 이미 만들어진 값 한 덩이를 옮겨 싣는 것이다. 지역 상세와 같은 모양이어야
+                // 클라이언트가 같은 컴포넌트로 그린다.
+                .visitMetrics(RegionVisitMetricsResponse.from(generated.visitMetrics()))
                 // 차감 정보는 소유자 조회에서만 뜻이 있다. 생성(아직 저장 전)·공개 공유는 이 경로로 오며,
                 // 그때는 값이 없다는 사실 자체가 정확한 답이다. 빌더라 적지 않으면 그대로 null 이다.
                 .build();

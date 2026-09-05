@@ -51,8 +51,10 @@ public class RegionVisitMetricsService {
      */
     private static final int TREND_MONTHS = 3;
 
+    private static final int MONTHS_IN_YEAR = 12;
+
     /** 작년 같은 기간까지 거슬러야 계절이 상쇄된다 — 그래서 재료가 {@value} 개월 필요하다. */
-    static final int REQUIRED_MONTHS = TREND_MONTHS + 12;
+    static final int REQUIRED_MONTHS = TREND_MONTHS + MONTHS_IN_YEAR;
 
     private final RegionVisitorDailyRepository dailyRepository;
 
@@ -64,15 +66,32 @@ public class RegionVisitMetricsService {
     /**
      * 그 지역의 지표. 아직 못 내는 지역이면 {@link RegionVisitMetrics#none()} 이다.
      *
+     * <p><b>지역 하나를 그리는 화면에서만 쓴다.</b> 여러 지역을 도는 자리에서 이것을 반복해 부르면
+     * 지역 수만큼 "재료가 새로 들어왔나" 질의가 나간다 — 그때는 {@link #all()} 로 한 번만 받는다.
+     *
      * @param signguCode 법정 시군구코드 — 지명이 아니다
      */
     public RegionVisitMetrics of(String signguCode) {
         return current().getOrDefault(signguCode, RegionVisitMetrics.none());
     }
 
-    /** 코드 → 지표 전체. 목록처럼 여러 지역을 한 번에 그리는 화면이 쓴다. */
+    /**
+     * 코드 → 지표 전체. 여러 지역을 한 번에 그리는 화면(추천·목록)이 쓴다.
+     *
+     * <p>없는 코드는 <b>키가 없다</b> — 꺼내는 쪽이 {@link RegionVisitMetrics#none()} 으로 받는다.
+     */
     public Map<String, RegionVisitMetrics> all() {
         return current();
+    }
+
+    /**
+     * 들고 있던 계산을 버린다 — 운영상 강제 갱신, 그리고 공유 컨텍스트 통합 테스트의 격리용.
+     *
+     * <p>{@code RegionRankingService.evictCache()} 와 같은 이유다. 평상시엔 기준일이 바뀌었을 때만
+     * 다시 계산하는데, 테스트가 같은 기준일로 다른 데이터를 심으면 그 판정이 안 걸린다.
+     */
+    public void evictCache() {
+        snapshot = Snapshot.empty();
     }
 
     /**
