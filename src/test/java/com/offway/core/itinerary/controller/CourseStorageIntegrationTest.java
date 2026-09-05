@@ -557,15 +557,16 @@ class CourseStorageIntegrationTest {
         // 예전에는 역이 그날 안 다녀도 역 좌표를 동선 기준점으로 썼다. 정선은 터미널이 읍내에 있어
         // 역보다 가깝다 — 먼 역을 기준으로 잡으면 지역 반대편부터 코스를 짠다(#97 · #127).
         //
-        // 고속인지 시외인지는 여기서 중요하지 않다. 정선에는 둘 다 있고(시드 기준 좌표가 조금 다르다)
-        // 코스가 알고 싶은 것은 "어디에 내리는가" 하나다. 지금 시드에서는 고속 쪽이 더 가깝다.
+        // 고속인지 시외인지는 여기서 중요하지 않다. 정선에는 둘 다 있고 코스가 알고 싶은 것은
+        // "어디에 내리는가" 하나다. 지금은 시외 쪽이 더 가깝다 — 재지오코딩(#436) 으로 정선
+        // 시외터미널이 읍내 제자리로 돌아오면서 고속보다 가까워졌다.
         trainDoesNotRun();
         long courseId = save(transitBody(true));
 
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
-                .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("고속버스"))
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("INTERCITY_BUS"))
+                .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("시외버스"))
                 .andExpect(jsonPath("$.data.transitAccess.status").value("POINT_ONLY"))
                 .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"))
                 // 옛 필드는 열차만 담기로 했다 — 버스로 가는 코스에 "역 없음" 을 내리면 화면이 "못 간다" 고 말한다
@@ -586,11 +587,14 @@ class CourseStorageIntegrationTest {
 
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("INTERCITY_BUS"))
                 .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"))
                 // 출발지(서울)에서 <b>같은 종류</b>의 최근접 터미널. 값을 못 박는다 — exists() 로 두면
                 // 도착지명이 들어와도 초록이라, 정작 확인하려는 "출발 쪽" 이 맞는지를 못 본다.
-                .andExpect(jsonPath("$.data.transitAccess.fromPlace").value("서울경부"));
+                //
+                // 이름이 '고속' 인데 시외 목록에 있다 — TAGO 가 그렇게 준다. 한 건물에서 둘 다 취급하는
+                // 터미널이라 양쪽 목록에 다른 이름으로 올라 있다.
+                .andExpect(jsonPath("$.data.transitAccess.fromPlace").value("서울고속버스터미널(경부)"));
     }
 
     @Test
@@ -602,9 +606,9 @@ class CourseStorageIntegrationTest {
 
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("INTERCITY_BUS"))
                 .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'TRAIN')]").exists())
-                .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'EXPRESS_BUS')]").doesNotExist());
+                .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'INTERCITY_BUS')]").doesNotExist());
     }
 
     @Test
