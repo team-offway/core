@@ -13,6 +13,8 @@ import com.offway.core.trip.domain.PoiContentType;
 import com.offway.core.trip.repository.FestivalPeriodRepository;
 import java.time.LocalDate;
 import com.offway.core.trip.service.dto.PoiCandidate;
+import com.offway.core.trip.domain.FestivalPlace;
+import com.offway.core.trip.repository.FestivalPlaceRepository;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.RegionPois;
@@ -21,6 +23,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.Objects;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -71,12 +75,22 @@ public class RegionPoiService {
     /** 축제 콘텐츠 타입 — 이 타입만 기간을 물어본다(#388). */
     private static final int FESTIVAL_TYPE = PoiContentType.FESTIVAL.contentTypeId();
 
+    /**
+     * 여행일에 열리는 축제를 몇 건까지 볼거리로 올릴 것인가(#433).
+     *
+     * <p>후보 100건과 달리 작게 잡는다. 이 목록은 <b>이미 그날로 걸러진 것</b>이라 한 지역에서 보통
+     * 0~2건이고, 많아 봐야 큰 지역의 겹치는 행사 몇 건이다. 상한이 필요한 이유는 한 지역이 축제로만
+     * 채워져 다른 볼거리를 밀어내지 않게 하려는 것이다.
+     */
+    private static final int OPEN_FESTIVAL_LIMIT = 5;
+
     private final RegionQuery regionQuery;
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
     private final LicensedPlaceRepository licensedPlaceRepository;
     private final HeritagePlaceRepository heritagePlaceRepository;
     private final FestivalPeriodRepository festivalPeriodRepository;
+    private final FestivalPlaceRepository festivalPlaceRepository;
 
     /**
      * 지역의 후보 POI 를 세 풀로 분류해 돌려준다. 좌표가 없는 POI 는 지도·동선에 못 쓰므로 제외한다.
@@ -98,8 +112,9 @@ public class RegionPoiService {
         // 볼거리로 샌다 — 실측(89곳 전수)에서 AC05(숙박) 625건이 타입 28(레포츠)로 왔다. 숙박 조회
         // (contentTypeId=32)에는 안 잡히는 값이라, 그동안 지방 숙소가 통째로 빠지고 있었다.
         List<PoiCandidate> allTypes = candidates(region, null);
-        List<PoiCandidate> sights = withoutClosedFestivals(
-                allTypes.stream().filter(c -> isSight(c)).toList(), travelDate);
+        List<PoiCandidate> sights = withOpenFestivals(
+                withoutClosedFestivals(allTypes.stream().filter(c -> isSight(c)).toList(), travelDate),
+                regionId, travelDate);
         List<PoiCandidate> foods = merge(allTypes.stream().filter(c -> LCLS_FOOD.equals(c.lclsSystm1())).toList(),
                 candidates(region, FOOD_TYPE));
         List<PoiCandidate> stays = merge(allTypes.stream().filter(RegionPoiService::isStay).toList(),
@@ -260,6 +275,95 @@ public class RegionPoiService {
             log.info("그날 안 하는 축제를 뺐습니다 축제후보={} 제외={}건", festivalIds.size(), dropped);
         }
         return open;
+    }
+
+    /**
+     * <b>그날 열리는 축제를 볼거리 맨 앞에 올린다</b>(#433).
+     *
+     * <h2>왜 보충이 아니라 항상인가</h2>
+     *
+     * <p>인허가·국가유산은 TourAPI 가 못 채웠을 때만 쓴다({@code supplement}). 축제는 다르다 —
+     * <b>그날만 있는 것</b>이라 볼거리가 넉넉한 지역에서도 넣어야 한다. 보충으로 두면 TourAPI 볼거리가
+     * 충분한 안동시에서 안동국제탈춤페스티벌이 코스에 안 들어간다.
+     *
+     * <p>같은 이유로 <b>맨 앞</b>이다. 국가유산은 다음 달에 가도 그 자리에 있지만 축제는 그 주에만
+     * 열린다. 여행 코스라면 그날 갈 수 있는 것을 먼저 넣는 편이 맞다.
+     *
+     * <h2>여행일을 모르면 넣지 않는다</h2>
+     *
+     * <p>언제 여는지로 거를 수 없으면 끝난 축제를 코스에 올리게 된다 — #390 이 막으려던 바로 그 일이다.
+     *
+     * <h2>중복은 이름으로 접고, TourAPI 를 남긴다</h2>
+     *
+     * <p>TourAPI 축제와 겹칠 수 있다. 89곳에서는 TourAPI 가 1건이라 거의 없지만(#392) 규칙은 둔다.
+     * <b>TourAPI 쪽을 남기는 이유</b>는 사진과 개요가 함께 오고 {@code contentId} 로 상세까지 이어지기
+     * 때문이다 — 표준데이터에는 사진이 없다.
+     *
+     * <p>좌표까지 보지 않는다. 축제명은 고유성이 높고("안동국제탈춤페스티벌"), 좌표는 출처마다 정밀도가
+     * 달라 같은 축제를 둘로 세기 쉽다.
+     */
+    private List<PoiCandidate> withOpenFestivals(
+            List<PoiCandidate> sights, long regionId, LocalDate travelDate) {
+        if (travelDate == null) {
+            return sights;
+        }
+        List<FestivalPlace> open = festivalPlaceRepository.findOpenOn(regionId, travelDate, OPEN_FESTIVAL_LIMIT);
+        if (open.isEmpty()) {
+            return sights;
+        }
+
+        Set<String> existingNames = sights.stream()
+                .map(candidate -> normalizedName(candidate.title()))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        List<PoiCandidate> added = open.stream()
+                .filter(festival -> !existingNames.contains(normalizedName(festival.getName())))
+                .map(RegionPoiService::toCandidate)
+                .toList();
+        if (added.isEmpty()) {
+            return sights;
+        }
+
+        // 무엇이 늘었는지 남긴다 — 축제가 코스에 들어간 이유를 나중에 설명할 수 있어야 한다.
+        // **여행일은 안 남긴다**(로깅 규약) — 사용자가 언제 집을 비우는지가 로그에 남는다.
+        log.info("그날 열리는 축제를 볼거리에 올렸습니다 regionId={} 축제={}건 볼거리={}→{}",
+                regionId, added.size(), sights.size(), sights.size() + added.size());
+        return Stream.concat(added.stream(), sights.stream()).toList();
+    }
+
+    /**
+     * 이름 비교용 정규화 — <b>공백만 지운다</b>.
+     *
+     * <p>더 손대지 않는다. 괄호·연도를 떼면 "○○축제 2026" 과 "○○축제 2025" 가 같아져, 다른 회차가
+     * 하나로 접힌다.
+     */
+    private static String normalizedName(String name) {
+        return name == null ? null : name.replaceAll("\\s+", "");
+    }
+
+    /**
+     * 축제를 후보로 옮긴다.
+     *
+     * <p><b>사진이 없다.</b> 표준데이터는 이미지를 주지 않아 카드가 비는데, 그래도 넣는 이유는 축제가
+     * 그날 그 지역에서 <b>실제로 벌어지는 일</b>이라서다. 이름·기간·좌표만으로도 코스에 올릴 값어치가
+     * 있고, 사진 없는 카드 문제는 지도 이미지로 메우는 쪽(#394 ④)이 따로 다룬다.
+     *
+     * <p>설명은 캐치프레이즈 자리에 넣지 않는다 — 지자체가 쓴 글이라 길이가 제각각이고, 카드 한 줄에
+     * 흘리면 레이아웃이 무너진다. 국가유산 설명을 뺀 것과 같은 판단이다.
+     */
+    private static PoiCandidate toCandidate(FestivalPlace festival) {
+        return new PoiCandidate(
+                festival.publicId(),
+                NON_TOUR_CONTENT_TYPE,
+                festival.getName(),
+                festival.getLat(),
+                festival.getLng(),
+                null, // 표준데이터는 사진을 주지 않는다
+                festival.getAddress(),
+                null, // 캐치프레이즈는 TourAPI 콘텐츠에만 붙는다
+                festival.getTel(),
+                null, // TourAPI 분류체계 밖이라 대분류가 없다 — 이미 볼거리로 정해져 넘어온다
+                null);
     }
 
     /** 축제가 아니거나, 기간을 모르거나, 그날 열리면 남긴다. */
