@@ -3,6 +3,8 @@ package com.offway.core.itinerary.controller;
 import com.jayway.jsonpath.JsonPath;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -307,6 +309,43 @@ class CourseGenerateIntegrationTest {
                   "originLat": %s, "originLng": %s, "travelDate": "2026-05-01" }"""
                 .formatted(transport, SEOUL_LAT, SEOUL_LNG);
     }
+
+    /**
+     * 이 지역에 안 닿는 수단.
+     *
+     * <p>고속·시외는 코드 공간이 갈려 있어 지역마다 한쪽만 있는 경우가 흔하다. 이 지역은 시외만 닿는다.
+     */
+    private static final String UNREACHABLE_MODE = "EXPRESS_BUS";
+
+    /**
+     * 수단을 고정해 보낸다(#453) — 카드에서 칩을 눌렀을 때의 요청이다.
+     *
+     * <p><b>지역 16(정선)을 쓴다.</b> 여기는 역보다 터미널이 지역에 가까워, 열차가 그날 안 다니면 자동
+     * 선택이 버스로 넘어간다 — 고정이 실제로 갈리는 자리다. 기본 지역(1)은 자동도 열차라 고정을 지워도
+     * 테스트가 통과해 버린다(부정 대조에서 확인했다).
+     */
+    private static String transitBodyWithMode(String transitMode) {
+        return transitBodyWithMode(transitMode, SEOUL_LAT, SEOUL_LNG);
+    }
+
+    private static String transitBodyWithMode(String transitMode, double originLat, double originLng) {
+        String mode = transitMode == null ? "" : "\"transitMode\": \"%s\",".formatted(transitMode);
+        return """
+                { "regionId": 16, "travelDays": 2, "density": "PACKED", "transport": "TRANSIT",
+                  %s "originLat": %s, "originLng": %s, "travelDate": "2026-05-01" }"""
+                .formatted(mode, originLat, originLng);
+    }
+
+    /**
+     * 열차역이 하나도 없는 출발지 — 울릉도.
+     *
+     * <p>{@code TrainStationResolver} 가 50㎞ 안에서만 역을 찾는데 여기서 뭍까지는 200㎞ 가 넘어,
+     * 열차 결과가 <b>도착 지점 없는 상태</b>({@code NO_STATION})가 된다. 스텁으로는 못 만드는 값이라
+     * (스텁은 운행 편만 정한다) 좌표로 만든다.
+     */
+    private static final double NO_STATION_LAT = 37.4844;
+
+    private static final double NO_STATION_LNG = 130.9058;
 
     /** 첫날 연차 단위를 실어 보낸다 — 출발 시각이 여기서 도출된다(#138). */
     private static String bodyWithStartDayLeave(String transport, String startDayLeave) {
@@ -679,5 +718,89 @@ class CourseGenerateIntegrationTest {
                 { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
                   "originLat": 35.10, "originLng": 129.03, "travelDate": "%s" }"""
                 .formatted(travelDate);
+    }
+
+    /**
+     * 수단을 고정하면 <b>자동 선택과 다른 답</b>을 준다(#453).
+     *
+     * <p>사용자가 카드에서 칩을 누르면 그 수단으로 다시 짠다. 시간표만 갈아끼우면 안 되는 이유는
+     * <b>코스가 내린 곳에서 시작하기 때문</b>이다(#127) — 지역에 따라 역과 터미널이 수십 ㎞ 떨어져 있어
+     * 도착 지점이 바뀌면 동선과 첫날 시각이 함께 바뀌어야 한다.
+     *
+     * <p><b>자동이 무엇을 고르는지 먼저 재고 비교한다.</b> 둘이 같은 지역에서 재면 고정 코드를 지워도
+     * 통과한다 — 실제로 그렇게 써 놓고 부정 대조에서 발견했다. 그날 열차가 없으면 자동은 더 가까운
+     * 터미널로 넘어가므로, 그 자리에서 열차를 고정해야 갈린다.
+     */
+    @Test
+    void 수단을_고정하면_자동_선택과_다른_답을_준다() throws Exception {
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainInfoClient.respond(TrainAvailability.NoServiceOnDate::new);
+        trainRouteService.evictCache();
+
+        // **대표 값만 본다.** 응답 전체를 문자열로 훑으면 alternatives 안의 열차까지 걸려,
+        // 자동이 버스를 골랐는데도 "열차를 골랐다" 로 읽힌다.
+        String auto = com.jayway.jsonpath.JsonPath.read(
+                mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                                .content(transitBodyWithMode(null)))
+                        .andExpect(status().isOk())
+                        .andReturn().getResponse().getContentAsString(),
+                "$.data.transitAccess.mode");
+        trainRouteService.evictCache();
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(transitBodyWithMode("TRAIN")))
+                .andExpect(status().isOk())
+                // 열차가 없어도 물어본 수단으로 답한다 — 없으면 없다고 말하는 것이 옳지,
+                // 묻지도 않은 수단으로 바꿔치기할 일이 아니다
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("TRAIN"))
+                .andExpect(jsonPath("$.data.transitAccess.status").value("NO_SERVICE_ON_DATE"))
+                // 도착 칸도 그 수단의 지점이다 — 시간표만 바뀌는 것이 아니다
+                .andExpect(jsonPath("$.data.days[0].items[0].categoryLabel").value("도착"));
+
+        assertNotEquals("TRAIN", auto,
+                "자동 선택도 열차를 골랐다 — 이 테스트는 고정 코드를 지워도 통과한다");
+    }
+
+    /**
+     * 그 지역에 <b>안 닿는 수단</b>을 요청하면 서버가 고른 수단으로 돌아간다(#453).
+     *
+     * <p>억지로 세우면 도착 지점이 없는 코스가 된다 — 어디에 내리는지 모르는 채로 동선을 짜게 된다.
+     */
+    @Test
+    void 안_닿는_수단을_요청하면_자동_선택으로_돌아간다() throws Exception {
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainArrives(arrivingAt(8, 30));
+
+        String mode = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBodyWithMode(UNREACHABLE_MODE)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertNotEquals(UNREACHABLE_MODE, com.jayway.jsonpath.JsonPath.read(mode, "$.data.transitAccess.mode"),
+                "이 지역에 안 닿는 수단인데 그대로 세웠습니다 — 도착 지점이 없는 코스가 됩니다");
+    }
+
+    /**
+     * 열차를 고정했는데 <b>탈 역이 아예 없으면</b> 자동 선택으로 돌아간다(#453).
+     *
+     * <p>열차는 조회 결과가 어떻든 값이 나오므로 다른 수단처럼 "빈 값이면 자동" 이 성립하지 않는다.
+     * 갈리는 것은 <b>도착 지점이 있느냐</b>다 — 없는 채로 세우면 어디에 내리는지 모르고 동선을 짜서
+     * 코스가 출발지 기준으로 되돌아간다. 바로 아래 시나리오({@code 그날 운행이 없음})와 붙여서 읽는다:
+     * 그쪽은 지점을 알아 열차로 남고, 이쪽은 몰라서 넘어간다.
+     */
+    @Test
+    void 탈_역이_없는데_열차를_고정하면_자동_선택으로_돌아간다() throws Exception {
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBodyWithMode("TRAIN", NO_STATION_LAT, NO_STATION_LNG)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // 역이 없다는 사실을 그대로 세우면 여기가 TRAIN 으로 남고 도착 지점이 빈다.
+        assertNotEquals("TRAIN", com.jayway.jsonpath.JsonPath.read(response, "$.data.transitAccess.mode"),
+                "탈 역이 없는데 열차로 세웠습니다 — 어디에 내리는지 모르는 코스가 됩니다");
+        assertNotNull(com.jayway.jsonpath.JsonPath.read(response, "$.data.transitAccess.toPlace"),
+                "자동으로 돌아갔는데도 도착 지점이 없습니다");
     }
 }

@@ -264,7 +264,10 @@ public class CourseGenerationService {
         return regionAccessService.accessTo(
                 command.originLat(), command.originLng(),
                 region.getLat(), region.getLng(), command.travelDate(),
-                command.startDayLeave().departureTime());
+                command.startDayLeave().departureTime(),
+                // 칩을 눌러 수단을 고정했으면 그 수단으로 묻는다(#453). 도착 지점이 바뀌면 아래 동선·
+                // 첫날 시각·도착 슬롯이 전부 그 지점 기준으로 다시 계산된다.
+                command.transitMode());
     }
 
     /**

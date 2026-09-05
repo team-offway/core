@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.service.dto;
 
 import com.offway.core.itinerary.domain.Density;
+import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.leave.domain.StartDayLeave;
 import java.time.LocalDate;
@@ -21,6 +22,8 @@ import lombok.Builder;
  * @param travelDays 여행 일수(1~3)
  * @param density 일정 밀도(빡빡/널널)
  * @param transport 이동수단
+ * @param transitMode 대중교통 수단 고정(#453) — 사용자가 카드에서 칩을 눌러 "이 수단으로 보기" 를
+ *     했을 때만 들어온다. {@code null} 이면 서버가 고른다
  * @param originLat 출발지 위도(동선 정렬 기준)
  * @param originLng 출발지 경도
  * @param travelDate 가는 날(정책 운영기간 매칭용)
@@ -34,6 +37,7 @@ public record GenerateCourse(
         int travelDays,
         Density density,
         TransportMode transport,
+        TransitMode transitMode,
         double originLat,
         double originLng,
         LocalDate travelDate,
