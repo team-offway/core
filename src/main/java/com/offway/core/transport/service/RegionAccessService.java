@@ -171,7 +171,7 @@ public class RegionAccessService {
     }
 
     private static Integer trainMinutes(RegionAccess train) {
-        return train.fastest() == null ? null : train.fastest().durationMinutes();
+        return train.chosen() == null ? null : train.chosen().durationMinutes();
     }
 
     /**

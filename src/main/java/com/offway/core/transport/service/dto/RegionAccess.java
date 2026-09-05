@@ -31,7 +31,8 @@ import lombok.Builder;
  * @param fromName 출발 지점명(역·터미널·항구, 없으면 null)
  * @param toName 도착 지점명(없으면 null)
  * @param toPoint 도착 지점 좌표(해석됐으면 non-null) — 지역 안 동선의 기준점
- * @param fastest 가장 빠른 운행 편({@link Status#AVAILABLE} 일 때만, 아니면 null)
+ * @param chosen 코스가 탈 편 — <b>가장 일찍 닿는</b> 편이다({@link Status#AVAILABLE} 일 때만, 아니면 null).
+ *     소요시간이 가장 짧은 편이 아니다(#442)
  * @param durationMinutes 소요시간(분, 모르면 null). 버스·여객선은 저장해 둔 구간 측정값에서, 자차는
  *     출발지→지역 이동시간에서 온다. 시간표를 못 묻는 수단이라 <b>시각 대신 이것으로</b> 도착 시각을
  *     만든다(#107 · #379)
@@ -49,7 +50,7 @@ public record RegionAccess(
         String fromName,
         String toName,
         Coordinate toPoint,
-        TrainLeg fastest,
+        TrainLeg chosen,
         Integer durationMinutes,
         Integer distanceKm,
         List<TransitOption> alternatives,
@@ -118,15 +119,15 @@ public record RegionAccess(
     /**
      * 지역에 닿는 시각 — 실제 운행 편을 찾았을 때만 안다. 1일차에 어느 시간대부터 일정을 넣을지의 근거다.
      *
-     * <p>근거는 둘이다. 열차는 {@code fastest}(가장 빠른 편)에서, <b>버스·여객선은 시간표의 첫 편</b>에서
+     * <p>근거는 둘이다. 열차는 {@code chosen}(고른 편)에서, <b>버스·여객선은 시간표의 첫 편</b>에서
      * 온다(#422). 뒤쪽이 없던 시절에는 그 둘이 소요시간으로만 답했는데, #414 로 시간표가 붙으면서
      * 실제 도착 시각을 알게 됐다.
      *
      * <p>{@code departures} 는 이미 "탈 수 있는 편만, 이른 순" 이라 첫 편이 곧 가장 이른 도착이다.
      */
     public Optional<LocalDateTime> arrivalAt() {
-        if (fastest != null) {
-            return Optional.of(fastest.arriveAt());
+        if (chosen != null) {
+            return Optional.of(chosen.arriveAt());
         }
         return departures.stream().findFirst().map(Departure::arriveAt);
     }
@@ -188,14 +189,14 @@ public record RegionAccess(
     }
 
     public static RegionAccess available(
-            String fromName, String toName, Coordinate toPoint, TrainLeg fastest, List<Departure> departures) {
+            String fromName, String toName, Coordinate toPoint, TrainLeg chosen, List<Departure> departures) {
         return RegionAccess.builder()
                 .mode(TransitMode.TRAIN)
                 .status(Status.AVAILABLE)
                 .fromName(fromName)
                 .toName(toName)
                 .toPoint(toPoint)
-                .fastest(fastest)
+                .chosen(chosen)
                 .departures(departures)
                 .build();
     }

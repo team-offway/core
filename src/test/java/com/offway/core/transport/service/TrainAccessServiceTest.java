@@ -126,7 +126,7 @@ class TrainAccessServiceTest {
         assertEquals(RegionAccess.Status.AVAILABLE, access.status());
         assertEquals("서울", access.fromName());
         assertEquals("정선", access.toName());
-        assertEquals(150, access.fastest().durationMinutes());
+        assertEquals(150, access.chosen().durationMinutes());
     }
 
     @Test
