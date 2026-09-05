@@ -318,6 +318,47 @@ class FestivalPoolIntegrationTest {
         assertTrue(pois.sights().stream().noneMatch(c -> c.contentId().startsWith("FST-")));
     }
 
+    /**
+     * <b>여행일을 모르면 TourAPI 축제도 뺀다.</b>
+     *
+     * <p>표준데이터 축제만 막고 TourAPI 축제(타입 15)를 남기면 두 출처가 다르게 동작한다. 게다가 그
+     * 후보의 기간을 알고 있으면 {@code isOpenOn(null)} 에서 터진다.
+     *
+     * <p>지금은 요청 DTO 가 여행일을 {@code @NotNull} 로 받아 정상 요청으로는 닿지 않는 경로다. 그래도
+     * 잠그는 것은 <b>두 출처의 동작을 같게 두기 위해서</b>다.
+     */
+    @Test
+    void 여행일을_모르면_TourAPI_축제도_뺀다() {
+        Region region = 국가유산이_있는_지역();
+        // 볼거리 14개 + 축제(타입 15) 하나.
+        List<TourPoi> withFestival = new ArrayList<>(관광지(14));
+        withFestival.add(new TourPoi(
+                "C-FESTIVAL", 15, "VE", "타입15축제", "주소",
+                36.52, 128.72, "http://img/f.jpg", null, null));
+        ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(withFestival, withFestival.size()));
+
+        RegionPois pois = regionPoiService.collect(region.getId(), null);
+
+        assertTrue(pois.sights().stream().noneMatch(c -> "C-FESTIVAL".equals(c.contentId())),
+                "여행일을 모르는데 축제가 남았다 — 끝난 축제를 코스에 올리게 된다");
+    }
+
+    /** 여행일이 있으면 기간을 모르는 TourAPI 축제는 남긴다 — 모른다고 버리면 멀쩡한 후보를 잃는다. */
+    @Test
+    void 여행일이_있고_기간을_모르면_TourAPI_축제는_남는다() {
+        Region region = 국가유산이_있는_지역();
+        List<TourPoi> withFestival = new ArrayList<>(관광지(14));
+        withFestival.add(new TourPoi(
+                "C-FESTIVAL", 15, "VE", "타입15축제", "주소",
+                36.52, 128.72, "http://img/f.jpg", null, null));
+        ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(withFestival, withFestival.size()));
+
+        RegionPois pois = regionPoiService.collect(region.getId(), DURING);
+
+        assertTrue(pois.sights().stream().anyMatch(c -> "C-FESTIVAL".equals(c.contentId())),
+                "기간을 모르는 축제까지 빼면 후보가 근거 없이 준다");
+    }
+
     /** TourAPI 볼거리 픽스처 — 좌표가 있어야 후보로 산다. */
     private static List<TourPoi> 관광지(int count) {
         List<TourPoi> pois = new ArrayList<>();
