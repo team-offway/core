@@ -41,8 +41,10 @@ public record PopularityTrend(int percent, boolean rising) {
             return Optional.empty();
         }
         double baseline = samePeriodLastYear.dailyMean();
-        double change = (recent.dailyMean() - baseline) / baseline;
-        int percent = (int) Math.round(change * PERCENT);
-        return Optional.of(new PopularityTrend(percent, percent >= MIN_RISING_PERCENT));
+        double changePercent = (recent.dailyMean() - baseline) / baseline * PERCENT;
+        // 반올림한 값으로 판정하지 않는다 — 9.6% 가 10 으로 올라가 "늘고 있다" 가 된다.
+        // 표시용 숫자만 반올림하고, 문턱은 잰 값 그대로 넘는지 본다.
+        return Optional.of(new PopularityTrend(
+                (int) Math.round(changePercent), changePercent >= MIN_RISING_PERCENT));
     }
 }

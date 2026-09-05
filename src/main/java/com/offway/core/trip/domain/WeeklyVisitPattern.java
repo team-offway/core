@@ -116,20 +116,22 @@ public final class WeeklyVisitPattern {
             }
         }
 
-        int gap = gapPercentAgainstOtherDays(quietest);
-        if (gap < MIN_GAP_PERCENT) {
+        // 반올림한 값으로 자격을 판정하지 않는다 — 9.5% 가 10 으로 올라가 문턱을 넘어 버린다.
+        // 문턱은 잰 값 그대로 넘는지 보고, 통과한 것만 표시용으로 반올림한다.
+        double gapPercent = gapPercentAgainstOtherDays(quietest);
+        if (gapPercent < MIN_GAP_PERCENT) {
             return Optional.empty();
         }
-        return Optional.of(new QuietestDay(quietest, gap));
+        return Optional.of(new QuietestDay(quietest, (int) Math.round(gapPercent)));
     }
 
     /**
-     * 그 요일이 <b>나머지 요일들보다</b> 몇 % 적은가.
+     * 그 요일이 <b>나머지 요일들보다</b> 몇 % 적은가 — 반올림하지 않은 값.
      *
      * <p>전체 평균이 아니라 나머지 평균과 견준다 — 화면 문구가 "다른 요일보다" 이기 때문이다. 전체
      * 평균에는 그 요일 자신이 섞여 있어 격차가 실제보다 작게 나온다.
      */
-    private int gapPercentAgainstOtherDays(DayOfWeek day) {
+    private double gapPercentAgainstOtherDays(DayOfWeek day) {
         DayStat stat = byDay.get(day);
         int otherDays = totalDays - stat.days;
         if (otherDays <= 0) {
@@ -139,8 +141,7 @@ public final class WeeklyVisitPattern {
         if (otherMean <= 0) {
             return 0;
         }
-        double gap = (otherMean - stat.mean()) / otherMean;
-        return (int) Math.round(gap * PERCENT);
+        return (otherMean - stat.mean()) / otherMean * PERCENT;
     }
 
     private double overallMean() {
