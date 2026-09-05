@@ -11,6 +11,9 @@ import com.offway.core.transport.domain.BusTerminal;
 import com.offway.core.transport.domain.BusTerminalKind;
 import com.offway.core.transport.domain.Terminal;
 import com.offway.core.transport.service.BusTerminalResolver;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -258,5 +261,46 @@ class BusTerminalSeedIntegrationTest {
         // 우선순위만 바꾸는 것이지 빼는 것이 아님을 여기서 지킨다.
         assertTrue(onlyStop > 0,
                 "정류소가 최근접인 지역이 하나도 없다 — 정류소가 목록에서 빠졌는지 확인하세요");
+    }
+
+    /**
+     * 이름이 다른 두 터미널이 <b>한 좌표에 있을 수는 없다</b>(#447).
+     *
+     * <p>시드가 이름만으로 지오코딩하던 시절, 서로 다른 터미널이 같은 좌표를 베껴 쓰는 묶음이 아홉 개
+     * 있었다 — 해남·땅끝, 당진·서산, 울진·온정·평해 같은 것들이다. 그 하나가 뽑히면 사용자는 다른 지역의
+     * 터미널로 안내받는다.
+     *
+     * <p><b>같은 터미널의 코드 변형은 정상이다.</b> 진주는 운영사별로 여섯 코드(`진주`·`진주(경전)`·
+     * `진주(경남)`…)가 한 자리를 가리키고, 김해공항도 그렇다. 괄호를 떼고 한쪽이 다른 쪽의 앞부분이면
+     * 같은 곳으로 본다.
+     */
+    @Test
+    void 이름이_다른_터미널이_같은_좌표를_쓰지_않는다() {
+        Map<String, List<String>> byPoint = new LinkedHashMap<>();
+        for (BusTerminal terminal : terminalRepository.findAll()) {
+            if (!terminal.hasCoordinate()) {
+                continue;
+            }
+            String point = "%s|%.5f,%.5f".formatted(terminal.getKind(), terminal.getLat(), terminal.getLng());
+            byPoint.computeIfAbsent(point, key -> new ArrayList<>()).add(terminal.getName());
+        }
+
+        List<String> collisions = byPoint.entrySet().stream()
+                .filter(entry -> entry.getValue().size() > 1 && !samePlace(entry.getValue()))
+                .map(entry -> "%s — %s".formatted(entry.getKey(), String.join(", ", entry.getValue())))
+                .toList();
+
+        assertTrue(collisions.isEmpty(),
+                "이름이 다른 터미널이 같은 좌표를 씁니다 — 한쪽은 다른 터미널의 좌표를 베낀 것입니다:\n"
+                        + String.join("\n", collisions));
+    }
+
+    /** 괄호·공백을 떼고 한쪽이 다른 쪽의 앞부분이면 같은 곳 — 운영사별 코드 변형을 통과시킨다. */
+    private static boolean samePlace(List<String> names) {
+        List<String> bases = names.stream()
+                .map(name -> name.replaceAll("\\(.*?\\)|국제|\\s", ""))
+                .toList();
+        String first = bases.getFirst();
+        return bases.stream().allMatch(base -> base.startsWith(first) || first.startsWith(base));
     }
 }
