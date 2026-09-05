@@ -10,10 +10,12 @@ import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.TimeOfDay;
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -188,8 +190,8 @@ public record CourseSaveRequest(
     /**
      * @param order 하루 안 방문 순서(1부터)
      * @param timeOfDay 시간대
-     * @param kind 장소 종류
-     * @param poiContentId TourAPI 콘텐츠 ID
+     * @param kind 칸 종류(대중교통 코스는 첫·끝 칸이 ARRIVAL·DEPARTURE)
+     * @param poiContentId TourAPI 콘텐츠 ID. 교통 거점 칸은 <b>보내지 않는다</b>(#415)
      * @param title 장소명
      * @param imageUrl 대표 이미지(생성 응답 값 그대로 — 없으면 null)
      * @param address 주소(없으면 null)
@@ -203,7 +205,8 @@ public record CourseSaveRequest(
             @NotNull @Min(1) Integer order,
             @NotNull TimeOfDay timeOfDay,
             @NotNull SlotKind kind,
-            @NotBlank String poiContentId,
+            @Schema(description = "장소 상세 조회 키. 교통 거점 칸(ARRIVAL·DEPARTURE)에는 보내지 않는다",
+                    nullable = true) String poiContentId,
             @NotBlank String title,
             @Schema(nullable = true) String imageUrl,
             @Schema(nullable = true) String address,
@@ -213,7 +216,28 @@ public record CourseSaveRequest(
             @NotNull Double lng,
             @NotNull @Min(0) Integer travelMinutes) {
 
+        /**
+         * 장소 칸이면 장소 식별자가 있어야 한다(#415).
+         *
+         * <p>필드에 {@code @NotBlank} 를 걸 수 없게 됐다 — 교통 거점 칸은 없는 것이 정상이라, 종류를 봐야
+         * 필수인지 정해진다. 검증을 도메인에만 맡기면 {@link Slot} 이 불변식 위반으로 던져 <b>클라이언트
+         * 실수가 500 이 된다</b>. 계약 위반은 계약 자리에서 400 으로 끊는다.
+         */
+        @JsonIgnore
+        @AssertTrue(message = "장소 칸에는 poiContentId 가 필요합니다")
+        public boolean isPlaceIdPresentWhenNeeded() {
+            if (kind == null || !kind.hasPlace()) {
+                return true; // 종류 자체가 없으면 @NotNull 이 답한다 — 같은 잘못을 두 번 말하지 않는다
+            }
+            return poiContentId != null && !poiContentId.isBlank();
+        }
+
         Slot toSlot() {
+            if (kind != null && !kind.hasPlace()) {
+                // 교통 거점 칸 — 역·터미널이라 장소 식별자도 표시 정보도 없다(#415). 클라이언트가 실어
+                // 보내도 버린다: 남겨 두면 접두어 없는 값이 TourAPI 출처로 읽혀 응답 표기가 틀어진다.
+                return Slot.transitHub(order, timeOfDay, kind, title, lat, lng, travelMinutes);
+            }
             // 표시 정보(이미지·주소·추천 한 줄·전화)를 함께 영속해 저장 코스도 TourAPI 재조회 없이 그린다.
             return Slot.of(order, timeOfDay, kind, poiContentId, title, lat, lng, travelMinutes,
                     new SlotDisplay(imageUrl, address, catchphrase, tel));

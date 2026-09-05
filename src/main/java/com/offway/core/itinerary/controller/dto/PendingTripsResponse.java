@@ -66,7 +66,7 @@ public record PendingTripsResponse(
                     course.travelEndDate(),
                     course.getTravelDays(),
                     pending.consumedLeaveDaysOf(course),
-                    course.totalSlots(),
+                    course.placeCount(),
                     pointsOf(course));
         }
 

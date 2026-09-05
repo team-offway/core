@@ -3,7 +3,7 @@ package com.offway.core.itinerary.service;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.region.domain.Region;
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.weather.domain.DailyWeather;
 import com.offway.core.weather.service.WeatherService;
 import java.util.LinkedHashMap;

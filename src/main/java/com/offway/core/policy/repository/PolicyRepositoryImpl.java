@@ -52,4 +52,9 @@ public class PolicyRepositoryImpl implements PolicyRepository {
     public List<Policy> findVerifiedByType(PolicyType type) {
         return policyJpaRepository.findByTypeAndVerifiedTrue(type);
     }
+
+    @Override
+    public List<Policy> findVerifiedByTypeForUpdate(PolicyType type) {
+        return policyJpaRepository.findWithLockByTypeAndVerifiedTrue(type);
+    }
 }

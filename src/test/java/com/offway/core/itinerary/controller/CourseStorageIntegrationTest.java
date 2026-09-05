@@ -215,6 +215,73 @@ class CourseStorageIntegrationTest {
     }
 
     @Test
+    void 교통_거점_칸은_장소_식별자_없이_저장되고_그대로_돌아온다() throws Exception {
+        // 대중교통 코스는 역·터미널로 시작해 역·터미널로 끝난다(#415). 그 칸에는 장소 상세 키가 없다.
+        String body = """
+                { "regionId": 16, "density": "PACKED", "transport": "TRANSIT", "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"ARRIVAL","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":0},
+                    {"order":2,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":22},
+                    {"order":3,"timeOfDay":"MORNING","kind":"DEPARTURE","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":22}
+                  ]}
+                ]}""";
+
+        long courseId = save(body);
+
+        // 목록 카드의 "N곳" 은 장소만 센다 — 역·터미널을 함께 세면 대중교통 코스만 부풀어 보인다
+        mockMvc.perform(get(URL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].courseId").value(courseId))
+                .andExpect(jsonPath("$.data[0].placeCount").value(1));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
+                .andExpect(jsonPath("$.data.days[0].items[0].categoryLabel").value("도착"))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value("정선역"))
+                .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").doesNotExist())
+                .andExpect(jsonPath("$.data.days[0].items[2].kind").value("DEPARTURE"))
+                .andExpect(jsonPath("$.data.days[0].items[2].poiContentId").doesNotExist())
+                // 출처는 실제로 실린 것만 적는다(#399). 역·터미널은 식별자가 없어 집계에서 빠지고,
+                // 장소 하나(TourAPI)만 남는다 — 접두어 없는 값으로 읽혀 엉뚱한 기관이 붙지 않는지 본다.
+                .andExpect(jsonPath("$.sources.length()").value(1))
+                .andExpect(jsonPath("$.sources[0].key").value("KTO"));
+    }
+
+    @Test
+    void 자차_코스에_교통_거점_칸을_보내면_400이다() throws Exception {
+        // 생성은 대중교통일 때만 그 칸을 세우지만, 저장은 클라이언트가 보낸 것을 그대로 받는다(#415).
+        // 막지 않으면 "역에서 시작하는 자차 코스" 가 저장된다.
+        String invalid = """
+                { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"ARRIVAL","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":0},
+                    {"order":2,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":22}
+                  ]}
+                ]}""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(invalid))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    @Test
+    void 장소_칸에_식별자가_없으면_400이다() throws Exception {
+        // 종류를 봐야 필수인지 정해지므로 필드에 @NotBlank 를 못 건다. 그래도 계약 위반은 400 이어야 한다 —
+        // 도메인에만 맡기면 클라이언트 실수가 500 으로 나간다.
+        String invalid = """
+                { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","title":"장소1","lat":37.5,"lng":128.6,"travelMinutes":0}
+                  ]}
+                ]}""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(invalid))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
     void 슬롯_순서가_불연속이면_400_ITINERARY_002() throws Exception {
         String invalid = """
                 { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [

@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import java.time.LocalDate;
 import java.util.List;
@@ -265,6 +265,51 @@ class CourseTest {
 
         assertEquals(1, removed);
         assertEquals(SlotKind.STAY, course.getDays().getFirst().getSlots().getFirst().getKind());
+    }
+
+    @Test
+    void 자차_코스에_교통_거점_칸이_있으면_거부한다() {
+        // 생성은 수단으로 가르지만 저장·공유는 클라이언트가 보낸 것을 그대로 받는다(#415).
+        // 만든 쪽만 막으면 들어오는 쪽이 열려 있다.
+        List<DaySchedule> days = List.of(DaySchedule.of(1, List.of(
+                Slot.transitHub(1, TimeOfDay.MORNING, SlotKind.ARRIVAL, "정선역", 37.38, 128.66, 0),
+                slotAt(2, TimeOfDay.MORNING, SlotKind.SIGHT))));
+
+        assertThrows(IllegalArgumentException.class, () -> Course.of(42L, Density.PACKED, TransportMode.CAR,
+                days, LocalDate.of(2026, 9, 11), 1, StartDayLeave.FULL_DAY));
+    }
+
+    @Test
+    void 교통_거점_칸은_장소_수에_안_들어간다() {
+        // 목록 카드의 "N곳" 이다. 함께 세면 같은 밀도로 뽑았는데 대중교통 코스만 두 곳 많아 보인다(#415).
+        Course course = Course.of(42L, Density.PACKED, TransportMode.TRANSIT,
+                List.of(DaySchedule.of(1, List.of(
+                        Slot.transitHub(1, TimeOfDay.MORNING, SlotKind.ARRIVAL, "정선역", 37.38, 128.66, 0),
+                        slotAt(2, TimeOfDay.MORNING, SlotKind.SIGHT),
+                        slotAt(3, TimeOfDay.LUNCH, SlotKind.FOOD),
+                        Slot.transitHub(4, TimeOfDay.LUNCH, SlotKind.DEPARTURE, "정선역", 37.38, 128.66, 12)))),
+                LocalDate.of(2026, 9, 11), 1, StartDayLeave.FULL_DAY);
+
+        assertEquals(4, course.totalSlots(), "타임라인의 칸은 넷이다");
+        assertEquals(2, course.placeCount(), "장소는 관광·맛집 둘뿐이다");
+    }
+
+    @Test
+    void 도착_칸은_시간대_판정을_타지_않아_남는다() {
+        // 도착 칸이 곧 그 늦은 도착 자체다. 늦었다는 이유로 지우면 남는 코스가 어디서 시작하는지 사라진다(#415).
+        Course course = Course.of(42L, Density.PACKED, TransportMode.TRANSIT,
+                List.of(DaySchedule.of(1, List.of(
+                        Slot.transitHub(1, TimeOfDay.MORNING, SlotKind.ARRIVAL, "정선역", 37.38, 128.66, 0),
+                        slotAt(2, TimeOfDay.MORNING, SlotKind.SIGHT))),
+                        day(2, 2)),
+                LocalDate.of(2026, 9, 11), 2, StartDayLeave.FULL_DAY);
+
+        int removed = course.trimFirstDayTo(DayStart.none());
+
+        assertEquals(1, removed, "관광만 걷어낸다");
+        List<Slot> first = course.getDays().getFirst().getSlots();
+        assertEquals(1, first.size());
+        assertEquals(SlotKind.ARRIVAL, first.getFirst().getKind());
     }
 
     @Test

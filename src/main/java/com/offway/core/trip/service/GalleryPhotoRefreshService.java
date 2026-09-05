@@ -6,7 +6,7 @@ import com.offway.core.region.domain.Region;
 import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.domain.GalleryPhoto;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.gallery.GalleryImageVerifier;
@@ -75,7 +75,7 @@ public class GalleryPhotoRefreshService {
     private final GalleryPhotoClient galleryPhotoClient;
     private final GalleryImageVerifier galleryImageVerifier;
     private final GalleryPhotoRepository galleryPhotoRepository;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final BatchRunRepository batchRunRepository;
 
     /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
@@ -207,7 +207,7 @@ public class GalleryPhotoRefreshService {
 
     /** 촬영 위치 원문을 우리 89곳에 붙인다. 못 붙인 사진은 지역 없이 남아 대표 사진 후보에서 빠진다. */
     private void assignRegions(List<GalleryPhoto> photos) {
-        List<Region> regions = regionRepository.findAll();
+        List<Region> regions = regionQuery.all();
         if (regions.isEmpty()) {
             return;
         }

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class SlotTest {
 
@@ -72,5 +73,31 @@ class SlotTest {
 
         assertNull(slot.getTel());
         assertNull(slot.getImageUrl());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SlotKind.class, names = {"ARRIVAL", "DEPARTURE"})
+    void 교통_거점_칸은_장소_식별자_없이_만들어진다(SlotKind kind) {
+        Slot slot = Slot.transitHub(1, TimeOfDay.MORNING, kind, "정선역", 37.38, 128.66, 0);
+
+        assertEquals(kind, slot.getKind());
+        assertEquals("정선역", slot.getTitle());
+        assertNull(slot.getPoiContentId());
+        assertNull(slot.getPoiContentTypeId());
+    }
+
+    @Test
+    void 교통_거점_칸에_장소_식별자를_넣으면_거부한다() {
+        // 접두어 없는 값이 들어오면 PlaceOrigin 이 TourAPI 로 읽어, 실린 적 없는 기관이 출처에 적힌다.
+        // 예외가 안 나고 조용히 틀리는 쪽이라 생성 자리에서 막는다.
+        assertThrows(IllegalArgumentException.class,
+                () -> Slot.of(1, TimeOfDay.MORNING, SlotKind.ARRIVAL, "126508", "정선역", 37.38, 128.66, 0));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SlotKind.class, names = {"SIGHT", "FOOD", "STAY"})
+    void 장소_칸을_교통_거점으로_만들려_하면_거부한다(SlotKind kind) {
+        assertThrows(IllegalArgumentException.class,
+                () -> Slot.transitHub(1, TimeOfDay.MORNING, kind, "완도타워", 34.3, 126.7, 0));
     }
 }
