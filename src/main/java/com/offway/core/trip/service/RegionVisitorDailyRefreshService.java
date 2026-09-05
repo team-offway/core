@@ -65,15 +65,29 @@ public class RegionVisitorDailyRefreshService {
     private static final Caller CALLER = Caller.of("지역방문자일별배치");
 
     /**
-     * 채울 개월 수 — 계절성을 보려면 열두 달이 필요하다.
+     * 채울 개월 수 — <b>지표가 요구하는 만큼</b>이다.
      *
-     * <p>한 바퀴가 열두 달이라 첫 실행만 비싸고(월당 3콜 × 12 ≈ 36콜, 관광빅데이터 한도 1,000 의
-     * <b>3.6%</b>) 그 뒤로는 새로 발행된 달만 받는다.
+     * <p>숫자를 여기에 따로 적지 않는다. 인기 추세가 작년 같은 기간과 견주므로(계절 상쇄) 필요한
+     * 길이는 지표 쪽이 안다 — 양쪽에 적으면 한쪽만 바뀐다.
+     *
+     * <p>첫 실행만 비싸고(월 5콜 × 15 ≈ 75콜, 관광빅데이터 한도 1,000 의 <b>7.5%</b>) 그 뒤로는 새로
+     * 발행된 달만 받는다.
      */
-    private static final int BACKFILL_MONTHS = 12;
+    private static final int BACKFILL_MONTHS = RegionVisitMetricsService.REQUIRED_MONTHS;
 
-    /** 페이지 크기 — 랭킹 집계와 같은 값을 쓴다. 한 달 전국이 약 20,600행이라 세 페이지다. */
-    private static final int PAGE_SIZE = 10_000;
+    /**
+     * 페이지 크기 — <b>응답이 {@code maxInMemorySize}(2MB)를 넘지 않는 선</b>.
+     *
+     * <p>실측 근거는 {@code TourDataLabClientImpl} 에 있다: 관측 창 7일이 5,628건에 약 1MB 였다.
+     * <b>건당 약 186바이트</b>다. 그래서 10,000건이면 1.86MB 로 한도까지 여유가 7% 밖에 없다 —
+     * 시군구명이 긴 달이나 원본 필드가 하나 늘면 그대로 넘긴다.
+     *
+     * <p>넘으면 그 달이 통째로 버려지고(부분 적재 금지), 다음 회차에 다시 같은 크기로 물어 <b>영영
+     * 안 채워진다</b>. 조용히 굳는 실패라, 콜 몇 건을 아끼자고 감수할 값이 아니다.
+     *
+     * <p>{@value} 건이면 약 0.9MB 로 절반이다. 한 달 전국이 약 24,000행이라 다섯 페이지가 된다.
+     */
+    private static final int PAGE_SIZE = 5_000;
 
     private static final int FIRST_PAGE = 1;
 
@@ -81,9 +95,12 @@ public class RegionVisitorDailyRefreshService {
      * 한 달의 페이지 상한 — 폭주 안전장치.
      *
      * <p>{@code totalCount} 가 잘못 크거나 페이지가 안 줄어도 무한 루프에 빠지지 않게 막는다. 한 달이
-     * 세 페이지라 다섯이면 넉넉하고, 넘으면 원본이 이상하다는 신호라 로그로 남긴다.
+     * 다섯 페이지라 여덟이면 여유가 있고, 넘으면 원본이 이상하다는 신호라 로그로 남긴다.
+     *
+     * <p><b>딱 맞게 잡지 않는다.</b> 상한과 실제가 같으면 원본이 조금만 늘어도 매달 상한에 걸려 그 달을
+     * 버린다.
      */
-    private static final int MAX_PAGES_PER_MONTH = 5;
+    private static final int MAX_PAGES_PER_MONTH = 8;
 
     /** 호출 하나를 기다릴 상한. 집계가 아니라 배치라 넉넉히 준다 — 사용자가 기다리는 경로가 아니다. */
     private static final Duration CALL_BUDGET = Duration.ofSeconds(20);
