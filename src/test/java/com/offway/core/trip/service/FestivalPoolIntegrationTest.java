@@ -67,7 +67,7 @@ class FestivalPoolIntegrationTest {
                         List.of(축제(region.getSigungu(), "우리축제"), 축제("서울특별시종로구", "남의축제")), 2)
                 : StandardFestivalResult.empty());
 
-        int saved = refreshService.refresh(FIRST_RUN);
+        int saved = refreshService.refresh(FIRST_RUN).saved();
 
         assertEquals(1, saved, "우리 89곳 밖 축제는 안 담는다");
         List<FestivalPlace> open = festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10);
@@ -88,7 +88,7 @@ class FestivalPoolIntegrationTest {
                 ? new StandardFestivalResult(List.of(좌표없음), 1)
                 : StandardFestivalResult.empty());
 
-        int saved = refreshService.refresh(FIRST_RUN);
+        int saved = refreshService.refresh(FIRST_RUN).saved();
 
         assertEquals(0, saved);
         assertTrue(festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10).isEmpty());
@@ -165,6 +165,58 @@ class FestivalPoolIntegrationTest {
         refreshService.refresh(SECOND_RUN);
 
         assertEquals(1, festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10).size());
+    }
+
+    /**
+     * <b>반쪽짜리 회차를 "다 됐다" 로 기록하지 않는다.</b>
+     *
+     * <p>둘째 페이지가 깨져도 첫 페이지 것은 저장되므로 <b>저장 건수가 양수</b>다. 그걸로 배치 마커를
+     * 남기면 다음 갱신이 25일 막혀, 반쪽짜리 축제 목록을 그동안 그대로 쓰게 된다.
+     */
+    @Test
+    void 페이지가_깨진_회차는_완료로_기록되지_않는다() {
+        Region region = 우리지역();
+        StubFestivalStandardClient stub = stub();
+        stub.respond(page -> {
+            if (page == 1) {
+                return new StandardFestivalResult(List.of(축제(region.getSigungu(), "첫페이지축제")), 150);
+            }
+            throw new IllegalStateException("둘째 페이지가 깨졌다");
+        });
+
+        FestivalPlaceRefreshService.RefreshOutcome outcome = refreshService.refresh(FIRST_RUN);
+
+        assertTrue(outcome.saved() > 0, "받은 것은 저장한다 — 전부 버리면 이번 달 내내 축제를 모른다");
+        assertFalse(outcome.complete(), "온전하지 않은 회차를 완료로 기록하면 다음 갱신이 25일 막힌다");
+    }
+
+    /** 페이지 상한에 걸려 잘린 회차도 완료가 아니다 — 실패와 같은 이유다. */
+    @Test
+    void 상한에_걸려_잘린_회차도_완료가_아니다() {
+        Region region = 우리지역();
+        StubFestivalStandardClient stub = stub();
+        // 전체가 페이지 상한(20 × 100)을 훌쩍 넘는다고 말한다.
+        stub.respond(page -> new StandardFestivalResult(
+                List.of(축제(region.getSigungu(), "축제" + page)), 100_000));
+
+        FestivalPlaceRefreshService.RefreshOutcome outcome = refreshService.refresh(FIRST_RUN);
+
+        assertFalse(outcome.complete(), "못 받은 페이지가 있는데 완료로 치면 그만큼이 영영 안 채워진다");
+    }
+
+    /** 온전히 받은 회차는 완료다 — 한쪽만 보면 "항상 미완료" 가 초록이 된다. */
+    @Test
+    void 온전히_받은_회차는_완료다() {
+        Region region = 우리지역();
+        StubFestivalStandardClient stub = stub();
+        stub.respond(page -> page == 1
+                ? new StandardFestivalResult(List.of(축제(region.getSigungu(), "온전한축제")), 1)
+                : StandardFestivalResult.empty());
+
+        FestivalPlaceRefreshService.RefreshOutcome outcome = refreshService.refresh(FIRST_RUN);
+
+        assertTrue(outcome.complete());
+        assertTrue(outcome.saved() > 0);
     }
 
     /** 그날 안 여는 축제는 조회에 안 걸린다 — 코스에 올릴 수 없는 것이다. */
