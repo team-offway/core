@@ -57,6 +57,24 @@ public class RegionAccessService {
      */
     public RegionAccess accessTo(
             double originLat, double originLng, double destLat, double destLng, LocalDate date, LocalTime plannedDeparture) {
+        return accessTo(originLat, originLng, destLat, destLng, date, plannedDeparture, null);
+    }
+
+    /**
+     * 수단을 지정한 접근 조회(#453) — "이 수단으로 가면 어떻게 되나".
+     *
+     * <p>사용자가 카드에서 수단 칩을 누르면 그 수단으로 다시 묻는다. <b>도착 지점이 바뀌면 코스도 바뀌어야
+     * 한다</b> — 코스는 집이 아니라 내린 곳에서 시작하기 때문이다(#127). 지역에 따라 역과 터미널이 수십 ㎞
+     * 떨어져 있어(양양은 강릉역까지 42㎞), 시간표만 갈아끼우면 동선이 그대로 남아 어긋난다.
+     *
+     * <p><b>없는 수단을 요청하면 자동 선택으로 돌아간다.</b> 그 지역에 그 수단이 안 닿는데 억지로 세우면
+     * 도착 지점이 없는 코스가 된다.
+     *
+     * @param preferred 이 수단으로 고정한다. {@code null} 이면 지금까지처럼 자동으로 고른다
+     */
+    public RegionAccess accessTo(
+            double originLat, double originLng, double destLat, double destLng, LocalDate date,
+            LocalTime plannedDeparture, TransitMode preferred) {
         // **여기 한 곳에서 바닥을 정한다**(#422). 오늘 코스면 계획 시각이 이미 지났을 수 있어, 그대로
         // 쓰면 못 타는 차가 목록 맨 위에 뜬다. 아래 열차·버스·여객선이 전부 이 값을 쓴다.
         LocalTime notBefore = Departure.boardableFrom(date, plannedDeparture, LocalDateTime.now(SERVICE_ZONE));
@@ -64,10 +82,11 @@ public class RegionAccessService {
         Optional<Terminal> destTerminal = busTerminalResolver.nearest(destLat, destLng);
         Optional<Port> destPort = ferryPortResolver.nearest(destLat, destLng);
 
-        RegionAccess chosen = train.orNearer(
-                new Coordinate(destLat, destLng),
-                destTerminal.map(RegionArrival::of).orElse(null),
-                destPort.map(RegionArrival::of).orElse(null));
+        RegionAccess chosen = forcedTo(preferred, train, destTerminal, destPort)
+                .orElseGet(() -> train.orNearer(
+                        new Coordinate(destLat, destLng),
+                        destTerminal.map(RegionArrival::of).orElse(null),
+                        destPort.map(RegionArrival::of).orElse(null)));
         if (chosen != train) {
             // 열차만 보던 시절 이 지역은 도착 지점을 몰라 출발지로 되돌아갔다. 무엇이 그 자리를 채웠는지 남긴다.
             log.debug("도착 지점을 {}(으)로 잡습니다 — 열차 상태={} 지점={}",
@@ -86,6 +105,29 @@ public class RegionAccessService {
         return chosen.withDistanceKm(distanceKm(new Coordinate(originLat, originLng), chosen.arrivalPoint()))
                 .withAlternatives(alternativesTo(
                         chosen, train, destTerminal, destPort, originLat, originLng, date, notBefore));
+    }
+
+    /**
+     * 요청받은 수단으로 고정한 결과(#453). 그 수단이 이 지역에 안 닿으면 빈 값 — 호출자가 자동 선택으로 돌아간다.
+     *
+     * <p>열차는 이미 조회한 결과를 그대로 쓴다. 버스·여객선은 도착 지점만 아는 상태({@code POINT_ONLY})로
+     * 만드는데, 그 뒤 호출자가 출발 지점·소요시간·시간표를 채우는 흐름이 자동 선택과 같다.
+     */
+    private static Optional<RegionAccess> forcedTo(
+            TransitMode preferred, RegionAccess train, Optional<Terminal> destTerminal, Optional<Port> destPort) {
+        if (preferred == null) {
+            return Optional.empty();
+        }
+        return switch (preferred) {
+            case TRAIN -> Optional.of(train);
+            case EXPRESS_BUS, INTERCITY_BUS -> destTerminal
+                    .filter(terminal -> TransitMode.of(terminal.kind()) == preferred)
+                    .map(RegionArrival::of)
+                    .map(RegionAccess::pointOnly);
+            case FERRY -> destPort.map(RegionArrival::of).map(RegionAccess::pointOnly);
+            // 자차는 이 경로로 오지 않는다 — carAccessTo 가 따로 있다.
+            case CAR -> Optional.empty();
+        };
     }
 
     /**
