@@ -52,8 +52,18 @@ class TrainStationSeedIntegrationTest {
      */
     private static final String EXPRESS_LINE_PREFIX = "NATH";
 
-    /** 노선을 가르는 코드 자릿수 — {@code NAT88}(경전선)·{@code NAT60}(영동선) 처럼 앞 5자리가 노선이다. */
-    private static final int LINE_CODE_LENGTH = 5;
+    /**
+     * 역을 묶는 코드 자릿수 — {@code NAT88}·{@code NAT60} 처럼 앞 5자리다.
+     *
+     * <p><b>이것은 "노선" 이 아니라 TAGO 가 코드를 나눠 준 묶음이다.</b> 대체로 노선과 겹치지만
+     * 정확히 같지는 않다 — 예컨대 {@code NAT88} 은 경전선 역들과 함께 광주선 종착역인 광주역을 담는다.
+     * 시드에 노선 필드가 없어({@code code}·{@code name}·{@code lat}·{@code lng} 뿐) 더 정확한 축은 없다.
+     *
+     * <p><b>그래도 이 묶음으로 충분한 이유</b> — 여기서 보려는 것은 노선의 정확한 소속이 아니라
+     * <b>지리적 연속성</b>이다. 이 묶음은 실제로 한 회랑을 이룬다: 정정 후 실측하면 묶음 안 최근접
+     * 거리가 최대 36.7㎞고, 이번에 찾은 오류 열 곳은 전부 77㎞ 이상이었다.
+     */
+    private static final int CODE_GROUP_LENGTH = 5;
 
     @Autowired
     private TrainStationRepository stationRepository;
@@ -67,27 +77,32 @@ class TrainStationSeedIntegrationTest {
     }
 
     /**
-     * 노선에서 혼자 튀는 역이 없어야 한다.
+     * 코드 묶음에서 혼자 튀는 역이 없어야 한다.
      *
-     * <p>철도역은 노선을 따라 이어져 있어, 같은 노선에 다른 역이 있는 한 <b>어느 하나는 가까이 있다.</b>
+     * <p>철도역은 회랑을 따라 이어져 있어, 같은 묶음에 다른 역이 있는 한 <b>어느 하나는 가까이 있다.</b>
      * 그 성질이 깨졌다면 좌표가 그 역의 것이 아니다 — 이름이 같은 다른 역에 붙었다는 뜻이다.
+     *
+     * <p><b>한계 하나를 적어 둔다.</b> 같은 묶음에서 <b>둘 이상이 동시에</b> 서로 가까운 곳으로 잘못
+     * 박히면 서로를 가려 준다. 실제로 그랬다 — 경전선 광주역이 경기 광주에 있었는데, 같은 묶음의
+     * 원북·평촌도 수도권에 박혀 있어 24㎞ 이웃으로 통과하고 있었다. 그 둘을 제자리로 돌리자 250㎞로
+     * 드러났다. 지금은 열 곳을 모두 고쳤으므로 <b>이후 하나가 새로 어긋나면 반드시 걸린다.</b>
      *
      * <p>실패 메시지에 어느 역이 어디로 얼마나 튀었는지를 담는다. "좌표가 이상하다" 만으로는 위키백과에서
      * 무엇을 찾아 고쳐야 할지 알 수 없다.
      */
     @Test
-    void 역_좌표가_같은_노선의_다른_역과_동떨어져_있지_않다() {
-        Map<String, List<TrainStation>> byLine = new LinkedHashMap<>();
+    void 역_좌표가_같은_코드묶음의_다른_역과_동떨어져_있지_않다() {
+        Map<String, List<TrainStation>> byGroup = new LinkedHashMap<>();
         for (TrainStation station : stationRepository.findAll()) {
             if (!station.hasCoordinate() || station.getCode().startsWith(EXPRESS_LINE_PREFIX)) {
                 continue;
             }
-            byLine.computeIfAbsent(lineOf(station), line -> new ArrayList<>()).add(station);
+            byGroup.computeIfAbsent(codeGroupOf(station), group -> new ArrayList<>()).add(station);
         }
 
         List<String> outliers = new ArrayList<>();
-        byLine.forEach((line, stations) -> {
-            // 노선에 역이 하나뿐이면 견줄 상대가 없다 — 통과시킨다. 오검출보다 미검출이 낫다.
+        byGroup.forEach((group, stations) -> {
+            // 묶음에 역이 하나뿐이면 견줄 상대가 없다 — 통과시킨다. 오검출보다 미검출이 낫다.
             if (stations.size() < 2) {
                 return;
             }
@@ -98,20 +113,20 @@ class TrainStationSeedIntegrationTest {
                         .min()
                         .orElseThrow();
                 if (nearest > MAX_NEIGHBOUR_KM) {
-                    outliers.add("%s(%s) 노선 %s — 가장 가까운 동료 역까지 %.0f㎞, 좌표 (%s, %s)"
-                            .formatted(station.getName(), station.getCode(), line, nearest,
+                    outliers.add("%s(%s) 코드묶음 %s — 가장 가까운 동료 역까지 %.0f㎞, 좌표 (%s, %s)"
+                            .formatted(station.getName(), station.getCode(), group, nearest,
                                     station.getLat(), station.getLng()));
                 }
             }
         });
 
         assertTrue(outliers.isEmpty(),
-                "노선에서 동떨어진 역이 있습니다 — 같은 이름의 다른 역 좌표가 붙었는지 확인하세요:\n"
+                "코드묶음에서 동떨어진 역이 있습니다 — 같은 이름의 다른 역 좌표가 붙었는지 확인하세요:\n"
                         + String.join("\n", outliers));
     }
 
-    private static String lineOf(TrainStation station) {
-        return station.getCode().substring(0, LINE_CODE_LENGTH);
+    private static String codeGroupOf(TrainStation station) {
+        return station.getCode().substring(0, CODE_GROUP_LENGTH);
     }
 
     private static Coordinate coordinateOf(TrainStation station) {
