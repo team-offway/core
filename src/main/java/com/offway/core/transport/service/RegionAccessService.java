@@ -112,6 +112,11 @@ public class RegionAccessService {
      *
      * <p>열차는 이미 조회한 결과를 그대로 쓴다. 버스·여객선은 도착 지점만 아는 상태({@code POINT_ONLY})로
      * 만드는데, 그 뒤 호출자가 출발 지점·소요시간·시간표를 채우는 흐름이 자동 선택과 같다.
+     *
+     * <p><b>"안 닿는다" 의 기준은 상태가 아니라 도착 지점이다.</b> 열차는 조회 결과가 어떻든 값이 나오므로,
+     * 상태로 가르면 역이 아예 없는 지역({@code NO_STATION})까지 열차로 고정된다 — 내리는 곳을 모르는 채
+     * 동선을 짜게 되고, 코스가 출발지 기준으로 되돌아간다. 그날 운행이 없는 것({@code NO_SERVICE_ON_DATE})은
+     * 지점을 알므로 그대로 열차로 답한다. 버스·여객선은 지점이 있어야 값이 만들어져 이 검사가 따로 필요 없다.
      */
     private static Optional<RegionAccess> forcedTo(
             TransitMode preferred, RegionAccess train, Optional<Terminal> destTerminal, Optional<Port> destPort) {
@@ -119,7 +124,7 @@ public class RegionAccessService {
             return Optional.empty();
         }
         return switch (preferred) {
-            case TRAIN -> Optional.of(train);
+            case TRAIN -> Optional.of(train).filter(access -> access.arrivalPoint().isPresent());
             case EXPRESS_BUS, INTERCITY_BUS -> destTerminal
                     .filter(terminal -> TransitMode.of(terminal.kind()) == preferred)
                     .map(RegionArrival::of)
