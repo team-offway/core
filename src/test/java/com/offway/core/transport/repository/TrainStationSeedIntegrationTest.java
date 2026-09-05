@@ -10,6 +10,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -65,8 +67,62 @@ class TrainStationSeedIntegrationTest {
      */
     private static final int CODE_GROUP_LENGTH = 5;
 
+    /**
+     * 이 값에서 이만큼 벗어나면 다른 지점이라고 본다.
+     *
+     * <p>좌표를 더 정밀한 값으로 다듬는 것은 막지 않되, <b>다른 역으로 옮겨가는 것</b>은 잡을 만큼
+     * 좁게 둔다. 이웃 역까지가 보통 3㎞ 이상이라 1㎞면 그 둘을 가른다.
+     */
+    private static final double COORDINATE_TOLERANCE_KM = 1.0;
+
     @Autowired
     private TrainStationRepository stationRepository;
+
+    /**
+     * 제자리로 돌린 열 곳(#427) — 코드와 위키백과 확인 좌표.
+     *
+     * <p>회랑 검사만으로는 부족하다. 좌표가 <b>같은 회랑 안의 다른 역</b> 근처로 옮겨가면 60㎞ 검사를
+     * 통과해 버린다 — 원북을 3.6㎞ 떨어진 군북 자리에 두는 식이다. 그래서 값 자체를 못 박는다.
+     */
+    private record CorrectedStation(String code, String name, double lat, double lng) {}
+
+    private static List<CorrectedStation> correctedStations() {
+        return List.of(
+                new CorrectedStation("NAT880644", "원북", 35.2335694, 128.3263306),
+                new CorrectedStation("NAT880702", "평촌", 35.1863194, 128.3310560),
+                new CorrectedStation("NAT883012", "광주", 35.1653170, 126.9091880),
+                new CorrectedStation("NAT752319", "기성", 36.7902800, 129.4475000),
+                new CorrectedStation("NAT752428", "매화", 36.8827800, 129.4097200),
+                new CorrectedStation("NAT750254", "송정", 35.1809278, 129.1999306),
+                new CorrectedStation("NAT280090", "가남", 37.1976000, 127.5353000),
+                new CorrectedStation("NAT600655", "양원", 36.9647639, 129.0915694),
+                new CorrectedStation("NAT601275", "신기", 37.3460306, 129.0853361),
+                new CorrectedStation("NAT030396", "연산", 36.2122200, 127.2005600));
+    }
+
+    /**
+     * 정정한 좌표가 그대로 남아 있어야 한다(#427).
+     *
+     * <p>이 열 곳은 전부 <b>같은 이름의 도시철도역</b>이 있어, 시드를 다시 만들거나 지오코딩을 다시
+     * 돌리면 같은 자리로 돌아가기 쉽다. 회랑 검사가 그중 먼 것은 잡지만 가까운 것은 놓치므로
+     * 값으로 잠근다.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("correctedStations")
+    void 정정한_역은_확인된_좌표에_있다(CorrectedStation corrected) {
+        TrainStation station = stationRepository.findAll().stream()
+                .filter(each -> each.getCode().equals(corrected.code()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(corrected.name() + " 역이 시드에 없습니다"));
+
+        double off = new Coordinate(station.getLat(), station.getLng())
+                .haversineKmTo(new Coordinate(corrected.lat(), corrected.lng()));
+
+        assertTrue(off <= COORDINATE_TOLERANCE_KM,
+                "%s(%s) 좌표가 확인된 위치에서 %.1f㎞ 벗어났습니다 — 현재 (%s, %s)"
+                        .formatted(corrected.name(), corrected.code(), off,
+                                station.getLat(), station.getLng()));
+    }
 
     @Test
     void 시드된_역과_좌표가_전부_남아_있다() {
