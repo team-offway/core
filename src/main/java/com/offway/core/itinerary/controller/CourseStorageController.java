@@ -15,6 +15,7 @@ import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.itinerary.controller.dto.CourseSaveRequest;
 import com.offway.core.itinerary.controller.dto.CourseShareResponse;
 import com.offway.core.itinerary.controller.dto.CourseSummaryResponse;
+import com.offway.core.itinerary.controller.dto.CourseTransitModeRequest;
 import com.offway.core.itinerary.controller.dto.CourseUpdateRequest;
 import com.offway.core.itinerary.service.CourseStorageService;
 import com.offway.core.user.config.LoginUser;
@@ -87,6 +88,17 @@ public class CourseStorageController implements CourseStorageApi {
             @Valid @RequestBody CourseUpdateRequest request) {
         return ApiResponseBody.ok(CourseResponse.from(
                 courseStorageService.changeTravelDate(userId, courseId, request.travelDate()),
+                curationService.linksOn(Surface.COURSE)));
+    }
+
+    @Override
+    @PatchMapping("/{courseId}/transit-mode")
+    public ApiResponseBody<CourseResponse> updateTransitMode(
+            @LoginUser UUID userId,
+            @PathVariable long courseId,
+            @Valid @RequestBody CourseTransitModeRequest request) {
+        return ApiResponseBody.ok(CourseResponse.from(
+                courseStorageService.changeTransitMode(userId, courseId, request.transitMode()),
                 curationService.linksOn(Surface.COURSE)));
     }
 

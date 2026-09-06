@@ -175,14 +175,16 @@ class TripTomorrowNotifierIntegrationTest {
     private Course saveOwnedCourse(UUID owner, LocalDate travelDate) {
         return courseRepository.save(Course.ownedBy(
                 owner, 1L, Density.RELAXED, TransportMode.CAR,
-                List.of(DaySchedule.of(1, List.of(minimalSlot()))), travelDate, 1, null, StartDayLeave.DEFAULT));
+                List.of(DaySchedule.of(1, List.of(minimalSlot()))), travelDate, 1, null, StartDayLeave.DEFAULT,
+                null));
     }
 
     /** 담지 않고 공유 링크만 만든 코스 — 주인이 없는 것이 설계다(#261). */
     private Course saveSharedOnlyCourse(LocalDate travelDate) {
         return courseRepository.save(Course.sharedOnly(
                 1L, Density.RELAXED, TransportMode.CAR,
-                List.of(DaySchedule.of(1, List.of(minimalSlot()))), travelDate, 1, null, StartDayLeave.DEFAULT));
+                List.of(DaySchedule.of(1, List.of(minimalSlot()))), travelDate, 1, null, StartDayLeave.DEFAULT,
+                null));
     }
 
     private static Slot minimalSlot() {

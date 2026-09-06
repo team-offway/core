@@ -514,7 +514,8 @@ class UserWithdrawalIntegrationTest {
                 LocalDate.now().plusDays(7),
                 1,
                 null,
-                StartDayLeave.DEFAULT);
+                StartDayLeave.DEFAULT,
+                null);
         return courseJpaRepository.save(course).getId();
     }
 
