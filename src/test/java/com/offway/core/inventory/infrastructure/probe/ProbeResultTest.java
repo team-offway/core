@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ProbeResultTest {
 
@@ -29,5 +31,38 @@ class ProbeResultTest {
         assertFalse(
                 ProbeResult.unverified("코레일", "공공데이터포털", "승인 대기").unusable(),
                 "못 재본 것과 죽은 것은 다르다");
+    }
+
+    /**
+     * <b>4xx 는 다시 물어봐야 소용없다</b>(CodeRabbit #477 리뷰).
+     *
+     * <p>키가 안 꽂혔거나 파라미터가 틀린 것이라 몇 번을 더 불러도 같은 답이 온다. 확인 호출은
+     * "일시적인가 진짜 죽었나" 를 가르려는 것인데 4xx 에는 가를 것이 없고, 그 호출이 공유 키의 한도만
+     * 태운다.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = {400, 401, 403, 404, 429})
+    void 요청이_잘못된_것이면_다시_묻지_않는다(int httpStatus) {
+        ProbeResult result = ProbeResult.fail("국문관광정보", "공공데이터포털", httpStatus, "요청 오류", "");
+
+        assertTrue(result.unusable(), "못 쓰는 상태인 것은 맞다 — 어드민 표에는 실패로 보여야 한다");
+        assertFalse(result.worthConfirming(), "몇 번을 물어도 같은 답이라 한도만 태운다");
+    }
+
+    /** 5xx·무응답은 일시적일 수 있어 그 자리에서 더 묻는다. */
+    @ParameterizedTest
+    @ValueSource(ints = {0, 500, 502, 503})
+    void 외부가_못_하겠다고_답했으면_다시_묻는다(int httpStatus) {
+        ProbeResult result = ProbeResult.fail("국문관광정보", "공공데이터포털", httpStatus, "게이트웨이 오류", "");
+
+        assertTrue(result.worthConfirming());
+    }
+
+    /** 실패가 아닌 것은 애초에 확인 대상이 아니다. */
+    @Test
+    void 실패가_아니면_다시_묻지_않는다() {
+        assertFalse(ProbeResult.ok("TAGO 열차", "공공데이터포털", 200, "{}").worthConfirming());
+        assertFalse(ProbeResult.skipped("TMAP 경로", "SK openapi").worthConfirming());
+        assertFalse(ProbeResult.unverified("코레일", "공공데이터포털", "승인 대기").worthConfirming());
     }
 }

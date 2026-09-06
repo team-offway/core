@@ -28,8 +28,14 @@ import org.springframework.stereotype.Component;
  *
  * <h2>한도</h2>
  *
- * <p>프로브 여섯 개 × 하루 48회 = API 당 48콜이다. 가장 빡빡한 관광정보(1,000)의 5% 다. 이 계산이
- * 주기를 30분으로 정한 근거고, 더 촘촘하게 하려면 이 숫자를 다시 재야 한다.
+ * <p>평시에는 프로브 하나가 하루 48회다(30분 주기). 가장 빡빡한 관광정보(1,000)의 <b>5%</b>다.
+ *
+ * <p><b>장애가 이어지면 그 값이 세 배가 된다.</b> 실패한 프로브만 두 번 더 부르므로 주기당 3회, 하루
+ * <b>144회 · 14.4%</b> 가 상한이다. 그래도 두는 이유는 그 상황에서 태우는 한도가 <b>이미 못 쓰는
+ * API</b> 의 것이기 때문이다. 다만 data.go.kr 은 여러 API 가 키 하나를 공유하므로, 한 곳의 장애가
+ * 나머지 몫까지 갉을 수 있다 — 그래서 4xx(우리 요청 문제)는 확인 호출에서 빼 상한을 낮춘다.
+ *
+ * <p>이 계산이 주기를 30분으로 정한 근거고, 더 촘촘하게 하려면 두 숫자를 다시 재야 한다.
  *
  * <h2>기본은 꺼져 있다</h2>
  *
@@ -67,7 +73,12 @@ public class ExternalProbeScheduler {
         if (!result.unusable()) {
             return;
         }
-        log.warn("외부 프로브 실패 — {} status={} detail={}", result.name(), result.status(), result.detail());
+        log.warn("외부 프로브 실패 — {} status={} http={} detail={}",
+                result.name(), result.status(), result.httpStatus(), result.detail());
+        if (!result.worthConfirming()) {
+            // 4xx — 우리 요청이 잘못된 것이라 더 물어도 답이 같다. 한도만 태운다.
+            return;
+        }
         for (int i = 0; i < CONFIRMATIONS; i++) {
             probe.probe();
         }

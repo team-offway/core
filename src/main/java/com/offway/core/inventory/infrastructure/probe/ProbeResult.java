@@ -29,6 +29,27 @@ public record ProbeResult(
         return status == Status.FAIL;
     }
 
+    /**
+     * 그 자리에서 다시 물어볼 값어치가 있나(#474).
+     *
+     * <p><b>4xx 는 제외한다.</b> 그건 우리 요청이 잘못됐다는 뜻이라 — 키가 안 꽂혔거나 파라미터가
+     * 틀렸거나 — 몇 번을 더 물어도 같은 답이 온다. 확인 호출은 "일시적인가 진짜 죽었나" 를 가르려는
+     * 것인데, 4xx 에는 가를 것이 없다.
+     *
+     * <p>{@code ExternalHealthFilter} 도 같은 이유로 4xx 를 장애로 세지 않는다. 두 곳의 기준이 갈리면
+     * 어드민 표와 알림이 서로 다른 말을 한다.
+     *
+     * <p>표시({@link #unusable()})와는 다른 질문이다. 키가 잘못돼 못 쓰는 것도 <b>못 쓰는 상태</b>라
+     * 어드민에는 실패로 보여야 하지만, 다시 물어볼 이유는 없다.
+     */
+    public boolean worthConfirming() {
+        return unusable() && !isClientError();
+    }
+
+    private boolean isClientError() {
+        return httpStatus >= 400 && httpStatus < 500;
+    }
+
     public static ProbeResult unverified(String name, String provider, String detail) {
         return new ProbeResult(name, provider, Status.UNVERIFIED, 0, detail, "");
     }
