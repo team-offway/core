@@ -29,6 +29,17 @@ public interface LicensedPlaceRepository {
     /** 단건 조회 — 코스 응답에 나간 식별자로 상세를 되찾을 때 쓴다. */
     Optional<LicensedPlace> findById(long id);
 
+    /**
+     * 그 지역의 인허가 장소 전부 — <b>이름으로 좌표를 이어 붙일 때</b> 쓴다(#186).
+     *
+     * <p>연관 관광지 API 가 좌표를 안 줘서, 이름을 맞대 좌표를 얻는다. 한 지역이 평균 1,300여 건이라
+     * 통째로 올려도 부담이 없고, 이 조회는 <b>월 1회 배치</b>만 탄다 — 요청 경로에서 부르지 않는다.
+     *
+     * <p><b>순서가 정해져 있다</b>(id 오름차순). 이름이 겹칠 때 어느 것을 남길지가 이 순서로 갈리므로,
+     * 정하지 않으면 회차마다 다른 좌표가 붙는다.
+     */
+    List<LicensedPlace> findAllInRegion(long regionId);
+
     /** 적재 여부 판정용 — 비어 있을 때만 채운다(멱등). */
     long count();
 

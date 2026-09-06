@@ -45,6 +45,11 @@ public class LicensedPlaceRepositoryImpl implements LicensedPlaceRepository {
     }
 
     @Override
+    public List<LicensedPlace> findAllInRegion(long regionId) {
+        return licensedPlaceJpaRepository.findByRegionIdOrderByIdAsc(regionId);
+    }
+
+    @Override
     public Optional<LicensedPlace> findById(long id) {
         return licensedPlaceJpaRepository.findById(id);
     }
