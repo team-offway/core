@@ -1257,6 +1257,97 @@ class CourseStorageIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
+    /**
+     * 바꾼 뒤 <b>다시 읽어도 장소가 그대로 있다</b>.
+     *
+     * <p>응답만 보면 못 잡는 자리다 — PATCH 응답은 아직 flush 전의 메모리 상태로 조립되므로, DB 에서
+     * 장소가 지워져도 그 응답은 멀쩡해 보인다. 커밋 뒤에 다시 읽어야 드러난다.
+     */
+    @Test
+    void 수단을_바꿔도_장소_칸은_다시_읽어도_남아_있다() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(transitHubBody(null));
+
+        mockMvc.perform(patch(URL + "/{id}/transit-mode", courseId)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitModeBody("TRAIN")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items.length()").value(3))
+                .andExpect(jsonPath("$.data.days[0].items[1].kind").value("SIGHT"))
+                .andExpect(jsonPath("$.data.days[0].items[1].poiContentId").value("c1"))
+                .andExpect(jsonPath("$.data.days[0].items[1].title").value("장소1"))
+                // 목록 카드의 "N곳" 도 장소를 세므로 함께 본다
+                .andExpect(jsonPath("$.data.days[0].items[1].travelMinutes").isNumber());
+    }
+
+    /**
+     * 도착 칸과 출발 칸이 <b>다른 날</b>에 있는 코스 — 두 날이 각각 갈린다.
+     *
+     * <p>하루짜리는 한 날만 교체되므로 이쪽이 더 넓은 경우다. 중간에 낀 날(2일차 앞)의 장소가 딸려
+     * 지워지지 않는지도 여기서 드러난다.
+     */
+    private static String twoDayTransitHubBody() {
+        return """
+                { "regionId": 16, "density": "PACKED", "transport": "TRANSIT",
+                  "travelDate": "2026-09-11", "originLat": 37.5547, "originLng": 126.9707,
+                  "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"ARRIVAL","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":0},
+                    {"order":2,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":22},
+                    {"order":3,"timeOfDay":"DINNER","kind":"STAY","poiContentId":"s1","title":"숙소","lat":37.51,"lng":128.61,"travelMinutes":15}
+                  ]},
+                  { "day": 2, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c2","title":"장소2","lat":37.52,"lng":128.62,"travelMinutes":0},
+                    {"order":2,"timeOfDay":"AFTERNOON","kind":"DEPARTURE","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":18}
+                  ]}
+                ]}""";
+    }
+
+    @Test
+    void 도착과_출발이_다른_날이어도_장소는_다시_읽어도_남아_있다() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(twoDayTransitHubBody());
+
+        mockMvc.perform(patch(URL + "/{id}/transit-mode", courseId)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitModeBody("TRAIN")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                // 1일차: 도착 칸이 갈리고 장소·숙소는 그대로
+                .andExpect(jsonPath("$.data.days[0].items.length()").value(3))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value("정선"))
+                .andExpect(jsonPath("$.data.days[0].items[1].poiContentId").value("c1"))
+                .andExpect(jsonPath("$.data.days[0].items[2].poiContentId").value("s1"))
+                // 2일차: 출발 칸이 갈리고 장소는 그대로
+                .andExpect(jsonPath("$.data.days[1].items.length()").value(2))
+                .andExpect(jsonPath("$.data.days[1].items[0].poiContentId").value("c2"))
+                .andExpect(jsonPath("$.data.days[1].items[1].kind").value("DEPARTURE"))
+                .andExpect(jsonPath("$.data.days[1].items[1].title").value("정선"));
+
+        // 목록 카드의 "N곳" 은 장소만 센다 — 슬롯이 지워졌으면 여기서도 줄어든다
+        mockMvc.perform(get(URL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].placeCount").value(3));
+    }
+
+    /**
+     * 담을 때부터 막는다 — 자차 코스에 수단을 실으면 코스 구성 오류다(ITINERARY-002).
+     *
+     * <p>바꾸는 쪽만 막으면 <b>모순된 코스가 DB 에 남는다</b>. 저장은 통과했는데 바꾸려 하면 400 이
+     * 나오는 상태라, 앱이 그 코스를 어떻게 다뤄야 하는지 알 수 없다.
+     */
+    @Test
+    void 자차_코스에_수단을_실어_담으면_400이다() throws Exception {
+        String body = VALID_BODY.replace("\"transport\": \"CAR\"", "\"transport\": \"CAR\", \"transitMode\": \"TRAIN\"");
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
     /** 조회·삭제와 같은 규칙이다 — 없거나 남의 코스면 존재 여부를 흘리지 않도록 똑같이 404. */
     @Test
     void 남의_코스는_수단을_바꿀_수_없다_404() throws Exception {

@@ -507,6 +507,18 @@ class CourseTest {
                 () -> course.changeTransitMode(com.offway.core.transport.domain.TransitMode.TRAIN));
     }
 
+    /**
+     * 자차 코스에 수단을 실어 <b>만들 수도</b> 없다 — 바꾸는 쪽만 막으면 모순된 코스가 DB 에 남는다.
+     * 도메인은 누가 만들든 스스로 유효함을 보장하는 최후의 보루다.
+     */
+    @Test
+    void 자차_코스는_수단을_실어_만들_수_없다() {
+        assertThrows(IllegalArgumentException.class, () -> Course.ownedBy(
+                java.util.UUID.randomUUID(), 42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 2)),
+                LocalDate.of(2026, 9, 12), 1, null, StartDayLeave.FULL_DAY,
+                com.offway.core.transport.domain.TransitMode.TRAIN));
+    }
+
     /** 고정을 풀면 서버가 고른다(#453 의 자동 선택) — null 은 오류가 아니다. */
     @Test
     void 고정을_풀면_null_이_된다() {
