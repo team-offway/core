@@ -1,6 +1,7 @@
 package com.offway.core.transport.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -78,5 +79,47 @@ class TransitLegDurationTest {
     @Test
     void 잰_구간이_비어_있으면_Measured_가_아니라_NoService_다() {
         assertThrows(IllegalArgumentException.class, () -> new TransitLegResult.Measured(null));
+    }
+
+    /**
+     * 시드 후보와 물어본 자리를 갈라야 한다(#491). 같은 자격으로 넣으면 사용자가 방금 요청한 구간이
+     * 3만 건 뒤에 서서 배치 주기로 28일을 기다린다 — 실제로 그 상태였다.
+     */
+    @Test
+    void 물어본_자리는_수요_표시를_달고_시드_후보는_안_단다() {
+        LocalDateTime now = LocalDateTime.of(2026, 9, 7, 2, 0);
+
+        TransitLegDuration asked = TransitLegDuration.requested(
+                TransitMode.INTERCITY_BUS, "NAI1", "NAI2", now);
+        TransitLegDuration seeded = TransitLegDuration.seeded(
+                TransitMode.INTERCITY_BUS, "NAI1", "NAI3", now);
+
+        assertEquals(now, asked.getLastAskedAt(), "코스가 물어서 만든 자리다");
+        assertNull(seeded.getLastAskedAt(), "아무도 안 물어본 후보다");
+        assertEquals(now, seeded.getRequestedAt(), "언제 넣었는지는 남는다");
+    }
+
+    @Test
+    void 이미_있는_자리를_다시_물으면_수요_시각이_갱신된다() {
+        LocalDateTime seededAt = LocalDateTime.of(2026, 9, 1, 3, 0);
+        LocalDateTime askedAt = LocalDateTime.of(2026, 9, 7, 2, 0);
+        TransitLegDuration leg = TransitLegDuration.seeded(
+                TransitMode.EXPRESS_BUS, "NAEK1", "NAEK2", seededAt);
+
+        leg.asked(askedAt);
+
+        assertEquals(askedAt, leg.getLastAskedAt());
+        assertEquals(seededAt, leg.getRequestedAt(), "처음 넣은 때는 덮이지 않는다 — 다른 질문이다");
+    }
+
+    @Test
+    void 잰_구간은_더_이상_배치_대상이_아니다() {
+        LocalDateTime now = LocalDateTime.of(2026, 9, 7, 2, 0);
+        TransitLegDuration leg = TransitLegDuration.requested(
+                TransitMode.FERRY, "P1", "P2", now);
+
+        assertTrue(leg.unmeasured());
+        leg.measured(new MeasuredLeg(140, 61_000, "엘도라도익스프레스호"), now);
+        assertFalse(leg.unmeasured());
     }
 }
