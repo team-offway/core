@@ -38,8 +38,11 @@ OUR_TIMEOUT=6
 # 키가 없어도 호스트가 살아 있으면 401/403 을 빨리 준다 — 그 자체가 "붙는다" 는 증거라 200 과 같이 친다.
 probe() {
   label=$1; group=$2; expect=$3; url=$4
-  out=$(curl -s --max-time "$TIMEOUT" -o /dev/null \
-        -w '%{time_appconnect} %{time_total} %{http_code}' "$url" 2>/dev/null)
+  # URL 에 인증키가 실려 있다. 인자로 주면 `ps` 에 그대로 보이므로 stdin 설정으로 넘긴다
+  # (이 파일 머리말이 약속한 것이고, 그동안 안 지켜지고 있었다).
+  out=$(printf 'url = "%s"\n' "$url" \
+        | curl -s --config - --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -o /dev/null \
+               -w '%{time_appconnect} %{time_total} %{http_code}' 2>/dev/null)
   set -- $out
   tls=$1; total=$2; code=$3
   if [ "$code" = "000" ]; then
@@ -89,9 +92,17 @@ PY
 [ "${NO_SEND:-0}" = "1" ] && exit 0
 [ -z "$WEBHOOK" ] && { echo "(DISCORD_WEBHOOK 없음 — 전송 생략)"; exit 0; }
 
-python3 - "$WEBHOOK" "$RESULTS" "$OUR_TIMEOUT" <<'PY'
+# 웹훅 URL 자체가 토큰이다. http 로 보내면 점검 결과와 함께 그 토큰이 평문으로 흐른다.
+case "$WEBHOOK" in
+  https://*) ;;
+  *) echo "DISCORD_WEBHOOK 은 https 여야 합니다 — 평문 전송을 막습니다" >&2; exit 1 ;;
+esac
+
+# 웹훅은 인자가 아니라 환경으로 넘긴다 — 인자는 `ps` 에 보인다.
+DISCORD_WEBHOOK="$WEBHOOK" python3 - "$RESULTS" "$OUR_TIMEOUT" "$TIMEOUT" <<'PY'
 import json, subprocess, sys, datetime, tempfile, os
-webhook, raw, our_timeout = sys.argv[1], sys.argv[2], sys.argv[3]
+raw, our_timeout, timeout = sys.argv[1], sys.argv[2], sys.argv[3]
+webhook = os.environ["DISCORD_WEBHOOK"]
 rows = [r.split("|") for r in raw.strip().splitlines() if r.strip()]
 MARK = {"OK": "🟢", "SLOW": "🟡", "DOWN": "🔴", "ODD": "🟠"}
 groups = {}
@@ -112,16 +123,26 @@ body = {"embeds": [{
     "footer": {"text": f"🟢 정상 · 🟡 {our_timeout}초 초과(우리 timeout) · 🔴 무응답 · 🟠 예상 밖 코드"
                        f"   |   {datetime.datetime.now():%m-%d %H:%M}"},
 }]}
-# 웹훅 URL 이 곧 시크릿이라 본문을 파일로 넘긴다 — 인자로 주면 ps 에 남는다.
+# 본문도 URL 도 인자로 주지 않는다 — 둘 다 `ps` 에 남는다. 본문은 파일로, URL 은 stdin 설정으로.
 fd, path = tempfile.mkstemp(suffix=".json")
 try:
     with os.fdopen(fd, "w") as f:
         json.dump(body, f, ensure_ascii=False)
     # python urllib 은 기본 User-Agent 로 403 을 받는다 — curl 로 보낸다.
-    code = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST", webhook,
-                           "-H", "Content-Type: application/json", "--data", "@" + path],
-                          capture_output=True, text=True).stdout
+    sent = subprocess.run(
+        ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--config", "-",
+         "-X", "POST", "-H", "Content-Type: application/json", "--data", "@" + path,
+         "--connect-timeout", timeout, "--max-time", timeout],
+        input=f'url = "{webhook}"\n', capture_output=True, text=True)
 finally:
     os.unlink(path)
+
+# 전송 실패를 성공으로 끝내지 않는다 — "알렸다" 가 거짓이면 이 스크립트의 존재 이유가 사라진다.
+if sent.returncode != 0:
+    print(f"디스코드 전송 실패 — curl exit {sent.returncode}", file=sys.stderr)
+    sys.exit(1)
+code = sent.stdout.strip()
 print(f"디스코드 전송 HTTP {code}")
+if not code.startswith("2"):
+    sys.exit(1)
 PY
