@@ -45,9 +45,19 @@ class BusTerminalSeedIntegrationTest {
      * 빠진 것은 대부분 경유 정류소와 다른 터미널의 좌표를 베껴 쓰던 행이다. 틀린 좌표는 resolver 가
      * 엉뚱한 곳을 답하게 하지만 빈 좌표는 최근접 탐색에서 빠질 뿐이다.
      *
+     * <p><b>다시 늘었다 — 563</b>(2026-09-06, #463). 위 재지오코딩이 **시외만** 다뤄 고속이 195곳에서
+     * 14곳으로 떨어져 있었다. 소재지를 얻을 길이 없어서였는데(TAGO 고속 목록은 terminalId·terminalNm 뿐이다),
+     * 세 가지로 채웠다 — 같은 건물의 시외 터미널 좌표를 쓰거나(161곳), 카카오 분류가 버스 터미널·정류장인
+     * 것만 골라 지오코딩하거나(83곳), 손으로 바로잡거나(3곳).
+     *
+     * <p><b>이름으로 거르면 안 된다.</b> '터미널' 은 물류·택배·편의점 상호에도 쓰는 말이라
+     * `금강탱크터미널`(화학) · `풍기택배터미널` · `GS25 동광양터미널점` · `동대구고속터미널 퀵서비스` 가
+     * 전부 통과했다. 분류로 가르면 걸러질 뿐 아니라 정답이 잡힌다 — 동광양은 중마버스터미널로,
+     * 동대구는 동대구터미널로 바뀐다.
+     *
      * <p>정확한 값으로 고정한다. 하한만 보면 좌표가 조용히 줄어도 통과한다.
      */
-    private static final int EXPECTED_WITH_COORDINATE = 316;
+    private static final int EXPECTED_WITH_COORDINATE = 563;
 
     /** 인구감소지역 수 — 행안부 고시 89곳. */
     private static final int EXPECTED_REGIONS = 89;
@@ -60,6 +70,23 @@ class BusTerminalSeedIntegrationTest {
      * <p>정확한 값으로 고정한다. 하한을 느슨하게 두면 좌표가 여덟 곳 사라져도 통과해, 시드 회귀를 놓친다.
      */
     private static final int EXPECTED_REACHABLE_REGIONS = 88;
+
+    /**
+     * <b>고속버스로</b> 닿는 인구감소지역 수 — <b>84곳</b>(2026-09-06, #463).
+     *
+     * <p><b>1곳이었다.</b> 고속 좌표가 14곳뿐이라 89곳 중 한 곳만 30㎞ 안에 고속 터미널을 가졌다.
+     * 화면에서 고속버스 칩을 눌러도 볼 것이 없었고, #443 이 지적한 "고속버스 소요시간 13/14 비어 있음" 도
+     * 적재가 아니라 이 문제였다.
+     *
+     * <p>수단별로 따로 센다. 합계({@link #EXPECTED_REACHABLE_REGIONS})만 보면 시외가 덮고 있어
+     * 고속이 통째로 죽어도 88 이 그대로다 — 실제로 그렇게 지나갔다.
+     */
+    private static final int EXPECTED_EXPRESS_REACHABLE_REGIONS = 84;
+
+    /** 임자(대광) 정류소 — 신안 임자도. 30km 안에 시외 터미널이 없어 정류소가 유일한 접점이다. */
+    private static final double IMJA_STOP_LAT = 35.101826;
+
+    private static final double IMJA_STOP_LNG = 126.073492;
 
     /** 터미널이 이보다 멀면 "그 지역 터미널" 로 보지 않는다 — resolver 상한과 같은 값. */
     private static final double NEAR_KM = 30.0;
@@ -130,6 +157,24 @@ class BusTerminalSeedIntegrationTest {
 
         assertEquals(EXPECTED_REACHABLE_REGIONS, reachable,
                 "버스로 닿는 지역 수가 다릅니다 — 시드·좌표 회귀를 의심하세요");
+    }
+
+    /**
+     * <b>수단별로 따로 센다</b>(#463). 합계만 보면 시외가 덮고 있어 고속이 통째로 죽어도 88 이 그대로다 —
+     * 실제로 고속이 84곳에서 1곳으로 떨어진 채 이 테스트가 초록이었다.
+     */
+    @Test
+    void 고속버스로도_인구감소지역_대부분에_닿는다() {
+        List<Region> regions = regionRepository.findAll();
+
+        long reachable = regions.stream()
+                .filter(region -> resolver
+                        .nearest(region.getLat(), region.getLng(), BusTerminalKind.EXPRESS)
+                        .isPresent())
+                .count();
+
+        assertEquals(EXPECTED_EXPRESS_REACHABLE_REGIONS, reachable,
+                "고속버스로 닿는 지역 수가 다릅니다 — 고속 좌표 회귀를 의심하세요");
     }
 
     @Test
@@ -246,21 +291,20 @@ class BusTerminalSeedIntegrationTest {
     /**
      * 반경 안에 터미널이 없으면 <b>정류소를 그대로 쓴다</b>(#446).
      *
-     * <p>정류소를 버리면 인구감소지역 커버리지가 86곳에서 83곳으로 준다. 우선순위만 바꾸는 것이지
-     * 목록에서 빼는 것이 아니다 — 그 세 곳에는 정류소가 유일한 접점이다.
+     * <p>우선순위만 바꾸는 것이지 목록에서 빼는 것이 아니다. 정류소를 버리면 그것이 유일한 접점인 자리가
+     * 통째로 안 닿는 곳이 된다.
+     *
+     * <p><b>인구감소지역으로는 더 이상 못 잰다</b>(#463). 고속 터미널 좌표를 되살리면서 89곳 전부가
+     * 정류소보다 가까운 터미널을 갖게 됐다 — 그건 개선이지만, 이 규칙을 확인할 자리는 사라졌다. 그래서
+     * <b>정류소 자신의 좌표</b>에서 잰다. 임자(대광)은 신안 임자도라 30km 안에 시외 터미널이 없다.
      */
     @Test
-    void 정류소가_유일한_접점인_지역이_있다() {
-        long onlyStop = regionRepository.findAll().stream()
-                .filter(region -> resolver.nearest(region.getLat(), region.getLng(), null)
-                        .filter(terminal -> !terminal.isTerminal())
-                        .isPresent())
-                .count();
+    void 반경_안에_터미널이_없으면_정류소를_쓴다() {
+        Terminal nearest = resolver
+                .nearest(IMJA_STOP_LAT, IMJA_STOP_LNG, BusTerminalKind.INTERCITY)
+                .orElseThrow(() -> new AssertionError("정류소가 목록에서 빠졌습니다 — 그 자리가 안 닿는 곳이 됩니다"));
 
-        // 정류소를 목록에서 빼면 이 지역들이 버스로 못 가는 곳이 된다 — 커버리지 86 → 83.
-        // 우선순위만 바꾸는 것이지 빼는 것이 아님을 여기서 지킨다.
-        assertTrue(onlyStop > 0,
-                "정류소가 최근접인 지역이 하나도 없다 — 정류소가 목록에서 빠졌는지 확인하세요");
+        assertTrue(!nearest.isTerminal(), "정류소가 유일한 접점인 자리인데 터미널이 뽑혔습니다: " + nearest.name());
     }
 
     /**

@@ -60,7 +60,15 @@ public class BusTerminalResolver {
                 // 멀면 그 지역 터미널로 안 본다" 는 선이라, 그 안에서는 어느 쪽이든 갈 만하다고 본 것이다.
                 .min(Comparator.<Map.Entry<BusTerminal, Double>, Boolean>comparing(
                                 entry -> !entry.getKey().isTerminal())
-                        .thenComparing(Map.Entry::getValue))
+                        .thenComparing(Map.Entry::getValue)
+                        // **거리까지 같으면 시외를 앞세운다**(#463). 한 건물에서 고속·시외를 함께 취급하는
+                        // 종합터미널이 많아 좌표가 그대로 같은 경우가 흔하다. 여기서 안 정하면 DB 순서
+                        // (고속이 먼저 시드됐다)가 결과를 가르는데, 그건 우연이지 판단이 아니다.
+                        //
+                        // 시외를 고르는 이유는 이 서비스가 다루는 곳이 군 단위이기 때문이다 — 시외는 군까지
+                        // 촘촘히 닿고 고속은 주요 도시를 잇는다(TransitMode 주석의 그 구분). 목록에 이름이
+                        // 있다고 그 구간에 차가 있는 것도 아니다. 실제 연결 여부로 고르는 것은 #450 이다.
+                        .thenComparing(entry -> entry.getKey().getKind() != BusTerminalKind.INTERCITY))
                 .map(entry -> Terminal.builder()
                         .code(entry.getKey().getCode())
                         .name(entry.getKey().getName())
