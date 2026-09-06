@@ -313,7 +313,12 @@ class CourseGenerateIntegrationTest {
     /**
      * 이 지역에 안 닿는 수단.
      *
-     * <p>고속·시외는 코드 공간이 갈려 있어 지역마다 한쪽만 있는 경우가 흔하다. 이 지역은 시외만 닿는다.
+     * <p><b>울릉도에 버스 터미널은 없다.</b> 뭍까지 200㎞ 가 넘어 {@code BusTerminalResolver} 의 30㎞
+     * 반경 안에 아무것도 안 잡힌다 — 여객선 말고는 닿는 수단이 없는 곳이다.
+     *
+     * <p>예전에는 부산 지역에 고속버스를 요청하는 것으로 이 시나리오를 만들었다. <b>그건 "안 닿는다"
+     * 가 아니었다</b> — 고속 터미널이 반경 안에 있는데도 종류를 안 가린 최근접이 시외라 빈 값이 됐을
+     * 뿐이다(#493). 그 자리를 고치자 이 테스트가 빨개져서, 전제가 틀렸던 것이 드러났다.
      */
     private static final String UNREACHABLE_MODE = "EXPRESS_BUS";
 
@@ -761,6 +766,53 @@ class CourseGenerateIntegrationTest {
     }
 
     /**
+     * 고속과 시외가 <b>한 자리를 두고 경쟁하지 않는다</b>(#493).
+     *
+     * <p>예전에는 지역마다 종류를 안 가린 최근접 터미널 하나만 풀었다. 종합터미널은 좌표가 같아 늘
+     * 시외가 이겼고, 진 쪽은 <b>대안에도 안 남아</b> 89곳 중 68곳에서 고속버스가 통째로 사라졌다.
+     *
+     * <p>대표를 누가 가져가든 상관없다 — 그 규칙은 #463 이 정했고 여기서 안 건드린다. 여기서 보는 것은
+     * <b>진 쪽이 화면에 남는가</b> 다.
+     */
+    @Test
+    void 고속과_시외가_둘_다_있으면_대표로_진_쪽도_대안에_남는다() throws Exception {
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("TRANSIT")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> modes = new ArrayList<>();
+        modes.add(com.jayway.jsonpath.JsonPath.read(response, "$.data.transitAccess.mode"));
+        modes.addAll(com.jayway.jsonpath.JsonPath.read(response, "$.data.transitAccess.alternatives[*].mode"));
+
+        assertTrue(
+                modes.contains("EXPRESS_BUS") && modes.contains("INTERCITY_BUS"),
+                "부산에는 고속·시외 터미널이 둘 다 반경 안에 있다. 한쪽만 나오면 진 쪽이 사라진 것이다: " + modes);
+    }
+
+    /**
+     * 고속버스로 고정하면 <b>고속으로 답한다</b>(#493 · #453).
+     *
+     * <p>예전에는 종류를 안 가린 최근접이 시외라 고정이 빈 값이 되고 그대로 자동 선택으로 떨어졌다 —
+     * 사용자가 고른 수단이 조용히 무시됐다. 운영에서 거창·고성이 실제로 그랬다.
+     */
+    @Test
+    void 고속버스로_고정하면_고속으로_답한다() throws Exception {
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainArrives(arrivingAt(8, 30));
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBodyWithMode("EXPRESS_BUS")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
+                // 출발 지점도 그 종류로 푼다 — 코드 공간이 갈려 있어 섞으면 조회 자체가 안 된다
+                .andExpect(jsonPath("$.data.transitAccess.fromPlace").isNotEmpty());
+    }
+
+    /**
      * 그 지역에 <b>안 닿는 수단</b>을 요청하면 서버가 고른 수단으로 돌아간다(#453).
      *
      * <p>억지로 세우면 도착 지점이 없는 코스가 된다 — 어디에 내리는지 모르는 채로 동선을 짜게 된다.
@@ -771,7 +823,7 @@ class CourseGenerateIntegrationTest {
         trainArrives(arrivingAt(8, 30));
 
         String mode = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
-                        .content(transitBodyWithMode(UNREACHABLE_MODE)))
+                        .content(transitBodyWithModeFor(ULLEUNG, UNREACHABLE_MODE)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
@@ -813,6 +865,14 @@ class CourseGenerateIntegrationTest {
     private static final long WANDO = 57L;
 
     private static final long ULLEUNG = 74L;
+
+    /** 지역과 수단을 함께 고정한다 — "이 지역에 이 수단이 닿는가" 를 묻는 자리다. */
+    private static String transitBodyWithModeFor(long regionId, String transitMode) {
+        return """
+                { "regionId": %d, "travelDays": 2, "density": "PACKED", "transport": "TRANSIT",
+                  "transitMode": "%s", "originLat": %s, "originLng": %s, "travelDate": "2026-05-01" }"""
+                .formatted(regionId, transitMode, SEOUL_LAT, SEOUL_LNG);
+    }
 
     private static String transitBodyFor(long regionId) {
         return """
