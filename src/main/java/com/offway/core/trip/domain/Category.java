@@ -1,5 +1,6 @@
 package com.offway.core.trip.domain;
 
+import com.offway.core.itinerary.domain.SlotKind;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
@@ -132,6 +133,23 @@ public enum Category {
     }
 
     /** 필터칩에 노출하는 한글 라벨. */
+    /**
+     * 이 분류가 코스에서 차지하는 칸(#472) — 혜택이 슬롯 종류별로 매칭되기 때문이다(#172).
+     *
+     * <p>{@code PlaceKind.slotKind()} 와 같은 모양이다. 인허가 장소가 이미 그렇게 옮기고 있고,
+     * 관광 API 장소도 같은 축으로 답해야 한 화면에서 혜택이 갈리지 않는다.
+     *
+     * <p>{@link #ALL} 과 {@link #EXPERIENCE} 는 볼거리로 본다 — 체험은 먹고 자는 것이 아니고,
+     * 전체는 분류를 모른다는 뜻이라 가장 넓은 칸으로 둔다.
+     */
+    public SlotKind slotKind() {
+        return switch (this) {
+            case STAY -> SlotKind.STAY;
+            case FOOD -> SlotKind.FOOD;
+            case SIGHT, EXPERIENCE, ALL -> SlotKind.SIGHT;
+        };
+    }
+
     public String label() {
         return label;
     }

@@ -52,6 +52,10 @@ interface RegionPoiJpaRepository extends JpaRepository<RegionPoi, Long> {
             @Param("perCategory") int perCategory);
 
     /** 그 달치가 이미 적재된 지역인지 — 있으면 외부를 아예 안 부른다. */
+    /** 같은 contentId 가 여러 지역에 있을 수 있어 첫 하나만 — 이름·사진·주소는 어느 쪽이든 같다. */
+    @Query("SELECT p FROM RegionPoi p WHERE p.contentId = :contentId ORDER BY p.fetchedAt DESC")
+    List<RegionPoi> findAllByContentId(@Param("contentId") String contentId, Limit limit);
+
     @Query("SELECT COUNT(p) > 0 FROM RegionPoi p WHERE p.regionId = :regionId AND p.baseYm = :baseYm")
     boolean existsFresh(@Param("regionId") long regionId, @Param("baseYm") String baseYm);
 
