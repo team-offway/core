@@ -34,8 +34,13 @@ jobs:
           # build.gradle.kts 의 toolchain 과 맞춘다. 바꿀 땐 양쪽을 함께 고친다.
           java-version: '25'
 
+      # cache-read-only 를 끈다(#459). 기본값은 "기본 브랜치가 아니면 읽기 전용" 인데, 이 워크플로는
+      # PR 에서만 돌아 어느 실행도 캐시를 쓰지 못했다 — 캐시 목록에 deploy 잡 것만 남아 있었고
+      # 빌드 캐시가 실행 간에 안 걸렸다(첫 실행 172초, 재실행 194초로 오히려 느렸다).
       - name: Gradle 준비 (의존성 캐시 포함)
         uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
 
       # build = 컴파일 + 전체 테스트 + jar 조립.
       # test 만 돌리면 jar 조립 단계(리소스 중복·repackaging)에서 나는 문제를 놓친다.
@@ -149,8 +154,13 @@ jobs:
           distribution: temurin
           java-version: '25'
 
+      # cache-read-only 를 끈다(#459). 기본값은 "기본 브랜치가 아니면 읽기 전용" 인데, 이 워크플로는
+      # PR 에서만 돌아 어느 실행도 캐시를 쓰지 못했다 — 캐시 목록에 deploy 잡 것만 남아 있었고
+      # 빌드 캐시가 실행 간에 안 걸렸다(첫 실행 172초, 재실행 194초로 오히려 느렸다).
       - name: Gradle 준비 (의존성 캐시 포함)
         uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
 
       # 테스트는 앞 잡이 이미 돌렸다. 여기서는 실행 가능한 jar 만 필요하다.
       - name: jar 조립
