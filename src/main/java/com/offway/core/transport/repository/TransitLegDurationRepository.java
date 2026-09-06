@@ -24,6 +24,9 @@ public interface TransitLegDurationRepository {
      * @param remeasureBefore 이 시각 이전에 미운행으로 적힌 구간은 다시 잰다 — 계절 항로·신설 노선이
      *     한 번의 조회로 영원히 굳지 않게 한다
      */
+    /** 이미 등록된 구간 전부 — 후보 사전 적재가 "무엇이 이미 있나" 를 한 번에 읽는다(#450). */
+    List<TransitLegDuration> findAll();
+
     List<TransitLegDuration> pending(int max, LocalDateTime remeasureBefore);
 
     void save(TransitLegDuration leg);

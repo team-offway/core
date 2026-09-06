@@ -40,6 +40,11 @@ public class TransitLegDurationRepositoryImpl implements TransitLegDurationRepos
     }
 
     @Override
+    public List<TransitLegDuration> findAll() {
+        return transitLegDurationJpaRepository.findAll();
+    }
+
+    @Override
     public List<TransitLegDuration> pending(int max, LocalDateTime remeasureBefore) {
         return transitLegDurationJpaRepository.findPending(remeasureBefore, Limit.of(max));
     }
