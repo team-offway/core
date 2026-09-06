@@ -32,6 +32,7 @@ import java.util.function.Function;
  * @param lat 위도(없으면 null)
  * @param lng 경도(없으면 null)
  * @param imageUrl 대표 이미지(없으면 null)
+ * @param images 추가 사진 목록(#464). 대표 이미지 말고 같은 장소의 다른 사진들이다. 없으면 빈 배열
  * @param overview 소개 문구(없으면 null)
  * @param sight 관광지 보조정보(관광지가 아니면 null)
  * @param culture 문화시설 보조정보(문화시설이 아니면 null)
@@ -54,6 +55,8 @@ public record PoiDetailResponse(
         Double lat,
         Double lng,
         String imageUrl,
+        @Schema(description = "추가 사진(대표 이미지 외). 화면이 갤러리로 쓴다. 없으면 빈 배열")
+                List<String> images,
         String overview,
         @Schema(nullable = true) Sight sight,
         @Schema(nullable = true) Culture culture,
@@ -164,6 +167,7 @@ public record PoiDetailResponse(
                 poi.lat(),
                 poi.lng(),
                 poi.imageUrl(),
+                poi.images(),
                 poi.overview(),
                 blockFor(type, PoiContentType.TOURIST_SPOT, intro,
                         it -> new Sight(it.useTime(), it.restDate(), it.parking())),

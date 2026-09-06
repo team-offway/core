@@ -10,6 +10,8 @@ import com.offway.core.trip.domain.PoiIntro;
  *
  * <p>외부 어댑터의 DTO 가 아니라 도메인 타입을 든다. 관광 API 응답 모양이 바뀌어도 이 계약은 흔들리지 않는다.
  */
+import java.util.List;
+
 public record PoiDetail(
         String contentId,
         Integer contentTypeId,
@@ -49,7 +51,13 @@ public record PoiDetail(
          * 갈 곳이 없었다 — 신청 주소도, 혜택 상세로 갈 {@code policyId} 도 없었다.
          */
         RegionBenefit benefit,
-        String catchphrase) {
+        String catchphrase,
+        List<String> images) {
+
+    /** 사진 목록은 없는 것이 정상이라 null 을 빈 목록으로 접는다 — 화면·테스트가 매번 null 검사를 하지 않게. */
+    public PoiDetail {
+        images = images == null ? List.of() : List.copyOf(images);
+    }
 
     /** 관광 API 콘텐츠가 아닌 장소 — 보조정보가 없다. */
     public static PoiDetail withoutIntro(
@@ -57,6 +65,6 @@ public record PoiDetail(
             Double lat, Double lng, String imageUrl, String overview, String mapSearchUrl,
             RegionBenefit benefit) {
         return new PoiDetail(contentId, contentTypeId, typeLabel, title, address, tel, lat, lng, imageUrl,
-                overview, null, mapSearchUrl, benefit, null);
+                overview, null, mapSearchUrl, benefit, null, List.of());
     }
 }
