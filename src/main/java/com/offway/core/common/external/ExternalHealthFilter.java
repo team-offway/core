@@ -2,6 +2,7 @@ package com.offway.core.common.external;
 
 import com.offway.core.common.logging.ExternalSystems;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.SignalType;
@@ -30,6 +31,16 @@ import reactor.core.publisher.SignalType;
  * {@code doOnNext}·{@code doOnError} 는 취소 신호를 못 받는다 — 즉 <b>가장 느려서 죽은 호출이 관측에서
  * 통째로 빠진다.</b> 2026-09-06 장애가 정확히 그 모양이었다(TLS 악수 8~10초 vs 우리 상한 6초). 그것만
  * 놓치면 이 기능은 정작 필요한 순간에 침묵한다. {@code doFinally} 로 받는다.
+ *
+ * <h2>성공은 본문까지 읽힌 뒤에 센다</h2>
+ *
+ * <p>{@code exchange} 는 <b>헤더만 받아도 완료된다.</b> 거기서 성공을 기록하면, 헤더는 왔는데 본문이
+ * 느려 하류 timeout 에 잘린 호출이 <b>성공으로 남는다</b> — 취소는 이미 "판정 끝" 이라 무시되기 때문이다.
+ * 죽어 가는 게이트웨이가 헤더만 먼저 흘리는 모양이 정확히 그것이라, 이 기능이 필요한 순간에 또 침묵한다.
+ *
+ * <p>그래서 성공 판정을 <b>본문 스트림의 완료</b>로 옮긴다. 5xx 는 본문을 기다릴 이유가 없어 헤더에서
+ * 바로 실패로 센다. 본문을 안 읽는 호출({@code toBodilessEntity})도 본문을 drain 하고 완료 신호를
+ * 주므로 같은 경로를 탄다.
  */
 public final class ExternalHealthFilter {
 
@@ -39,6 +50,33 @@ public final class ExternalHealthFilter {
     private ExternalHealthFilter() {
     }
 
+    /**
+     * 본문 스트림의 끝을 성패로 옮긴다 — 헤더만으로 판정하지 않으려는 것.
+     *
+     * <p>5xx 는 여기 오기 전에 갈린다. 외부가 스스로 못 하겠다고 답한 것이라 본문을 기다릴 이유가 없다.
+     */
+    private static ClientResponse observeBody(
+            ClientResponse response, ExternalApiHealth health, String system, AtomicBoolean settled) {
+        if (response.statusCode().is5xxServerError()) {
+            settle(settled, () -> health.failed(system, "HTTP " + response.statusCode().value()));
+            return response;
+        }
+        return response.mutate()
+                .body(body -> body
+                        .doOnComplete(() -> settle(settled, () -> health.succeeded(system)))
+                        .doOnCancel(() -> settle(settled, () -> health.failed(system, CAUSE_CANCELLED)))
+                        .doOnError(error ->
+                                settle(settled, () -> health.failed(system, error.getClass().getSimpleName()))))
+                .build();
+    }
+
+    /** 한 호출은 한 번만 판정된다 — 헤더·본문·취소가 서로 덮어쓰지 않게. */
+    private static void settle(AtomicBoolean settled, Runnable record) {
+        if (settled.compareAndSet(false, true)) {
+            record.run();
+        }
+    }
+
     public static ExchangeFilterFunction create(ExternalApiHealth health) {
         return (request, next) -> {
             String system = ExternalSystems.label(request.url());
@@ -46,22 +84,13 @@ public final class ExternalHealthFilter {
             return Mono.defer(() -> {
                 AtomicBoolean settled = new AtomicBoolean();
                 return next.exchange(request)
-                        .doOnNext(response -> {
-                            settled.set(true);
-                            if (response.statusCode().is5xxServerError()) {
-                                health.failed(system, "HTTP " + response.statusCode().value());
-                            } else {
-                                health.succeeded(system);
-                            }
-                        })
-                        .doOnError(error -> {
-                            settled.set(true);
-                            health.failed(system, error.getClass().getSimpleName());
-                        })
-                        // 값도 예외도 없이 끝났다면 취소다 — 위 두 콜백이 못 받는 자리.
+                        .map(response -> observeBody(response, health, system, settled))
+                        .doOnError(error -> settle(settled, () -> health.failed(system, error.getClass().getSimpleName())))
+                        // 값도 예외도 없이 끝났다면 취소다 — 위 콜백들이 못 받는 자리.
+                        // 본문 단계의 취소는 아래 observeBody 가 따로 받는다.
                         .doFinally(signal -> {
-                            if (signal == SignalType.CANCEL && settled.compareAndSet(false, true)) {
-                                health.failed(system, CAUSE_CANCELLED);
+                            if (signal == SignalType.CANCEL) {
+                                settle(settled, () -> health.failed(system, CAUSE_CANCELLED));
                             }
                         });
             });

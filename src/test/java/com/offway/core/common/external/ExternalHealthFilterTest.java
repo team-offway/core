@@ -18,6 +18,8 @@ import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.ExchangeFunction;
+import org.springframework.core.io.buffer.DataBuffer;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
@@ -66,6 +68,35 @@ class ExternalHealthFilterTest {
         }
 
         assertFalse(health.isHealthy("train"), "취소된 호출이 관측에서 빠지면 가장 느린 장애를 놓친다");
+        assertEquals(1, notifier.sent.size());
+    }
+
+    /**
+     * <b>헤더만 오고 본문이 안 오는 경우</b>도 실패다(CodeRabbit #477 리뷰).
+     *
+     * <p>{@code exchange} 는 헤더만 받아도 완료된다. 거기서 성공을 기록하면, 본문이 느려 하류 timeout 에
+     * 잘린 호출이 <b>성공으로 남는다</b> — 죽어 가는 게이트웨이가 헤더만 먼저 흘리는 모양이 그것이라,
+     * 이 기능이 정작 필요한 순간에 또 침묵한다.
+     */
+    @Test
+    void 헤더는_왔는데_본문이_안_와_취소되면_실패로_센다() {
+        RecordingNotifier notifier = new RecordingNotifier();
+        ExternalApiHealth health = new ExternalApiHealth(notifier);
+        ExchangeFilterFunction filter = ExternalHealthFilter.create(health);
+
+        // 헤더는 즉시, 본문은 영영 안 온다. 어댑터의 하류 timeout 이 본문 읽기에서 걸린다.
+        ExchangeFunction headerThenStall = req -> Mono.just(
+                ClientResponse.create(HttpStatus.OK).body(Flux.<DataBuffer>never()).build());
+
+        for (int i = 0; i < 3; i++) {
+            assertThrows(RuntimeException.class,
+                    () -> filter.filter(request(), headerThenStall)
+                            .flatMap(response -> response.bodyToMono(String.class))
+                            .timeout(Duration.ofMillis(50))
+                            .block());
+        }
+
+        assertFalse(health.isHealthy("train"), "본문 timeout 이 성공으로 남으면 죽어 가는 게이트웨이를 놓친다");
         assertEquals(1, notifier.sent.size());
     }
 
