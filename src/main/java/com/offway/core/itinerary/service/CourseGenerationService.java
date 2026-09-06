@@ -136,9 +136,7 @@ public class CourseGenerationService {
         // 실제 방문 데이터라 "갑사에 간 사람들이 실제로 들르는 곳" 이고, 그 순서가 곧 이유가 된다.
         //
         // 연관 데이터가 없는 지역은 그대로 좌표 군집이다 — degrade 사유는 아래에서 남긴다.
-        List<PoiCandidate> sights = byRelation(sightPool, command.regionId(), needs.sights())
-                .orElseGet(() -> reorder(
-                        sightPool, GeoCluster.selectCompact(coords(sightPool), needs.sights(), seedIndexOf(command))));
+        List<PoiCandidate> sights = selectSights(sightPool, command, needs.sights());
         Coordinate hub = GeoCluster.centroid(coords(sights));
         List<PoiCandidate> foods = reorder(foodPool, GeoCluster.nearest(coords(foodPool), hub, needs.foods()));
         List<PoiCandidate> stays = reorder(stayPool, GeoCluster.nearest(coords(stayPool), hub, needs.stays()));
@@ -220,7 +218,7 @@ public class CourseGenerationService {
             return Set.of();
         }
         CourseNeeds needs = CourseNeeds.of(command.density(), command.travelDays());
-        return reorder(pool, GeoCluster.selectCompact(coords(pool), needs.sights(), seedIndexOf(command))).stream()
+        return selectSights(pool, command, needs.sights()).stream()
                 .map(PoiCandidate::contentId)
                 .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
     }
@@ -572,7 +570,21 @@ public class CourseGenerationService {
      * <p><b>degrade 는 사유를 남긴다.</b> 조용히 좌표 군집으로 떨어지면 연관 데이터가 안 쌓이고
      * 있어도 아무도 모른다.
      */
-    private Optional<List<PoiCandidate>> byRelation(List<PoiCandidate> pool, long regionId, int needed) {
+    /**
+     * 볼거리를 고르는 <b>유일한 경로</b>. 연관 순서가 있으면 그것, 없으면 좌표 군집이다.
+     *
+     * <p><b>{@link #generate} 와 {@link #selectedSightIds} 가 반드시 이것을 함께 쓴다.</b> 재생성은
+     * 씨앗마다 이 결과를 비교해 "충분히 다른가" 를 판정하는데, 판정과 실제 코스가 다른 방식으로 고르면
+     * 판정이 화면에 없는 장소를 세게 된다.
+     */
+    private List<PoiCandidate> selectSights(List<PoiCandidate> pool, GenerateCourse command, int needed) {
+        return byRelation(pool, command, needed)
+                .orElseGet(() -> reorder(
+                        pool, GeoCluster.selectCompact(coords(pool), needed, seedIndexOf(command))));
+    }
+
+    private Optional<List<PoiCandidate>> byRelation(List<PoiCandidate> pool, GenerateCourse command, int needed) {
+        long regionId = command.regionId();
         List<String> ordered = relatedAttractionQuery.sightPlaceIds(regionId);
         if (ordered.isEmpty()) {
             log.debug("연관 관광지가 없어 좌표 군집으로 코스를 짭니다 regionId={}", regionId);
@@ -581,9 +593,16 @@ public class CourseGenerationService {
         Map<String, PoiCandidate> byId = new LinkedHashMap<>();
         pool.forEach(candidate -> byId.putIfAbsent(candidate.contentId(), candidate));
 
+        // **씨앗만큼 순위를 밀어 시작점을 옮긴다.** 안 옮기면 "다시 추천" 이 몇 번을 눌러도 같은 코스를
+        // 낸다 — 연관 순서는 씨앗과 무관하게 고정이라 앞쪽 몇 곳이 매번 그대로 뽑힌다.
+        //
+        // 섞지 않고 미는 이유는 순위에 뜻이 있어서다. 1위가 2위보다 함께 가는 정도가 크므로, 무작위로
+        // 흩으면 근거가 사라진다. 미는 것은 "상위권 안에서 창을 옮기는" 것이라 근거가 남는다.
+        int start = Math.floorMod(seedIndexOf(command), ordered.size());
+
         List<PoiCandidate> picked = new ArrayList<>();
-        for (String placeId : ordered) {
-            PoiCandidate candidate = byId.remove(placeId);
+        for (int i = 0; i < ordered.size(); i++) {
+            PoiCandidate candidate = byId.remove(ordered.get((start + i) % ordered.size()));
             if (candidate != null) {
                 picked.add(candidate);
             }
@@ -602,9 +621,10 @@ public class CourseGenerationService {
             // 모자란 만큼 좌표 군집으로 채운다. 남은 것 중에서 고르므로 중복이 없다.
             List<PoiCandidate> rest = new ArrayList<>(byId.values());
             int more = Math.min(needed - picked.size(), rest.size());
-            picked.addAll(reorder(rest, GeoCluster.selectCompact(coords(rest), more)));
+            int fromRelation = picked.size();
+            picked.addAll(reorder(rest, GeoCluster.selectCompact(coords(rest), more, seedIndexOf(command))));
             log.info("연관 관광지로 {}곳, 좌표 군집으로 {}곳을 채웠습니다 regionId={}",
-                    ordered.size(), more, regionId);
+                    fromRelation, more, regionId);
         }
         return Optional.of(List.copyOf(picked));
     }
