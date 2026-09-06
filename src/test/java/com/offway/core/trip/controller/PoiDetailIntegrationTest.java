@@ -32,10 +32,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @WithMockUser
+// region_poi 를 갈아끼우는 테스트가 있어 롤백이 필요하다 — 지역 57 의 시드 데이터를 지운 채로 두면
+// 뒤에 도는 테스트가 실행 순서에 따라 fixture 를 읽는다(테스트 규약: DB 격리는 클래스 레벨 롤백으로).
+@Transactional
 class PoiDetailIntegrationTest {
 
     @Autowired
