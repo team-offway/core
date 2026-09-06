@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.domain;
 
 import com.offway.core.common.geo.Coordinate;
+import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.domain.TransportMode;
 import jakarta.persistence.CascadeType;
 import com.offway.core.leave.domain.StartDayLeave;
@@ -137,6 +138,20 @@ public class Course {
     @Column(name = "start_day_leave", length = 20)
     private StartDayLeave startDayLeave;
 
+    /**
+     * 사용자가 고정한 대중교통 수단(#456) — <b>결과가 아니라 입력</b>이다.
+     *
+     * <p>{@link #originLat} 과 같은 자리다(#187·#423). 도착 지점·시간표는 바뀌므로 계산 결과를 굳히지 않고,
+     * 무엇을 타는지만 담아 두고 상세에서 다시 계산한다.
+     *
+     * <p><b>null 이 정상이다.</b> 자차 코스, 이 컬럼 이전에 저장된 코스, 그리고 수단을 고르지 않은 코스가
+     * 그렇다 — 그때는 서버가 고른다(#453 의 자동 선택). 고른 수단이 그 지역에 안 닿아도 자동으로 되돌아가므로
+     * 여기에 담긴 값이 실제로 쓰인다는 보장은 없다. 무엇이 쓰였는지는 응답의 교통 카드가 답한다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "transit_mode", length = 20)
+    private TransitMode transitMode;
+
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(
             name = "course_id",
@@ -162,7 +177,8 @@ public class Course {
             Double originLat,
             Double originLng,
             String originName,
-            StartDayLeave startDayLeave) {
+            StartDayLeave startDayLeave,
+            TransitMode transitMode) {
         if (days == null || days.isEmpty()) {
             throw new IllegalArgumentException("코스에는 하루 이상이 있어야 합니다");
         }
@@ -184,6 +200,7 @@ public class Course {
         this.originLng = originLng;
         this.originName = originName;
         this.startDayLeave = startDayLeave;
+        this.transitMode = transitMode;
     }
 
     /**
@@ -234,9 +251,11 @@ public class Course {
             LocalDate travelDate,
             int travelDays,
             Origin origin,
-            StartDayLeave startDayLeave) {
+            StartDayLeave startDayLeave,
+            TransitMode transitMode) {
         Objects.requireNonNull(userId, "사용자 ID는 필수입니다");
-        return build(userId, regionId, density, transport, days, travelDate, travelDays, origin, startDayLeave);
+        return build(
+                userId, regionId, density, transport, days, travelDate, travelDays, origin, startDayLeave, transitMode);
     }
 
     /**
@@ -260,8 +279,10 @@ public class Course {
             LocalDate travelDate,
             int travelDays,
             Origin origin,
-            StartDayLeave startDayLeave) {
-        return build(null, regionId, density, transport, days, travelDate, travelDays, origin, startDayLeave);
+            StartDayLeave startDayLeave,
+            TransitMode transitMode) {
+        return build(
+                null, regionId, density, transport, days, travelDate, travelDays, origin, startDayLeave, transitMode);
     }
 
     /**
@@ -279,7 +300,8 @@ public class Course {
             LocalDate travelDate,
             int travelDays,
             Origin origin,
-            StartDayLeave startDayLeave) {
+            StartDayLeave startDayLeave,
+            TransitMode transitMode) {
         return Course.builder()
                 .userId(userId)
                 .regionId(regionId)
@@ -292,6 +314,7 @@ public class Course {
                 .originLng(origin == null ? null : origin.lng())
                 .originName(origin == null ? null : origin.name())
                 .startDayLeave(startDayLeave)
+                .transitMode(transitMode)
                 .build();
     }
 
@@ -440,6 +463,98 @@ public class Course {
         days.clear();
         days.addAll(rebuilt);
         return removed;
+    }
+
+    /**
+     * 고정 수단을 바꾼다(#456) — 저장 코스 상세에서 칩을 눌렀을 때.
+     *
+     * <p>{@code null} 이면 고정을 푸는 것이고, 그때부터 서버가 고른다(#453 의 자동 선택).
+     *
+     * <p><b>대중교통 코스에서만 의미가 있다.</b> 자차 코스는 역·터미널을 해석할 것이 없어 이 값이 아무것도
+     * 바꾸지 못한다 — 조용히 담아 두면 화면에는 아무 일도 안 일어나는데 저장은 성공해, 앱이 무엇이
+     * 잘못됐는지 알 길이 없다.
+     */
+    public void changeTransitMode(TransitMode newTransitMode) {
+        if (transport != TransportMode.TRANSIT) {
+            throw ItineraryException.transitModeOnNonTransitCourse();
+        }
+        this.transitMode = newTransitMode;
+    }
+
+    /**
+     * 내리고 다시 타는 지점을 새 지점으로 간다(#456) — 수단이 바뀌면 도착·출발 칸도 그 수단의 것이어야 한다.
+     *
+     * <p><b>도착 칸만 바꾸고 카드를 그대로 두면 한 화면에서 두 값이 어긋난다.</b> 양양은 역과 터미널이
+     * 42㎞ 떨어져 있어, 카드가 "기차·강릉역" 인데 첫 칸이 "동서울터미널" 이면 어느 쪽을 믿어야 할지
+     * 알 수 없다.
+     *
+     * <p><b>바꾸는 것은 두 칸과 그에 잇닿은 이동시간뿐이다.</b> 나머지 슬롯의 순서는 그대로 둔다 — 옛 도착
+     * 지점 기준으로 정렬된 채 남는다. 다시 정렬하려면 후보가 필요한데 저장 코스에는 슬롯만 있다
+     * ({@link #trimFirstDayTo} 가 걷어내기만 하는 것과 같은 제약이다). 순서까지 맞추려면 재생성이다.
+     *
+     * <p><b>교통 거점 칸이 없으면 아무것도 하지 않는다.</b> 생성 때 내릴 지점을 몰라 칸을 안 세운 코스인데,
+     * 여기서 새로 끼우면 순서·이동시간을 통째로 다시 매기게 되고 그건 재생성이 할 일이다.
+     *
+     * @param name 새 지점명(역·터미널·항구)
+     * @param point 새 지점 좌표
+     * @param toFirstPlaceMinutes 새 지점에서 첫날 첫 장소까지
+     * @param fromLastPlaceMinutes 마지막날 마지막 장소에서 새 지점까지
+     * @return 바꿨으면 true. 교통 거점 칸이 없어 그대로 뒀으면 false
+     */
+    public boolean replaceTransitHub(
+            String name, Coordinate point, int toFirstPlaceMinutes, int fromLastPlaceMinutes) {
+        Objects.requireNonNull(name, "지점명은 필수입니다");
+        Objects.requireNonNull(point, "지점 좌표는 필수입니다");
+        DaySchedule first = days.getFirst();
+        DaySchedule last = days.getLast();
+        if (!startsWith(first, SlotKind.ARRIVAL) || !endsWith(last, SlotKind.DEPARTURE)) {
+            return false;
+        }
+
+        List<Slot> opened = new ArrayList<>(first.getSlots());
+        opened.set(0, Slot.transitHub(1, opened.get(0).getTimeOfDay(), SlotKind.ARRIVAL, name,
+                point.lat(), point.lng(), 0));
+        if (opened.size() > 1) {
+            // 지점이 바뀌었으니 "여기서 첫 장소까지" 도 다시 잰 값이어야 한다.
+            opened.set(1, withTravelMinutes(opened.get(1), toFirstPlaceMinutes));
+        }
+        // 하루짜리 코스면 도착·출발이 같은 날에 있다 — 방금 바꾼 목록을 이어서 고쳐야 한 쪽이 덮이지 않는다.
+        boolean sameDay = days.size() == 1;
+        List<Slot> closed = sameDay ? opened : new ArrayList<>(last.getSlots());
+        int tailIndex = closed.size() - 1;
+        closed.set(tailIndex, Slot.transitHub(tailIndex + 1, closed.get(tailIndex).getTimeOfDay(),
+                SlotKind.DEPARTURE, name, point.lat(), point.lng(), fromLastPlaceMinutes));
+
+        // 날을 통째로 갈아 끼운다 — 생성 때 도착 칸을 세우는 방식과 같다. 슬롯 목록을 직접 비우면
+        // 갓 만든 DaySchedule 은 불변 복사본이라 터지고, 컬렉션 참조를 바꾸면 orphanRemoval 이 터진다.
+        days.set(0, rebuilt(first, opened));
+        if (!sameDay) {
+            days.set(days.size() - 1, rebuilt(last, closed));
+        }
+        return true;
+    }
+
+    /** 슬롯만 바꾼 같은 날 — 표시 번호·달력 위치·전날 이동시간을 그대로 옮긴다. */
+    private static DaySchedule rebuilt(DaySchedule day, List<Slot> slots) {
+        DaySchedule replacement = DaySchedule.of(day.getDayNumber(), day.getDayOffset(), slots);
+        // 전날에서 이날까지 걸린 시간은 지점과 무관하다. 안 옮기면 둘째 날 헤더의 이동시간이 조용히 빈다(#188).
+        replacement.arriveFromPrevDayIn(day.getTravelMinutesFromPrevDay());
+        return replacement;
+    }
+
+    private static boolean startsWith(DaySchedule day, SlotKind kind) {
+        return !day.getSlots().isEmpty() && day.getSlots().getFirst().getKind() == kind;
+    }
+
+    private static boolean endsWith(DaySchedule day, SlotKind kind) {
+        return !day.getSlots().isEmpty() && day.getSlots().getLast().getKind() == kind;
+    }
+
+    /** 이동시간만 바꾼 같은 슬롯 — 나머지 값은 그대로 옮긴다. */
+    private static Slot withTravelMinutes(Slot slot, int travelMinutesFromPrev) {
+        return Slot.of(slot.getOrderInDay(), slot.getTimeOfDay(), slot.getKind(), slot.getPoiContentId(),
+                slot.getPoiContentTypeId(), slot.getTitle(), slot.getLat(), slot.getLng(), travelMinutesFromPrev,
+                new SlotDisplay(slot.getImageUrl(), slot.getAddress(), slot.getCatchphrase(), slot.getTel()));
     }
 
     /** 슬롯 순서를 1부터 다시 붙이고, 첫 슬롯의 이동시간을 0 으로 둔다(직전이 없어졌다). */

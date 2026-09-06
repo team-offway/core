@@ -9,6 +9,7 @@ import com.offway.core.itinerary.controller.dto.CourseResponse;
 import com.offway.core.itinerary.controller.dto.CourseSaveRequest;
 import com.offway.core.itinerary.controller.dto.CourseShareResponse;
 import com.offway.core.itinerary.controller.dto.CourseSummaryResponse;
+import com.offway.core.itinerary.controller.dto.CourseTransitModeRequest;
 import com.offway.core.itinerary.controller.dto.CourseUpdateRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -157,6 +158,44 @@ public interface CourseStorageApi {
             UUID userId,
             @Parameter(description = "코스 ID", example = "12") long courseId,
             CourseUpdateRequest request);
+
+    @Operation(
+            summary = "내 코스 이동수단 변경",
+            description = """
+                    저장한 코스를 **다른 대중교통 수단 기준으로** 다시 답한다 — 상세 화면의 "기차로 보기" 칩.
+
+                    생성(`POST /courses/generate`)의 `transitMode` 와 같은 뜻이다. 다만 칩은 저장 코스 상세에
+                    있고 그 화면은 생성을 부르지 않으므로, 저장된 코스에도 같은 길을 연다(#456).
+
+                    **바뀌는 것** — 교통 카드(`transitAccess`)가 그 수단의 출발·도착 지점과 시간표로 가고,
+                    Day 1 의 `ARRIVAL` 칸과 마지막 날의 `DEPARTURE` 칸이 그 지점으로 바뀐다. 도착이 늦어져
+                    갈 수 없게 된 첫날 일정은 걷어내고 `firstDayChange` 로 알린다.
+
+                    **안 바뀌는 것** — 나머지 장소의 순서다. 옛 도착 지점 기준으로 정렬된 채 남는다. 다시
+                    정렬하려면 후보가 필요한데 저장 코스에는 슬롯만 있어 재생성(`POST /courses/regenerate`)이라야
+                    바뀐다.
+
+                    **고른 수단이 그 지역에 안 닿으면 서버가 고른 수단으로 답한다.** 그때도 200 이다 —
+                    무엇이 쓰였는지는 `transitAccess.mode` 가 말한다. 앱은 `alternatives` 에 있는 수단만
+                    보내면 이 경우를 만나지 않는다.
+
+                    **바꾼 값은 저장된다.** 코스를 다시 열어도 같은 수단이라 화면이 흔들리지 않는다.
+
+                    자차 코스는 400 이다 — 역·터미널을 해석할 것이 없어 아무것도 바뀌지 않는데 저장만 성공하면,
+                    앱이 무엇이 잘못됐는지 알 길이 없다.
+
+                    응답은 상세 조회와 같은 모양이라 화면을 바로 다시 그릴 수 있다. `shareToken` 도 함께 실린다.""")
+    @ApiResponse(responseCode = "200", description = "변경 성공")
+    @ApiResponse(
+            responseCode = "400",
+            description = "transitMode 누락이거나 모르는 값 · 자차 코스에 요청함")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
+    @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
+    ApiResponseBody<CourseResponse> updateTransitMode(
+            UUID userId,
+            @Parameter(description = "코스 ID", example = "12") long courseId,
+            CourseTransitModeRequest request);
 
     @Operation(
             summary = "내 코스 삭제",

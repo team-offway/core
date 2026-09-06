@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.controller.dto;
 
 import com.offway.core.itinerary.domain.Course;
+import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
@@ -81,13 +82,20 @@ public record CourseSaveRequest(
                         example = "HALF_DAY",
                         nullable = true)
                 StartDayLeave startDayLeave,
+        @Schema(
+                        description = "고정할 대중교통 수단 (생성 요청에 보낸 값을 그대로 돌려준다). "
+                                + "상세 조회가 이 수단으로 도착 지점을 잡는다. 생략하면 서버가 고른다. "
+                                + "저장한 뒤에는 PATCH /courses/{courseId}/transit-mode 로 바꾼다.",
+                        example = "TRAIN",
+                        nullable = true)
+                TransitMode transitMode,
         @NotEmpty List<@Valid Day> days) {
 
     /** 인증된 사용자 소유의 도메인 코스로 변환한다 — 예외 번역은 {@link #build} 가 소유한다. */
     public Course toCourse(UUID userId) {
         return build(origin -> Course.ownedBy(
                 userId, regionId, density, transport, schedules(), travelDate, span(), origin,
-                startDayLeaveOrFullDay()));
+                startDayLeaveOrFullDay(), transitMode));
     }
 
     /**
@@ -99,7 +107,7 @@ public record CourseSaveRequest(
     public Course toSharedCourse() {
         return build(origin -> Course.sharedOnly(
                 regionId, density, transport, schedules(), travelDate, span(), origin,
-                startDayLeaveOrFullDay()));
+                startDayLeaveOrFullDay(), transitMode));
     }
 
     /**

@@ -1,6 +1,8 @@
 package com.offway.core.itinerary.service;
 
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.itinerary.domain.Course;
+import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.itinerary.domain.CourseShare;
 import com.offway.core.itinerary.domain.DayStart;
 import com.offway.core.itinerary.domain.ItineraryException;
@@ -164,6 +166,41 @@ public class CoursePersistenceService {
                 .findByIdAndUserId(courseId, userId)
                 .orElseThrow(ItineraryException::courseNotFound);
         return course.trimFirstDayTo(firstDayStart);
+    }
+
+    /**
+     * 고정 수단과 교통 거점 칸을 함께 바꾼다(#456).
+     *
+     * <p>판단은 도메인({@code Course#changeTransitMode}·{@code Course#replaceTransitHub})이 하고 여기서는
+     * 트랜잭션만 연다. <b>지점 해석과 이동시간 측정은 이미 끝난 값으로 받는다</b> — 둘 다 외부 호출이라
+     * 트랜잭션 안에서 하면 read-timeout 동안 DB 커넥션을 잡는다(영속성 규약).
+     *
+     * <p>수단과 거점을 <b>한 트랜잭션</b>에 묶는다. 갈라 두면 수단만 바뀌고 도착 칸은 옛 지점인 코스가
+     * 남을 수 있는데, 그건 이 변경이 없애려던 바로 그 어긋남이다.
+     *
+     * @param hub 새 지점. null 이면 지점을 해석하지 못한 것이라 수단만 바꾼다
+     * @return 갱신된 코스
+     */
+    @Transactional
+    public Course applyTransitMode(UUID userId, long courseId, TransitMode transitMode, TransitHubChange hub) {
+        Course course = courseRepository
+                .findByIdAndUserId(courseId, userId)
+                .orElseThrow(ItineraryException::courseNotFound);
+        course.changeTransitMode(transitMode);
+        if (hub != null) {
+            course.replaceTransitHub(hub.name(), hub.point(), hub.toFirstPlaceMinutes(), hub.fromLastPlaceMinutes());
+        }
+        course.totalSlots(); // tx 안에서 days·slots 초기화(직렬화·조립은 tx 밖)
+        return course;
+    }
+
+    /**
+     * 새 지점과 그 지점에 잇닿은 이동시간(#456) — 트랜잭션 밖에서 다 재고 들어온다.
+     *
+     * @param toFirstPlaceMinutes 지점에서 첫날 첫 장소까지
+     * @param fromLastPlaceMinutes 마지막날 마지막 장소에서 지점까지
+     */
+    public record TransitHubChange(String name, Coordinate point, int toFirstPlaceMinutes, int fromLastPlaceMinutes) {
     }
 
     /**

@@ -40,7 +40,10 @@ public enum ItineraryErrorCode implements ErrorCode {
      * <p>{@link #SHARE_NOT_FOUND} 와 나누는 이유: 받은 사람이 "링크를 잘못 눌렀나" 와 "게시자가 지웠구나" 를
      * 구분할 수 있어야 한다. 앞의 것은 자기 탓을 하게 만들고, 뒤의 것은 사실을 알려준다.
      */
-    SHARE_COURSE_DELETED("ITINERARY-009", ErrorCategory.GONE, "게시자가 삭제한 코스입니다.");
+    SHARE_COURSE_DELETED("ITINERARY-009", ErrorCategory.GONE, "게시자가 삭제한 코스입니다."),
+
+    /** 자차 코스에 대중교통 수단을 고정하려 한 경우(#456) — 역·터미널을 해석할 것이 없어 아무것도 바뀌지 않는다. */
+    TRANSIT_MODE_ON_NON_TRANSIT("ITINERARY-010", ErrorCategory.BAD_REQUEST, "대중교통 코스에서만 이동수단을 바꿀 수 있습니다.");
 
     private final String code;
     private final ErrorCategory category;
