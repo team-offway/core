@@ -235,7 +235,10 @@ public class PoiDetailService {
                 null, // 관광 API 콘텐츠는 사진·소개·운영시간이 이미 있어 지도로 넘길 이유가 없다
                 // 혜택은 지역 단위로 매칭되는데 상세 응답에 지역 코드가 없어 어느 지역인지 모른다(#172).
                 null,
-                catchphraseProvider.forContentId(contentId).orElse(null));
+                catchphraseProvider.forContentId(contentId).orElse(null),
+                // 대표 한 장(firstimage)뿐이던 것에 추가 사진을 더한다(#464). 실측으로 완도타워가 16장이다.
+                // 상세와 같은 캐시에 실려 나가므로 호출은 캐시 미스 때만 는다.
+                tourApiClient.findImages(contentId));
     }
 
     /** 강제 갱신·통합 테스트 격리용. 공유 컨텍스트에서 앞 테스트의 캐시가 뒤 테스트를 통과시키지 않게. */

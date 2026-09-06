@@ -47,6 +47,15 @@ class TourApiClientImpl implements TourApiClient {
     private static final String LOCATION_BASED = "/locationBasedList2";
     private static final String DETAIL_INTRO = "/detailIntro2";
     private static final String DETAIL_COMMON = "/detailCommon2";
+    private static final String DETAIL_IMAGE = "/detailImage2";
+
+    /**
+     * 한 장소에서 받아 올 사진 수 상한 — 실측으로 완도타워가 16장이다.
+     *
+     * <p>화면이 한 장소에 그만큼 다 쓰지 않고, 응답이 커지면 {@code maxInMemorySize} 와 직렬화 비용이
+     * 함께 올라간다. 갤러리로 쓰기에 충분한 선에서 자른다.
+     */
+    private static final int MAX_IMAGES = 10;
     private static final String DETAIL_WITH_TOUR = "/detailWithTour2";
 
     /** 행사정보(#388) — 축제 기간을 주는 유일한 오퍼레이션. areaBasedList2 는 날짜를 안 준다. */
@@ -252,6 +261,26 @@ class TourApiClientImpl implements TourApiClient {
     }
 
     @Override
+    public List<String> findImages(String contentId) {
+        if (!hasKey()) {
+            // **던지지 않는다.** 사진은 상세의 곁가지라, 키가 없다고 장소 상세 전체가 502 가 되면 안 된다.
+            log.info("TourAPI 키 없음 — 장소 사진 조회를 건너뜁니다");
+            return List.of();
+        }
+        UriComponentsBuilder builder = base(DETAIL_IMAGE)
+                .queryParam("contentId", contentId)
+                .queryParam("imageYN", "Y")
+                .queryParam("numOfRows", MAX_IMAGES);
+        try {
+            return parseImages(call(builder));
+        } catch (Exception e) {
+            // 같은 이유로 삼킨다. 사진 한 장 때문에 상세가 통째로 실패하는 쪽이 훨씬 나쁘다.
+            log.warn("TourAPI 장소 사진 조회 실패 cause={}", RootCause.of(e));
+            return List.of();
+        }
+    }
+
+    @Override
     public Optional<TourAccessibility> findAccessibility(String contentId) {
         if (!hasKey()) {
             // 키 없음을 빈 결과로 돌려주면 "등록된 무장애 정보 없음(정상 200)"으로 둔갑한다 — 조회 불가(502)로 분리한다.
@@ -412,6 +441,29 @@ class TourApiClientImpl implements TourApiClient {
                 doubleOrNull(node, "mapx"),
                 emptyToNull(text(node, "firstimage")),
                 TourText.clean(text(node, "overview"))));
+    }
+
+    /**
+     * 사진 목록 — 원본 크기({@code originimgurl})를 쓴다.
+     *
+     * <p>썸네일({@code smallimageurl})도 오지만 화면이 크게 쓰므로 원본이 맞다. 둘 다 없는 항목은 버린다.
+     */
+    private List<String> parseImages(String body) throws Exception {
+        JsonNode response = objectMapper.readTree(body).path("response");
+        requireSuccess(response);
+
+        JsonNode item = response.path("body").path("items").path("item");
+        if (item.isMissingNode() || item.isNull()) {
+            return List.of();
+        }
+        List<String> urls = new ArrayList<>();
+        for (JsonNode node : item.isArray() ? item : objectMapper.createArrayNode().add(item)) {
+            String url = emptyToNull(text(node, "originimgurl"));
+            if (url != null && !urls.contains(url)) {
+                urls.add(url);
+            }
+        }
+        return List.copyOf(urls);
     }
 
     private Optional<TourAccessibility> parseAccessibility(String body, String contentId) throws Exception {
