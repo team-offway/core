@@ -22,8 +22,9 @@ import reactor.core.publisher.SignalType;
  *   <li><b>취소</b> — 아래 참고.
  * </ul>
  *
- * <p><b>4xx 는 세지 않는다.</b> 그건 우리 요청이 잘못됐다는 뜻이지 외부가 죽은 것이 아니다. 없는 장소를
- * 물어 404 가 오는 것은 정상 동작이고, 그것으로 "관광 API 장애" 라 알리면 신호가 죽는다.
+ * <p><b>4xx 는 갈라서 센다({@link ExternalHttpOutcome}).</b> 400·404 는 이 요청 하나의 문제라 세지 않지만,
+ * 401·403·429 는 그 API 전체가 우리에게 막힌 것이라 센다 — 2026-09-07 운영 키가 403 을 받는 동안
+ * 알림이 한 줄도 안 갔다(#489).
  *
  * <h2>취소를 반드시 잡아야 한다</h2>
  *
@@ -68,8 +69,10 @@ public final class ExternalHealthFilter {
      */
     private static ClientResponse observeBody(
             ClientResponse response, ExternalApiHealth health, String system, AtomicBoolean settled) {
-        if (response.statusCode().is5xxServerError()) {
-            settle(settled, () -> health.failed(system, "HTTP " + response.statusCode().value()));
+        int status = response.statusCode().value();
+        ExternalHttpOutcome outcome = ExternalHttpOutcome.of(status);
+        if (outcome.isFailure()) {
+            settle(settled, () -> health.failed(system, outcome.describe(status)));
             return response;
         }
         return response.mutate()
