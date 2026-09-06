@@ -19,6 +19,7 @@ import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
+import com.offway.core.trip.repository.RegionPoiRepository;
 import com.offway.core.trip.service.dto.PoiDetail;
 import com.offway.core.trip.service.dto.RegionBenefit;
 import java.time.Duration;
@@ -94,6 +95,7 @@ public class PoiDetailService {
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
     private final LicensedPlaceRepository licensedPlaceRepository;
+    private final RegionPoiRepository regionPoiRepository;
     private final HeritagePlaceRepository heritagePlaceRepository;
     private final PolicyService policyService;
 
@@ -178,9 +180,54 @@ public class PoiDetailService {
      * 40초 안에 세 번</b> 조회되는 것을 봤는데, 호출이 세 배면 외부가 멈춘 순간을 만날 확률도 세 배다.
      */
     private PoiDetail tourDetail(String contentId) {
-        return detailCache
-                .get(contentId, this::loadDetail, CachedDetail.failed(), StalePolicy.ALLOW_STALE)
-                .orThrow();
+        CachedDetail cached =
+                detailCache.get(contentId, this::loadDetail, CachedDetail.failed(), StalePolicy.ALLOW_STALE);
+        if (cached.isFound()) {
+            return cached.orThrow();
+        }
+        // 조회가 실패했을 때만 저장된 값으로 떨어진다. "없는 장소"(NOT_FOUND)는 폴백 대상이 아니다 —
+        // 그건 외부가 정상으로 답한 결과다.
+        if (cached.status() == DetailStatus.LOOKUP_FAILED) {
+            Optional<PoiDetail> stored = storedDetail(contentId);
+            if (stored.isPresent()) {
+                return stored.get();
+            }
+        }
+        return cached.orThrow();
+    }
+
+    /**
+     * 관광 API 가 죽었을 때 <b>우리가 이미 가진 것</b>으로 채운다(#472).
+     *
+     * <p>2026-09-06 `apis.data.go.kr` 이 통째로 죽었을 때, 코스 카드에 이름과 사진이 떠 있는 장소를 누르면
+     * 502 가 났다. 그런데 그 값은 {@code region_poi} 에 있었다 — 코스에 그 장소를 넣을 때 쓴 바로 그 값이다.
+     *
+     * <p>인허가({@code LIC-})·국가유산({@code HER-}) 장소는 그때도 멀쩡히 떴다. DB 에서 오기 때문이다.
+     * 같은 화면인데 출처에 따라 하나는 살고 하나는 죽는 것을 없앤다.
+     *
+     * <p><b>없는 것을 지어내지 않는다.</b> 소개·운영시간·휴무일은 상세 조회에서만 오므로 비운다. 우리가
+     * 가진 것(이름·사진·주소·좌표·전화)만 채운다.
+     */
+    private Optional<PoiDetail> storedDetail(String contentId) {
+        return regionPoiRepository.findByContentId(contentId).map(poi -> {
+            log.info("관광 API 상세를 저장된 값으로 대신합니다 contentId={} 지역={}",
+                    SensitiveParams.forLog(contentId), poi.getRegionId());
+            return PoiDetail.withoutIntro(
+                    poi.getContentId(),
+                    poi.getContentTypeId(),
+                    PoiContentType.labelOf(poi.getContentTypeId()),
+                    poi.getTitle(),
+                    poi.getAddress(),
+                    poi.getTel(),
+                    poi.getLat(),
+                    poi.getLng(),
+                    poi.getImageUrl(),
+                    null, // 소개 — 상세 조회에서만 온다
+                    // 사진이 없으면 지도로 넘긴다 — 카드가 설 수 없을 때의 그 규칙 그대로다.
+                    MapSearchLink.of(poi.getTitle(), poi.getAddress()).orElse(null),
+                    // 혜택은 슬롯 종류별로 매칭된다(#172). 인허가 장소가 이미 쓰는 그 축으로 옮긴다.
+                    benefitFor(poi.getRegionId(), poi.getCategory().slotKind()));
+        });
     }
 
     /**

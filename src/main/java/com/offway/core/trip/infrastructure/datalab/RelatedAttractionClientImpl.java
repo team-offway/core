@@ -49,7 +49,17 @@ import org.springframework.web.util.UriComponentsBuilder;
 class RelatedAttractionClientImpl implements RelatedAttractionClient {
 
     private static final String URL = "https://apis.data.go.kr/B551011/TarRlteTarService1/areaBasedList1";
-    private static final Duration TIMEOUT = Duration.ofSeconds(6);
+    /**
+     * 응답 상한 — <b>배치 전용이라 길게 잡는다</b>(#473).
+     *
+     * <p>요청 경로는 사용자가 기다리므로 6초가 맞다. 이 적재는 아무도 안 기다린다 — 느려도 받는 것이
+     * 빈손으로 끝나는 것보다 낫다. 빈손이면 그날 데이터가 통째로 없다.
+     *
+     * <p>2026-09-06 게이트웨이 장애 때 이 값이 6초라 적재가 통째로 헛돌았다. 그날 부분 회복 구간을
+     * 실측하니 <b>TLS 9.7초 · 첫 바이트 15.5초</b> 였다 — 6초로는 연결이 성립하기도 전에 포기한다.
+     * CLAUDE.md 가 "timeout 은 median 이 아니라 응답시간 분포의 꼬리에서 정한다" 고 적은 그 자리다.
+     */
+    private static final Duration TIMEOUT = Duration.ofSeconds(20);
     private static final String MOBILE_OS = "ETC";
     private static final String MOBILE_APP = "offway";
     private static final Set<String> SUCCESS_CODES = Set.of("0000", "00");

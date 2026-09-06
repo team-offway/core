@@ -3,6 +3,7 @@ package com.offway.core.trip.repository;
 import com.offway.core.trip.domain.RegionPoi;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Optional;
 
 /** 지역 장소 풀 영속 port(#304). 구현은 {@link RegionPoiRepositoryImpl}. */
 public interface RegionPoiRepository {
@@ -29,6 +30,13 @@ public interface RegionPoiRepository {
     List<RegionPoi> findForCards(List<Long> regionIds, int perCategory);
 
     /** 그 달치가 이미 적재됐는가 — 갱신 배치가 외부를 부를지 가른다. */
+    /**
+     * 관광 API 식별자로 찾는다(#472) — <b>외부가 죽었을 때 상세를 채우는 근거</b>.
+     *
+     * <p>같은 장소가 여러 지역에 걸쳐 적재될 수 있어 하나만 고른다. 어느 쪽이든 이름·사진·주소는 같다.
+     */
+    Optional<RegionPoi> findByContentId(String contentId);
+
     boolean hasFresh(long regionId, YearMonth baseYm);
 
     /** 이 지역의 장소를 통째로 갈아 끼운다. 지우고 넣는 것이 한 트랜잭션이어야 중간 상태가 안 보인다. */
