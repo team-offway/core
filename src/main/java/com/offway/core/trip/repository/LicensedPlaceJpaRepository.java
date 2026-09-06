@@ -18,4 +18,7 @@ public interface LicensedPlaceJpaRepository extends JpaRepository<LicensedPlace,
 
     Page<LicensedPlace> findByRegionIdAndKindAndCategory(
             long regionId, PlaceKind kind, PlaceCategory category, Pageable pageable);
+
+    /** 그 지역 전부 — 이름으로 좌표를 이어 붙일 때 쓴다(#186). 월 1회 배치만 탄다. */
+    List<LicensedPlace> findByRegionId(long regionId);
 }
