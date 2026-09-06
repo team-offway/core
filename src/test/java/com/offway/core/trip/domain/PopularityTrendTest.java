@@ -54,8 +54,9 @@ class PopularityTrendTest {
 
     @ParameterizedTest
     @CsvSource({
-        "109, 9, false", // 한 자릿수는 잡음과 구분이 안 된다
-        "110, 10, true", // 하한
+        "101, 1, false", // 0~1%대는 원본이 며칠 빠지는 것만으로 뒤집힌다
+        "102, 2, true", // 하한 — 실측 분포에서 정했다(#486)
+        "109, 9, true", // 예전 문턱(10%)에 아깝게 걸리던 자리. 실측에서 이런 곳이 둘 있었다
         "140, 40, true", // 시안 예시
     })
     void 상승_하한을_경계에서_가른다(double recentMean, int expectedPercent, boolean rising) {
@@ -69,16 +70,18 @@ class PopularityTrendTest {
     /**
      * <b>반올림한 값으로 문턱을 넘지 못한다.</b>
      *
-     * <p>9.6% 는 표시할 땐 10 이지만 실제로는 하한에 못 미친다. 반올림한 숫자로 판정하면 "늘고
+     * <p>1.6% 는 표시할 땐 2 이지만 실제로는 하한에 못 미친다. 반올림한 숫자로 판정하면 "늘고
      * 있어요" 가 뜨고, 그 카드를 보고 고른 사용자에게는 우리가 없는 상승을 지어낸 셈이 된다.
+     *
+     * <p>문턱이 2 로 내려오면서 이 자리가 더 촘촘해졌다(#486) — 실측 분포에 1.5 · 1.6 이 실제로 있다.
      */
     @ParameterizedTest
     @CsvSource({
-        "109.6, 10, false", // 표시는 10 이지만 잰 값은 9.6 — 상승이 아니다
-        "109.9, 10, false",
-        "110.0, 10, true", // 여기서부터 진짜 10%
+        "101.6, 2, false", // 표시는 2 이지만 잰 값은 1.6 — 상승이 아니다
+        "101.9, 2, false",
+        "102.0, 2, true", // 여기서부터 진짜 2%
     })
-    void 표시값이_10이어도_잰_값이_모자라면_상승이_아니다(
+    void 표시값이_2여도_잰_값이_모자라면_상승이_아니다(
             double recentMean, int expectedPercent, boolean rising) {
         PopularityTrend trend = PopularityTrend.of(
                 window(recentMean, THREE_MONTHS), window(100, THREE_MONTHS)).orElseThrow();
@@ -90,7 +93,7 @@ class PopularityTrendTest {
     /** 못 미쳐도 <b>값 자체는 낸다</b> — "재 보니 안 늘었다" 와 "아직 못 잰다" 는 다르다. */
     @Test
     void 상승이_아니어도_추세는_비어_있지_않다() {
-        assertTrue(PopularityTrend.of(window(109.6, THREE_MONTHS), window(100, THREE_MONTHS))
+        assertTrue(PopularityTrend.of(window(101.6, THREE_MONTHS), window(100, THREE_MONTHS))
                 .isPresent());
     }
 
