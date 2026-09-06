@@ -803,4 +803,67 @@ class CourseGenerateIntegrationTest {
         assertNotNull(com.jayway.jsonpath.JsonPath.read(response, "$.data.transitAccess.toPlace"),
                 "자동으로 돌아갔는데도 도착 지점이 없습니다");
     }
+
+    // ─── 탈 곳을 아는 수단을 대표로(#454) ───────────────────────────────────────
+
+    /**
+     * 지역 id 는 시드 순서에서 온다({@code V20260718200440__create_region_and_seed.sql}).
+     * 이 파일이 이미 쓰고 있는 정선(16)과 같은 근거다.
+     */
+    private static final long WANDO = 57L;
+
+    private static final long ULLEUNG = 74L;
+
+    private static String transitBodyFor(long regionId) {
+        return """
+                { "regionId": %d, "travelDays": 2, "density": "PACKED", "transport": "TRANSIT",
+                  "originLat": %s, "originLng": %s, "travelDate": "2026-05-01" }"""
+                .formatted(regionId, SEOUL_LAT, SEOUL_LNG);
+    }
+
+    /**
+     * 도착 지점이 더 가깝다고 <b>탈 곳을 모르는 수단</b>을 앞세우지 않는다(#454).
+     *
+     * <p>완도는 항구(모황도)가 지역 중심에 가장 가까워 여객선이 대표였는데, <b>서울에 항구가 없어 출발
+     * 지점이 늘 비었다</b> — 사용자에게는 "배로 가세요, 어디서 타는지는 모릅니다" 가 된다. 시외버스
+     * 터미널이 '완도' 로 정확히 잡혀 있는데도 그랬다.
+     *
+     * <p>그날 열차가 없는 상황에서 잰다. 열차가 다니면 도착 지점 비교 자체를 안 하므로 갈리지 않는다.
+     */
+    @Test
+    void 출발_지점을_모르는_수단은_대표가_되지_않는다() throws Exception {
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainInfoClient.respond(TrainAvailability.NoServiceOnDate::new);
+        trainRouteService.evictCache();
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBodyFor(WANDO)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertNotEquals("FERRY", com.jayway.jsonpath.JsonPath.read(response, "$.data.transitAccess.mode"),
+                "서울에 항구가 없는데 여객선을 대표로 세웠습니다 — 어디서 타는지 말할 수 없습니다");
+        assertNotNull(com.jayway.jsonpath.JsonPath.read(response, "$.data.transitAccess.fromPlace"),
+                "대표로 세웠으면 어디서 타는지 말할 수 있어야 합니다");
+    }
+
+    /**
+     * <b>다른 수단이 아예 없으면 배가 대표인 것이 맞다</b>(#454).
+     *
+     * <p>울릉군은 섬이라 역도 터미널도 없다. 그때는 출발 지점이 비는 것도 맞는 답이다 — 포항까지 육상으로
+     * 간 뒤 배를 타는데, 그 환승을 잇는 것은 별개 작업이다. 여기서 여객선까지 빼면 도착 지점을 아는
+     * 수단이 있는데도 "못 간다" 가 된다.
+     */
+    @Test
+    void 다른_수단이_없으면_배가_대표인_것이_맞다() throws Exception {
+        tourApiClient.respond(CourseGenerateIntegrationTest::spreadPois);
+        trainInfoClient.respond(TrainAvailability.NoServiceOnDate::new);
+        trainRouteService.evictCache();
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBodyFor(ULLEUNG)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("FERRY"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").isNotEmpty());
+    }
 }
