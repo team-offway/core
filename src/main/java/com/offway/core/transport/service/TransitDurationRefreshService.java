@@ -45,14 +45,33 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class TransitDurationRefreshService {
 
-    /** 회당 가져올 구간 수 — 호출 예산을 다 못 쓰고 남으면 다음 회차가 이어받는다. */
-    private static final int MAX_LEGS_PER_RUN = 20;
+    /**
+     * 회당 가져올 구간 수 — 호출 예산을 다 못 쓰고 남으면 다음 회차가 이어받는다.
+     *
+     * <p><b>20 에서 올렸다</b>(#450). 후보를 미리 만들어 두면서 잴 것이 4건에서 3만여 건이 됐다.
+     * 20 이면 하루 480 구간이라 재측정 주기(30일)를 못 따라간다 — 밀린 구간이 계속 쌓인다.
+     */
+    private static final int MAX_LEGS_PER_RUN = 50;
 
-    /** 회당 외부 호출 상한 — 한도 보호. 구간 하나에 조회창만큼 나가므로 구간 수로는 셀 수 없다. */
-    private static final int MAX_CALLS_PER_RUN = 60;
+    /**
+     * 회당 외부 호출 상한 — 한도 보호. 구간 하나에 조회창만큼 나가므로 구간 수로는 셀 수 없다.
+     *
+     * <p>버스 조회창이 3일이라 {@value #MAX_LEGS_PER_RUN} 구간이면 최대 150 호출이다. 하루 24회차로
+     * 3,600 이고, TAGO 한도 10,000 의 36% 다. <b>남은 것은 사용자 요청의 열차 조회 몫이다</b> — 같은
+     * 키를 쓰므로 여기서 다 태우면 코스 생성이 먼저 죽는다.
+     */
+    private static final int MAX_CALLS_PER_RUN = 150;
 
-    /** 미운행으로 적힌 구간을 다시 재기까지의 기간. */
-    private static final int REMEASURE_DAYS = 30;
+    /**
+     * 미운행으로 적힌 구간을 다시 재기까지의 기간.
+     *
+     * <p><b>30 에서 늘렸다</b>(#450). 잴 대상이 3만여 건이 되면서 30일 주기는 하루 1,100 구간(3,300 호출)을
+     * 요구하는데, 그건 회당 상한을 다시 올려야 하는 값이고 결국 한도를 사용자 요청과 다투게 된다.
+     *
+     * <p><b>버스 노선은 그렇게 자주 안 바뀐다.</b> 계절 항로와 신설 노선을 놓치지 않는 것이 이 값의 목적인데,
+     * 분기 한 번이면 그 목적에 충분하다. 90일이면 하루 390 구간(1,170 호출)으로 전량을 돈다.
+     */
+    private static final int REMEASURE_DAYS = 90;
 
     private static final Period REMEASURE_AFTER = Period.ofDays(REMEASURE_DAYS);
 

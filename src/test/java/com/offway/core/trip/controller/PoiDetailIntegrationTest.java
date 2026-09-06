@@ -13,6 +13,7 @@ import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import com.offway.core.trip.domain.HeritagePlace;
@@ -84,6 +85,47 @@ class PoiDetailIntegrationTest {
                 // (PoiApi 도 그렇게 문서화한다), 나중에 필드가 사라져도 doesNotExist() 는 그대로 통과한다.
                 .andExpect(jsonPath("$.data.food").value(nullValue()))
                 .andExpect(jsonPath("$.data.stay").value(nullValue()));
+    }
+
+    /**
+     * 장소 사진이 <b>여러 장</b> 나간다(#464).
+     *
+     * <p>지금까지는 대표 한 장({@code firstimage})뿐이었다. 같은 장소에 사진이 더 있는데(실측으로
+     * 완도타워가 16장) 안 쓰고 있었다.
+     */
+    @Test
+    void 장소_상세에_추가_사진이_함께_나간다() throws Exception {
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
+                "126508", 12, "완도타워", "전남 완도군", "061-1", 34.3, 126.7, "http://img/rep.jpg", "전망대 소개")));
+        tourApiClient.respondIntro(Optional::empty);
+        tourApiClient.respondImages(() -> List.of("http://img/2.jpg", "http://img/3.jpg"));
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "126508"))
+                .andExpect(status().isOk())
+                // 대표는 그대로다 — 추가 사진이 대표를 밀어내지 않는다
+                .andExpect(jsonPath("$.data.imageUrl").value("http://img/rep.jpg"))
+                .andExpect(jsonPath("$.data.images.length()").value(2))
+                .andExpect(jsonPath("$.data.images[0]").value("http://img/2.jpg"));
+    }
+
+    /**
+     * 사진이 없는 장소가 흔하다 — <b>빈 배열</b>로 나간다.
+     *
+     * <p>null 로 두면 화면이 매번 검사해야 하고, 조회가 실패해도 상세는 그대로 나가야 한다(사진은 곁가지다).
+     */
+    @Test
+    void 추가_사진이_없으면_빈_배열이다() throws Exception {
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
+                "126509", 12, "장소", "전남", null, 34.3, 126.7, null, null)));
+        tourApiClient.respondIntro(Optional::empty);
+        tourApiClient.respondImages(List::of);
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "126509"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.images").isArray())
+                .andExpect(jsonPath("$.data.images").isEmpty());
     }
 
     @Test

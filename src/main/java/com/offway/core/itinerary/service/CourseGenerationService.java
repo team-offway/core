@@ -33,6 +33,9 @@ import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.service.dto.RegionPois;
 import com.offway.core.weather.domain.DailyWeather;
+import com.offway.core.trip.service.TransitHubPhotoProvider;
+import java.util.LinkedHashSet;
+import java.util.stream.Collectors;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -67,6 +70,7 @@ public class CourseGenerationService {
     private final PolicyService policyService;
     private final CourseWeatherProvider courseWeatherProvider;
     private final OpeningHoursProvider openingHoursProvider;
+    private final TransitHubPhotoProvider transitHubPhotoProvider;
     private final FestivalPeriodProvider festivalPeriodProvider;
     private final RegionQuery regionQuery;
     private final RegionAccessService regionAccessService;
@@ -182,6 +186,7 @@ public class CourseGenerationService {
                         : regionVisitMetricsService.of(region.getLegalCode()))
                 // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
                 .hoursByContentId(openingHoursProvider.forCourse(course))
+                .hubPhotoUrlByName(transitHubPhotoProvider.photoUrls(transitHubNames(course)))
                 .festivalPeriodByContentId(festivalPeriodProvider.forCourse(course))
                 .build();
     }
@@ -557,5 +562,20 @@ public class CourseGenerationService {
 
     /** 배치 항목 — 슬롯 종류·시간대·장소. */
     private record Entry(SlotKind kind, TimeOfDay timeOfDay, PoiCandidate poi) {
+    }
+
+    /**
+     * 이 코스의 교통 거점 이름 — 도착·출발 칸이다(#450).
+     *
+     * <p>장소 칸은 생성 때 받은 사진을 슬롯이 들고 있고, 교통 거점만 이름으로 따로 얻는다. 둘이 같은
+     * 지점이라 보통 하나다.
+     */
+    private static Set<String> transitHubNames(Course course) {
+        return course.getDays().stream()
+                .flatMap(day -> day.getSlots().stream())
+                .filter(slot -> !slot.getKind().hasPlace())
+                .map(Slot::getTitle)
+                .filter(name -> name != null && !name.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 }
