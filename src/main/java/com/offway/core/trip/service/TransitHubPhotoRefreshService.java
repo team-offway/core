@@ -16,6 +16,10 @@ import com.offway.core.trip.repository.TransitHubPhotoRepository;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +67,12 @@ public class TransitHubPhotoRefreshService {
     /** 한 지점에 몇 장까지 받아 볼지 — 첫 장만 쓰지만 불완전한 것을 걸러낼 여지를 둔다. */
     private static final int ROWS_PER_HUB = 5;
 
+    private static final Pattern PARENTHESES = Pattern.compile("\\((.*?)\\)");
+
+    /** 시설·방위 접미어 — `고양종합`·`대전복합`·`대구북부`·`장성사거리` 를 지역명으로 되돌린다. */
+    private static final Pattern FACILITY_SUFFIX =
+            Pattern.compile("(종합|복합|공용|사거리|동부|서부|남부|북부|중앙)+$");
+
     /** 사진을 <b>찾은</b> 지점을 다시 묻기까지 — 갤러리는 월 단위로 늘어나는 자료다. */
     private static final Duration REFETCH_AFTER = Duration.ofDays(30);
 
@@ -87,7 +97,8 @@ public class TransitHubPhotoRefreshService {
     @Scheduled(cron = WEEKLY_AT_DAWN, zone = SERVICE_ZONE_ID)
     public void refresh() {
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
-        Set<String> hubNames = destinationHubNames();
+        Map<String, String> regionByHub = destinationHubNames();
+        Set<String> hubNames = regionByHub.keySet();
         if (hubNames.isEmpty()) {
             log.info("교통 거점 사진 — 대상 지점이 없습니다(시드를 확인하세요)");
             return;
@@ -118,7 +129,7 @@ public class TransitHubPhotoRefreshService {
         int found = 0;
         int missing = 0;
         for (String hubName : targets) {
-            Optional<GalleryPhotoItem> photo = search(hubName);
+            Optional<GalleryPhotoItem> photo = search(hubName, regionByHub.get(hubName));
             record(known.get(hubName), hubName, photo.orElse(null), now);
             if (photo.isPresent()) {
                 found++;
@@ -142,25 +153,74 @@ public class TransitHubPhotoRefreshService {
      * <p>이름으로 모으는 이유는 같은 지점이 고속·시외 목록에 다른 코드로 올라 있기 때문이다. 코드로 잡으면
      * 같은 사진을 두 번 받는다.
      */
-    private Set<String> destinationHubNames() {
-        Set<String> names = new LinkedHashSet<>();
+    private Map<String, String> destinationHubNames() {
+        Map<String, String> byHub = new LinkedHashMap<>();
         for (Region region : regionQuery.all()) {
             double lat = region.getLat();
             double lng = region.getLng();
-            trainStationResolver.nearest(lat, lng).map(Station::name).ifPresent(names::add);
+            List<String> hubs = new ArrayList<>();
+            trainStationResolver.nearest(lat, lng).map(Station::name).ifPresent(hubs::add);
             for (BusTerminalKind kind : BusTerminalKind.values()) {
-                busTerminalResolver.nearest(lat, lng, kind).map(Terminal::name).ifPresent(names::add);
+                busTerminalResolver.nearest(lat, lng, kind).map(Terminal::name).ifPresent(hubs::add);
             }
-            ferryPortResolver.nearest(lat, lng).map(Port::name).ifPresent(names::add);
+            ferryPortResolver.nearest(lat, lng).map(Port::name).ifPresent(hubs::add);
+            for (String hub : hubs) {
+                if (hub != null && !hub.isBlank()) {
+                    // 같은 지점을 여러 지역이 쓰면 먼저 만난 지역으로 둔다 — 폴백 사진의 지역일 뿐이다.
+                    byHub.putIfAbsent(hub, region.shortName());
+                }
+            }
         }
-        names.removeIf(name -> name == null || name.isBlank());
-        return names;
+        return byHub;
     }
 
-    private Optional<GalleryPhotoItem> search(String hubName) {
-        return galleryPhotoClient.searchByKeyword(hubName, ROWS_PER_HUB).stream()
-                .filter(GalleryPhotoItem::isComplete)
-                .findFirst();
+    /**
+     * 지점 사진 — <b>구체적인 검색어부터</b> 훑고 첫 결과를 쓴다.
+     *
+     * <p>지점명을 그대로 넣으면 68%만 나온다(158종 중 108종, 실측). 못 찾는 것들은 대부분 이름 자체가
+     * 검색어로 안 맞는 경우다 — `광주(유·스퀘어)` 의 괄호, `부산_영도` 의 밑줄, `고양종합`·`대전복합` 의
+     * 시설 접미어.
+     *
+     * <p><b>마지막은 지역명이다.</b> `점촌`·`탄현` 처럼 이름을 아무리 다듬어도 안 나오는 지점이 있는데,
+     * 그 지점을 쓰는 지역으로 물으면 나온다(문경 812건 · 파주 877건). 89곳 전부 지역명으로는 사진이
+     * 있으므로 여기서 멈춘다. 터미널 카드에 그 지역 사진이 붙는 것은 빈 칸보다 낫다.
+     */
+    private Optional<GalleryPhotoItem> search(String hubName, String regionName) {
+        for (String keyword : keywords(hubName, regionName)) {
+            Optional<GalleryPhotoItem> found = galleryPhotoClient.searchByKeyword(keyword, ROWS_PER_HUB).stream()
+                    .filter(GalleryPhotoItem::isComplete)
+                    .findFirst();
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** 구체적인 것부터. 중복은 접고, 지역명을 맨 뒤에 둔다. */
+    private static List<String> keywords(String hubName, String regionName) {
+        List<String> keywords = new ArrayList<>();
+        add(keywords, hubName);
+        // `부산서부(사상)` 의 '사상' 처럼 괄호 안이 더 구체적인 경우가 있다 — 괄호를 떼기 전에 본다.
+        Matcher inner = PARENTHESES.matcher(hubName);
+        if (inner.find()) {
+            add(keywords, inner.group(1));
+        }
+        String withoutParentheses = PARENTHESES.matcher(hubName).replaceAll("");
+        add(keywords, withoutParentheses);
+        // `부산_영도` — 시드가 지역을 밑줄로 붙여 둔 항구들이다.
+        add(keywords, withoutParentheses.replace('_', ' ').replace('-', ' '));
+        // `고양종합`·`대전복합`·`대구북부`·`장성사거리` — 시설·방위 접미어를 뗀다.
+        add(keywords, FACILITY_SUFFIX.matcher(withoutParentheses).replaceAll(""));
+        add(keywords, regionName);
+        return keywords;
+    }
+
+    private static void add(List<String> keywords, String keyword) {
+        String trimmed = keyword == null ? "" : keyword.trim();
+        if (!trimmed.isBlank() && !keywords.contains(trimmed)) {
+            keywords.add(trimmed);
+        }
     }
 
     /**

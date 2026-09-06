@@ -119,6 +119,31 @@ class TransitHubPhotoIntegrationTest {
         assertEquals(names.size(), urls.size(), "받아 둔 사진을 못 읽었습니다");
     }
 
+    /**
+     * 지점명으로 못 찾으면 <b>더 일반적인 말로 다시 묻는다</b> — 마지막은 그 지역명이다.
+     *
+     * <p>지점명 그대로만 물으면 158종 중 108종(68%)만 나온다(실측). 못 찾는 것들은 대부분 이름이
+     * 검색어로 안 맞는 경우다 — `광주(유·스퀘어)` 의 괄호, `부산_영도` 의 밑줄, `고양종합` 의 시설 접미어.
+     * 그래도 안 나오는 `점촌`·`탄현` 은 지역명(문경·파주)으로 물으면 나온다.
+     */
+    @Test
+    void 지점명으로_못_찾으면_더_일반적인_말로_다시_묻는다() {
+        List<String> asked = new java.util.ArrayList<>();
+        // 지역명처럼 짧은 말에만 답하는 갤러리를 흉내 낸다.
+        galleryPhotoClient.respondToSearch(keyword -> {
+            asked.add(keyword);
+            return keyword.length() <= 3 ? List.of(photoFor(keyword)) : List.of();
+        });
+
+        refreshService.refresh();
+
+        assertTrue(transitHubPhotoRepository.findAll().stream()
+                        .anyMatch(photo -> photo.getImageUrl() != null),
+                "더 일반적인 말로 다시 묻지 않았습니다 — 지점명 하나로만 끝냈습니다");
+        assertTrue(asked.stream().anyMatch(keyword -> keyword.length() <= 3),
+                "짧은 대체 검색어를 시도하지 않았습니다: " + asked.stream().limit(10).toList());
+    }
+
     /** 안 받아 둔 지점은 결과에서 빠진다 — 없는 것을 지어내지 않는다. */
     @Test
     void 안_받아_둔_지점은_결과에_없다() {
