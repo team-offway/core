@@ -126,12 +126,22 @@ public enum TransitMode {
      */
     public abstract double trunkSpeedKmh();
 
-    /** 간선 거리(㎞)를 이 수단의 소요시간(분)으로 환산한다. */
+    /**
+     * 간선 거리(㎞)를 이 수단의 소요시간(분)으로 환산한다.
+     *
+     * <p><b>반올림 결과가 int 를 넘으면 던진다.</b> 지구 둘레가 4만㎞ 라 실제 좌표로는 닿지 않는 값이지만,
+     * 넘으면 {@code (int)} 변환이 조용히 음수를 만든다 — 도달시간이 음수면 추천이 그 지역을 "가장 가깝다"
+     * 로 읽는다. 입력을 이미 검사하는 메서드라 여기서 끊는 편이 일관된다.
+     */
     public int trunkMinutes(double distanceKm) {
         if (!Double.isFinite(distanceKm) || distanceKm < 0) {
             throw new IllegalArgumentException("distanceKm 은 유한한 음이 아닌 값이어야 합니다: " + distanceKm);
         }
-        return (int) Math.round(distanceKm / trunkSpeedKmh() * MINUTES_PER_HOUR);
+        long minutes = Math.round(distanceKm / trunkSpeedKmh() * MINUTES_PER_HOUR);
+        if (minutes > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("소요시간이 표현 범위를 넘습니다: " + distanceKm + "km");
+        }
+        return (int) minutes;
     }
 
     private static final int MINUTES_PER_HOUR = 60;

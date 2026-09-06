@@ -72,6 +72,18 @@ class TransitModeTrunkSpeedTest {
     }
 
     /**
+     * 반올림 결과가 int 를 넘으면 거절한다.
+     *
+     * <p>지구 둘레가 4만㎞ 라 실제 좌표로는 닿지 않는다. 다만 넘으면 {@code (int)} 변환이 조용히 음수를
+     * 만들고, <b>도달시간이 음수면 추천이 그 지역을 "가장 가깝다" 로 읽는다</b>.
+     */
+    @ParameterizedTest
+    @EnumSource(value = TransitMode.class, names = {"TRAIN", "EXPRESS_BUS", "INTERCITY_BUS", "FERRY"})
+    void 소요시간이_표현_범위를_넘으면_거절한다(TransitMode mode) {
+        assertThrows(IllegalArgumentException.class, () -> mode.trunkMinutes(Double.MAX_VALUE));
+    }
+
+    /**
      * <b>자차는 간선이 없다.</b> 거점을 거치지 않으므로 이 값을 물으면 그것이 곧 호출부의 버그다 —
      * {@code lookaheadDays()} 가 같은 이유로 던진다.
      */
