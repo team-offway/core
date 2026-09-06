@@ -53,6 +53,25 @@ public class TransitDurationService {
     }
 
     /**
+     * 이미 잰 값만 본다 — <b>없어도 자리를 만들지 않는다.</b>
+     *
+     * <p>{@link #minutesFor} 와 갈라 둔 이유는 부르는 자리의 성격이 다르기 때문이다. 그쪽은 코스 하나를
+     * 짜면서 구간 <b>하나</b>를 묻고, 없으면 자리를 만들어 배치가 채우게 한다. 이쪽은 추천이 <b>89곳을
+     * 훑으며</b> 묻는 자리라, 같은 방식이면 한 번의 추천이 최대 89건의 쓰기를 일으킨다.
+     *
+     * <p>그리고 추천은 그 자리를 만들 이유도 없다 — 사용자가 그 지역을 고를지 아직 모른다. 실제로 코스를
+     * 짜는 순간 {@link #minutesFor} 가 자리를 만든다.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Integer> measuredMinutes(TransitMode mode, String depCode, String arrCode) {
+        if (mode == TransitMode.TRAIN || mode == TransitMode.CAR) {
+            return Optional.empty(); // 이 표를 쓰지 않는 수단이다
+        }
+        return transitLegDurationRepository.find(mode, depCode, arrCode)
+                .flatMap(TransitLegDuration::usableMinutes);
+    }
+
+    /**
      * 배치가 잴 대상 {@code max} 건 — 아직 안 잰 구간이 먼저고, 그다음이 미운행으로 적힌 지 오래된 구간이다.
      *
      * <p><b>미운행도 다시 잰다.</b> 한 번의 조회로 굳히면 겨울에 쉬는 항로·새로 뚫린 노선이 영원히 없는 길이
