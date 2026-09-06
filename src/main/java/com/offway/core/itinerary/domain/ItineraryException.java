@@ -51,6 +51,10 @@ public final class ItineraryException extends BaseException {
     }
 
     /** 공유 링크는 살아 있는데 게시자가 코스를 지웠다. */
+    public static ItineraryException transitModeOnNonTransitCourse() {
+        return new ItineraryException(ItineraryErrorCode.TRANSIT_MODE_ON_NON_TRANSIT);
+    }
+
     public static ItineraryException shareCourseDeleted() {
         return new ItineraryException(ItineraryErrorCode.SHARE_COURSE_DELETED);
     }

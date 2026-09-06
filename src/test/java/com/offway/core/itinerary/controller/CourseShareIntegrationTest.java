@@ -368,7 +368,7 @@ class CourseShareIntegrationTest {
                 new SlotDisplay(null, null, null, null));
         Course course = Course.ownedBy(
                 owner, 16L, Density.PACKED, TransportMode.CAR,
-                List.of(DaySchedule.of(1, List.of(slot))), null, 1, null, StartDayLeave.FULL_DAY);
+                List.of(DaySchedule.of(1, List.of(slot))), null, 1, null, StartDayLeave.FULL_DAY, null);
         return courseRepository.save(course).getId();
     }
 
