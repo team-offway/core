@@ -20,4 +20,19 @@ public class WebClientConfig {
                 .filter(ExternalHealthFilter.create(externalApiHealth))
                 .build();
     }
+
+    /**
+     * 알림 전송 전용 클라이언트 — 위 빈과 <b>일부러 갈라 둔다</b>.
+     *
+     * <p><b>알림 채널을 관측 대상으로 삼으면 안 된다.</b> 같은 빈을 쓰면 디스코드가 느린 날 그것이
+     * "외부 장애" 로 집계되고, 그 장애를 알리려 또 디스코드를 부른다 — 되먹임이 된다. 우리가 보려는 것은
+     * 여행 데이터를 주는 외부지 우리 알림 통로가 아니다.
+     *
+     * <p>가르지 않으면 빈 순환도 생긴다: 알림 → 이 클라이언트 → 상태 판정 → 알림. 운영에서만 디스코드
+     * 구현이 떠서 로컬·테스트는 초록인 채 배포가 부팅에 실패한다(실제로 CI 가 그렇게 잡았다).
+     */
+    @Bean
+    public WebClient notifierWebClient() {
+        return WebClient.builder().build();
+    }
 }
