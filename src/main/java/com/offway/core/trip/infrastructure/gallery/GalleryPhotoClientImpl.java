@@ -33,6 +33,10 @@ import org.springframework.web.util.UriComponentsBuilder;
 class GalleryPhotoClientImpl implements GalleryPhotoClient {
 
     private static final String URL = "https://apis.data.go.kr/B551011/PhotoGalleryService1/galleryList1";
+
+    /** 키워드 검색 — 같은 활용신청(관광사진갤러리)의 다른 오퍼레이션이라 한도를 나눠 쓴다. */
+    private static final String SEARCH_URL =
+            "https://apis.data.go.kr/B551011/PhotoGalleryService1/gallerySearchList1";
     /**
      * 실측 p95 가 0.35초(1,000건 페이지)라 크게 잡았다. 부팅 후 도는 배경 적재라 지연이 사용자에게 닿지
      * 않으므로 꼬리를 보수적으로 둔다.
@@ -77,6 +81,30 @@ class GalleryPhotoClientImpl implements GalleryPhotoClient {
             // 쿼리스트링(키 포함)은 로그에 남기지 않는다.
             log.warn("관광사진 갤러리 조회 실패 pageNo={} cause={}", pageNo, RootCause.of(e));
             throw TourApiException.lookupFailed(e);
+        }
+    }
+
+    @Override
+    public List<GalleryPhotoItem> searchByKeyword(String keyword, int rows) {
+        if (!props.dataGoKr().hasKey()) {
+            log.info("관광사진 갤러리 키 없음 — 검색을 건너뜁니다");
+            return List.of();
+        }
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(SEARCH_URL)
+                .queryParam("serviceKey", props.dataGoKr().serviceKey())
+                .queryParam("MobileOS", MOBILE_OS)
+                .queryParam("MobileApp", MOBILE_APP)
+                .queryParam("_type", "json")
+                .queryParam("numOfRows", rows)
+                .queryParam("pageNo", 1)
+                .queryParam("keyword", keyword);
+        try {
+            return parse(call(builder));
+        } catch (Exception e) {
+            // **던지지 않는다.** 사진은 카드의 곁가지라, 여기서 예외를 올리면 사진 한 장 때문에 코스가
+            // 통째로 실패한다. 키워드는 지점명이라 로그에 남겨도 안전하다(쿼리스트링은 안 남긴다).
+            log.warn("관광사진 갤러리 검색 실패 keyword={} cause={}", keyword, RootCause.of(e));
+            return List.of();
         }
     }
 

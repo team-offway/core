@@ -40,6 +40,7 @@ public record GeneratedCourse(
         RegionAccess regionAccess,
         String regionName,
         Map<String, SlotHours> hoursByContentId,
+        Map<String, String> hubPhotoUrlByName,
         /**
          * 축제 슬롯의 행사 기간(#388) — <b>기간을 아는 축제만</b> 키가 있다.
          *
@@ -55,6 +56,8 @@ public record GeneratedCourse(
         benefits = List.copyOf(benefits);
         weatherByDay = weatherByDay == null ? Map.of() : Map.copyOf(weatherByDay);
         hoursByContentId = hoursByContentId == null ? Map.of() : Map.copyOf(hoursByContentId);
+        // 교통 거점 사진(#450) — 없는 것이 정상이라 null 을 빈 맵으로 접는다.
+        hubPhotoUrlByName = hubPhotoUrlByName == null ? Map.of() : Map.copyOf(hubPhotoUrlByName);
         festivalPeriodByContentId =
                 festivalPeriodByContentId == null ? Map.of() : Map.copyOf(festivalPeriodByContentId);
     }

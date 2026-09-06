@@ -212,6 +212,7 @@ public record CourseResponse(
                                 generated.weatherByDay().get(course.getDays().get(i).getDayNumber()),
                                 course.distanceFromPrevDayMeters(i),
                                 generated.hoursByContentId(),
+                                generated.hubPhotoUrlByName(),
                                 generated.festivalPeriodByContentId(),
                                 slotBenefits(generated)))
                         .toList())
@@ -322,6 +323,7 @@ public record CourseResponse(
         static Day from(
                 DaySchedule schedule, LocalDate travelDate, String regionName, DailyWeather weather,
                 Integer distanceFromPrevDayMeters, Map<String, SlotHours> hoursByContentId,
+                Map<String, String> hubPhotoUrlByName,
                 Map<String, FestivalPeriod> festivalPeriodByContentId,
                 Map<SlotKind, String> slotBenefits) {
             // 표시 번호가 아니라 달력 오프셋으로 센다 — 첫날이 빠진 코스에서 하루 앞당겨지지 않게(#159).
@@ -333,7 +335,8 @@ public record CourseResponse(
                             // 조회 자체를 하지 않는다 — 운영시간·축제 기간이 있을 수 없는 칸이다.
                             lookup(hoursByContentId, slots.get(i)),
                             lookup(festivalPeriodByContentId, slots.get(i)),
-                            benefitFor(slots.get(i), slotBenefits)))
+                            benefitFor(slots.get(i), slotBenefits),
+                            hubPhotoUrlByName))
                     .toList();
             return new Day(
                     schedule.getDayNumber(),
@@ -425,7 +428,8 @@ public record CourseResponse(
                     example = "2026-09-12 ~ 2026-09-14", nullable = true) String festivalPeriod) {
 
         static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName,
-                SlotHours hours, FestivalPeriod festival, String benefit) {
+                SlotHours hours, FestivalPeriod festival, String benefit,
+                Map<String, String> hubPhotoUrlByName) {
             return new Item(
                     slot.getOrderInDay(),
                     slot.getTimeOfDay().name(),
@@ -433,7 +437,7 @@ public record CourseResponse(
                     slot.getKind().label(),
                     slot.getPoiContentId(),
                     slot.getTitle(),
-                    slot.getImageUrl(),
+                    imageUrlOf(slot, hubPhotoUrlByName),
                     slot.getAddress(),
                     slot.getCatchphrase(),
                     slot.getTel(),
@@ -448,6 +452,20 @@ public record CourseResponse(
                     distanceFromPrevMeters,
                     regionName,
                     periodTextOf(festival));
+        }
+
+        /**
+         * 칸의 사진 — 교통 거점만 <b>따로 얻는다</b>(#450).
+         *
+         * <p>장소 칸은 생성 때 받은 사진을 슬롯이 들고 있다. 교통 거점 칸은 장소 상세 키가 없어(#415)
+         * 그 경로로는 못 받고, 그래서 지금까지 빈 채로 나갔다 — 대중교통 코스의 첫 칸과 끝 칸이다.
+         * 관광사진갤러리에서 지점 이름으로 미리 받아 둔 것을 여기서 붙인다.
+         */
+        private static String imageUrlOf(Slot slot, Map<String, String> hubPhotoUrlByName) {
+            if (slot.getKind().hasPlace()) {
+                return slot.getImageUrl();
+            }
+            return hubPhotoUrlByName.get(slot.getTitle());
         }
 
         /**
