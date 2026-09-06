@@ -154,6 +154,34 @@ class ExternalHealthFilterTest {
         assertTrue(notifier.sent.getLast().contains("회복"));
     }
 
+    /**
+     * <b>프로브 요청은 여기서 관측하지 않는다</b>(#479).
+     *
+     * <p>프로브는 HTTP 200 안에 실린 {@code resultCode} 까지 보는데, 필터는 그 200 만 보고 성공으로
+     * 적는다. 둘 다 적으면 카운터가 <b>성공 → 실패 1</b> 을 반복해 연속 실패가 쌓이지 않고, 장애
+     * 확정선에 영영 닿지 못한다. 그래서 필터가 비켜서고 스케줄러가 단독으로 적는다.
+     */
+    @Test
+    void 프로브_요청은_관측하지_않는다() {
+        RecordingNotifier notifier = new RecordingNotifier();
+        ExternalApiHealth health = new ExternalApiHealth(notifier);
+        ExchangeFilterFunction filter = ExternalHealthFilter.create(health);
+        ClientRequest probeRequest = ClientRequest.create(HttpMethod.GET, TRAIN)
+                .attribute(ExternalHealthFilter.SKIP_ATTRIBUTE, true)
+                .build();
+
+        // 200 이 다섯 번 와도 성공으로 세지 않는다 — 그 판정은 스케줄러 몫이다.
+        for (int i = 0; i < 5; i++) {
+            filter.filter(probeRequest, responding(HttpStatus.OK)).block();
+        }
+        // 5xx 도 마찬가지다. 기록자가 둘이 되면 안 된다.
+        for (int i = 0; i < 5; i++) {
+            filter.filter(probeRequest, responding(HttpStatus.BAD_GATEWAY)).block();
+        }
+
+        assertEquals(List.of(), notifier.sent, "필터가 프로브까지 적으면 스케줄러의 판정과 서로 덮어쓴다");
+    }
+
     @Test
     void 응답이_5xx면_실패로_센다() {
         RecordingNotifier notifier = new RecordingNotifier();

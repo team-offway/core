@@ -58,6 +58,37 @@ class ProbeResultTest {
         assertTrue(result.worthConfirming());
     }
 
+    /**
+     * <b>키가 없거나 못 재본 것은 상태 판정에서 뺀다</b>(#479).
+     *
+     * <p>외부에 대해 아무것도 말해주지 않는 결과다. 성공으로 세면 죽은 API 가 살아 있는 것으로 보이고,
+     * 실패로 세면 키를 안 꽂은 환경이 늘 장애가 된다.
+     */
+    @Test
+    void 재본_것만_상태_판정에_쓴다() {
+        assertTrue(ProbeResult.ok("TAGO 열차", "공공데이터포털", 200, "{}").observed());
+        assertTrue(ProbeResult.fail("TAGO 열차", "공공데이터포털", 200, "resultCode 실패", "").observed());
+
+        assertFalse(ProbeResult.skipped("TMAP 경로", "SK openapi").observed());
+        assertFalse(ProbeResult.unverified("코레일", "공공데이터포털", "승인 대기").observed());
+    }
+
+    /**
+     * <b>200 인데 실패인 것</b>이 이 작업의 핵심이다(#479).
+     *
+     * <p>공공데이터포털은 키가 만료되거나 한도를 태우면 HTTP 200 에 resultCode 만 실패로 실어 보낸다.
+     * HTTP 계층만 보는 필터에게는 성공으로 보이지만, 실제로는 아무것도 못 가져오는 상태다.
+     */
+    @Test
+    void HTTP_200_이라도_resultCode_실패는_못_쓰는_상태다() {
+        ProbeResult result = ProbeResult.fail(
+                "국문관광정보", "공공데이터포털", 200, "정상 코드(resultCode 00) 없음 — 키/승인/파라미터 확인", "");
+
+        assertTrue(result.unusable(), "200 이라고 성공으로 세면 한도를 태운 날 '전부 정상' 을 보게 된다");
+        assertTrue(result.observed(), "재본 결과다 — 판정에 써야 한다");
+        assertTrue(result.worthConfirming(), "일시적일 수 있어 그 자리에서 더 물어본다");
+    }
+
     /** 실패가 아닌 것은 애초에 확인 대상이 아니다. */
     @Test
     void 실패가_아니면_다시_묻지_않는다() {
