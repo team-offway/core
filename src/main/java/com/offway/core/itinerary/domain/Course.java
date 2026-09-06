@@ -189,6 +189,7 @@ public class Course {
         requireIncreasingOffsets(days);
         requireSpanCovers(days, travelDays);
         requireTransitHubsOnlyOnTransit(transport, days);
+        requireTransitModeOnlyOnTransit(transport, transitMode);
         this.userId = userId;
         this.regionId = Objects.requireNonNull(regionId, "지역 ID는 필수입니다");
         this.density = Objects.requireNonNull(density, "일정 밀도는 필수입니다");
@@ -511,27 +512,65 @@ public class Course {
             return false;
         }
 
-        List<Slot> opened = new ArrayList<>(first.getSlots());
-        opened.set(0, Slot.transitHub(1, opened.get(0).getTimeOfDay(), SlotKind.ARRIVAL, name,
-                point.lat(), point.lng(), 0));
-        if (opened.size() > 1) {
-            // 지점이 바뀌었으니 "여기서 첫 장소까지" 도 다시 잰 값이어야 한다.
-            opened.set(1, withTravelMinutes(opened.get(1), toFirstPlaceMinutes));
-        }
-        // 하루짜리 코스면 도착·출발이 같은 날에 있다 — 방금 바꾼 목록을 이어서 고쳐야 한 쪽이 덮이지 않는다.
+        // 하루짜리 코스면 도착·출발이 같은 날에 있다 — 한 목록을 이어서 고쳐야 한 쪽이 다른 쪽을 덮지 않는다.
         boolean sameDay = days.size() == 1;
-        List<Slot> closed = sameDay ? opened : new ArrayList<>(last.getSlots());
-        int tailIndex = closed.size() - 1;
-        closed.set(tailIndex, Slot.transitHub(tailIndex + 1, closed.get(tailIndex).getTimeOfDay(),
-                SlotKind.DEPARTURE, name, point.lat(), point.lng(), fromLastPlaceMinutes));
-
-        // 날을 통째로 갈아 끼운다 — 생성 때 도착 칸을 세우는 방식과 같다. 슬롯 목록을 직접 비우면
-        // 갓 만든 DaySchedule 은 불변 복사본이라 터지고, 컬렉션 참조를 바꾸면 orphanRemoval 이 터진다.
-        days.set(0, rebuilt(first, opened));
-        if (!sameDay) {
-            days.set(days.size() - 1, rebuilt(last, closed));
+        List<Slot> opened = withArrival(first.getSlots(), name, point, toFirstPlaceMinutes);
+        if (sameDay) {
+            days.set(0, rebuilt(first, withDeparture(opened, name, point, fromLastPlaceMinutes)));
+            return true;
         }
+        days.set(0, rebuilt(first, opened));
+        days.set(days.size() - 1,
+                rebuilt(last, withDeparture(copied(last.getSlots()), name, point, fromLastPlaceMinutes)));
         return true;
+    }
+
+    /**
+     * 맨 앞을 새 도착 칸으로 세운 그날 — <b>나머지 칸도 전부 새 객체로 옮긴다</b>.
+     *
+     * <p><b>기존 슬롯을 그대로 재사용하면 안 된다.</b> 아래 {@link #rebuilt} 가 날을 통째로 갈아 끼우는데,
+     * 그때 옛 날이 orphan 이 되면서 {@code cascade = ALL} 로 자기 슬롯을 지운다. 재사용한 슬롯은 새 날에
+     * 담겨 있어도 그 삭제에 함께 쓸려 나간다 — 실제로 1일차의 숙박 칸이 사라졌다. 새 객체로 옮기면 옛 행은
+     * 지워지고 새 행이 들어와 짝이 맞는다({@link #trimFirstDayTo} 의 {@code renumber} 와 같은 방식이다).
+     */
+    private static List<Slot> withArrival(
+            List<Slot> slots, String name, Coordinate point, int toFirstPlaceMinutes) {
+        List<Slot> opened = new ArrayList<>();
+        opened.add(Slot.transitHub(1, slots.getFirst().getTimeOfDay(), SlotKind.ARRIVAL, name,
+                point.lat(), point.lng(), 0));
+        for (int i = 1; i < slots.size(); i++) {
+            // 지점이 바뀌었으니 도착 바로 뒤 칸은 "여기서 거기까지" 를 다시 잰 값으로 받는다.
+            Slot slot = slots.get(i);
+            opened.add(copyOf(slot, i == 1 ? toFirstPlaceMinutes : slot.getTravelMinutesFromPrev()));
+        }
+        return opened;
+    }
+
+    /** 맨 뒤를 새 출발 칸으로 간 그날 — 넘어온 목록은 이미 전부 새 객체다. */
+    private static List<Slot> withDeparture(
+            List<Slot> slots, String name, Coordinate point, int fromLastPlaceMinutes) {
+        List<Slot> closed = new ArrayList<>(slots);
+        int tail = closed.size() - 1;
+        closed.set(tail, Slot.transitHub(tail + 1, closed.get(tail).getTimeOfDay(), SlotKind.DEPARTURE,
+                name, point.lat(), point.lng(), fromLastPlaceMinutes));
+        return closed;
+    }
+
+    /**
+     * 같은 값의 새 슬롯들 — 맨 뒤 교통 거점 칸은 어차피 갈리므로 값만 옮긴다.
+     *
+     * <p>{@link Slot#of} 는 장소 칸만 만들 수 있어, 거점 칸은 {@link Slot#transitHub} 로 자리만 채운 뒤
+     * {@link #withDeparture} 가 새 지점으로 덮는다.
+     */
+    private static List<Slot> copied(List<Slot> slots) {
+        List<Slot> copies = new ArrayList<>();
+        for (Slot slot : slots) {
+            copies.add(slot.getKind().hasPlace()
+                    ? copyOf(slot, slot.getTravelMinutesFromPrev())
+                    : Slot.transitHub(slot.getOrderInDay(), slot.getTimeOfDay(), slot.getKind(), slot.getTitle(),
+                            slot.getLat(), slot.getLng(), slot.getTravelMinutesFromPrev()));
+        }
+        return copies;
     }
 
     /** 슬롯만 바꾼 같은 날 — 표시 번호·달력 위치·전날 이동시간을 그대로 옮긴다. */
@@ -550,8 +589,8 @@ public class Course {
         return !day.getSlots().isEmpty() && day.getSlots().getLast().getKind() == kind;
     }
 
-    /** 이동시간만 바꾼 같은 슬롯 — 나머지 값은 그대로 옮긴다. */
-    private static Slot withTravelMinutes(Slot slot, int travelMinutesFromPrev) {
+    /** 이동시간만 바꾼 <b>새</b> 슬롯 — 나머지 값은 그대로 옮긴다. */
+    private static Slot copyOf(Slot slot, int travelMinutesFromPrev) {
         return Slot.of(slot.getOrderInDay(), slot.getTimeOfDay(), slot.getKind(), slot.getPoiContentId(),
                 slot.getPoiContentTypeId(), slot.getTitle(), slot.getLat(), slot.getLng(), travelMinutesFromPrev,
                 new SlotDisplay(slot.getImageUrl(), slot.getAddress(), slot.getCatchphrase(), slot.getTel()));
@@ -768,6 +807,20 @@ public class Course {
      * {@code Course} 를 만드는데, 요청 DTO 에만 두면 그중 하나만 빠뜨려도 조용히 새어 들어온다.
      * 여기서 막으면 누가 만들든 같은 결과가 나온다.
      */
+    /**
+     * 자차 코스는 고정할 수단이 없다(#456) — {@link #requireTransitHubsOnlyOnTransit} 와 같은 결의 불변식이다.
+     *
+     * <p>{@link #changeTransitMode} 가 막는 것과 같은 모순인데, 생성 경로에도 둬야 <b>누가 만들든</b>
+     * 성립한다. 이것이 없으면 {@code transport: CAR} 에 수단을 실은 저장이 통과해, 바꾸려 하면 400 이
+     * 나오는 코스가 DB 에 남는다.
+     */
+    private static void requireTransitModeOnlyOnTransit(TransportMode transport, TransitMode transitMode) {
+        if (transitMode != null && transport != TransportMode.TRANSIT) {
+            throw new IllegalArgumentException(
+                    "대중교통 코스가 아닌데 이동수단이 고정돼 있습니다: " + transport);
+        }
+    }
+
     private static void requireTransitHubsOnlyOnTransit(TransportMode transport, List<DaySchedule> days) {
         if (transport == TransportMode.TRANSIT) {
             return;
