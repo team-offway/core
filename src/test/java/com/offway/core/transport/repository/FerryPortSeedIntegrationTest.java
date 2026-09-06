@@ -33,8 +33,12 @@ class FerryPortSeedIntegrationTest {
      *
      * <p><b>줄어든 것이 손해가 아니다.</b> 틀린 좌표는 resolver 가 엉뚱한 곳을 답하게 한다 — 실제로
      * 철원군 코스의 대표 수단이 여객선으로 떴다. 빈 좌표는 최근접 탐색에서 빠질 뿐이다.
+     *
+     * <p><b>거기서 하나 더 뺐다</b>(#454). `여의도` 는 한강 유람선 선착장(진성나루)인데 위 규칙이
+     * 이름의 '나루' 를 보고 항구로 인정해 서울 영등포구 좌표를 채웠다. 서울역에서 4.3㎞ 라 출발 항구
+     * 탐색에 걸려, 서울에서 완도를 물으면 "여의도에서 배를 타세요" 가 나왔다.
      */
-    private static final int EXPECTED_WITH_COORDINATE = 300;
+    private static final int EXPECTED_WITH_COORDINATE = 299;
 
     /** 철원군청 — 내륙 최북단이다. 30㎞ 안에 항구가 있을 수 없다. */
     private static final double CHEORWON_LAT = 38.1466;
