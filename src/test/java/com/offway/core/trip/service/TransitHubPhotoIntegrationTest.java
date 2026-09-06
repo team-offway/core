@@ -128,20 +128,23 @@ class TransitHubPhotoIntegrationTest {
      */
     @Test
     void 지점명으로_못_찾으면_더_일반적인_말로_다시_묻는다() {
+        // **아무것도 안 주는 갤러리로 잰다.** 사진을 주면 첫 검색어에서 멈춰 대체어를 안 쓰고,
+        // 짧은 지점명이 많아(정선·완도·양양…) "짧은 말을 물었나" 로는 갈리지 않는다.
         List<String> asked = new java.util.ArrayList<>();
-        // 지역명처럼 짧은 말에만 답하는 갤러리를 흉내 낸다.
         galleryPhotoClient.respondToSearch(keyword -> {
             asked.add(keyword);
-            return keyword.length() <= 3 ? List.of(photoFor(keyword)) : List.of();
+            return List.of();
         });
 
         refreshService.refresh();
 
-        assertTrue(transitHubPhotoRepository.findAll().stream()
-                        .anyMatch(photo -> photo.getImageUrl() != null),
-                "더 일반적인 말로 다시 묻지 않았습니다 — 지점명 하나로만 끝냈습니다");
-        assertTrue(asked.stream().anyMatch(keyword -> keyword.length() <= 3),
-                "짧은 대체 검색어를 시도하지 않았습니다: " + asked.stream().limit(10).toList());
+        long hubs = transitHubPhotoRepository.findAll().size();
+        assertTrue(asked.size() > hubs,
+                "지점마다 검색어를 하나씩만 썼습니다 — 대체어를 안 쓴 것입니다: 검색 %d회 / 지점 %d곳"
+                        .formatted(asked.size(), hubs));
+        // 마지막 폴백은 지역명이다 — 지점명과 다른 말이 섞여야 한다.
+        assertTrue(asked.stream().distinct().count() > hubs,
+                "서로 다른 검색어가 지점 수보다 많아야 합니다");
     }
 
     /** 안 받아 둔 지점은 결과에서 빠진다 — 없는 것을 지어내지 않는다. */
