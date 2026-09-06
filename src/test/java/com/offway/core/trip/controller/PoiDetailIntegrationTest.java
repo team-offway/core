@@ -13,6 +13,10 @@ import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
+import com.offway.core.trip.domain.Category;
+import com.offway.core.trip.domain.RegionPoi;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -28,10 +32,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @WithMockUser
+// region_poi 를 갈아끼우는 테스트가 있어 롤백이 필요하다 — 지역 57 의 시드 데이터를 지운 채로 두면
+// 뒤에 도는 테스트가 실행 순서에 따라 fixture 를 읽는다(테스트 규약: DB 격리는 클래스 레벨 롤백으로).
+@Transactional
 class PoiDetailIntegrationTest {
 
     @Autowired
@@ -50,7 +58,13 @@ class PoiDetailIntegrationTest {
     private com.offway.core.trip.repository.LicensedPlaceRepository licensedPlaceRepository;
 
     @Autowired
+    private com.offway.core.trip.repository.RegionPoiRepository regionPoiRepository;
+
+    @Autowired
     private com.offway.core.trip.repository.FestivalPlaceRepository festivalPlaceRepository;
+
+    /** 폴백 검증용 지역 — 다른 테스트의 지역 풀을 건드리지 않게 따로 둔다. */
+    private static final long FALLBACK_REGION = 57L;
 
     /** 테스트 국가유산 풀이 채운 지역 — 경상북도 의성군. */
     private static final long UISEONG = 76L;
@@ -139,6 +153,61 @@ class PoiDetailIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.images").isArray())
                 .andExpect(jsonPath("$.data.images").isEmpty());
+    }
+
+    /**
+     * 관광 API 가 죽어도 <b>저장된 값으로 카드가 선다</b>(#472).
+     *
+     * <p>2026-09-06 `apis.data.go.kr` 이 통째로 죽었을 때, 코스 카드에 이름과 사진이 떠 있는 장소를 누르면
+     * 502 였다. 그런데 그 값은 {@code region_poi} 에 있었다 — 코스에 그 장소를 넣을 때 쓴 값이다.
+     *
+     * <p>인허가·국가유산 장소는 그때도 멀쩡히 떴다. 같은 화면인데 출처에 따라 갈리는 것을 없앤다.
+     */
+    @Test
+    void 관광_API가_죽어도_저장된_값으로_상세가_나간다() throws Exception {
+        String contentId = "990001";
+        regionPoiRepository.replaceRegion(FALLBACK_REGION, List.of(RegionPoi.builder()
+                .regionId(FALLBACK_REGION)
+                .contentId(contentId)
+                .contentTypeId(12)
+                .category(Category.SIGHT)
+                .title("저장된 전망대")
+                .imageUrl("https://img/stored.jpg")
+                .address("전남 완도군")
+                .lat(34.3)
+                .lng(126.7)
+                .tel("061-000-0000")
+                .baseYm(YearMonth.now())
+                .fetchedAt(LocalDateTime.now())
+                .build()));
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> {
+            throw TourApiException.serviceUnavailable();
+        });
+
+        mockMvc.perform(get("/api/v1/pois/{id}", contentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.title").value("저장된 전망대"))
+                .andExpect(jsonPath("$.data.imageUrl").value("https://img/stored.jpg"))
+                .andExpect(jsonPath("$.data.address").value("전남 완도군"))
+                .andExpect(jsonPath("$.data.tel").value("061-000-0000"))
+                // 소개·운영시간은 상세 조회에서만 온다 — 없는 것을 지어내지 않는다.
+                .andExpect(jsonPath("$.data.overview").value(nullValue()))
+                .andExpect(jsonPath("$.data.sight").value(nullValue()));
+    }
+
+    /** 우리도 모르는 장소면 지금처럼 502 다 — 폴백이 "없는 것" 까지 덮지 않는다. */
+    @Test
+    void 저장된_값도_없으면_502다() throws Exception {
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> {
+            throw TourApiException.serviceUnavailable();
+        });
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "999999999"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("TOUR-001"));
     }
 
     @Test
