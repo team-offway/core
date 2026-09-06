@@ -4,11 +4,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.geo.Coordinate;
+import com.offway.core.transport.domain.TrainAvailability;
+import com.offway.core.transport.domain.TrainLeg;
 import com.offway.core.transport.domain.TransportMode;
+import com.offway.core.transport.infrastructure.tago.StubTrainInfoClient;
+import com.offway.core.transport.infrastructure.tago.TrainInfoClient;
+import com.offway.core.transport.service.TrainRouteService;
 import com.offway.core.transport.service.TravelTimeProvider;
+import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 
 /**
  * 도달시간이 <b>역·터미널·항구를 거쳐</b> 나오는가(#58).
@@ -25,6 +35,12 @@ import org.springframework.boot.test.context.SpringBootTest;
  */
 @SpringBootTest
 class TransitReachTimeIntegrationTest {
+
+    /** 제공자가 편성을 물어보는 날짜 — {@code TransitReachTimeProvider.TRAIN_PROBE_DAYS} 와 같아야 한다. */
+    private static final int TRAIN_PROBE_DAYS = 3;
+
+    /** 추정(90㎞/h 환산)보다 확실히 짧은 편 — 실측을 쓰는지가 이 차이로 갈린다. */
+    private static final int FAST_LEG_MINUTES = 20;
 
     /** 서울역 — #443 전수 실측이 쓴 출발지와 같다. */
     private static final Coordinate SEOUL = new Coordinate(37.5547, 126.9707);
@@ -52,6 +68,28 @@ class TransitReachTimeIntegrationTest {
 
     @Autowired
     private HaversineTravelTimeProvider straightLine;
+
+    @Autowired
+    private StubTrainInfoClient trainInfoClient;
+
+    @Autowired
+    private TrainRouteService trainRouteService;
+
+    @TestConfiguration
+    static class StubConfig {
+
+        @Bean
+        @Primary
+        TrainInfoClient stubTrainInfoClient() {
+            return new StubTrainInfoClient();
+        }
+    }
+
+    /** 열차 조회 stub 을 정하고 경로 캐시를 비운다 — 캐시가 앞 테스트의 답을 물려주지 않게. */
+    private void trainRuns(TrainAvailability availability) {
+        trainInfoClient.respond(() -> availability);
+        trainRouteService.evictCache();
+    }
 
     /** {@code @Primary} 가 걸려 소비 도메인이 새 어댑터를 받는다 — 이게 안 되면 나머지가 무의미하다. */
     @Test
@@ -95,6 +133,41 @@ class TransitReachTimeIntegrationTest {
         int after = travelTimeProvider.reachMinutes(SEOUL, JEONGSEON, TransportMode.TRANSIT);
 
         assertTrue(after < before, "거점 경유 " + after + "분이 직선 " + before + "분보다 빨라야 한다");
+    }
+
+    /**
+     * 열차 간선은 <b>실제 운행 편의 소요시간</b>을 쓴다(#58 의 계약).
+     *
+     * <p>추정(90㎞/h 환산)만 쓰면 실제 노선의 우회·정차를 못 담는다. 같은 구간을 실제 편으로 재면
+     * 그 값이 그대로 도달시간에 실려야 한다.
+     *
+     * <p><b>추정보다 확실히 짧은 편</b>을 넣어 갈린다는 것을 드러낸다 — 추정을 쓰면 이 값이 안 나온다.
+     */
+    @Test
+    void 열차는_실제_운행_편의_소요시간을_쓴다() {
+        LocalDateTime departAt = LocalDateTime.now().plusDays(TRAIN_PROBE_DAYS).withHour(9).withMinute(0);
+        trainRuns(new TrainAvailability.Available(
+                List.of(TrainLeg.of("KTX", departAt, departAt.plusMinutes(FAST_LEG_MINUTES)))));
+        int measured = travelTimeProvider.reachMinutes(SEOUL, JEONGSEON, TransportMode.TRANSIT);
+
+        trainRuns(new TrainAvailability.NoServiceOnDate());
+        int estimated = travelTimeProvider.reachMinutes(SEOUL, JEONGSEON, TransportMode.TRANSIT);
+
+        assertTrue(measured < estimated,
+                "실측 %d분이 추정 %d분보다 짧아야 한다 — 실제 편을 안 쓰고 있다".formatted(measured, estimated));
+    }
+
+    /**
+     * 그날 편이 없으면 <b>추정으로 떨어진다</b> — 열차로 갈 수 있는 지역이 목록에서 빠지면 안 된다.
+     */
+    @Test
+    void 그날_편이_없어도_열차_후보에서_빠지지_않는다() {
+        trainRuns(new TrainAvailability.NoServiceOnDate());
+
+        int after = travelTimeProvider.reachMinutes(SEOUL, JEONGSEON, TransportMode.TRANSIT);
+        int before = straightLine.reachMinutes(SEOUL, JEONGSEON, TransportMode.TRANSIT);
+
+        assertTrue(after < before, "편이 없다고 직선으로 되돌아갔다: " + after + " vs " + before);
     }
 
     @Test

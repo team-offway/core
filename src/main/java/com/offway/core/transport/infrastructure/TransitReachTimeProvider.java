@@ -12,6 +12,11 @@ import com.offway.core.transport.service.FerryPortResolver;
 import com.offway.core.transport.service.TrainStationResolver;
 import com.offway.core.transport.service.TransitDurationService;
 import com.offway.core.transport.service.TravelTimeProvider;
+import com.offway.core.transport.domain.TrainAvailability;
+import com.offway.core.transport.domain.TrainLeg;
+import com.offway.core.transport.service.TrainRouteService;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -74,6 +79,20 @@ public class TransitReachTimeProvider implements TravelTimeProvider {
     private static final TransportMode ACCESS_MODE = TransportMode.TRANSIT;
 
     /**
+     * 열차 편성을 물어볼 날짜 — 오늘로부터 이만큼 뒤.
+     *
+     * <p>여행일로 물으면 안 된다. 먼 날짜는 편성이 아직 안 올라와 0편으로 오고(실측: +3일 75편,
+     * +21일 0편), 그러면 열차로 갈 수 있는 지역이 추천에서 빠진다. 도달시간은 날짜에 거의 안 좌우되므로
+     * 가까운 날로 물어 같은 답을 얻는다.
+     *
+     * <p>오늘이 아니라 사흘 뒤인 이유는, 오늘치는 이미 지난 편이 빠져 남은 편만 보이기 때문이다.
+     */
+    private static final int TRAIN_PROBE_DAYS = 3;
+
+    /** 여행도 배차도 한국 기준이다 — 서버 기본 시간대에 기대지 않는다. */
+    private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
+
+    /**
      * 거점을 거치는 것이 <b>오히려 손해</b>인 거리.
      *
      * <p>가까운 지역은 역까지 갔다가 다시 나오는 것보다 직접 가는 편이 빠르다. 그 경우 계산이 실제보다
@@ -88,6 +107,7 @@ public class TransitReachTimeProvider implements TravelTimeProvider {
     private final BusTerminalResolver busTerminalResolver;
     private final FerryPortResolver ferryPortResolver;
     private final TransitDurationService transitDurationService;
+    private final TrainRouteService trainRouteService;
     private final HaversineTravelTimeProvider fallback;
 
     @Override
@@ -116,7 +136,20 @@ public class TransitReachTimeProvider implements TravelTimeProvider {
         return byMode.stream().min(Integer::compareTo).orElseThrow();
     }
 
-    /** 열차 — 구간 소요시간 표를 쓰지 않는 수단이라 늘 추정이다(그쪽은 실제 시각을 직접 답한다). */
+    /**
+     * 열차 — <b>실제 운행 편의 소요시간</b>을 쓰고, 없으면 추정으로 떨어진다(#58).
+     *
+     * <p>열차는 구간 소요시간 표({@code transit_leg_duration})를 쓰지 않는다. TAGO 열차정보가 출발·도착
+     * 시각을 직접 주기 때문이다 — 표에 적어 둘 이유가 없다. 그래서 다른 수단과 달리 여기서 직접 묻는다.
+     *
+     * <p><b>여행일이 아니라 가까운 날짜로 묻는다.</b> 도달시간은 "그날 몇 시 차" 가 아니라 "거기까지 몇
+     * 시간" 이라 날짜에 거의 안 좌우된다. 그리고 먼 날짜는 편성이 아직 안 올라와 0편으로 온다(실측:
+     * +3일 75편, +21일 0편). 가까운 날로 물으면 그 함정을 피하면서 같은 답을 얻는다.
+     *
+     * <p><b>호출량은 캐시가 막는다.</b> 추천 한 번이 89개 지역을 도는데, {@code TrainRouteService} 가
+     * (출발역·도착역·날짜)를 6시간 캐시하므로 같은 출발역의 재요청은 외부를 안 친다. 키 공간도
+     * 유한하다 — 출발역 몇 개 × 도착역 89개다.
+     */
     private Optional<Integer> trainMinutes(Coordinate origin, Coordinate destination) {
         Optional<Station> from = stationResolver.nearest(origin.lat(), origin.lng());
         Optional<Station> to = stationResolver.nearest(destination.lat(), destination.lng());
@@ -125,7 +158,26 @@ public class TransitReachTimeProvider implements TravelTimeProvider {
         }
         return Optional.of(viaPoints(
                 origin, destination, from.get().coordinate(), to.get().coordinate(),
-                TransitMode.TRAIN, null, null));
+                TransitMode.TRAIN, measuredTrainTrunk(from.get(), to.get())));
+    }
+
+    /**
+     * 실제 운행 편에서 얻은 간선 소요시간 — 그날 편이 없거나 조회가 실패하면 빈 값이다.
+     *
+     * <p><b>가장 짧은 편을 쓴다.</b> 도달시간은 "갈 수 있는 가장 빠른 길" 이라, 완행이 섞여 있어도
+     * 그것으로 지역을 걸러내면 갈 수 있는 곳이 목록에서 빠진다.
+     */
+    private Optional<Integer> measuredTrainTrunk(Station from, Station to) {
+        LocalDate probeDate = LocalDate.now(SERVICE_ZONE).plusDays(TRAIN_PROBE_DAYS);
+        return switch (trainRouteService.fastestTrain(from.id(), to.id(), probeDate)) {
+            case TrainAvailability.Available available -> available.legs().stream()
+                    .map(TrainLeg::durationMinutes)
+                    .min(Integer::compareTo);
+            // 그날 편이 없거나 조회가 실패했다 — 추정으로 떨어진다. 여기서 빈 목록을 "못 간다" 로 읽으면
+            // 열차로 갈 수 있는 지역이 추천에서 통째로 빠진다.
+            case TrainAvailability.NoServiceOnDate ignored -> Optional.empty();
+            case TrainAvailability.Unavailable ignored -> Optional.empty();
+        };
     }
 
     /**
@@ -183,10 +235,20 @@ public class TransitReachTimeProvider implements TravelTimeProvider {
             Coordinate origin, Coordinate destination,
             Coordinate boarding, Coordinate arrival,
             TransitMode mode, String depCode, String arrCode) {
+        return viaPoints(origin, destination, boarding, arrival, mode,
+                measuredTrunk(mode, depCode, arrCode));
+    }
+
+    /**
+     * @param measuredTrunk 실측 간선 소요시간. 없으면 {@code mode} 의 추정 속도로 환산한다
+     */
+    private int viaPoints(
+            Coordinate origin, Coordinate destination,
+            Coordinate boarding, Coordinate arrival,
+            TransitMode mode, Optional<Integer> measuredTrunk) {
         int access = fallback.reachMinutes(origin, boarding, ACCESS_MODE);
         int egress = fallback.reachMinutes(arrival, destination, ACCESS_MODE);
-        int trunk = measuredTrunk(mode, depCode, arrCode)
-                .orElseGet(() -> mode.trunkMinutes(boarding.haversineKmTo(arrival)));
+        int trunk = measuredTrunk.orElseGet(() -> mode.trunkMinutes(boarding.haversineKmTo(arrival)));
         return access + trunk + egress;
     }
 
