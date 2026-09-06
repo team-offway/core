@@ -30,10 +30,12 @@ import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.trip.domain.RegionVisitMetrics;
 import com.offway.core.trip.service.RegionVisitMetricsService;
 import com.offway.core.trip.service.RegionPoiService;
+import com.offway.core.trip.service.RelatedAttractionQuery;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.service.dto.RegionPois;
 import com.offway.core.weather.domain.DailyWeather;
 import com.offway.core.trip.service.TransitHubPhotoProvider;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.stream.Collectors;
 import java.time.LocalDate;
@@ -65,6 +67,7 @@ public class CourseGenerationService {
 
     private final RegionPoiService regionPoiService;
     private final TravelTimeProvider travelTimeProvider;
+    private final RelatedAttractionQuery relatedAttractionQuery;
     private final RouteTimeProvider routeTimeProvider;
     private final RouteOptimizer routeOptimizer;
     private final PolicyService policyService;
@@ -127,11 +130,15 @@ public class CourseGenerationService {
             throw ItineraryException.courseNotBuildable(); // 볼거리가 없으면 코스가 아니다(식사만 있는 코스 방지)
         }
 
-        // ⑤ 지리 클러스터링: 흩어진 후보 대신 밀집한 볼거리를 고르고(아웃라이어 배제), 맛집·숙소는 그 코스 중심 근처로 →
-        // 순서 최적화만으로는 못 줄이는 이동시간을 선택 단계에서 줄인다.
-        // 씨앗이 다르면 다른 군집이 잡혀 코스가 달라지지만, 뭉치는 성질은 그대로라 동선이 망가지지 않는다(#114).
-        List<PoiCandidate> sights =
-                reorder(sightPool, GeoCluster.selectCompact(coords(sightPool), needs.sights(), seedIndexOf(command)));
+        // ⑤ 후보를 고른다 — **함께 가는 순서가 있으면 그것부터**(#186).
+        //
+        // 좌표 군집은 "가까운 것끼리" 라 동선은 짧지만 왜 이 조합인지 답하지 못한다. 연관 관광지는
+        // 실제 방문 데이터라 "갑사에 간 사람들이 실제로 들르는 곳" 이고, 그 순서가 곧 이유가 된다.
+        //
+        // 연관 데이터가 없는 지역은 그대로 좌표 군집이다 — degrade 사유는 아래에서 남긴다.
+        List<PoiCandidate> sights = byRelation(sightPool, command.regionId(), needs.sights())
+                .orElseGet(() -> reorder(
+                        sightPool, GeoCluster.selectCompact(coords(sightPool), needs.sights(), seedIndexOf(command))));
         Coordinate hub = GeoCluster.centroid(coords(sights));
         List<PoiCandidate> foods = reorder(foodPool, GeoCluster.nearest(coords(foodPool), hub, needs.foods()));
         List<PoiCandidate> stays = reorder(stayPool, GeoCluster.nearest(coords(stayPool), hub, needs.stays()));
@@ -549,6 +556,59 @@ public class CourseGenerationService {
     }
 
     /** 최적화가 돌려준 인덱스 순서로 POI 를 재배열한다. */
+    /**
+     * 함께 가는 순서로 후보를 고른다(#186) — <b>없으면 빈 값이고 호출자가 좌표 군집으로 되돌아간다.</b>
+     *
+     * <h2>왜 폴백이 필요한가</h2>
+     *
+     * <p>연관 데이터는 지역마다 있고 없다. 원본이 그 지자체를 아직 안 냈거나, 냈어도 이름을 인허가와
+     * 못 이어 좌표가 빠졌을 수 있다. 그때 코스가 안 나가면 안 된다.
+     *
+     * <h2>모자라면 섞는다</h2>
+     *
+     * <p>연관 상위가 필요 수에 못 미치면 나머지는 좌표 군집이 채운다. 연관으로 고른 것을 앞에 두므로
+     * 앞쪽 슬롯이 더 나은 근거를 갖는다.
+     *
+     * <p><b>degrade 는 사유를 남긴다.</b> 조용히 좌표 군집으로 떨어지면 연관 데이터가 안 쌓이고
+     * 있어도 아무도 모른다.
+     */
+    private Optional<List<PoiCandidate>> byRelation(List<PoiCandidate> pool, long regionId, int needed) {
+        List<String> ordered = relatedAttractionQuery.sightPlaceIds(regionId);
+        if (ordered.isEmpty()) {
+            log.debug("연관 관광지가 없어 좌표 군집으로 코스를 짭니다 regionId={}", regionId);
+            return Optional.empty();
+        }
+        Map<String, PoiCandidate> byId = new LinkedHashMap<>();
+        pool.forEach(candidate -> byId.putIfAbsent(candidate.contentId(), candidate));
+
+        List<PoiCandidate> picked = new ArrayList<>();
+        for (String placeId : ordered) {
+            PoiCandidate candidate = byId.remove(placeId);
+            if (candidate != null) {
+                picked.add(candidate);
+            }
+            if (picked.size() >= needed) {
+                break;
+            }
+        }
+        if (picked.isEmpty()) {
+            // 연관 데이터는 있는데 이번 후보 풀에 하나도 안 걸렸다 — 보충이 안 돌아 인허가가 안 실린
+            // 경우다. 좌표 군집이 맡는다.
+            log.debug("연관 관광지가 후보 풀에 없어 좌표 군집으로 짭니다 regionId={} 연관={}건",
+                    regionId, ordered.size());
+            return Optional.empty();
+        }
+        if (picked.size() < needed) {
+            // 모자란 만큼 좌표 군집으로 채운다. 남은 것 중에서 고르므로 중복이 없다.
+            List<PoiCandidate> rest = new ArrayList<>(byId.values());
+            int more = Math.min(needed - picked.size(), rest.size());
+            picked.addAll(reorder(rest, GeoCluster.selectCompact(coords(rest), more)));
+            log.info("연관 관광지로 {}곳, 좌표 군집으로 {}곳을 채웠습니다 regionId={}",
+                    ordered.size(), more, regionId);
+        }
+        return Optional.of(List.copyOf(picked));
+    }
+
     private static List<PoiCandidate> reorder(List<PoiCandidate> pois, List<Integer> order) {
         return order.stream().map(pois::get).toList();
     }
