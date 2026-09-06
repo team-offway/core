@@ -236,7 +236,7 @@ class TripAfterNotifierIntegrationTest {
         LocalDate today = LocalDate.of(2099, 10, 22);
         courseRepository.save(Course.sharedOnly(
                 1L, Density.RELAXED, TransportMode.CAR, List.of(DaySchedule.of(1, List.of(slot()))),
-                today.minusDays(1), 1, null, StartDayLeave.DEFAULT));
+                today.minusDays(1), 1, null, StartDayLeave.DEFAULT, null));
 
         assertEquals(0, notifier.notifyTripsEndedYesterday(today));
     }
@@ -275,7 +275,7 @@ class TripAfterNotifierIntegrationTest {
                 .toList();
         return courseRepository.save(Course.ownedBy(
                 owner, 1L, Density.RELAXED, TransportMode.CAR, days,
-                travelDate, travelDays, null, StartDayLeave.DEFAULT));
+                travelDate, travelDays, null, StartDayLeave.DEFAULT, null));
     }
 
     private Slot slot() {
