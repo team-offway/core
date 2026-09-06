@@ -3,6 +3,7 @@ package com.offway.core.inventory.infrastructure.probe;
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.external.ExternalHealthFilter;
 import com.offway.core.common.logging.ExternalSystems;
+import com.offway.core.common.logging.RootCause;
 import java.net.URI;
 import java.time.Duration;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -59,10 +60,10 @@ abstract class AbstractDataGoKrProbe implements ExternalApiProbe {
             return ProbeResult.fail(name(), PROVIDER, 200, "정상 코드(resultCode 00) 없음 — 키/승인/파라미터 확인", sample);
         } catch (WebClientResponseException e) {
             return ProbeResult.fail(name(), PROVIDER, e.getStatusCode().value(),
-                    e.getMessage(), ProbeSupport.snippet(e.getResponseBodyAsString()));
+                    RootCause.of(e), ProbeSupport.snippet(e.getResponseBodyAsString()));
         } catch (Exception e) {
             return ProbeResult.fail(name(), PROVIDER, 0,
-                    e.getClass().getSimpleName() + ": " + e.getMessage(), "");
+                    RootCause.of(e), "");
         }
     }
 
