@@ -23,6 +23,11 @@ class TourApiProbe extends AbstractDataGoKrProbe {
     }
 
     @Override
+    protected String baseUrl() {
+        return BASE;
+    }
+
+    @Override
     protected URI uri(String serviceKey) {
         return UriComponentsBuilder.fromUriString(BASE)
                 .queryParam("serviceKey", serviceKey)
