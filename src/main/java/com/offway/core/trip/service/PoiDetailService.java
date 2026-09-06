@@ -19,6 +19,7 @@ import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
+import com.offway.core.trip.repository.RegionPoiRepository;
 import com.offway.core.trip.service.dto.PoiDetail;
 import com.offway.core.trip.service.dto.RegionBenefit;
 import java.time.Duration;
@@ -95,6 +96,7 @@ public class PoiDetailService {
     private final CatchphraseProvider catchphraseProvider;
     private final LicensedPlaceRepository licensedPlaceRepository;
     private final HeritagePlaceRepository heritagePlaceRepository;
+    private final RegionPoiRepository regionPoiRepository;
     private final PolicyService policyService;
 
     /** 캐시를 켜고 끄는 스위치(#403). 조회마다 물어, 운영 중 바뀐 값도 곧바로 듣는다. */
@@ -205,11 +207,36 @@ public class PoiDetailService {
                         SensitiveParams.forLog(contentId), e.getClass().getSimpleName());
                 return new Loaded<>(stale, FAILURE_CACHE_TTL);
             }
+            // 캐시가 비어 있어도 **우리가 그 장소를 이미 안다**. 코스에 실어 보낼 때 쓴 값이 장소 풀에
+            // 그대로 있다(#472). 재배포 직후나 처음 열어보는 장소가 여기 닿는데, 그때 502 를 내면
+            // 카드에 이름과 사진이 떠 있는 장소를 눌렀더니 화면이 통째로 비는 일이 된다.
+            Optional<PoiDetail> stored = storedDetail(contentId);
+            if (stored.isPresent()) {
+                log.warn("관광 API 상세 조회 실패 — 장소 풀 값으로 내려보냅니다 contentId={} cause={}",
+                        SensitiveParams.forLog(contentId), e.getClass().getSimpleName());
+                return new Loaded<>(CachedDetail.found(stored.get()), FAILURE_CACHE_TTL);
+            }
             // degrade 를 조용히 넘기지 않는다 — 폴백이 정상처럼 보이면 장애를 아무도 모른다.
-            log.warn("관광 API 상세 조회 실패 — 내려보낼 직전 값이 없습니다 contentId={} cause={}",
+            log.warn("관광 API 상세 조회 실패 — 내려보낼 직전 값도 장소 풀도 없습니다 contentId={} cause={}",
                     SensitiveParams.forLog(contentId), e.getClass().getSimpleName());
             return new Loaded<>(CachedDetail.failed(), FAILURE_CACHE_TTL);
         }
+    }
+
+    /**
+     * 장소 풀에 담아 둔 값으로 상세를 짠다 — <b>외부가 죽었을 때만 닿는다</b>(#472).
+     *
+     * <p><b>있는 것만 채운다.</b> 이름·사진·주소·좌표·전화는 코스에 그 장소를 실을 때 쓴 값 그대로다.
+     * 소개글과 운영시간은 장소 풀에 없으므로 비운다 — 없는 것을 지어내지 않는다.
+     *
+     * <p><b>지도 링크를 붙인다.</b> 소개·운영시간이 빠진 자리를 지도가 대신 답한다. 정상 경로의 관광 API
+     * 상세는 그 둘이 이미 있어 링크를 안 주는데, 여기서는 없으니 인허가·국가유산과 같은 규칙을 따른다.
+     *
+     * <p><b>혜택은 비운다.</b> 지역을 알고 있어 채울 수는 있지만, 정상 경로가 혜택을 안 준다(#172 — 상세
+     * 응답에 지역 코드가 없다). 폴백만 채우면 외부가 돌아온 순간 화면에서 혜택이 사라진다.
+     */
+    private Optional<PoiDetail> storedDetail(String contentId) {
+        return regionPoiRepository.findByContentId(contentId).map(PoiDetail::from);
     }
 
     /** 외부 응답을 도메인으로 옮긴다 — 상위 레이어(서비스 dto·응답 dto)가 어댑터 DTO 를 들지 않게. */

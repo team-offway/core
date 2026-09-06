@@ -3,6 +3,7 @@ package com.offway.core.trip.repository;
 import com.offway.core.trip.domain.RegionPoi;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Repository;
@@ -28,6 +29,12 @@ public class RegionPoiRepositoryImpl implements RegionPoiRepository {
             return List.of();
         }
         return jpaRepository.findForCards(regionIds, perCategory);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<RegionPoi> findByContentId(String contentId) {
+        return jpaRepository.findFirstByContentIdOrderByIdAsc(contentId);
     }
 
     @Override

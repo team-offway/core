@@ -49,8 +49,27 @@ class PoiDetailIntegrationTest {
     @Autowired
     private com.offway.core.trip.repository.LicensedPlaceRepository licensedPlaceRepository;
 
+    @Autowired
+    private com.offway.core.trip.repository.RegionPoiRepository regionPoiRepository;
+
+
     /** 테스트 국가유산 풀이 채운 지역 — 경상북도 의성군. */
     private static final long UISEONG = 76L;
+
+    /**
+     * 장소 풀 폴백 테스트 전용 지역(#472).
+     *
+     * <p><b>실재하는 지역을 쓰지 않는다.</b> 장소 풀을 쓰는 테스트가 여럿이라 지역이 겹치면 서로의
+     * 데이터를 지운다({@code replaceRegion} 이 지역 단위 교체다). 폴백은 지역을 읽지 않으므로
+     * (혜택을 비운다) 실재할 이유도 없다.
+     */
+    private static final long FALLBACK_ONLY_REGION = 9_001L;
+
+    /** 이 클래스는 롤백이 없다 — 심은 장소를 지우지 않으면 다음 테스트의 조회에 섞인다. */
+    @org.junit.jupiter.api.AfterEach
+    void clearSeededPlaces() {
+        regionPoiRepository.replaceRegion(FALLBACK_ONLY_REGION, List.of());
+    }
 
     @TestConfiguration
     static class StubConfig {
@@ -469,4 +488,69 @@ class PoiDetailIntegrationTest {
 
         assertEquals(0, tourApiClient.detailCallCount());
     }
+
+    /**
+     * <b>외부가 죽어도 우리가 아는 장소는 내려간다</b>(#472).
+     *
+     * <p>2026-09-06 공공데이터포털 장애 때 코스 카드에 이름과 사진이 떠 있는 장소를 누르면 502 였다.
+     * 그 값은 코스를 만들 때 이미 장소 풀에서 가져온 것이라, 외부에 다시 물을 이유가 없다.
+     *
+     * <p>여기서 잠그는 것은 <b>캐시가 빈 상태</b>다 — 재배포 직후나 처음 열어보는 장소가 그 자리이고,
+     * 그때 stale 이 없어 502 가 났다.
+     */
+    @Test
+    void 외부가_죽고_캐시도_비었지만_장소_풀에_있으면_그_값으로_내린다() throws Exception {
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> {
+            throw new IllegalStateException("공공데이터포털 게이트웨이 장애");
+        });
+        regionPoiRepository.replaceRegion(FALLBACK_ONLY_REGION, List.of(com.offway.core.trip.domain.RegionPoi.builder()
+                .regionId(FALLBACK_ONLY_REGION)
+                .contentId("990001")
+                .contentTypeId(12)
+                .category(com.offway.core.trip.domain.Category.SIGHT)
+                .title("갑사")
+                .imageUrl("http://img/gapsa.jpg")
+                .address("충남 공주시 계룡면")
+                .lat(36.33)
+                .lng(127.20)
+                .tel("041-857-8981")
+                .baseYm(java.time.YearMonth.of(2099, 1))
+                .fetchedAt(java.time.LocalDateTime.now())
+                .build()));
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "990001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.title").value("갑사"))
+                .andExpect(jsonPath("$.data.imageUrl").value("http://img/gapsa.jpg"))
+                .andExpect(jsonPath("$.data.address").value("충남 공주시 계룡면"))
+                .andExpect(jsonPath("$.data.tel").value("041-857-8981"))
+                .andExpect(jsonPath("$.data.typeLabel").value("관광지"))
+                // 없는 것을 지어내지 않는다 — 장소 풀에 소개글도 운영시간도 없다.
+                .andExpect(jsonPath("$.data.overview").value(nullValue()))
+                .andExpect(jsonPath("$.data.sight").value(nullValue()))
+                // 소개·운영시간이 빠진 자리를 지도가 답한다.
+                .andExpect(jsonPath("$.data.mapSearchUrl").isNotEmpty());
+    }
+
+    /**
+     * 장소 풀에도 없으면 그대로 502 다 — <b>우리가 아는 게 정말 없는 경우</b>.
+     *
+     * <p>이 단언이 없으면 폴백이 "언제나 200" 으로 바뀌어도 아무도 모른다. 모르는 장소를 200 으로
+     * 내리면 화면이 빈 카드를 그린다.
+     */
+    @Test
+    void 외부가_죽고_장소_풀에도_없으면_502다() throws Exception {
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> {
+            throw new IllegalStateException("공공데이터포털 게이트웨이 장애");
+        });
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "990404"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("TOUR-001"))
+                .andExpect(jsonPath("$.data").value(nullValue()));
+    }
+
 }

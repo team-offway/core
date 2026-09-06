@@ -1,6 +1,10 @@
 package com.offway.core.trip.service.dto;
 
+import com.offway.core.trip.domain.MapSearchLink;
+import com.offway.core.trip.domain.PoiContentType;
 import com.offway.core.trip.domain.PoiIntro;
+import com.offway.core.trip.domain.RegionPoi;
+import java.util.List;
 
 /**
  * 장소 상세 — 공통 정보 + 카테고리별 보조정보(#157).
@@ -10,7 +14,6 @@ import com.offway.core.trip.domain.PoiIntro;
  *
  * <p>외부 어댑터의 DTO 가 아니라 도메인 타입을 든다. 관광 API 응답 모양이 바뀌어도 이 계약은 흔들리지 않는다.
  */
-import java.util.List;
 
 public record PoiDetail(
         String contentId,
@@ -57,6 +60,29 @@ public record PoiDetail(
     /** 사진 목록은 없는 것이 정상이라 null 을 빈 목록으로 접는다 — 화면·테스트가 매번 null 검사를 하지 않게. */
     public PoiDetail {
         images = images == null ? List.of() : List.copyOf(images);
+    }
+
+    /**
+     * 장소 풀에 담아 둔 값으로 — <b>외부가 죽었을 때</b> 관광 API 상세를 대신한다(#472).
+     *
+     * <p>담기는 것은 코스에 그 장소를 실을 때 쓴 값 그대로다(이름·사진·주소·좌표·전화). 소개글과
+     * 운영시간은 장소 풀에 없어 비고, 그 자리를 지도 링크가 대신한다.
+     */
+    public static PoiDetail from(RegionPoi poi) {
+        return withoutIntro(
+                poi.getContentId(),
+                poi.getContentTypeId(),
+                PoiContentType.labelOf(poi.getContentTypeId()),
+                poi.getTitle(),
+                poi.getAddress(),
+                poi.getTel(),
+                poi.getLat(),
+                poi.getLng(),
+                poi.getImageUrl(),
+                null, // 소개글 — 장소 풀에 없다
+                MapSearchLink.of(poi.getTitle(), poi.getAddress()).orElse(null),
+                // 혜택은 정상 경로도 주지 않는다(#172). 폴백만 채우면 외부가 돌아올 때 화면에서 사라진다.
+                null);
     }
 
     /** 관광 API 콘텐츠가 아닌 장소 — 보조정보가 없다. */

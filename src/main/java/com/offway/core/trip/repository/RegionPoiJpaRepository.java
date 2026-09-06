@@ -2,6 +2,7 @@ package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.RegionPoi;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -50,6 +51,14 @@ interface RegionPoiJpaRepository extends JpaRepository<RegionPoi, Long> {
             """, nativeQuery = true)
     List<RegionPoi> findForCards(@Param("regionIds") List<Long> regionIds,
             @Param("perCategory") int perCategory);
+
+    /**
+     * 콘텐츠 식별자로 한 건 — 외부 장애 때 상세가 기댄다(#472).
+     *
+     * <p>{@code content_id} 는 단독으로 유일하지 않다(유일키가 지역과의 조합이다). 경계에 걸친 장소가
+     * 두 지역에 담기면 여기서 갈리므로 {@code id} 오름차순으로 고정한다.
+     */
+    Optional<RegionPoi> findFirstByContentIdOrderByIdAsc(String contentId);
 
     /** 그 달치가 이미 적재된 지역인지 — 있으면 외부를 아예 안 부른다. */
     @Query("SELECT COUNT(p) > 0 FROM RegionPoi p WHERE p.regionId = :regionId AND p.baseYm = :baseYm")
