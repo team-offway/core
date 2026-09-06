@@ -117,10 +117,12 @@ class ExternalHealthFilterTest {
             assertThrows(RuntimeException.class, () -> filter.filter(request(), broken).block());
         }
 
-        // 실제 어댑터 모양 — 헤더를 받고 본문까지 읽는다.
-        filter.filter(request(), req -> Mono.just(ClientResponse.create(HttpStatus.OK).body("{}").build()))
-                .flatMap(response -> response.bodyToMono(String.class))
-                .block();
+        // 실제 어댑터 모양 — 헤더를 받고 본문까지 읽는다. 회복은 연속 성공을 요구한다(#482).
+        for (int i = 0; i < 2; i++) {
+            filter.filter(request(), req -> Mono.just(ClientResponse.create(HttpStatus.OK).body("{}").build()))
+                    .flatMap(response -> response.bodyToMono(String.class))
+                    .block();
+        }
 
         assertTrue(health.isHealthy("train"));
         assertEquals(2, notifier.sent.size());
@@ -142,9 +144,11 @@ class ExternalHealthFilterTest {
             assertThrows(RuntimeException.class, () -> filter.filter(request(), broken).block());
         }
 
-        filter.filter(request(), req -> Mono.just(ClientResponse.create(HttpStatus.OK).body("{}").build()))
-                .flatMap(ClientResponse::toBodilessEntity)
-                .block();
+        for (int i = 0; i < 2; i++) {
+            filter.filter(request(), req -> Mono.just(ClientResponse.create(HttpStatus.OK).body("{}").build()))
+                    .flatMap(ClientResponse::toBodilessEntity)
+                    .block();
+        }
 
         assertTrue(health.isHealthy("train"));
         assertTrue(notifier.sent.getLast().contains("회복"));
