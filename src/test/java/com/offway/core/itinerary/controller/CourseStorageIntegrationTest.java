@@ -99,6 +99,9 @@ class CourseStorageIntegrationTest {
     private StubTrainInfoClient trainInfoClient;
 
     @Autowired
+    private com.offway.core.trip.repository.TransitHubPhotoRepository transitHubPhotoRepository;
+
+    @Autowired
     private TrainRouteService trainRouteService;
 
     @Autowired
@@ -1145,17 +1148,25 @@ class CourseStorageIntegrationTest {
      * 서버가 손대지 않으므로(끼우는 것은 재생성이 할 일이다) 교체를 검증할 수 없다.
      */
     private static String transitHubBody(String transitMode) {
+        return transitHubBody(transitMode, "정선역");
+    }
+
+    /**
+     * 교통 거점 이름을 갈라 받는다 — 사진처럼 <b>지점명이 키인 값</b>을 다루는 테스트가 서로 간섭하지
+     * 않게 한다. 이 클래스는 롤백이 아니라 사용자로 격리해서, 이름이 같으면 앞 회차가 쓴 행이 남는다.
+     */
+    private static String transitHubBody(String transitMode, String hubName) {
         String mode = transitMode == null ? "" : "\"transitMode\": \"%s\",".formatted(transitMode);
         return """
                 { "regionId": 16, "density": "PACKED", "transport": "TRANSIT",
                   "travelDate": "2026-09-11", "originLat": 37.5547, "originLng": 126.9707, %s
                   "days": [
                   { "day": 1, "items": [
-                    {"order":1,"timeOfDay":"MORNING","kind":"ARRIVAL","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":0},
+                    {"order":1,"timeOfDay":"MORNING","kind":"ARRIVAL","title":"%s","lat":37.38,"lng":128.66,"travelMinutes":0},
                     {"order":2,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":22},
-                    {"order":3,"timeOfDay":"MORNING","kind":"DEPARTURE","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":22}
+                    {"order":3,"timeOfDay":"MORNING","kind":"DEPARTURE","title":"%s","lat":37.38,"lng":128.66,"travelMinutes":22}
                   ]}
-                ]}""".formatted(mode);
+                ]}""".formatted(mode, hubName, hubName);
     }
 
     private static String transitModeBody(String transitMode) {
@@ -1347,6 +1358,45 @@ class CourseStorageIntegrationTest {
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    /**
+     * 도착·출발 칸에 <b>사진이 실린다</b>(#450).
+     *
+     * <p>대중교통 코스는 교통 거점으로 시작해 교통 거점으로 끝나는데(#415), 그 칸이 사진 없이 나갔다.
+     * 장소 상세 키가 없어(TourAPI 장소가 아니라 TAGO 터미널이다) 그 경로로는 못 받는다. 관광사진갤러리에서
+     * 지점 이름으로 미리 받아 둔 것을 붙인다.
+     *
+     * <p><b>장소 칸은 건드리지 않는다</b> — 생성 때 받은 사진을 슬롯이 들고 있고, 그 값이 그대로 나가야 한다.
+     */
+    @Test
+    void 도착과_출발_칸에도_사진이_실린다() throws Exception {
+        long courseId = save(transitHubBody(null));
+        String hubName = "정선역";
+        transitHubPhotoRepository.save(com.offway.core.trip.domain.TransitHubPhoto.found(
+                hubName, "https://tong.visitkorea.or.kr/hub.jpg", "촬영자", "정선역 전경",
+                java.time.LocalDateTime.now()));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
+                .andExpect(jsonPath("$.data.days[0].items[0].imageUrl")
+                        .value("https://tong.visitkorea.or.kr/hub.jpg"))
+                .andExpect(jsonPath("$.data.days[0].items[2].kind").value("DEPARTURE"))
+                .andExpect(jsonPath("$.data.days[0].items[2].imageUrl")
+                        .value("https://tong.visitkorea.or.kr/hub.jpg"));
+    }
+
+    /** 안 받아 둔 지점은 그대로 빈다 — 없는 사진을 지어내지 않는다. */
+    @Test
+    void 사진을_안_받아_둔_거점은_그대로_빈다() throws Exception {
+        // 다른 테스트가 사진을 심는 이름과 갈라 둔다 — 이 클래스는 롤백으로 격리하지 않는다.
+        long courseId = save(transitHubBody(null, "사진없는역"));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
+                .andExpect(jsonPath("$.data.days[0].items[0].imageUrl").doesNotExist());
     }
 
     /** 조회·삭제와 같은 규칙이다 — 없거나 남의 코스면 존재 여부를 흘리지 않도록 똑같이 404. */

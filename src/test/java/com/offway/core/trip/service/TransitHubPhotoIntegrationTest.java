@@ -1,0 +1,129 @@
+package com.offway.core.trip.service;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.offway.core.trip.infrastructure.gallery.GalleryPhotoClient;
+import com.offway.core.trip.infrastructure.gallery.StubGalleryPhotoClient;
+import com.offway.core.trip.infrastructure.gallery.dto.GalleryPhotoItem;
+import com.offway.core.trip.repository.TransitHubPhotoRepository;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 역·터미널·항구 칸의 사진(#450) — 관광사진갤러리에서 미리 받아 둔다.
+ *
+ * <p>대상은 인구감소지역 89곳이 쓰는 도착 지점뿐이다. 코스가 <b>도착 지역부터</b> 보여주므로 그 집합이
+ * 곧 필요한 전부고, 시드가 정한 유한 집합이라 미리 받을 수 있다.
+ */
+@SpringBootTest
+// 테스트마다 이 테이블을 통째로 채우므로 롤백으로 격리한다 — 앞 회차가 전량을 채워 두면 다음 회차는
+// "최근에 받았다" 로 아무것도 안 하게 되어, 검증하려는 분기에 도달하지 못한다(테스트 규약의 그 방식).
+@Transactional
+class TransitHubPhotoIntegrationTest {
+
+    /** 갤러리가 사진을 준 척 — 지점 이름을 그대로 되돌려 어느 키워드로 물었는지 확인한다. */
+    private static GalleryPhotoItem photoFor(String keyword) {
+        return new GalleryPhotoItem(
+                "gal-" + keyword, keyword + " 전경", "https://tong.visitkorea.or.kr/" + keyword + ".jpg",
+                "202509", "강원특별자치도", "촬영자", keyword);
+    }
+
+    @Autowired
+    private TransitHubPhotoRefreshService refreshService;
+
+    @Autowired
+    private TransitHubPhotoProvider photoProvider;
+
+    @Autowired
+    private TransitHubPhotoRepository transitHubPhotoRepository;
+
+    @Autowired
+    private StubGalleryPhotoClient galleryPhotoClient;
+
+    @TestConfiguration
+    static class StubConfig {
+
+        @Bean
+        @Primary
+        GalleryPhotoClient stubGalleryPhotoClient() {
+            return new StubGalleryPhotoClient();
+        }
+    }
+
+    @Test
+    void 도착_지점의_사진을_미리_받아_둔다() {
+        galleryPhotoClient.respondToSearch(keyword -> List.of(photoFor(keyword)));
+
+        refreshService.refresh();
+
+        // 89곳의 열차역·고속·시외·항구를 이름으로 모은 집합이다. 정확한 수는 시드가 정하므로 하한만 본다.
+        assertTrue(transitHubPhotoRepository.findAll().size() >= 100,
+                "받아 둔 지점이 너무 적습니다 — 도착 지점 해석을 확인하세요: "
+                        + transitHubPhotoRepository.findAll().size());
+    }
+
+    /**
+     * <b>못 찾은 것도 적는다.</b> 행이 없는 것은 "아직 안 물어봄" 이고 사진이 비어 있는 것은 "물어봤는데
+     * 없다" 다. 뭉치면 매 회차가 같은 지점을 다시 묻는다.
+     */
+    @Test
+    void 사진이_없는_지점도_결과를_남긴다() {
+        galleryPhotoClient.respondToSearch(keyword -> List.of());
+
+        refreshService.refresh();
+
+        assertTrue(transitHubPhotoRepository.findAll().stream().anyMatch(photo -> photo.getImageUrl() == null),
+                "사진이 없는 지점의 행이 없습니다 — 배치가 매 회차 같은 곳을 다시 묻게 됩니다");
+    }
+
+    /** 최근에 받은 지점은 다시 안 묻는다 — 매주 도는 배치가 같은 것을 계속 물으면 한도가 샌다. */
+    @Test
+    void 최근에_받은_지점은_다시_묻지_않는다() {
+        galleryPhotoClient.respondToSearch(keyword -> List.of(photoFor(keyword)));
+        refreshService.refresh();
+        int after = transitHubPhotoRepository.findAll().size();
+
+        galleryPhotoClient.respondToSearch(keyword -> {
+            throw new AssertionError("최근에 받은 지점을 다시 물었습니다: " + keyword);
+        });
+        refreshService.refresh();
+
+        assertEquals(after, transitHubPhotoRepository.findAll().size());
+    }
+
+    /** 읽기 쪽은 <b>DB 만 본다</b> — 코스 응답이 갤러리 응답시간을 뒤집어쓰면 안 된다. */
+    @Test
+    void 읽기는_외부를_부르지_않는다() {
+        galleryPhotoClient.respondToSearch(keyword -> List.of(photoFor(keyword)));
+        refreshService.refresh();
+        Set<String> names = transitHubPhotoRepository.findAll().stream()
+                .filter(photo -> photo.getImageUrl() != null)
+                .map(com.offway.core.trip.domain.TransitHubPhoto::getHubName)
+                .limit(3)
+                .collect(java.util.stream.Collectors.toSet());
+
+        galleryPhotoClient.respondToSearch(keyword -> {
+            throw new AssertionError("읽기 경로가 갤러리를 불렀습니다: " + keyword);
+        });
+        Map<String, String> urls = photoProvider.photoUrls(names);
+
+        assertEquals(names.size(), urls.size(), "받아 둔 사진을 못 읽었습니다");
+    }
+
+    /** 안 받아 둔 지점은 결과에서 빠진다 — 없는 것을 지어내지 않는다. */
+    @Test
+    void 안_받아_둔_지점은_결과에_없다() {
+        Map<String, String> urls = photoProvider.photoUrls(Set.of("있을 리 없는 지점 이름"));
+
+        assertTrue(urls.isEmpty());
+    }
+}
