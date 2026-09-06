@@ -74,7 +74,7 @@ class ExternalApiHealthTest {
     }
 
     @Test
-    void 장애_뒤_성공하면_회복을_알린다() {
+    void 장애_뒤_연속_성공하면_회복을_알린다() {
         RecordingNotifier notifier = new RecordingNotifier();
         ExternalApiHealth health = new ExternalApiHealth(notifier);
 
@@ -82,9 +82,68 @@ class ExternalApiHealthTest {
         health.failed(SYSTEM, "HTTP 500");
         health.failed(SYSTEM, "HTTP 500");
         health.succeeded(SYSTEM);
+        health.succeeded(SYSTEM);
 
         assertEquals(2, notifier.sent.size());
         assertTrue(notifier.sent.getLast().contains("회복"));
+        assertTrue(health.isHealthy(SYSTEM));
+    }
+
+    /**
+     * 배포한 날 실제로 겪은 모양이다(#482). 게이트웨이가 깜빡이는 중이었고, 운 좋게 붙은 한 번을
+     * "회복" 이라고 선언했다. 장애는 세 번을 요구하면서 회복은 한 번이면 뒤집히던 비대칭이 원인이다.
+     */
+    @Test
+    void 한_번_성공했다_다시_죽으면_회복이_아니다() {
+        RecordingNotifier notifier = new RecordingNotifier();
+        ExternalApiHealth health = new ExternalApiHealth(notifier);
+
+        health.failed(SYSTEM, "HTTP 500");
+        health.failed(SYSTEM, "HTTP 500");
+        health.failed(SYSTEM, "HTTP 500");
+        assertEquals(1, notifier.sent.size(), "여기까지는 장애 알림 하나");
+
+        health.succeeded(SYSTEM);
+        health.failed(SYSTEM, "HTTP 500");
+
+        assertEquals(1, notifier.sent.size(), "깜빡임에 회복을 선언하면 채널이 장애·회복으로 덮인다");
+        assertFalse(health.isHealthy(SYSTEM), "성공 한 번으로는 장애에서 못 벗어난다");
+    }
+
+    /** 깜빡임이 반복돼도 알림은 늘지 않는다 — 잦아진 알림은 결국 안 읽힌다. */
+    @Test
+    void 깜빡임이_반복돼도_알림은_한_번뿐이다() {
+        RecordingNotifier notifier = new RecordingNotifier();
+        ExternalApiHealth health = new ExternalApiHealth(notifier);
+
+        health.failed(SYSTEM, "HTTP 500");
+        health.failed(SYSTEM, "HTTP 500");
+        health.failed(SYSTEM, "HTTP 500");
+        for (int i = 0; i < 5; i++) {
+            health.succeeded(SYSTEM);
+            health.failed(SYSTEM, "HTTP 500");
+        }
+
+        assertEquals(1, notifier.sent.size());
+        assertFalse(health.isHealthy(SYSTEM));
+    }
+
+    /** 회복 뒤에는 다시 연속 세 번을 실패해야 장애다 — 회복이 실패 수를 지운다. */
+    @Test
+    void 회복하면_실패_수가_지워진다() {
+        RecordingNotifier notifier = new RecordingNotifier();
+        ExternalApiHealth health = new ExternalApiHealth(notifier);
+
+        health.failed(SYSTEM, "HTTP 500");
+        health.failed(SYSTEM, "HTTP 500");
+        health.failed(SYSTEM, "HTTP 500");
+        health.succeeded(SYSTEM);
+        health.succeeded(SYSTEM);
+
+        health.failed(SYSTEM, "HTTP 500");
+        health.failed(SYSTEM, "HTTP 500");
+
+        assertEquals(2, notifier.sent.size(), "장애 하나 · 회복 하나 그대로");
         assertTrue(health.isHealthy(SYSTEM));
     }
 

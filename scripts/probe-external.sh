@@ -40,8 +40,12 @@ probe() {
   label=$1; group=$2; expect=$3; url=$4
   # URL 에 인증키가 실려 있다. 인자로 주면 `ps` 에 그대로 보이므로 stdin 설정으로 넘긴다
   # (이 파일 머리말이 약속한 것이고, 그동안 안 지켜지고 있었다).
+  # --http1.1 은 취향이 아니라 **앱과 조건을 맞추는 것**이다. 우리 WebClient(Reactor Netty)는 HTTP/1.1 로
+  # 나가는데, curl 은 기본으로 HTTP/2 를 협상한다. 2026-09-06 장애 때 이 차이가 오진을 냈다 — 게이트웨이가
+  # h2 협상에서 멈춰 이 표는 "10종 전부 무응답" 이라고 했지만, --http1.1 로는 200 이 왔다.
+  # 저쪽이 죽은 것과 우리 도구가 못 붙는 것을 가르려고 만든 표가 그 둘을 섞고 있었다.
   out=$(printf 'url = "%s"\n' "$url" \
-        | curl -s --config - --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -o /dev/null \
+        | curl -s --config - --http1.1 --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -o /dev/null \
                -w '%{time_appconnect} %{time_total} %{http_code}' 2>/dev/null)
   set -- $out
   tls=$1; total=$2; code=$3
