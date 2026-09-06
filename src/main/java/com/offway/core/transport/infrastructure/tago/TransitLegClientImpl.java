@@ -37,7 +37,21 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Component
 class TransitLegClientImpl implements TransitLegClient {
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(6);
+    /**
+     * 요청 경로의 응답 상한 — 사용자가 기다리므로 짧게 둔다. 느리면 폴백이 낫다.
+     */
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(6);
+
+    /**
+     * 배치의 응답 상한 — <b>아무도 안 기다린다</b>(#473).
+     *
+     * <p>느려도 받는 것이 빈손으로 끝나는 것보다 낫다. 빈손이면 그 구간이 "미운행" 으로 적히거나
+     * 다음 회차로 밀리는데, 후보가 3만여 건이라(#450) 밀린 것이 계속 쌓인다.
+     *
+     * <p>2026-09-06 게이트웨이 장애 때 부분 회복 구간을 실측하니 <b>TLS 9.7초 · 첫 바이트 15.5초</b>
+     * 였다 — 6초로는 연결이 성립하기도 전에 포기한다.
+     */
+    private static final Duration BATCH_TIMEOUT = Duration.ofSeconds(20);
     private static final int ROWS = 50;
     private static final DateTimeFormatter DATE = DateTimeFormatter.BASIC_ISO_DATE; // yyyyMMdd
     private static final DateTimeFormatter PLAN_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
@@ -82,7 +96,7 @@ class TransitLegClientImpl implements TransitLegClient {
                 .queryParam(endpoint.arrKey(), arrCode)
                 .queryParam("depPlandTime", date.format(DATE));
         try {
-            return parse(call(builder, endpoint), endpoint, mode, depCode, arrCode);
+            return parse(call(builder, endpoint, BATCH_TIMEOUT), endpoint, mode, depCode, arrCode);
         } catch (Exception e) {
             log.warn("{} 구간 조회 실패 — 기록하지 않고 다음 배치에서 다시 잰다 {}→{} cause={}",
                     mode.label(), depCode, arrCode, RootCause.of(e));
@@ -112,7 +126,7 @@ class TransitLegClientImpl implements TransitLegClient {
                 .queryParam(endpoint.arrKey(), arrCode)
                 .queryParam("depPlandTime", date.format(DATE));
         try {
-            return switch (TagoItems.parse(call(builder, endpoint), objectMapper)) {
+            return switch (TagoItems.parse(call(builder, endpoint, REQUEST_TIMEOUT), objectMapper)) {
                 case TagoItems.Items(List<JsonNode> nodes) -> nodes.stream()
                         .map(node -> toDeparture(node, endpoint))
                         .flatMap(Optional::stream)
@@ -146,13 +160,16 @@ class TransitLegClientImpl implements TransitLegClient {
         return Optional.of(new Departure(node.path(endpoint.vehicleField()).asText(null), depart, arrive));
     }
 
-    private String call(UriComponentsBuilder builder, TransitLegEndpoint endpoint) {
+    /**
+     * @param timeout 부르는 쪽이 정한다 — 배치와 요청 경로가 견딜 수 있는 지연이 다르다(#473)
+     */
+    private String call(UriComponentsBuilder builder, TransitLegEndpoint endpoint, Duration timeout) {
         // serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(build(true)) — 재인코딩하면 `%2B` 가
         // `%252B` 가 되어 서버가 다른 키로 읽는다(#165).
         URI uri = builder.build(true).toUri();
         // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
         callRecorder.record(endpoint.api());
-        return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
+        return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(timeout).block();
     }
 
     private TransitLegResult parse(
