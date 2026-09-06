@@ -100,6 +100,56 @@ class ExternalHealthFilterTest {
         assertEquals(1, notifier.sent.size());
     }
 
+    /**
+     * 성공 경로를 <b>회복 알림으로</b> 확인한다.
+     *
+     * <p>"살아 있다" 만 단언하면 증명이 안 된다 — 아직 한 번도 안 불린 시스템도 살아 있는 것으로 보기
+     * 때문에, 성공이 아예 기록되지 않아도 그 단언은 통과한다. 먼저 죽여 두고 회복 알림이 오는지를 본다.
+     */
+    @Test
+    void 본문까지_읽고_끝나면_성공으로_세고_회복을_알린다() {
+        RecordingNotifier notifier = new RecordingNotifier();
+        ExternalApiHealth health = new ExternalApiHealth(notifier);
+        ExchangeFilterFunction filter = ExternalHealthFilter.create(health);
+
+        ExchangeFunction broken = req -> Mono.error(new IOException("connection reset"));
+        for (int i = 0; i < 3; i++) {
+            assertThrows(RuntimeException.class, () -> filter.filter(request(), broken).block());
+        }
+
+        // 실제 어댑터 모양 — 헤더를 받고 본문까지 읽는다.
+        filter.filter(request(), req -> Mono.just(ClientResponse.create(HttpStatus.OK).body("{}").build()))
+                .flatMap(response -> response.bodyToMono(String.class))
+                .block();
+
+        assertTrue(health.isHealthy("train"));
+        assertEquals(2, notifier.sent.size());
+        assertTrue(notifier.sent.getLast().contains("회복"));
+    }
+
+    /**
+     * 본문을 안 읽는 호출도 같은 경로를 탄다 — {@code toBodilessEntity} 는 본문을 drain 하고 완료 신호를
+     * 준다. 이게 아니면 응답 본문을 안 쓰는 어댑터의 성공이 영영 기록되지 않아 회복 알림이 안 온다.
+     */
+    @Test
+    void 본문을_안_읽는_호출도_성공으로_센다() {
+        RecordingNotifier notifier = new RecordingNotifier();
+        ExternalApiHealth health = new ExternalApiHealth(notifier);
+        ExchangeFilterFunction filter = ExternalHealthFilter.create(health);
+
+        ExchangeFunction broken = req -> Mono.error(new IOException("connection reset"));
+        for (int i = 0; i < 3; i++) {
+            assertThrows(RuntimeException.class, () -> filter.filter(request(), broken).block());
+        }
+
+        filter.filter(request(), req -> Mono.just(ClientResponse.create(HttpStatus.OK).body("{}").build()))
+                .flatMap(ClientResponse::toBodilessEntity)
+                .block();
+
+        assertTrue(health.isHealthy("train"));
+        assertTrue(notifier.sent.getLast().contains("회복"));
+    }
+
     @Test
     void 응답이_5xx면_실패로_센다() {
         RecordingNotifier notifier = new RecordingNotifier();
