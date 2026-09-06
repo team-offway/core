@@ -73,10 +73,16 @@ class PoiDetailIntegrationTest {
     private static final java.time.LocalDateTime FESTIVAL_FETCHED_AT =
             java.time.LocalDateTime.of(2099, 1, 1, 0, 0);
 
-    /** 이 클래스는 롤백이 없다 — 심은 축제를 지우지 않으면 다음 테스트의 조회에 섞인다. */
+    /**
+     * 이 클래스는 롤백이 없다 — 심은 것을 지우지 않으면 다음 테스트의 조회에 섞인다.
+     *
+     * <p>폴백 지역(#472)도 함께 비운다. 심는 쪽만 있고 지우는 쪽이 없어 그 지역의 장소 풀이 테스트
+     * 사이에 남아 있었다.
+     */
     @org.junit.jupiter.api.AfterEach
-    void clearSeededFestivals() {
+    void clearSeededPlaces() {
         festivalPlaceRepository.deleteFetchedBefore(FESTIVAL_FETCHED_AT.plusSeconds(1));
+        regionPoiRepository.replaceRegion(FALLBACK_REGION, List.of());
     }
 
     @TestConfiguration
