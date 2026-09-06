@@ -138,10 +138,12 @@ public class RelatedAttractionRefreshService {
             }
             try {
                 Filled result = fillRegion(region, target);
+                // **매칭 실패는 저장 여부와 무관하게 센다.** 한 지역이 통째로 못 이어지면 saved 가 0인데,
+                // 그것까지 분모에서 빼면 매칭률이 실제보다 높게 찍힌다 — 가장 나쁜 지역이 통계에서 사라진다.
+                totalDroppedNoCoordinate += result.droppedNoCoordinate();
                 if (result.saved() > 0) {
                     filled++;
                     totalMatched += result.saved();
-                    totalDroppedNoCoordinate += result.droppedNoCoordinate();
                 }
             } catch (RuntimeException e) {
                 failed++;
