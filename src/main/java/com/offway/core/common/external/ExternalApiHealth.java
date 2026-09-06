@@ -25,10 +25,19 @@ import org.springframework.stereotype.Component;
  * <p>매 실패마다 보내면 장애 한 번에 채널이 수백 줄로 덮여 아무도 안 본다. 정상 → 장애, 장애 → 회복
  * 두 순간만 알린다.
  *
- * <h2>한 번 실패로 장애라 하지 않는다</h2>
+ * <h2>양쪽 다 여러 번 물어보고 정한다</h2>
  *
  * <p>외부는 원래 가끔 실패한다. 연속 {@value #FAILURES_TO_OPEN} 번이어야 장애로 본다 — 그보다 낮으면
- * 평상시에도 알림이 울려 신호가 죽는다. 회복은 한 번이면 충분하다(성공했다는 것이 곧 증거다).
+ * 평상시에도 알림이 울려 신호가 죽는다.
+ *
+ * <p><b>회복도 마찬가지로 연속 {@value #SUCCESSES_TO_CLOSE} 번을 요구한다(#482).</b> 처음에는 성공 한
+ * 번이면 회복으로 봤는데, 배포한 날 바로 그게 틀린 것으로 드러났다. 게이트웨이가 <b>깜빡이는</b> 중이었고
+ * (연속 8회 중 0회 응답, 그 직전 한 번은 200) 운 좋게 붙은 그 한 번을 우리가 "회복" 이라고 선언했다.
+ * 판정이 비대칭이면 깜빡이는 장애에서 장애 → 회복 → 장애가 반복되고, <b>잦아진 알림은 결국 안 읽힌다</b> —
+ * 이 기능이 없애려던 문제가 형태만 바꿔 돌아온다.
+ *
+ * <p>트래픽이 있으면 성공 두 번은 곧바로 쌓인다. 아무도 안 쓰는 새벽에는 프로브 주기(30분) × 2 가 걸리는데,
+ * 그 시간대에 급한 것은 "아직 죽어 있다" 쪽이라 이 지연은 받아들일 만하다.
  *
  * <h2>판정만 하고 막지는 않는다</h2>
  *
@@ -42,6 +51,9 @@ public class ExternalApiHealth {
 
     /** 이만큼 연속 실패해야 장애로 본다. */
     private static final int FAILURES_TO_OPEN = 3;
+
+    /** 장애 중에 이만큼 연속 성공해야 회복으로 본다. 한 번으로 뒤집으면 깜빡이는 장애에 끌려다닌다. */
+    private static final int SUCCESSES_TO_CLOSE = 2;
 
     /**
      * 같은 시스템의 장애 알림을 다시 보내기까지의 간격.
@@ -57,36 +69,55 @@ public class ExternalApiHealth {
 
     /** 호출이 성공했다. */
     public void succeeded(String system) {
-        State previous = states.put(system, State.healthy());
-        if (previous != null && previous.down()) {
-            log.info("외부 시스템 회복 — {} (연속 실패 {}회 뒤)", system, previous.failures());
-            notify("회복", system, "다시 응답합니다");
+        while (true) {
+            State previous = states.get(system);
+            if (previous == null) {
+                if (states.putIfAbsent(system, State.healthy()) == null) {
+                    return;
+                }
+                continue;
+            }
+            State updated = previous.andSucceeded();
+            if (!states.replace(system, previous, updated)) {
+                continue; // 그 사이 다른 호출이 상태를 바꿨다 — 최신 값으로 다시 센다
+            }
+            if (previous.down() && !updated.down()) {
+                log.info("외부 시스템 회복 — {} (연속 성공 {}회)", system, SUCCESSES_TO_CLOSE);
+                notify("회복", system, "연속 %d회 정상 응답".formatted(SUCCESSES_TO_CLOSE));
+            }
+            return;
         }
     }
 
     /** 호출이 실패했다 — 응답이 없거나 5xx 다. */
     public void failed(String system, String cause) {
-        State updated = states.compute(system, (key, previous) ->
-                previous == null ? State.firstFailure() : previous.andFailed());
-        if (updated.failures() < FAILURES_TO_OPEN) {
-            return; // 한 번씩 실패하는 것은 평상시다
-        }
-        if (updated.alreadyNotified() && !updated.remindDue()) {
+        while (true) {
+            State previous = states.get(system);
+            State updated = (previous == null ? State.healthy() : previous).andFailed();
+            boolean announce = updated.down() && (!updated.alreadyNotified() || updated.remindDue());
+            State stored = announce ? updated.notified() : updated;
+            if (!store(system, previous, stored)) {
+                continue;
+            }
+            if (announce) {
+                log.warn("외부 시스템 장애 — {} 연속 실패 {}회 cause={}", system, updated.failures(), cause);
+                notify("장애", system, "연속 %d회 실패 · %s".formatted(updated.failures(), cause));
+            }
             return;
         }
-        // put 이 아니라 CAS 다 — 사이에 성공이 끼어들었다면 그 회복 상태를 덮지 않고 알림만 포기한다.
-        // 외부 호출은 병렬로 나가므로 이 창은 실제로 열린다.
-        if (!states.replace(system, updated, updated.notified())) {
-            return;
-        }
-        log.warn("외부 시스템 장애 — {} 연속 실패 {}회 cause={}", system, updated.failures(), cause);
-        notify("장애", system, "연속 %d회 실패 · %s".formatted(updated.failures(), cause));
     }
 
     /** 지금 살아 있다고 보는가 — 조회용이다. 아직 아무도 안 부른 시스템은 살아 있는 것으로 본다. */
     public boolean isHealthy(String system) {
         State state = states.get(system);
         return state == null || !state.down();
+    }
+
+    /** 읽은 값이 그대로일 때만 쓴다 — 병렬 호출이 서로의 판정을 덮지 않게. */
+    private boolean store(String system, State previous, State updated) {
+        return previous == null
+                ? states.putIfAbsent(system, updated) == null
+                : states.replace(system, previous, updated);
     }
 
     private void notify(String kind, String system, String detail) {
@@ -101,29 +132,38 @@ public class ExternalApiHealth {
     /**
      * 한 시스템의 상태.
      *
+     * <p>{@code down} 을 실패 수에서 파생하지 않고 따로 든다. 회복에 연속 성공을 요구하면 <b>장애인 채로
+     * 성공이 쌓이는 구간</b>이 생기는데, 그때 실패 수만 보면 "실패 3회 = 아직 장애" 와 "회복 대기 중" 을
+     * 구분할 수 없다.
+     *
+     * @param down 지금 장애로 보는가
      * @param failures 연속 실패 수. 성공하면 0 으로 돌아간다
+     * @param successes 장애 중에 쌓인 연속 성공 수. 실패하면 0 으로 돌아간다
      * @param notifiedAt 장애를 알린 시각. 안 알렸으면 null
      */
-    private record State(int failures, Instant notifiedAt) {
+    private record State(boolean down, int failures, int successes, Instant notifiedAt) {
 
         static State healthy() {
-            return new State(0, null);
-        }
-
-        static State firstFailure() {
-            return new State(1, null);
+            return new State(false, 0, 0, null);
         }
 
         State andFailed() {
-            return new State(failures + 1, notifiedAt);
+            int next = failures + 1;
+            return new State(down || next >= FAILURES_TO_OPEN, next, 0, notifiedAt);
+        }
+
+        State andSucceeded() {
+            if (!down) {
+                return healthy();
+            }
+            int next = successes + 1;
+            return next >= SUCCESSES_TO_CLOSE
+                    ? healthy()
+                    : new State(true, failures, next, notifiedAt);
         }
 
         State notified() {
-            return new State(failures, Instant.now());
-        }
-
-        boolean down() {
-            return failures >= FAILURES_TO_OPEN;
+            return new State(down, failures, successes, Instant.now());
         }
 
         boolean alreadyNotified() {
