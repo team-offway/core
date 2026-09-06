@@ -124,6 +124,10 @@ public class TransitLegCandidateSeeder {
         for (Region region : regions) {
             busTerminalResolver
                     .nearest(region.getLat(), region.getLng(), kind)
+                    // **도착도 터미널이어야 한다.** resolver 는 반경 안에 터미널이 없으면 정류소를 준다(#446).
+                    // 구간 조회가 터미널 코드를 전제하므로 정류소 코드로 물으면 답이 없다 — 출발 쪽을
+                    // 거르면서 도착 쪽을 안 걸렀다.
+                    .filter(Terminal::isTerminal)
                     .map(Terminal::code)
                     .ifPresent(codes::add);
         }

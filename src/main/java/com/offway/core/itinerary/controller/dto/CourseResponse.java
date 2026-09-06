@@ -430,6 +430,9 @@ public record CourseResponse(
         static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName,
                 SlotHours hours, FestivalPeriod festival, String benefit,
                 Map<String, String> hubPhotoUrlByName) {
+            // 한 번만 푼다 — 지도 링크 판단도 같은 값을 봐야 한다. 슬롯의 원본만 보면 교통 거점 칸이
+            // 사진과 지도 링크를 함께 내려보낸다(사진이 있으면 링크는 군더더기다).
+            String imageUrl = imageUrlOf(slot, hubPhotoUrlByName);
             return new Item(
                     slot.getOrderInDay(),
                     slot.getTimeOfDay().name(),
@@ -437,7 +440,7 @@ public record CourseResponse(
                     slot.getKind().label(),
                     slot.getPoiContentId(),
                     slot.getTitle(),
-                    imageUrlOf(slot, hubPhotoUrlByName),
+                    imageUrl,
                     slot.getAddress(),
                     slot.getCatchphrase(),
                     slot.getTel(),
@@ -445,7 +448,7 @@ public record CourseResponse(
                     hours == null ? null : hours.restDate(),
                     hours == null ? null : hours.displayStatus(),
                     benefit,
-                    mapSearchUrlFor(slot),
+                    mapSearchUrlFor(slot, imageUrl),
                     slot.getLat(),
                     slot.getLng(),
                     slot.getTravelMinutesFromPrev(),
@@ -735,8 +738,12 @@ public record CourseResponse(
      *
      * <p>숙소가 이 경우의 대부분이다 — 89곳 중 45곳에서 사진 있는 숙소가 2곳도 안 된다.
      */
-    private static String mapSearchUrlFor(Slot slot) {
-        if (slot.getImageUrl() != null && !slot.getImageUrl().isBlank()) {
+    /**
+     * @param imageUrl <b>이 응답에 실제로 나가는</b> 사진. 슬롯의 원본이 아니다 — 교통 거점 칸은 사진을
+     *     따로 얻으므로(#450), 원본만 보면 사진과 지도 링크가 함께 나간다
+     */
+    private static String mapSearchUrlFor(Slot slot, String imageUrl) {
+        if (imageUrl != null && !imageUrl.isBlank()) {
             return null;
         }
         return MapSearchLink.of(slot.getTitle(), slot.getAddress()).orElse(null);

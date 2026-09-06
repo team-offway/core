@@ -24,16 +24,16 @@ import org.springframework.boot.test.context.SpringBootTest;
 class TransitLegCandidateSeedIntegrationTest {
 
     /**
-     * 사전 적재로 만들어지는 구간 수 — <b>35,072</b>(2026-09-06 실측).
+     * 사전 적재로 만들어지는 구간 수 — <b>33,448</b>(2026-09-06 실측).
      *
-     * <p>고속 272곳 × 도착 74곳 + 시외 197곳 × 도착 77곳이다(자기 자신 제외). 도착은 인구감소지역 89곳이
+     * <p>고속 × 도착 74곳 + 시외 × 도착 74곳이다(자기 자신 제외). 도착은 인구감소지역 89곳이
      * 실제로 쓰는 터미널만 센다 — 전국을 도착지로 두면 조합이 폭발하는데, 우리가 코스를 만드는 곳은
      * 인구감소지역뿐이다.
      *
      * <p><b>이 값이 크게 흔들리면 시드가 바뀐 것이다.</b> 터미널 좌표가 사라지면 출발 후보가 줄고,
      * 도착 해석이 바뀌면 곱해지는 쪽이 바뀐다. 하한만 보면 그 회귀를 놓친다.
      */
-    private static final int EXPECTED_CANDIDATES = 35_072;
+    private static final int EXPECTED_CANDIDATES = 33_448;
 
     /** 지연 생성으로 이미 있던 행까지 더해 이보다 적을 수는 없다 — 사전 적재가 통째로 안 돌면 여기서 걸린다. */
     private static final int MIN_ROWS = EXPECTED_CANDIDATES;
@@ -123,8 +123,10 @@ class TransitLegCandidateSeedIntegrationTest {
                                 Collectors.mapping(TransitLegDuration::getArrCode, Collectors.toSet()),
                                 set -> (long) set.size())));
 
+        // 정류소는 도착에서도 뺀다(#446·#450) — 구간 조회가 터미널 코드를 전제한다. 시외가 77 에서 74 로
+        // 준 것이 그 결과다(세 곳은 최근접이 정류소였다).
         assertEquals(74L, arrivals.get(TransitMode.EXPRESS_BUS), "고속 도착 터미널 수");
-        assertEquals(77L, arrivals.get(TransitMode.INTERCITY_BUS), "시외 도착 터미널 수");
+        assertEquals(74L, arrivals.get(TransitMode.INTERCITY_BUS), "시외 도착 터미널 수");
     }
 
     /**

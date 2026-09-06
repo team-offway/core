@@ -30,4 +30,15 @@ public interface TransitLegDurationRepository {
     List<TransitLegDuration> pending(int max, LocalDateTime remeasureBefore);
 
     void save(TransitLegDuration leg);
+
+    /**
+     * 없는 것만 넣는다(#450) — 이미 있는 조합은 조용히 건너뛴다.
+     *
+     * <p><b>왜 따로 두나.</b> {@code save} 로 넣다 유니크 제약에 걸리면 그 예외가 트랜잭션을
+     * {@code rollback-only} 로 만든다 — 잡아도 소용없고, 커밋 시점에 터지면 잡을 수조차 없다. 조각 하나에
+     * 새 구간 수백 건이 함께 들어 있으므로, 중복 한 건 때문에 그 전부가 사라진다.
+     *
+     * @return 실제로 넣은 행 수
+     */
+    int insertIgnoringDuplicates(List<TransitLegDuration> legs);
 }

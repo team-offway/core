@@ -9,7 +9,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,24 +42,20 @@ public class TransitLegCandidatePersistenceService {
     /**
      * 조각 하나를 넣는다.
      *
-     * <p><b>유니크 위반은 성공으로 본다.</b> 사이에 사용자 요청이 같은 구간을 만들었을 수 있는데, 원하던
-     * 상태(그 구간의 자리가 있다)는 이미 이뤄져 있다. 조각째 버리지 않고 건별로 넘긴다 — 하나 때문에
-     * 999건을 다시 넣을 이유가 없다.
+     * <p><b>유니크 위반은 예외가 아니라 0행이다</b>({@code INSERT IGNORE}). 사이에 사용자 요청이 같은
+     * 구간을 만들었을 수 있는데, 원하던 상태(그 구간의 자리가 있다)는 이미 이뤄져 있다.
+     *
+     * <p>예전에는 {@code save} 로 넣고 {@code DataIntegrityViolationException} 을 잡았다. <b>그것으로는
+     * 안 된다</b> — 그 예외가 트랜잭션을 {@code rollback-only} 로 만들어, 중복 한 건 때문에 같은 조각의
+     * 새 구간 수백 건이 함께 사라진다. 커밋 시점에 터지면 잡을 수조차 없다.
      *
      * @return 실제로 넣은 행 수
      */
     @Transactional
     public int insert(List<Candidate> candidates, LocalDateTime now) {
-        int inserted = 0;
-        for (Candidate candidate : candidates) {
-            try {
-                transitLegDurationRepository.save(TransitLegDuration.requested(
-                        candidate.mode(), candidate.depCode(), candidate.arrCode(), now));
-                inserted++;
-            } catch (DataIntegrityViolationException e) {
-                log.debug("이미 등록된 구간입니다 — 넘어갑니다 {}", candidate.key());
-            }
-        }
-        return inserted;
+        return transitLegDurationRepository.insertIgnoringDuplicates(candidates.stream()
+                .map(candidate -> TransitLegDuration.requested(
+                        candidate.mode(), candidate.depCode(), candidate.arrCode(), now))
+                .toList());
     }
 }

@@ -63,8 +63,19 @@ public class TransitHubPhotoRefreshService {
     /** 한 지점에 몇 장까지 받아 볼지 — 첫 장만 쓰지만 불완전한 것을 걸러낼 여지를 둔다. */
     private static final int ROWS_PER_HUB = 5;
 
-    /** 이 기간이 지난 지점을 다시 묻는다 — 갤러리는 월 단위로 늘어나는 자료다. */
+    /** 사진을 <b>찾은</b> 지점을 다시 묻기까지 — 갤러리는 월 단위로 늘어나는 자료다. */
     private static final Duration REFETCH_AFTER = Duration.ofDays(30);
+
+    /**
+     * 사진을 <b>못 찾은</b> 지점을 다시 묻기까지 — 훨씬 짧게.
+     *
+     * <p>{@code searchByKeyword} 는 조회 실패와 실제 미검색을 <b>둘 다 빈 결과</b>로 준다. 찾은 것과 같은
+     * 30일을 걸면 일시적 장애 한 번이 그 지점을 한 달 내내 사진 없이 만든다 — 빈 응답을 성공 TTL 로
+     * 누르지 않는다는 규칙 그대로다(CLAUDE.md §조용한 실패를 만들지 않는다).
+     *
+     * <p>주간 배치라 다음 회차가 곧 다시 묻는다.
+     */
+    private static final Duration REFETCH_MISSING_AFTER = Duration.ofDays(3);
 
     private final RegionQuery regionQuery;
     private final TrainStationResolver trainStationResolver;
@@ -84,11 +95,18 @@ public class TransitHubPhotoRefreshService {
         Map<String, TransitHubPhoto> known = transitHubPhotoRepository.findByHubNames(hubNames).stream()
                 .collect(Collectors.toMap(TransitHubPhoto::getHubName, Function.identity()));
 
-        LocalDateTime staleBefore = now.minus(REFETCH_AFTER);
+        LocalDateTime foundStaleBefore = now.minus(REFETCH_AFTER);
+        LocalDateTime missingStaleBefore = now.minus(REFETCH_MISSING_AFTER);
         List<String> targets = hubNames.stream()
                 .filter(name -> {
                     TransitHubPhoto existing = known.get(name);
-                    return existing == null || existing.getFetchedAt().isBefore(staleBefore);
+                    if (existing == null) {
+                        return true;
+                    }
+                    // 못 찾은 것은 더 자주 다시 묻는다 — 빈 결과가 장애인지 실제 미검색인지 알 수 없다.
+                    LocalDateTime staleBefore =
+                            existing.usableImageUrl().isPresent() ? foundStaleBefore : missingStaleBefore;
+                    return existing.getFetchedAt().isBefore(staleBefore);
                 })
                 .limit(MAX_LOOKUPS_PER_RUN)
                 .toList();
@@ -109,8 +127,13 @@ public class TransitHubPhotoRefreshService {
             }
         }
         // 0건이어도 남긴다 — 배치가 돌았는지, 왜 0건인지 답할 수 있어야 한다(#310).
+        // 못 찾은 수를 warn 으로 가른다 — 갤러리가 죽어도 이 배치는 "정상 종료" 로 보이기 때문이다.
         log.info("교통 거점 사진 갱신 — 대상 {}곳 중 {}곳 조회: 확보 {} · 없음 {}",
                 hubNames.size(), targets.size(), found, missing);
+        if (found == 0 && missing > 0) {
+            log.warn("교통 거점 사진 — 조회한 {}곳이 전부 빈 결과입니다. 갤러리 장애일 수 있어 {}일 뒤 다시 묻습니다",
+                    missing, REFETCH_MISSING_AFTER.toDays());
+        }
     }
 
     /**

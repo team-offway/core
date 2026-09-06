@@ -49,6 +49,9 @@ class GalleryPhotoClientImpl implements GalleryPhotoClient {
     /** 제목순 정렬 — 페이지를 도는 동안 순서가 흔들리지 않게 고정한다. */
     private static final String ARRANGE_TITLE = "A";
 
+    /** 키워드 검색은 첫 페이지만 본다 — 상위 몇 장이면 대표 사진으로 충분하다. */
+    private static final int FIRST_PAGE = 1;
+
     private final WebClient webClient;
     private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
@@ -96,7 +99,7 @@ class GalleryPhotoClientImpl implements GalleryPhotoClient {
                 .queryParam("MobileApp", MOBILE_APP)
                 .queryParam("_type", "json")
                 .queryParam("numOfRows", rows)
-                .queryParam("pageNo", 1)
+                .queryParam("pageNo", FIRST_PAGE)
                 .queryParam("keyword", keyword);
         try {
             return parse(call(builder));

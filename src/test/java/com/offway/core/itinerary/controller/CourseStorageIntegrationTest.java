@@ -98,8 +98,6 @@ class CourseStorageIntegrationTest {
     @Autowired
     private StubTrainInfoClient trainInfoClient;
 
-    @Autowired
-    private com.offway.core.trip.repository.TransitHubPhotoRepository transitHubPhotoRepository;
 
     @Autowired
     private TrainRouteService trainRouteService;
@@ -1371,20 +1369,30 @@ class CourseStorageIntegrationTest {
      */
     @Test
     void 도착과_출발_칸에도_사진이_실린다() throws Exception {
-        long courseId = save(transitHubBody(null));
-        String hubName = "정선역";
-        transitHubPhotoRepository.save(com.offway.core.trip.domain.TransitHubPhoto.found(
-                hubName, "https://tong.visitkorea.or.kr/hub.jpg", "촬영자", "정선역 전경",
-                java.time.LocalDateTime.now()));
-
-        mockMvc.perform(get(URL + "/{id}", courseId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
-                .andExpect(jsonPath("$.data.days[0].items[0].imageUrl")
-                        .value("https://tong.visitkorea.or.kr/hub.jpg"))
-                .andExpect(jsonPath("$.data.days[0].items[2].kind").value("DEPARTURE"))
-                .andExpect(jsonPath("$.data.days[0].items[2].imageUrl")
-                        .value("https://tong.visitkorea.or.kr/hub.jpg"));
+        // hub_name 이 유니크라 이 행을 남기면 재실행이 중복 키로 깨진다. 만든 것만 지운다 —
+        // 이름으로 지우면 배치가 받아 둔 기존 행까지 지울 수 있다.
+        String hubName = "사진있는역";
+        long courseId = save(transitHubBody(null, hubName));
+        jdbcTemplate.update(
+                "INSERT INTO transit_hub_photo (hub_name, image_url, photographer, title, fetched_at)"
+                        + " VALUES (?, ?, ?, ?, ?)",
+                hubName, "https://tong.visitkorea.or.kr/hub.jpg", "촬영자", "전경",
+                java.time.LocalDateTime.now());
+        try {
+            mockMvc.perform(get(URL + "/{id}", courseId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
+                    .andExpect(jsonPath("$.data.days[0].items[0].imageUrl")
+                            .value("https://tong.visitkorea.or.kr/hub.jpg"))
+                    // 사진이 있으면 지도 링크는 안 붙인다 — 카드가 이미 설 수 있어 군더더기다.
+                    // 이 필드는 null 이면 응답에서 아예 빠지므로 doesNotExist 로 본다.
+                    .andExpect(jsonPath("$.data.days[0].items[0].mapSearchUrl").doesNotExist())
+                    .andExpect(jsonPath("$.data.days[0].items[2].kind").value("DEPARTURE"))
+                    .andExpect(jsonPath("$.data.days[0].items[2].imageUrl")
+                            .value("https://tong.visitkorea.or.kr/hub.jpg"));
+        } finally {
+            jdbcTemplate.update("DELETE FROM transit_hub_photo WHERE hub_name = ?", hubName);
+        }
     }
 
     /** 안 받아 둔 지점은 그대로 빈다 — 없는 사진을 지어내지 않는다. */
