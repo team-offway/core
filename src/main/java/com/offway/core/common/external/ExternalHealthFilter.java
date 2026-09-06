@@ -47,6 +47,17 @@ public final class ExternalHealthFilter {
     /** 하류 timeout 에 잘린 호출의 사유 — 외부가 우리 상한보다 느렸다는 뜻이다. */
     private static final String CAUSE_CANCELLED = "응답 없음(우리 timeout)";
 
+    /**
+     * 이 요청은 여기서 관측하지 않는다는 표시(#479).
+     *
+     * <p><b>기록자가 둘이면 판정이 무너진다.</b> 프로브는 HTTP 200 안에 실린 {@code resultCode} 까지
+     * 보는데, 필터는 그 200 만 보고 성공으로 적는다. 둘 다 적으면 카운터가 <b>성공 → 실패 1</b> 을
+     * 반복해 연속 실패가 쌓이지 않고, 장애 확정선(연속 3회)에 영영 닿지 못한다.
+     *
+     * <p>그래서 프로브 요청은 필터가 비켜서고, 그 결과는 스케줄러가 단독으로 보고한다.
+     */
+    public static final String SKIP_ATTRIBUTE = ExternalHealthFilter.class.getName() + ".skip";
+
     private ExternalHealthFilter() {
     }
 
@@ -79,6 +90,10 @@ public final class ExternalHealthFilter {
 
     public static ExchangeFilterFunction create(ExternalApiHealth health) {
         return (request, next) -> {
+            if (request.attribute(SKIP_ATTRIBUTE).isPresent()) {
+                // 프로브다 — 스케줄러가 resultCode 까지 보고 단독으로 적는다.
+                return next.exchange(request);
+            }
             String system = ExternalSystems.label(request.url());
             // defer — 구독마다 플래그를 새로 만든다. 바깥에 두면 재시도·병렬 호출이 하나를 공유한다.
             return Mono.defer(() -> {

@@ -1,5 +1,6 @@
 package com.offway.core.inventory.service;
 
+import com.offway.core.common.external.ExternalApiHealth;
 import com.offway.core.inventory.infrastructure.probe.ExternalApiProbe;
 import com.offway.core.inventory.infrastructure.probe.ProbeResult;
 import java.util.List;
@@ -56,9 +57,11 @@ public class ExternalProbeScheduler {
     private static final int CONFIRMATIONS = 2;
 
     private final List<ExternalApiProbe> probes;
+    private final ExternalApiHealth health;
 
-    public ExternalProbeScheduler(List<ExternalApiProbe> probes) {
+    public ExternalProbeScheduler(List<ExternalApiProbe> probes, ExternalApiHealth health) {
         this.probes = probes;
+        this.health = health;
     }
 
     @Scheduled(fixedDelay = INTERVAL_MS, initialDelay = INITIAL_DELAY_MS)
@@ -69,7 +72,7 @@ public class ExternalProbeScheduler {
     }
 
     private void confirm(ExternalApiProbe probe) {
-        ProbeResult result = probe.probe();
+        ProbeResult result = report(probe, probe.probe());
         if (!result.unusable()) {
             return;
         }
@@ -80,7 +83,28 @@ public class ExternalProbeScheduler {
             return;
         }
         for (int i = 0; i < CONFIRMATIONS; i++) {
-            probe.probe();
+            report(probe, probe.probe());
         }
+    }
+
+    /**
+     * 프로브 결과를 상태 판정으로 옮긴다(#479) — <b>여기가 이 경로의 유일한 기록자다</b>.
+     *
+     * <p>프로브 요청은 {@code ExternalHealthFilter} 가 비켜서므로(skip 마커), 200 안에 실린
+     * {@code resultCode} 실패가 여기서 처음으로 실패로 세어진다. 그게 이 작업의 요점이다 — 키가
+     * 만료됐거나 한도를 태운 날, 지금까지는 <b>"전부 정상" 을 보고 있었다.</b>
+     *
+     * <p>확인 호출의 결과도 같은 경로로 흘린다. 그래야 한 주기 안에 연속 3회가 쌓여 장애가 확정된다.
+     */
+    private ProbeResult report(ExternalApiProbe probe, ProbeResult result) {
+        if (!result.observed()) {
+            return result; // 키가 없거나 못 재본 것 — 외부에 대해 아무것도 말해주지 않는다
+        }
+        if (result.unusable()) {
+            health.failed(probe.system(), "%s(HTTP %d)".formatted(result.detail(), result.httpStatus()));
+        } else {
+            health.succeeded(probe.system());
+        }
+        return result;
     }
 }
