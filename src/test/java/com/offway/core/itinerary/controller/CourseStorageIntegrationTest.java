@@ -700,10 +700,11 @@ class CourseStorageIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.transitAccess.durationMinutes").doesNotExist());
 
-        // 적은 지 오래됐으면 다시 잰다.
+        // 적은 지 오래됐으면 다시 잰다. 재측정 간격(TransitDurationRefreshService.REMEASURE_DAYS)보다
+        // 확실히 지난 값을 쓴다 — 그 값이 30일에서 90일로 늘면서(#450) 60일로는 더 이상 안 걸린다.
         jdbcTemplate.update(
                 "UPDATE transit_leg_duration SET measured_at = ? WHERE minutes IS NULL AND measured_at IS NOT NULL",
-                LocalDateTime.now().minusDays(60));
+                LocalDateTime.now().minusDays(200));
         transitDurationRefreshService.measurePending();
 
         mockMvc.perform(get(URL + "/{id}", courseId))
