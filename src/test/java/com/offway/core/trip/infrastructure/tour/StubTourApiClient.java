@@ -108,6 +108,21 @@ public class StubTourApiClient implements TourApiClient {
         return detailBehavior.get();
     }
 
+    /**
+     * 사진 목록의 기본은 <b>빈 목록</b>이다(#464) — 사진이 없는 장소가 정상이고, 상세를 보는 기존 테스트가
+     * 이 값을 안 정한다. throw 로 두면 그것들이 시나리오와 무관한 이유로 깨진다.
+     */
+    private Supplier<List<String>> imagesBehavior = List::of;
+
+    public void respondImages(Supplier<List<String>> imagesBehavior) {
+        this.imagesBehavior = imagesBehavior;
+    }
+
+    @Override
+    public List<String> findImages(String contentId) {
+        return imagesBehavior.get();
+    }
+
     @Override
     public Optional<TourAccessibility> findAccessibility(String contentId) {
         return accessibilityBehavior.get();
