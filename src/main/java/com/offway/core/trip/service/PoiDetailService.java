@@ -8,6 +8,7 @@ import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.policy.service.PolicyService;
+import com.offway.core.trip.domain.FestivalPlace;
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.MapSearchLink;
@@ -17,6 +18,7 @@ import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
+import com.offway.core.trip.repository.FestivalPlaceRepository;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.PoiDetail;
@@ -44,6 +46,9 @@ public class PoiDetailService {
 
     /** TourAPI 콘텐츠가 아님을 뜻하는 타입 — 인허가·국가유산이 함께 쓴다. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
     private static final int NON_TOUR_CONTENT_TYPE = 0;
+
+    /** 축제의 뱃지 — 표준데이터에는 업종·종목에 해당하는 값이 없어 종류 자체가 곧 분류다. */
+    private static final String FESTIVAL_TYPE_LABEL = "축제";
 
     /**
      * 성공 캐시 TTL — 상세는 <b>느리게 변하는 값</b>이다(주소·개요·운영시간·휴무일).
@@ -95,6 +100,7 @@ public class PoiDetailService {
     private final CatchphraseProvider catchphraseProvider;
     private final LicensedPlaceRepository licensedPlaceRepository;
     private final HeritagePlaceRepository heritagePlaceRepository;
+    private final FestivalPlaceRepository festivalPlaceRepository;
     private final PolicyService policyService;
 
     /** 캐시를 켜고 끄는 스위치(#403). 조회마다 물어, 운영 중 바뀐 값도 곧바로 듣는다. */
@@ -166,6 +172,10 @@ public class PoiDetailService {
         Optional<Long> heritageId = HeritagePlace.parsePublicId(contentId);
         if (heritageId.isPresent()) {
             return heritageDetail(heritageId.get());
+        }
+        Optional<Long> festivalId = FestivalPlace.parsePublicId(contentId);
+        if (festivalId.isPresent()) {
+            return festivalDetail(festivalId.get());
         }
 
         return tourDetail(contentId);
@@ -274,6 +284,33 @@ public class PoiDetailService {
                 // 국가유산도 운영시간·전화가 없다. 사진·설명은 있지만 "언제 여나" 는 지도가 답한다.
                 MapSearchLink.of(heritage.getName(), heritage.getAddress()).orElse(null),
                 benefitFor(heritage.getRegionId(), SlotKind.SIGHT));
+    }
+
+    /**
+     * 축제의 상세(#480) — <b>코스에 나가는데 상세가 없던 자리</b>다.
+     *
+     * <p>축제를 후보로 실으면서(#439) 이 분기를 안 붙였다. {@code FST-} 식별자가 관광 API 로 넘어가
+     * <b>외부가 멀쩡할 때도 404</b> 였다 — 카드에 떠 있는 축제를 누르면 없다고 답하는 셈이다.
+     * 인허가·국가유산이 같은 이유로 각자 분기를 갖는다.
+     *
+     * <p>사진은 표준데이터가 주지 않는다. 기간은 상세 계약에 담을 자리가 없어 함께 비운다 — 없는 것을
+     * 지어내지 않는다.
+     */
+    private PoiDetail festivalDetail(long id) {
+        FestivalPlace festival = festivalPlaceRepository.findById(id).orElseThrow(TourApiException::poiNotFound);
+        return PoiDetail.withoutIntro(
+                festival.publicId(),
+                NON_TOUR_CONTENT_TYPE,
+                FESTIVAL_TYPE_LABEL,
+                festival.getName(),
+                festival.getAddress(),
+                festival.getTel(),
+                festival.getLat(),
+                festival.getLng(),
+                null, // 사진 — 표준데이터에 없다
+                festival.getDescription(),
+                MapSearchLink.of(festival.getName(), festival.getAddress()).orElse(null),
+                benefitFor(festival.getRegionId(), SlotKind.SIGHT));
     }
 
     /** 인허가 장소의 상세 — 우리가 가진 것만 채우고 나머지는 비운다. 없는 것을 지어내지 않는다. */

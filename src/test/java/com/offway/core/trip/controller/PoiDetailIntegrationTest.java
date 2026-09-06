@@ -49,8 +49,21 @@ class PoiDetailIntegrationTest {
     @Autowired
     private com.offway.core.trip.repository.LicensedPlaceRepository licensedPlaceRepository;
 
+    @Autowired
+    private com.offway.core.trip.repository.FestivalPlaceRepository festivalPlaceRepository;
+
     /** 테스트 국가유산 풀이 채운 지역 — 경상북도 의성군. */
     private static final long UISEONG = 76L;
+
+    /** 심은 축제를 알아보는 시각 — 정리할 때 이 값을 넘는 것만 지운다. */
+    private static final java.time.LocalDateTime FESTIVAL_FETCHED_AT =
+            java.time.LocalDateTime.of(2099, 1, 1, 0, 0);
+
+    /** 이 클래스는 롤백이 없다 — 심은 축제를 지우지 않으면 다음 테스트의 조회에 섞인다. */
+    @org.junit.jupiter.api.AfterEach
+    void clearSeededFestivals() {
+        festivalPlaceRepository.deleteFetchedBefore(FESTIVAL_FETCHED_AT.plusSeconds(1));
+    }
 
     @TestConfiguration
     static class StubConfig {
@@ -466,6 +479,69 @@ class PoiDetailIntegrationTest {
         tourApiClient.resetDetailCallCount();
 
         mockMvc.perform(get("/api/v1/pois/{id}", heritage.publicId())).andExpect(status().isOk());
+
+        assertEquals(0, tourApiClient.detailCallCount());
+    }
+
+    /**
+     * <b>코스에 나가는 축제를 누르면 상세가 나온다</b>(#480).
+     *
+     * <p>축제를 코스 후보로 실으면서(#439) 상세 분기를 안 붙였다. {@code FST-} 식별자가 관광 API 로
+     * 넘어가 <b>외부가 멀쩡할 때도 404</b> 였다 — 카드에 떠 있는 축제를 눌렀더니 없다고 답하는 셈이다.
+     */
+    @Test
+    void 축제를_누르면_우리_DB_로_상세가_나온다() throws Exception {
+        festivalPlaceRepository.upsertAll(List.of(com.offway.core.trip.domain.FestivalPlace.builder()
+                .regionId(UISEONG)
+                .name("의성 산수유마을 꽃맞이행사")
+                .venue("의성군 사곡면 화전리")
+                .address("경북 의성군 사곡면 화전리")
+                .eventStart(java.time.LocalDate.of(2099, 3, 20))
+                .eventEnd(java.time.LocalDate.of(2099, 3, 24))
+                .description("산수유 꽃이 피는 시기에 맞춰 여는 마을 행사")
+                .host("의성군")
+                .tel("054-830-6000")
+                .lat(36.35)
+                .lng(128.52)
+                .fetchedAt(FESTIVAL_FETCHED_AT)
+                .build()));
+        com.offway.core.trip.domain.FestivalPlace festival =
+                festivalPlaceRepository.findOpenOn(UISEONG, java.time.LocalDate.of(2099, 3, 21), 1).getFirst();
+
+        mockMvc.perform(get("/api/v1/pois/{id}", festival.publicId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.title").value("의성 산수유마을 꽃맞이행사"))
+                .andExpect(jsonPath("$.data.typeLabel").value("축제"))
+                .andExpect(jsonPath("$.data.overview").value("산수유 꽃이 피는 시기에 맞춰 여는 마을 행사"))
+                .andExpect(jsonPath("$.data.tel").value("054-830-6000"))
+                // 사진은 표준데이터가 주지 않는다 — 지어내지 않고 비운다.
+                .andExpect(jsonPath("$.data.imageUrl").value(nullValue()))
+                .andExpect(jsonPath("$.data.mapSearchUrl").isNotEmpty());
+    }
+
+    /** 축제 상세는 <b>외부를 부르지 않는다</b> — 우리 DB 에 있는 값이다. */
+    @Test
+    void 축제_상세는_외부를_부르지_않는다() throws Exception {
+        festivalPlaceRepository.upsertAll(List.of(com.offway.core.trip.domain.FestivalPlace.builder()
+                .regionId(UISEONG)
+                .name("의성 마늘축제")
+                .venue("의성읍")
+                .address("경북 의성군 의성읍")
+                .eventStart(java.time.LocalDate.of(2099, 7, 1))
+                .eventEnd(java.time.LocalDate.of(2099, 7, 3))
+                .description("마늘 주산지 축제")
+                .host("의성군")
+                .tel("054-830-6001")
+                .lat(36.35)
+                .lng(128.69)
+                .fetchedAt(FESTIVAL_FETCHED_AT)
+                .build()));
+        com.offway.core.trip.domain.FestivalPlace festival =
+                festivalPlaceRepository.findOpenOn(UISEONG, java.time.LocalDate.of(2099, 7, 2), 1).getFirst();
+        tourApiClient.resetDetailCallCount();
+
+        mockMvc.perform(get("/api/v1/pois/{id}", festival.publicId())).andExpect(status().isOk());
 
         assertEquals(0, tourApiClient.detailCallCount());
     }
