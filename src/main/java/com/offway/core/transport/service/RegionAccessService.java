@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import com.offway.core.transport.domain.Departure;
 import java.util.Optional;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -85,8 +86,7 @@ public class RegionAccessService {
         RegionAccess chosen = forcedTo(preferred, train, destTerminal, destPort)
                 .orElseGet(() -> train.orNearer(
                         new Coordinate(destLat, destLng),
-                        destTerminal.map(RegionArrival::of).orElse(null),
-                        destPort.map(RegionArrival::of).orElse(null)));
+                        boardable(originLat, originLng, destTerminal, destPort)));
         if (chosen != train) {
             // 열차만 보던 시절 이 지역은 도착 지점을 몰라 출발지로 되돌아갔다. 무엇이 그 자리를 채웠는지 남긴다.
             log.debug("도착 지점을 {}(으)로 잡습니다 — 열차 상태={} 지점={}",
@@ -105,6 +105,41 @@ public class RegionAccessService {
         return chosen.withDistanceKm(distanceKm(new Coordinate(originLat, originLng), chosen.arrivalPoint()))
                 .withAlternatives(alternativesTo(
                         chosen, train, destTerminal, destPort, originLat, originLng, date, notBefore));
+    }
+
+    /**
+     * 대표 후보 중 <b>어디서 타는지 말할 수 있는 것</b>만(#454).
+     *
+     * <p>대표는 지역에 가장 가까운 도착 지점으로 골랐는데, 그 판정에 출발 쪽이 안 들어갔다. 그래서 서울에서
+     * 완도·하동을 물으면 <b>여객선이 대표가 되고 출발 지점이 빈다</b> — 서울에 항구가 없기 때문이다. 사용자에게는
+     * "배로 가세요, 어디서 타는지는 모릅니다" 가 된다. 두 곳 다 시외버스 터미널이 지역명 그대로 잡혀 있는데도 그랬다.
+     *
+     * <p>도착 지점이 조금 더 가깝다고 해서 탈 곳을 모르는 수단을 앞세울 이유가 없다. 그래서 후보에서 뺀다.
+     *
+     * <p><b>다 빠지면 도로 넣는다.</b> 울릉군은 육상 수단이 아예 없어 여객선이 대표인 것이 맞고, 그때는 출발
+     * 지점이 비는 것도 맞는 답이다(포항까지 육상으로 간 뒤 배를 탄다 — 그 환승을 잇는 것은 별개 작업이다).
+     * 여기서 마저 빼면 도착 지점을 아는 수단이 있는데도 "못 간다" 가 된다.
+     *
+     * <p><b>대안 목록은 안 건드린다.</b> 배로도 갈 수 있다는 사실 자체는 맞다 — 대표로 앞세우지 않을 뿐이다.
+     */
+    private RegionArrival[] boardable(
+            double originLat, double originLng, Optional<Terminal> destTerminal, Optional<Port> destPort) {
+        List<RegionArrival> all = Stream.of(
+                        destTerminal.map(RegionArrival::of), destPort.map(RegionArrival::of))
+                .flatMap(Optional::stream)
+                .toList();
+        List<RegionArrival> known = all.stream()
+                .filter(arrival -> departurePoint(
+                        arrival.mode(), originLat, originLng, destTerminal, destPort).isPresent())
+                .toList();
+        if (known.isEmpty()) {
+            return all.toArray(RegionArrival[]::new);
+        }
+        if (known.size() < all.size()) {
+            log.debug("출발 지점을 못 찾아 대표 후보에서 뺍니다 — 남은 후보={}",
+                    known.stream().map(arrival -> arrival.mode().label()).toList());
+        }
+        return known.toArray(RegionArrival[]::new);
     }
 
     /**
