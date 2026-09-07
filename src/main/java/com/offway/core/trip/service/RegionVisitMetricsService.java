@@ -129,15 +129,40 @@ public class RegionVisitMetricsService {
     /**
      * 최신 적재일 기준으로 전 지역 지표를 만든다.
      *
-     * <p>기간은 <b>달 경계</b>로 자른다. 원본이 월 단위로 발행돼 마지막 달만 잘리면 그 지역의 요일
+     * <p>기간의 <b>시작</b>은 달 경계로 자른다. 원본이 월 단위로 발행돼 첫 달만 잘리면 그 지역의 요일
      * 표본이 한쪽으로 기운다.
+     *
+     * <h2>추세의 두 창은 끝도 맞춘다</h2>
+     *
+     * <p><b>끝까지 달 경계로 자르면 계절이 섞인다</b>(#487). 원본은 완결된 달만 발행하는데 적재는 그
+     * 달 도중까지 들어오므로, 작년 창에는 마지막 달이 <b>통째로</b> 들어가고 최근 창에는 <b>며칠만</b>
+     * 들어간다. 일평균으로 견주니 날 수 차이는 보정되지만, <b>어느 달이 얼마나 섞였는지</b>는 보정되지
+     * 않는다.
+     *
+     * <p>실측이 그 대가를 보여줬다(2026-09-07 · 적재 2025-06~2026-08). 최근 창에는 성수기 8월이 6일뿐
+     * 이고 작년 창에는 31일이 통째로 들어가, <b>89곳이 모두 마이너스로 기울어 있었다</b>.
+     *
+     * <pre>
+     * 지역당 일평균 관광객      2025-08  35,893  ← 성수기
+     *                          2025-07  31,569
+     *                          2025-06  30,897
+     *
+     *                     지금(달 경계)   끝을 맞춤
+     * 평균                    -4.4%        -2.3%
+     * 최고                    11.1%        16.2%
+     * 상승(2% 이상)             8곳         13곳
+     * </pre>
+     *
+     * <p>그래서 작년 창의 끝을 <b>최신 적재일의 1년 전 같은 날</b>로 둔다. 두 창의 시작이 달 경계로
+     * 대칭이고 끝도 같은 날짜라, 섞이는 달의 비중이 같아진다.
      */
     private Snapshot build(LocalDate latest) {
         YearMonth latestMonth = YearMonth.from(latest);
         YearMonth patternFrom = latestMonth.minusMonths(PATTERN_MONTHS - 1L);
         YearMonth recentFrom = latestMonth.minusMonths(TREND_MONTHS - 1L);
         YearMonth baselineFrom = recentFrom.minusYears(1);
-        YearMonth baselineTo = latestMonth.minusYears(1);
+        // 달 말일이 아니라 '작년 같은 날' 이다 — 최근 창이 그 달 도중에서 끊기므로 여기도 같이 끊는다.
+        LocalDate baselineEnd = latest.minusYears(1);
 
         // 패턴과 작년 기준선 중 더 이른 쪽부터 한 번에 읽는다 — 질의를 두 번 나눌 이유가 없다.
         YearMonth readFrom = baselineFrom.isBefore(patternFrom) ? baselineFrom : patternFrom;
@@ -147,7 +172,7 @@ public class RegionVisitMetricsService {
         Map<String, RegionAccumulator> byCode = new HashMap<>();
         for (RegionDailyTourists row : rows) {
             byCode.computeIfAbsent(row.signguCode(), code -> new RegionAccumulator())
-                    .add(row, patternFrom, recentFrom, latestMonth, baselineFrom, baselineTo);
+                    .add(row, patternFrom, recentFrom, latestMonth, baselineFrom, baselineEnd);
         }
 
         Map<String, RegionVisitMetrics> metrics = new HashMap<>();
@@ -165,7 +190,7 @@ public class RegionVisitMetricsService {
         private int baselineDays;
 
         private void add(RegionDailyTourists row, YearMonth patternFrom, YearMonth recentFrom,
-                YearMonth latestMonth, YearMonth baselineFrom, YearMonth baselineTo) {
+                YearMonth latestMonth, YearMonth baselineFrom, LocalDate baselineEnd) {
             YearMonth month = YearMonth.from(row.date());
             if (within(month, patternFrom, latestMonth)) {
                 patternDays.put(row.date(), row.tourists());
@@ -174,7 +199,8 @@ public class RegionVisitMetricsService {
                 recentSum += row.tourists();
                 recentDays++;
             }
-            if (within(month, baselineFrom, baselineTo)) {
+            // **끝만 날짜로 견준다.** 달 단위로 보면 작년 마지막 달이 통째로 들어와 계절이 섞인다(#487).
+            if (!month.isBefore(baselineFrom) && !row.date().isAfter(baselineEnd)) {
                 baselineSum += row.tourists();
                 baselineDays++;
             }
