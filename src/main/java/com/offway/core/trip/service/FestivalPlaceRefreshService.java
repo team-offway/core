@@ -168,11 +168,12 @@ public class FestivalPlaceRefreshService {
      * 운영은 25일 간격이라 닿지 않는 경계지만, 테스트가 시계에 기대지 않으려면 열려 있어야 한다.
      */
     public RefreshOutcome refresh(LocalDateTime fetchedAt) {
-        Map<String, Long> regionIdBySigungu = regionIdsBySigungu();
-        if (regionIdBySigungu.isEmpty()) {
+        List<Region> regions = regionQuery.all();
+        if (regions.isEmpty()) {
             log.info("축제 풀 — 지역 마스터가 비어 있어 건너뜁니다");
             return RefreshOutcome.nothing();
         }
+        RegionNameMatcher matcher = RegionNameMatcher.from(regions);
 
         LocalDateTime deadline = LocalDateTime.now(SERVICE_ZONE).plus(TOTAL_DEADLINE);
         StandardFestivalResult first;
@@ -214,7 +215,7 @@ public class FestivalPlaceRefreshService {
             }
         }
 
-        return save(collected, regionIdBySigungu, fetchedAt, totalPages, pagesToRead, failedPages);
+        return save(collected, matcher, fetchedAt, totalPages, pagesToRead, failedPages);
     }
 
     /**
@@ -223,14 +224,22 @@ public class FestivalPlaceRefreshService {
      * <p><b>못 붙인 것을 센다.</b> 전국 1,305건 중 우리 89곳 밖이 대부분이라 그 자체는 정상이지만,
      * 붙은 것이 0이면 지역명 매칭이 깨졌다는 신호다.
      */
-    private RefreshOutcome save(List<StandardFestival> collected, Map<String, Long> regionIdBySigungu,
+    private RefreshOutcome save(List<StandardFestival> collected, RegionNameMatcher matcher,
             LocalDateTime fetchedAt, int totalPages, int pagesToRead, int failedPages) {
         boolean complete = totalPages <= pagesToRead && failedPages == 0;
         List<FestivalPlace> ours = new ArrayList<>();
         int unusable = 0;
+        int ambiguous = 0;
         for (StandardFestival festival : collected) {
-            Long regionId = regionIdBySigungu.get(festival.sigunguName());
+            // **주소 전체를 넘긴다.** 시군구명만으로는 같은 이름이 둘인 곳(서구·고성군)을 못 가른다 —
+            // 강원 고성과 경남 고성은 완전히 다른 곳이라, 한쪽에 몰아넣으면 여행자가 엉뚱한 데로 간다(#502).
+            Long regionId = matcher.match(festival.address()).orElse(null);
             if (regionId == null) {
+                if (namedInOurRegions(matcher, festival)) {
+                    // 이름은 우리 안에 있는데 시도를 못 읽어 못 갈랐다 — 버린다. 조용히 틀린 지역에
+                    // 붙이는 것보다 안 붙이는 편이 낫다.
+                    ambiguous++;
+                }
                 continue; // 우리 89곳 밖 — 대부분이 여기다
             }
             if (!festival.isUsable()) {
@@ -251,6 +260,11 @@ public class FestivalPlaceRefreshService {
         int removed = removeCancelled(fetchedAt, complete);
         log.info("축제 풀 저장 완료 받은건수={} 우리지역={}건 저장={}건 좌표·기간없음={}건 취소정리={}건 온전={}",
                 collected.size(), ours.size(), saved, unusable, removed, complete);
+        if (ambiguous > 0) {
+            // 조용히 버리지 않는다 — 이 수가 크면 시도 표기 별칭이 모자란 것이다(#502).
+            log.warn("축제 {}건은 시군구명이 우리 안에 있으나 시도를 못 읽어 버렸습니다 — 시도 별칭을 확인하세요",
+                    ambiguous);
+        }
         return new RefreshOutcome(saved, complete);
     }
 
@@ -274,20 +288,12 @@ public class FestivalPlaceRefreshService {
     }
 
     /**
-     * 시군구명 → 우리 지역 id.
+     * 이름은 우리 89곳 안에 있는데 어느 곳인지 못 가른 경우인가 — <b>버린 이유를 세기 위해서다</b>.
      *
-     * <p><b>같은 이름이 전국에 여럿이다</b>(동구 6곳·중구 6곳). 그런데 우리 89곳 안에서는 시군구명이
-     * 겹치지 않는 한 이 매칭이 맞다 — 겹치면 나중 것이 앞의 것을 덮으므로 그 사실을 로그로 남긴다.
+     * <p>우리 목록 밖 축제(대부분)와 구분해야 한다. 둘을 같이 세면 "안 붙었다" 는 수가 늘 커서
+     * 매칭이 깨진 것을 눈치채지 못한다.
      */
-    private Map<String, Long> regionIdsBySigungu() {
-        Map<String, Long> byName = new HashMap<>();
-        for (Region region : regionQuery.all()) {
-            Long previous = byName.put(region.getSigungu(), region.getId());
-            if (previous != null) {
-                log.warn("우리 89곳 안에 같은 시군구명이 둘입니다 — 축제가 한쪽에만 붙습니다 name={} regionId={},{}",
-                        region.getSigungu(), previous, region.getId());
-            }
-        }
-        return byName;
+    private static boolean namedInOurRegions(RegionNameMatcher matcher, StandardFestival festival) {
+        return festival.sigunguName() != null && matcher.knowsName(festival.sigunguName());
     }
 }

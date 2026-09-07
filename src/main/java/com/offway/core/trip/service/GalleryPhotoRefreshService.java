@@ -211,7 +211,7 @@ public class GalleryPhotoRefreshService {
         if (regions.isEmpty()) {
             return;
         }
-        GalleryRegionMatcher matcher = GalleryRegionMatcher.from(regions);
+        RegionNameMatcher matcher = RegionNameMatcher.from(regions);
         for (GalleryPhoto photo : photos) {
             Optional<Long> regionId = matcher.match(photo.getPhotographyLocation());
             regionId.ifPresent(photo::assignRegion);
