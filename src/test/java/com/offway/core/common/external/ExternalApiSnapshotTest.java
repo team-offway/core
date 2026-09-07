@@ -24,7 +24,7 @@ class ExternalApiSnapshotTest {
                 DAY1,
                 DAY2,
                 Map.of(
-                        DAY1, Map.of(ExternalApi.TOUR_API, 603L, ExternalApi.TOUR_DATA_LAB, 41L),
+                        DAY1, Map.of(ExternalApi.TOUR_API, 603L, ExternalApi.TOUR_VISITOR, 41L),
                         DAY2, Map.of(ExternalApi.TOUR_API, 88L)),
                 Map.of(),
                 List.of(),
@@ -43,7 +43,7 @@ class ExternalApiSnapshotTest {
      */
     @Test
     void 기록이_없는_API_는_0_이다() {
-        assertEquals(0L, snapshot().countOn(DAY2, ExternalApi.TOUR_DATA_LAB));
+        assertEquals(0L, snapshot().countOn(DAY2, ExternalApi.TOUR_VISITOR));
     }
 
     @Test

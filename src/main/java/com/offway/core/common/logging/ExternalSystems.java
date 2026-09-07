@@ -22,6 +22,8 @@ public final class ExternalSystems {
     private static final String PATH_TOUR_WITH = "/B551011/KorWithService2";
     private static final String PATH_TOUR = "/B551011/KorService2";
     private static final String PATH_DATALAB = "/B551011/DataLabService";
+    private static final String PATH_TOUR_HUB = "/B551011/LocgoHubTarService1";
+    private static final String PATH_TOUR_RELATED = "/B551011/TarRlteTarService1";
     private static final String PATH_TOUR_PHOTO = "/B551011/PhotoGalleryService1";
     private static final String PATH_HOLIDAY = "/B090041/openapi/service/SpcdeInfoService";
     private static final String PATH_KORAIL = "/B551457/run";
@@ -34,12 +36,15 @@ public final class ExternalSystems {
     private static final String PATH_WEATHER_MID = "/1360000/MidFcstInfoService";
     private static final String PATH_WEATHER_SHORT = "/1360000/VilageFcstInfoService_2.0";
     private static final String PATH_WEATHER_TCI = "/1360000/TourStnInfoService1";
+    private static final String PATH_FESTIVAL = "/openapi/tn_pubr_public_cltur_fstvl_api";
     // SK openapi.sk.com
     private static final String PATH_TMAP = "/tmap";
 
     private static final String LABEL_TOUR_WITH = "tour-with";
     private static final String LABEL_TOUR = "tour";
     private static final String LABEL_DATALAB = "datalab";
+    private static final String LABEL_TOUR_HUB = "tour-hub";
+    private static final String LABEL_TOUR_RELATED = "tour-related";
     private static final String LABEL_TOUR_PHOTO = "tour-photo";
     private static final String LABEL_HOLIDAY = "holiday";
     private static final String LABEL_KORAIL = "korail";
@@ -52,6 +57,7 @@ public final class ExternalSystems {
     private static final String LABEL_WEATHER_MID = "weather-mid";
     private static final String LABEL_WEATHER_SHORT = "weather-short";
     private static final String LABEL_WEATHER_TCI = "weather-tci";
+    private static final String LABEL_FESTIVAL = "festival-standard";
     private static final String LABEL_TMAP = "tmap";
 
     /**
@@ -60,6 +66,11 @@ public final class ExternalSystems {
      * <p>{@code /B551011/KorWithService2}(무장애 관광정보)가 {@code /B551011/KorService2}(일반
      * 관광정보)보다 먼저 와야 한다 — 둘 다 같은 접두어를 공유해, 순서가 뒤집히면 무장애관광 경로가
      * {@code startsWith} 매칭에서 짧은 프리픽스인 tour 에 먼저 걸려 tour 로 잘못 라벨링된다.
+     *
+     * <p><b>새 외부 API 를 붙이면 여기에도 넣는다.</b> 빠뜨리면 조용히 host 로 떨어져(예:
+     * {@code apis.data.go.kr}) <b>서로 다른 API 의 실패가 한 칸에 뭉친다</b> — 장애 알림이 어느
+     * 서비스인지 말하지 못하고, 한쪽이 죽어도 다른 쪽 성공에 묻힌다. 실제로 중심관광지·연관관광지·
+     * 축제표준데이터 셋이 그렇게 빠져 있었다(#496).
      */
     private static final Map<String, String> LABELS_BY_PREFIX = new LinkedHashMap<>();
 
@@ -67,6 +78,8 @@ public final class ExternalSystems {
         LABELS_BY_PREFIX.put(PATH_TOUR_WITH, LABEL_TOUR_WITH);
         LABELS_BY_PREFIX.put(PATH_TOUR, LABEL_TOUR);
         LABELS_BY_PREFIX.put(PATH_DATALAB, LABEL_DATALAB);
+        LABELS_BY_PREFIX.put(PATH_TOUR_HUB, LABEL_TOUR_HUB);
+        LABELS_BY_PREFIX.put(PATH_TOUR_RELATED, LABEL_TOUR_RELATED);
         LABELS_BY_PREFIX.put(PATH_TOUR_PHOTO, LABEL_TOUR_PHOTO);
         LABELS_BY_PREFIX.put(PATH_HOLIDAY, LABEL_HOLIDAY);
         LABELS_BY_PREFIX.put(PATH_KORAIL, LABEL_KORAIL);
@@ -79,6 +92,7 @@ public final class ExternalSystems {
         LABELS_BY_PREFIX.put(PATH_WEATHER_MID, LABEL_WEATHER_MID);
         LABELS_BY_PREFIX.put(PATH_WEATHER_SHORT, LABEL_WEATHER_SHORT);
         LABELS_BY_PREFIX.put(PATH_WEATHER_TCI, LABEL_WEATHER_TCI);
+        LABELS_BY_PREFIX.put(PATH_FESTIVAL, LABEL_FESTIVAL);
         LABELS_BY_PREFIX.put(PATH_TMAP, LABEL_TMAP);
     }
 

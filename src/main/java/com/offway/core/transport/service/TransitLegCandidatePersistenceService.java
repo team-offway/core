@@ -49,12 +49,15 @@ public class TransitLegCandidatePersistenceService {
      * 안 된다</b> — 그 예외가 트랜잭션을 {@code rollback-only} 로 만들어, 중복 한 건 때문에 같은 조각의
      * 새 구간 수백 건이 함께 사라진다. 커밋 시점에 터지면 잡을 수조차 없다.
      *
+     * <p><b>시드는 "물어본 것" 이 아니다</b>({@code seeded}). 같은 자격으로 넣으면 사용자가 방금 요청한
+     * 구간이 3만 건 뒤에 서서 배치 주기로 28일을 기다린다(#491).
+     *
      * @return 실제로 넣은 행 수
      */
     @Transactional
     public int insert(List<Candidate> candidates, LocalDateTime now) {
         return transitLegDurationRepository.insertIgnoringDuplicates(candidates.stream()
-                .map(candidate -> TransitLegDuration.requested(
+                .map(candidate -> TransitLegDuration.seeded(
                         candidate.mode(), candidate.depCode(), candidate.arrCode(), now))
                 .toList());
     }

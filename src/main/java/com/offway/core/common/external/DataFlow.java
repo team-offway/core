@@ -29,19 +29,19 @@ public enum DataFlow {
 
     // ---- 홈 · 지역 -----------------------------------------------------------
 
-    HOME_RANKING(Screen.HOME, ExternalApi.TOUR_DATA_LAB, Mode.LIVE,
+    HOME_RANKING(Screen.HOME, ExternalApi.TOUR_VISITOR, Mode.LIVE,
             "지역 혼잡도·랭킹. 그달 집계가 이미 있으면 부르지 않는다"),
     HOME_CONTENT(Screen.HOME, ExternalApi.TOUR_API, Mode.CACHED,
             "지역 볼거리 수·카테고리 (6시간)"),
     HOME_PHOTO(Screen.HOME, ExternalApi.TOUR_GALLERY, Mode.STORED,
             "지역 대표 사진 — 배치가 gallery_photo 에 채운다"),
 
-    REGION_LIST_RANKING(Screen.REGION_LIST, ExternalApi.TOUR_DATA_LAB, Mode.LIVE,
+    REGION_LIST_RANKING(Screen.REGION_LIST, ExternalApi.TOUR_VISITOR, Mode.LIVE,
             "혼잡도. 홈과 같은 집계를 쓴다"),
     REGION_LIST_CONTENT(Screen.REGION_LIST, ExternalApi.TOUR_API, Mode.CACHED,
             "볼거리 수 (6시간)"),
 
-    REGION_RECOMMEND_RANKING(Screen.REGION_RECOMMEND, ExternalApi.TOUR_DATA_LAB, Mode.LIVE,
+    REGION_RECOMMEND_RANKING(Screen.REGION_RECOMMEND, ExternalApi.TOUR_VISITOR, Mode.LIVE,
             "혼잡도. 도달 가능한 지역만 추린 뒤에도 모집단은 89곳 전체다"),
     REGION_RECOMMEND_CONTENT(Screen.REGION_RECOMMEND, ExternalApi.TOUR_API, Mode.CACHED,
             "볼거리 수 (6시간)"),
