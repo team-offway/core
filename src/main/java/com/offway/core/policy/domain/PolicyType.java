@@ -45,7 +45,19 @@ public enum PolicyType {
     LOCAL_TOURISM("로컬100·관광두레", RegionTagType.POPULATION_DECLINE, null),
 
     /** 농촌체험·치유관광. */
-    RURAL("농촌체험·치유관광", RegionTagType.POPULATION_DECLINE, null);
+    RURAL("농촌체험·치유관광", RegionTagType.POPULATION_DECLINE, null),
+
+    /** 동해선 관광패스 — 숙박·카페·체험을 묶은 자유여행 패키지 할인(경북·강원 동해안). */
+    DONGHAE_RAIL_PASS("여행패키지 최대 50%", RegionTagType.DONGHAE_RAIL_PASS, null),
+
+    /** 강원 해양치유·요트체험 할인 — 레저 상품에만 붙는다. */
+    GANGWON_MARINE_HEALING("해양치유·요트 50%", RegionTagType.GANGWON_MARINE_HEALING, null),
+
+    /** 충남 트래블 페스타 — 숙박 추가 할인. 다른 쿠폰과 중복된다. */
+    CHUNGNAM_TRAVEL_FESTA("숙박 추가할인", RegionTagType.CHUNGNAM_TRAVEL_FESTA, BenefitScope.LODGING),
+
+    /** 반하다! 경북 — 열차운임과 역사매장이용권을 묶은 상품의 결제액 환급. */
+    GYEONGBUK_RAIL_REFUND("경북여행 50% 환급", RegionTagType.GYEONGBUK_RAIL_REFUND, null);
 
     private final String badgeText;
     private final RegionTagType targetTag;

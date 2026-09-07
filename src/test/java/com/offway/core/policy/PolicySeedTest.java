@@ -49,7 +49,9 @@ class PolicySeedTest {
                 policyRepository.findAllVerified().stream().map(Policy::getType).collect(Collectors.toSet());
 
         assertEquals(
-                Set.of(PolicyType.REGIONAL_VOUCHER, PolicyType.STAY_FESTA, PolicyType.DIGITAL_TOURIST_CARD),
+                Set.of(PolicyType.REGIONAL_VOUCHER, PolicyType.STAY_FESTA, PolicyType.DIGITAL_TOURIST_CARD,
+                        PolicyType.DONGHAE_RAIL_PASS, PolicyType.GANGWON_MARINE_HEALING,
+                        PolicyType.CHUNGNAM_TRAVEL_FESTA, PolicyType.GYEONGBUK_RAIL_REFUND),
                 verified);
     }
 

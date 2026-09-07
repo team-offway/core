@@ -33,6 +33,22 @@ class RegionTagSeedTest {
         assertEquals(52, regionTagRepository.countByTag(RegionTagType.DIGITAL_TOURIST_CARD));
     }
 
+    /**
+     * 지역 혜택 넷의 대상 수(#498).
+     *
+     * <p><b>주최가 말하는 수와 다르다.</b> 우리 89곳과 교차한 값이라 — 동해선은 다섯 중 셋,
+     * 강원 해양치유는 여섯 중 셋, 반하다 경북은 42개역을 시군으로 옮긴 뒤 아홉이다. 그 교차를
+     * 잘못하면 없는 지역에 뱃지가 붙거나 받을 수 있는 지역이 빠진다.
+     */
+    @Test
+    void 지역_혜택_태그가_확인된_대상_수와_맞는다() {
+        assertEquals(3, regionTagRepository.countByTag(RegionTagType.DONGHAE_RAIL_PASS), "영덕·울릉·울진");
+        assertEquals(3, regionTagRepository.countByTag(RegionTagType.GANGWON_MARINE_HEALING),
+                "강원 고성·삼척·양양 — 경남 고성이 섞이면 4가 된다");
+        assertEquals(9, regionTagRepository.countByTag(RegionTagType.CHUNGNAM_TRAVEL_FESTA), "충남 전부");
+        assertEquals(9, regionTagRepository.countByTag(RegionTagType.GYEONGBUK_RAIL_REFUND), "경북 역이 있는 9곳");
+    }
+
     @Test
     void 인구감소지역_태그로_89개_지역ID를_역조회한다() {
         assertEquals(89, regionTagRepository.findRegionIdsByTag(RegionTagType.POPULATION_DECLINE).size());

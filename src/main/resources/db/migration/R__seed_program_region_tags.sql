@@ -9,7 +9,8 @@
 --
 -- 이 파일이 소유한 태그만 지우고 다시 넣는다. tag <> 'POPULATION_DECLINE' 로 쓸어내지 않는 이유는
 -- 나중에 다른 성격의 태그가 생겼을 때 이 파일이 남의 것을 조용히 지우게 되기 때문이다.
-DELETE FROM region_tag WHERE tag IN ('REGIONAL_VOUCHER', 'STAY_FESTA', 'DIGITAL_TOURIST_CARD');
+DELETE FROM region_tag WHERE tag IN ('REGIONAL_VOUCHER', 'STAY_FESTA', 'DIGITAL_TOURIST_CARD',
+       'DONGHAE_RAIL_PASS', 'GANGWON_MARINE_HEALING', 'CHUNGNAM_TRAVEL_FESTA', 'GYEONGBUK_RAIL_REFUND');
 
 -- 반값여행(지역사랑 휴가지원) — 참여 지자체 25곳.
 --
@@ -135,3 +136,62 @@ SELECT id, 'DIGITAL_TOURIST_CARD'
         ('충청북도', '영동군'),
         ('충청북도', '옥천군'),
         ('충청북도', '제천시'));
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 아래 넷은 2026-09-07 에 주최 페이지를 직접 열어 확인했다(#498).
+--
+-- **대상을 2차 자료로 정하지 않았다.** 언론은 충남 페스타를 "8개 시군" 으로 썼는데 주최 페이지는
+-- 15개 시군 전체였다. 그 차이가 그대로 뱃지 유무가 되므로 원문만 믿는다.
+-- ══════════════════════════════════════════════════════════════════════════════
+
+-- 동해선 관광패스 — 안내는 경주·영덕·울진·울릉·포항 다섯을 말한다.
+-- 경주·포항은 인구감소지역이 아니라 우리 목록 밖이라 셋만 남는다.
+-- 출처: korail.com/tour/customer/event/eventProgress/25321 · 확인 2026-09-07
+INSERT INTO region_tag (region_id, tag)
+SELECT id, 'DONGHAE_RAIL_PASS'
+  FROM region
+ WHERE (sido, sigungu) IN (
+        ('경상북도', '영덕군'),
+        ('경상북도', '울릉군'),
+        ('경상북도', '울진군'));
+
+-- 강원 해양치유·요트체험 — 주최가 말하는 대상은 동해안 6개 시군(강릉·속초·동해·삼척·고성·양양).
+-- 앞의 셋은 우리 목록 밖이다.
+--
+-- **고성군은 강원 쪽이다.** 경남에도 같은 이름이 있어 시도를 안 맞추면 남해안 고성에 동해안
+-- 해양치유 뱃지가 붙는다 — 화면에는 "혜택 있음" 으로만 보여 알아채기 어렵다.
+-- 출처: content.yanolja.com/event/1561 · 확인 2026-09-07
+INSERT INTO region_tag (region_id, tag)
+SELECT id, 'GANGWON_MARINE_HEALING'
+  FROM region
+ WHERE (sido, sigungu) IN (
+        ('강원특별자치도', '고성군'),
+        ('강원특별자치도', '삼척시'),
+        ('강원특별자치도', '양양군'));
+
+-- 충남 트래블 페스타 — 주최는 충남 15개 시군 전체를 대상으로 둔다.
+-- 우리 목록의 충남 9곳이 그 안에 모두 들어가 결과적으로 충남 전부다.
+-- 출처: 여기어때 기획전(aevno=6322) · 확인 2026-09-07
+INSERT INTO region_tag (region_id, tag)
+SELECT id, 'CHUNGNAM_TRAVEL_FESTA'
+  FROM region
+ WHERE sido = '충청남도';
+
+-- 반하다! 경북 — 주최는 **역** 단위로 말한다(경북 42개역). 그것을 시군으로 옮긴 뒤 우리 목록과
+-- 교차한 결과다. 김천·경주·경산·구미·칠곡·포항에도 역이 있지만 인구감소지역이 아니다.
+--
+-- 울릉군은 섬이라 역이 없어 여기 없다 — 동해선 패스와 대상이 다른 이유다.
+-- 출처: korail.com/tour/customer/event/eventProgress/24042 · 확인 2026-09-07
+INSERT INTO region_tag (region_id, tag)
+SELECT id, 'GYEONGBUK_RAIL_REFUND'
+  FROM region
+ WHERE (sido, sigungu) IN (
+        ('경상북도', '청도군'),
+        ('경상북도', '영덕군'),
+        ('경상북도', '울진군'),
+        ('경상북도', '문경시'),
+        ('경상북도', '봉화군'),
+        ('경상북도', '영주시'),
+        ('경상북도', '안동시'),
+        ('경상북도', '의성군'),
+        ('경상북도', '영천시'));
