@@ -3,7 +3,7 @@ package com.offway.core.trip.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.offway.core.trip.service.GalleryRegionMatcher.RegionKey;
+import com.offway.core.trip.service.RegionNameMatcher.RegionKey;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -17,7 +17,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  * <p>원문이 자유 텍스트라 표기가 제각각이다(실측 2026-08-09, 6,118건). <b>지명만으로 매칭하면 조용히
  * 틀린다</b> — 정규화 전에는 대구 남구가 104건으로 부풀었고(전국 남구의 합), 정규화 후 6건이 됐다.
  */
-class GalleryRegionMatcherTest {
+class RegionNameMatcherTest {
 
     private static RegionKey region(long id, String sido, String sigungu) {
         return new RegionKey(id, sido, sigungu);
@@ -35,7 +35,7 @@ class GalleryRegionMatcherTest {
             region(8L, "충청남도", "공주시"),
             region(9L, "전북특별자치도", "장수군"));
 
-    private static final GalleryRegionMatcher MATCHER = new GalleryRegionMatcher(REGIONS);
+    private static final RegionNameMatcher MATCHER = new RegionNameMatcher(REGIONS);
 
     @ParameterizedTest
     @CsvSource({

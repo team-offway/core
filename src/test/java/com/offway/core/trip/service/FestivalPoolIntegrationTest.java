@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -79,7 +80,7 @@ class FestivalPoolIntegrationTest {
         StubFestivalStandardClient stub = stub();
         stub.respond(page -> page == 1
                 ? new StandardFestivalResult(
-                        List.of(축제(region.getSigungu(), "우리축제"), 축제("서울특별시종로구", "남의축제")), 2)
+                        List.of(축제(region, "우리축제"), 축제("서울특별시", "종로구", "남의축제")), 2)
                 : StandardFestivalResult.empty());
 
         int saved = refreshService.refresh(FIRST_RUN).saved();
@@ -88,6 +89,70 @@ class FestivalPoolIntegrationTest {
         List<FestivalPlace> open = festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10);
         assertEquals(1, open.size());
         assertEquals("우리축제", open.get(0).getName());
+    }
+
+    /**
+     * <b>같은 이름의 시군구를 시도로 가른다</b>(#502).
+     *
+     * <p>우리 89곳 안에 고성군이 둘(강원·경남), 서구가 둘(대구·부산)이다. 시군구명만 보면 한쪽에만
+     * 붙어 <b>나머지는 영영 비고 붙은 쪽에는 남의 축제가 섞인다.</b> 강원 고성(통일전망대)과 경남
+     * 고성(공룡엑스포)은 완전히 다른 곳이라, 그 축제가 남의 코스에 뜨면 여행자가 엉뚱한 데로 간다.
+     */
+    @Test
+    void 같은_이름의_시군구는_시도로_갈라_붙인다() {
+        List<Region> 동명 = 이름이겹치는두지역();
+        Region 첫째 = 동명.get(0);
+        Region 둘째 = 동명.get(1);
+        StubFestivalStandardClient stub = stub();
+        stub.respond(page -> page == 1
+                ? new StandardFestivalResult(
+                        List.of(축제(첫째, "첫째지역축제"), 축제(둘째, "둘째지역축제")), 2)
+                : StandardFestivalResult.empty());
+
+        refreshService.refresh(FIRST_RUN);
+
+        List<FestivalPlace> 첫째것 = festivalPlaceRepository.findOpenOn(첫째.getId(), DURING, 10);
+        List<FestivalPlace> 둘째것 = festivalPlaceRepository.findOpenOn(둘째.getId(), DURING, 10);
+        assertEquals(1, 첫째것.size(), 첫째.getSido() + " " + 첫째.getSigungu() + " 에 안 붙었다");
+        assertEquals(1, 둘째것.size(), 둘째.getSido() + " " + 둘째.getSigungu() + " 에 안 붙었다");
+        assertEquals("첫째지역축제", 첫째것.get(0).getName());
+        assertEquals("둘째지역축제", 둘째것.get(0).getName());
+    }
+
+    /**
+     * 시도를 못 읽으면 <b>버린다</b> — 한쪽에 몰아넣지 않는다.
+     *
+     * <p>조용히 틀린 지역에 붙이는 것이 안 붙이는 것보다 나쁘다. 화면에는 정상처럼 보이는데 실제로는
+     * 다른 지역 축제이기 때문이다.
+     */
+    @Test
+    void 시도를_못_읽은_동명_시군구는_버린다() {
+        List<Region> 동명 = 이름이겹치는두지역();
+        String 겹치는이름 = 동명.get(0).getSigungu();
+        StubFestivalStandardClient stub = stub();
+        stub.respond(page -> page == 1
+                ? new StandardFestivalResult(
+                        List.of(축제("어디시", 겹치는이름, "어디것인지모를축제")), 1)
+                : StandardFestivalResult.empty());
+
+        refreshService.refresh(FIRST_RUN);
+
+        for (Region region : 동명) {
+            assertEquals(0, festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10).size(),
+                    region.getSido() + " 에 남의 축제가 붙었을 수 있다");
+        }
+    }
+
+    /** 우리 89곳 안에서 시군구명이 겹치는 두 지역 — 실측상 고성군(강원·경남)과 서구(대구·부산)다. */
+    private List<Region> 이름이겹치는두지역() {
+        Map<String, List<Region>> byName = new java.util.HashMap<>();
+        for (Region region : regionRepository.findAll()) {
+            byName.computeIfAbsent(region.getSigungu(), name -> new ArrayList<>()).add(region);
+        }
+        return byName.values().stream()
+                .filter(regions -> regions.size() >= 2)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("이름이 겹치는 지역이 없어 이 테스트가 성립하지 않는다"));
     }
 
     /** 좌표 없는 것이 446건 중 101건이다. 동선에 못 올리므로 후보에서 뺀다. */
@@ -123,7 +188,7 @@ class FestivalPoolIntegrationTest {
         // 1회차 — 온전히 받아 두 건을 심는다.
         stub.respond(page -> page == 1
                 ? new StandardFestivalResult(
-                        List.of(축제(region.getSigungu(), "먼저있던축제"), 축제(region.getSigungu(), "또다른축제")), 2)
+                        List.of(축제(region, "먼저있던축제"), 축제(region, "또다른축제")), 2)
                 : StandardFestivalResult.empty());
         refreshService.refresh(FIRST_RUN);
         assertEquals(2, festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10).size());
@@ -131,7 +196,7 @@ class FestivalPoolIntegrationTest {
         // 2회차 — 첫 페이지는 한 건만 주고 둘째 페이지가 깨진다. 전체가 더 있다고 말한다.
         stub.respond(page -> {
             if (page == 1) {
-                return new StandardFestivalResult(List.of(축제(region.getSigungu(), "먼저있던축제")), 150);
+                return new StandardFestivalResult(List.of(축제(region, "먼저있던축제")), 150);
             }
             throw new IllegalStateException("둘째 페이지가 깨졌다");
         });
@@ -152,12 +217,12 @@ class FestivalPoolIntegrationTest {
 
         stub.respond(page -> page == 1
                 ? new StandardFestivalResult(
-                        List.of(축제(region.getSigungu(), "남을축제"), 축제(region.getSigungu(), "취소될축제")), 2)
+                        List.of(축제(region, "남을축제"), 축제(region, "취소될축제")), 2)
                 : StandardFestivalResult.empty());
         refreshService.refresh(FIRST_RUN);
 
         stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region.getSigungu(), "남을축제")), 1)
+                ? new StandardFestivalResult(List.of(축제(region, "남을축제")), 1)
                 : StandardFestivalResult.empty());
         refreshService.refresh(SECOND_RUN);
 
@@ -173,7 +238,7 @@ class FestivalPoolIntegrationTest {
         Region region = 우리지역();
         StubFestivalStandardClient stub = stub();
         stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region.getSigungu(), "같은축제")), 1)
+                ? new StandardFestivalResult(List.of(축제(region, "같은축제")), 1)
                 : StandardFestivalResult.empty());
 
         refreshService.refresh(FIRST_RUN);
@@ -194,7 +259,7 @@ class FestivalPoolIntegrationTest {
         StubFestivalStandardClient stub = stub();
         stub.respond(page -> {
             if (page == 1) {
-                return new StandardFestivalResult(List.of(축제(region.getSigungu(), "첫페이지축제")), 150);
+                return new StandardFestivalResult(List.of(축제(region, "첫페이지축제")), 150);
             }
             throw new IllegalStateException("둘째 페이지가 깨졌다");
         });
@@ -212,7 +277,7 @@ class FestivalPoolIntegrationTest {
         StubFestivalStandardClient stub = stub();
         // 전체가 페이지 상한(20 × 100)을 훌쩍 넘는다고 말한다.
         stub.respond(page -> new StandardFestivalResult(
-                List.of(축제(region.getSigungu(), "축제" + page)), 100_000));
+                List.of(축제(region, "축제" + page)), 100_000));
 
         FestivalPlaceRefreshService.RefreshOutcome outcome = refreshService.refresh(FIRST_RUN);
 
@@ -225,7 +290,7 @@ class FestivalPoolIntegrationTest {
         Region region = 우리지역();
         StubFestivalStandardClient stub = stub();
         stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region.getSigungu(), "온전한축제")), 1)
+                ? new StandardFestivalResult(List.of(축제(region, "온전한축제")), 1)
                 : StandardFestivalResult.empty());
 
         FestivalPlaceRefreshService.RefreshOutcome outcome = refreshService.refresh(FIRST_RUN);
@@ -240,7 +305,7 @@ class FestivalPoolIntegrationTest {
         Region region = 우리지역();
         StubFestivalStandardClient stub = stub();
         stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region.getSigungu(), "가을축제")), 1)
+                ? new StandardFestivalResult(List.of(축제(region, "가을축제")), 1)
                 : StandardFestivalResult.empty());
         refreshService.refresh(FIRST_RUN);
 
@@ -269,8 +334,8 @@ class FestivalPoolIntegrationTest {
         StubFestivalStandardClient stub = stub();
         stub.respond(page -> page == 1
                 ? new StandardFestivalResult(List.of(
-                        축제(region.getSigungu(), "축제하나"), 축제(region.getSigungu(), "축제둘"),
-                        축제(region.getSigungu(), "축제셋"), 축제(region.getSigungu(), "축제넷")), 4)
+                        축제(region, "축제하나"), 축제(region, "축제둘"),
+                        축제(region, "축제셋"), 축제(region, "축제넷")), 4)
                 : StandardFestivalResult.empty());
         refreshService.refresh(FIRST_RUN);
 
@@ -291,7 +356,7 @@ class FestivalPoolIntegrationTest {
         Region region = 국가유산이_있는_지역();
         StubFestivalStandardClient stub = stub();
         stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region.getSigungu(), "맨앞축제")), 1)
+                ? new StandardFestivalResult(List.of(축제(region, "맨앞축제")), 1)
                 : StandardFestivalResult.empty());
         refreshService.refresh(FIRST_RUN);
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지(15), 15));
@@ -308,7 +373,7 @@ class FestivalPoolIntegrationTest {
         Region region = 국가유산이_있는_지역();
         StubFestivalStandardClient stub = stub();
         stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region.getSigungu(), "날짜없음축제")), 1)
+                ? new StandardFestivalResult(List.of(축제(region, "날짜없음축제")), 1)
                 : StandardFestivalResult.empty());
         refreshService.refresh(FIRST_RUN);
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지(15), 15));
@@ -382,11 +447,21 @@ class FestivalPoolIntegrationTest {
         return (StubFestivalStandardClient) festivalStandardClient;
     }
 
-    private static StandardFestival 축제(String sigungu, String name) {
+    /**
+     * 그 지역의 <b>실제 시도</b>로 주소를 만든다.
+     *
+     * <p>예전에는 시도를 "경상북도" 로 박아 두고 시군구만 지역에서 가져왔다. 시군구명만 보고 매칭하던
+     * 때는 드러나지 않았지만, 주소 전체를 보게 되면서(#502) 그 불일치가 곧 매칭 실패가 된다.
+     */
+    private static StandardFestival 축제(Region region, String name) {
+        return 축제(region.getSido(), region.getSigungu(), name);
+    }
+
+    private static StandardFestival 축제(String sido, String sigungu, String name) {
         return new StandardFestival(
                 name,
                 "행사장 일원",
-                "경상북도 " + sigungu + " 육사로 239",
+                sido + " " + sigungu + " 육사로 239",
                 sigungu,
                 36.5684,
                 128.7294,
