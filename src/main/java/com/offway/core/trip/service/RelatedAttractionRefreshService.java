@@ -126,7 +126,7 @@ public class RelatedAttractionRefreshService {
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
-            if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TOUR_DATA_LAB)) {
+            if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TOUR_RELATED_ATTRACTION)) {
                 // 조용히 넘기지 않는다 — 꺼 둔 줄 모르면 "연관 관광지가 왜 안 채워지지" 가 된다.
                 log.info("연관 관광지 배치가 꺼져 있거나 배치 한도를 넘겨 건너뜁니다");
                 return;

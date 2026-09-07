@@ -29,6 +29,70 @@ class ExternalSystemsTest {
                         URI.create("https://apis.data.go.kr/B551011/DataLabService/locgoRegnVisitrDDList")));
     }
 
+    /**
+     * <b>같은 계열이어도 서비스가 다르면 라벨이 달라야 한다</b>(#496).
+     *
+     * <p>셋 다 관광빅데이터 계열이지만 <b>활용신청이 각각 별개</b>고 한도도 따로다
+     * (15101972 · 15128559 · 15128560). 라벨이 뭉치면 알림이 어느 서비스가 마른 건지 말하지 못한다.
+     */
+    @Test
+    void 중심관광지는_tour_hub_다() {
+        assertEquals(
+                "tour-hub",
+                ExternalSystems.label(
+                        URI.create("https://apis.data.go.kr/B551011/LocgoHubTarService1/areaBasedList1?x=1")));
+    }
+
+    @Test
+    void 연관관광지는_tour_related_다() {
+        assertEquals(
+                "tour-related",
+                ExternalSystems.label(
+                        URI.create("https://apis.data.go.kr/B551011/TarRlteTarService1/areaBasedList1?x=1")));
+    }
+
+    /** 축제 표준데이터는 host 도 다르다({@code api.} vs {@code apis.}) — 그래도 라벨이 있어야 한다. */
+    @Test
+    void 축제표준데이터는_festival_standard_다() {
+        assertEquals(
+                "festival-standard",
+                ExternalSystems.label(
+                        URI.create("https://api.data.go.kr/openapi/tn_pubr_public_cltur_fstvl_api?x=1")));
+    }
+
+    /**
+     * <b>우리가 실제로 부르는 경로는 하나도 host 로 떨어지면 안 된다.</b>
+     *
+     * <p>매핑에서 빠지면 예외도 안 나고 조용히 host({@code apis.data.go.kr})가 라벨이 된다. 그러면
+     * <b>서로 다른 API 의 실패가 한 칸에 뭉쳐</b> 한쪽 장애가 다른 쪽 성공에 묻힌다. 실제로 셋이
+     * 그렇게 빠져 있었다 — 새 API 를 붙이고 여기 넣는 것을 잊는 것이 이 구멍이 생기는 방식이라,
+     * 목록으로 전수 확인한다.
+     */
+    @Test
+    void 우리가_부르는_경로는_host_로_떨어지지_않는다() {
+        java.util.List<String> ours = java.util.List.of(
+                "https://apis.data.go.kr/B551011/KorService2/areaBasedList2",
+                "https://apis.data.go.kr/B551011/KorWithService2/detailWithTour2",
+                "https://apis.data.go.kr/B551011/DataLabService/locgoRegnVisitrDDList",
+                "https://apis.data.go.kr/B551011/LocgoHubTarService1/areaBasedList1",
+                "https://apis.data.go.kr/B551011/TarRlteTarService1/areaBasedList1",
+                "https://apis.data.go.kr/B551011/PhotoGalleryService1/galleryList1",
+                "https://api.data.go.kr/openapi/tn_pubr_public_cltur_fstvl_api",
+                "https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo",
+                "https://apis.data.go.kr/1613000/ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList",
+                "https://apis.data.go.kr/1613000/BusSttnInfoInqireService/getSttnNoList",
+                "https://apis.data.go.kr/1360000/MidFcstInfoService/getMidLandFcst",
+                "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst",
+                "https://apis.openapi.sk.com/tmap/routes");
+
+        for (String url : ours) {
+            String label = ExternalSystems.label(URI.create(url));
+            org.junit.jupiter.api.Assertions.assertFalse(
+                    label.contains("data.go.kr") || label.contains("sk.com") || "unknown".equals(label),
+                    "매핑에서 빠져 host 로 떨어졌다: " + url + " → " + label);
+        }
+    }
+
     @Test
     void 특일정보는_holiday_다() {
         assertEquals(

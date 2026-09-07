@@ -53,15 +53,15 @@ class ExternalApiCallerAttributionIntegrationTest {
         LocalDate today = recorder.today();
         Caller batch = Caller.of("중심관광지배치");
         Caller detail = Caller.of("장소상세");
-        Map<String, Long> before = repository.callerCountsOn(ExternalApi.TOUR_DATA_LAB, today);
+        Map<String, Long> before = repository.callerCountsOn(ExternalApi.TOUR_HUB_ATTRACTION, today);
 
         CallerContext.run(batch, () -> {
-            recorder.record(ExternalApi.TOUR_DATA_LAB);
-            recorder.record(ExternalApi.TOUR_DATA_LAB);
+            recorder.record(ExternalApi.TOUR_HUB_ATTRACTION);
+            recorder.record(ExternalApi.TOUR_HUB_ATTRACTION);
         });
-        CallerContext.run(detail, () -> recorder.record(ExternalApi.TOUR_DATA_LAB));
+        CallerContext.run(detail, () -> recorder.record(ExternalApi.TOUR_HUB_ATTRACTION));
 
-        Map<String, Long> after = repository.callerCountsOn(ExternalApi.TOUR_DATA_LAB, today);
+        Map<String, Long> after = repository.callerCountsOn(ExternalApi.TOUR_HUB_ATTRACTION, today);
         assertEquals(before.getOrDefault(batch.name(), 0L) + 2, after.get(batch.name()));
         assertEquals(before.getOrDefault(detail.name(), 0L) + 1, after.get(detail.name()));
     }

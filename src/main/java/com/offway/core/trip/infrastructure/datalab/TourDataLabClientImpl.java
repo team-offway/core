@@ -87,7 +87,7 @@ class TourDataLabClientImpl implements TourDataLabClient {
         Duration wait = maxWait.compareTo(TIMEOUT) < 0 ? maxWait : TIMEOUT;
         try {
             // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
-            callRecorder.record(ExternalApi.TOUR_DATA_LAB);
+            callRecorder.record(ExternalApi.TOUR_VISITOR);
             String body = webClient.get()
                     .uri(uri)
                     .retrieve()

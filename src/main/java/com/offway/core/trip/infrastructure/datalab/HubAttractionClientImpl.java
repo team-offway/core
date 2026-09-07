@@ -116,7 +116,7 @@ class HubAttractionClientImpl implements HubAttractionClient {
         // serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(#165).
         URI uri = builder.build(true).toUri();
         // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
-        callRecorder.record(ExternalApi.TOUR_DATA_LAB);
+        callRecorder.record(ExternalApi.TOUR_HUB_ATTRACTION);
         return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
     }
 
