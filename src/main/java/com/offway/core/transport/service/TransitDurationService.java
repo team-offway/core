@@ -29,6 +29,8 @@ public class TransitDurationService {
     /**
      * 이 구간의 소요시간(분). 아직 안 쟀으면 <b>자리를 만들고</b> 빈 값을 준다.
      *
+     * <p><b>이미 있는 자리도 물었다는 사실을 남긴다(#491).</b> 그래야 배치가 실제로 쓰이는 구간부터 잰다.
+     *
      * <p>자리 만들기가 실패해도 조회는 성공으로 답한다 — 소요시간은 코스의 곁가지고, 여기서 예외가 올라가면
      * 기록 한 줄을 못 적은 일이 코스 응답 전체를 실패시킨다.
      */
@@ -41,7 +43,14 @@ public class TransitDurationService {
         }
         Optional<TransitLegDuration> found = transitLegDurationRepository.find(mode, depCode, arrCode);
         if (found.isPresent()) {
-            return found.get().usableMinutes();
+            TransitLegDuration leg = found.get();
+            if (leg.unmeasured()) {
+                // 자리는 있는데 값이 없다 — 지금 이 코스가 소요시간 없이 나간다는 뜻이라 순번을 올린다(#491).
+                // 시드로 미리 들어간 구간은 이 표시가 없으면 3만 건 뒤에 서서 28일을 기다린다.
+                // 트랜잭션 안의 관리 엔티티라 더티 체킹으로 반영된다.
+                leg.asked(now);
+            }
+            return leg.usableMinutes();
         }
         try {
             transitLegDurationRepository.requestIfAbsent(
