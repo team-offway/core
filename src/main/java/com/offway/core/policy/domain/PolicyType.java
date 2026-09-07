@@ -21,12 +21,13 @@ import java.util.Optional;
 public enum PolicyType {
 
     /**
-     * 디지털관광주민증 — 인구감소지역 가맹점 할인.
+     * 디지털관광주민증 — 참여 지자체 가맹점 할인. 발급·이용 무료.
      *
-     * <p><b>실제 대상은 52곳</b>인데 아직 명단을 확보하지 못해 89곳을 그대로 둔다. {@code verified=FALSE} 라
-     * 노출되지 않으므로 거짓 뱃지는 나지 않는다 — 명단을 확보하면 전용 태그로 좁힌다(#217).
+     * <p><b>대상은 52곳이다</b>(#498). 89곳 전부가 아니라, 참여하지 않는 37곳에서는 발급받아도 쓸 데가
+     * 없다. 공식 페이지가 참여 지역을 지도로만 보여줘 명단 확보가 늦었고 그동안 {@code verified=FALSE}
+     * 로 눌러 두었다 — 거짓 뱃지 대신 아무것도 안 내보내는 쪽을 골랐다(#217).
      */
-    DIGITAL_TOURIST_CARD("디지털관광주민증", RegionTagType.POPULATION_DECLINE, null),
+    DIGITAL_TOURIST_CARD("디지털관광주민증", RegionTagType.DIGITAL_TOURIST_CARD, null),
 
     /** 지역사랑 휴가지원(반값여행) — 여행경비 50% 환급. 2026 상반기 시범사업 16곳. */
     REGIONAL_VOUCHER("여행경비 50% 환급", RegionTagType.REGIONAL_VOUCHER, null),
