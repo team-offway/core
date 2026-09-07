@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.external.ExternalApi;
@@ -15,6 +16,7 @@ import com.offway.core.trip.infrastructure.datalab.dto.RelatedAttractionItem;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.repository.RelatedAttractionRepository;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -71,7 +73,7 @@ public class RelatedAttractionRefreshService {
 
     private static final String BOOT_CHECK_INTERVAL = "P7D";
 
-    private static final String BATCH_NAME = "related-attraction-refresh";
+    static final String BATCH_NAME = "related-attraction-refresh";
 
     private static final Caller CALLER = Caller.of("연관관광지배치");
 
@@ -96,7 +98,30 @@ public class RelatedAttractionRefreshService {
     private final LicensedPlaceRepository licensedPlaceRepository;
     private final RegionQuery regionQuery;
     private final ExternalApiBatchPolicy batchPolicy;
+    private final BatchRunRepository batchRunRepository;
 
+    /**
+     * <h2>지역별 마커만으로는 한도를 못 막는다 — 하루 한 번으로 끊는다</h2>
+     *
+     * <p>건너뛰기 판정이 <b>"그 지역이 목표월 자료를 가졌나"</b> 였다. 원본이 목표월을 아직 발행하지
+     * 않으면 되짚기가 이전 달을 다시 저장하는데, 저장된 달은 여전히 목표월보다 앞이라 <b>다음 회차에 또
+     * 걸린다.</b> 조건이 사실상 참이 되지 않는다.
+     *
+     * <p>실측(2026-09-07). 89곳이 6·7월 자료를 갖고 있는데 목표가 8월이라 전부 낡음으로 걸렸고, 회차마다
+     * <b>194콜</b>(73곳×2 + 16곳×3)을 태우며 <b>같은 7월 행을 다시 저장</b>했다. {@code fixedDelay} 는
+     * 재배포마다 처음부터 다시 세므로(#226·#231) 배포가 잦은 날 네 번 돌아 하루 <b>780콜 · 한도의 78%</b>
+     * 가 됐다. 그렇게 늘어난 자료는 <b>0건</b>이다.
+     *
+     * <p>{@code HubAttractionRefreshService} 가 <b>같은 자리에서 같은 실수</b>를 했고(#337) 이미 해법을
+     * 갖고 있다 — 하루 한 번으로 끊는 것이다. 원본이 월 단위 발행이라 하루 한 번이면 넉넉하다.
+     *
+     * <p><b>결과가 아니라 실행을 기록한다.</b> 적재 결과로 판정하면 전부 실패한 날에는 아무것도 안 써져
+     * 다음 부팅이 또 쏜다. 확인과 기록을 한 문장으로 묶는 것도 그쪽과 같은 이유다 — 트리거가 둘이라
+     * "확인 → 호출 → 기록" 사이의 창으로 다른 트리거가 들어오면 같은 날 두 번 쏜다.
+     *
+     * <p>대가는 있다. 그날 실패한 지역은 그날 안에 다시 시도하지 않는다. 이전 값이 남아 화면은 유지되고
+     * 처음부터 빈 지역만 하루를 기다리는데, 한도를 태워 <b>모두</b>가 실패하는 것보다 낫다.
+     */
     @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void refreshIfStale() {
@@ -106,6 +131,12 @@ public class RelatedAttractionRefreshService {
                 log.info("연관 관광지 배치가 꺼져 있거나 배치 한도를 넘겨 건너뜁니다");
                 return;
             }
+            LocalDate today = LocalDate.now(SERVICE_ZONE);
+            if (!batchRunRepository.tryStartOn(BATCH_NAME, today, LocalDateTime.now(SERVICE_ZONE))) {
+                log.info("연관 관광지를 오늘 이미 돌렸거나 다른 트리거가 선점해 갱신을 건너뜁니다 date={}", today);
+                return;
+            }
+            // 선점이 곧 기록이다 — 아래가 실패해도 시각이 남아 같은 날 재부팅이 다시 쏘지 않는다.
             refresh(newestPossibleMonth());
         });
     }
