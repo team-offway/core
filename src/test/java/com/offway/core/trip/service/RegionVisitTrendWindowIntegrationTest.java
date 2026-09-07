@@ -37,6 +37,11 @@ class RegionVisitTrendWindowIntegrationTest {
     /** 비수기 하루치. */
     private static final double OFF_SEASON = 100;
 
+    /** 현지인 수는 두 해에 다르게 둔다 — 집계에 섞이면 곧바로 비율이 틀어지도록. */
+    private static final double LOCALS_LAST_YEAR = 9_999;
+
+    private static final double LOCALS_THIS_YEAR = 99_999;
+
     /** 성수기 하루치 — 8월이다. 이 차이가 창을 어긋나게 잘랐을 때 드러난다. */
     private static final double PEAK_SEASON = 200;
 
@@ -56,15 +61,19 @@ class RegionVisitTrendWindowIntegrationTest {
      * 쪽에만 성수기 8월이 25일 더 들어가 일평균이 부풀고, <b>변화가 없는데 감소로 나온다.</b>
      *
      * <p>이 단언이 곧 회귀 방지다 — 창을 다시 달 경계로 되돌리면 여기가 음수로 깨진다.
+     *
+     * <p><b>현지인 수를 두 해에 다르게 넣는다.</b> 같은 값이면 집계가 현지인을 잘못 포함해도 두 창이
+     * 함께 올라가 비율이 그대로라, 이 단언이 통과해버린다(CodeRabbit #501 리뷰). 다르게 넣으면
+     * 섞이는 순간 0 이 깨진다 — 관광객 집계에서 현지인이 빠진다는 계약까지 이 한 줄이 지킨다.
      */
     @Test
     void 두_해가_같으면_마지막_달이_잘려도_증감이_0이다() {
         String code = 어느지역코드();
         List<RegionVisitorDaily> rows = new ArrayList<>();
         // 작년: 6/1 ~ 8/31 (원본이 완결한 달들)
-        채운다(rows, code, LocalDate.of(2098, 6, 1), LocalDate.of(2098, 8, 31));
+        채운다(rows, code, LocalDate.of(2098, 6, 1), LocalDate.of(2098, 8, 31), LOCALS_LAST_YEAR);
         // 올해: 6/1 ~ 8/6 (아직 8월이 안 끝났다)
-        채운다(rows, code, LocalDate.of(2099, 6, 1), LATEST);
+        채운다(rows, code, LocalDate.of(2099, 6, 1), LATEST, LOCALS_THIS_YEAR);
         dailyRepository.insertIfAbsent(rows);
         metricsService.evictCache();
 
@@ -89,7 +98,7 @@ class RegionVisitTrendWindowIntegrationTest {
      *
      * <p>8월만 값을 올린다. 성수기가 어느 창에 얼마나 담기는지가 이 테스트의 전부다.
      */
-    private void 채운다(List<RegionVisitorDaily> rows, String code, LocalDate from, LocalDate to) {
+    private void 채운다(List<RegionVisitorDaily> rows, String code, LocalDate from, LocalDate to, double locals) {
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
             double perType = (date.getMonthValue() == 8 ? PEAK_SEASON : OFF_SEASON) / 2;
             rows.add(RegionVisitorDaily.builder()
@@ -98,7 +107,7 @@ class RegionVisitTrendWindowIntegrationTest {
                     .signguCode(code).baseDate(date).visitorType(VisitorType.FOREIGN).visitorCount(perType).build());
             // 현지인은 관광객이 아니다. 넣어 두는 이유는 이 값이 집계에 안 섞이는지도 함께 보기 위해서다.
             rows.add(RegionVisitorDaily.builder()
-                    .signguCode(code).baseDate(date).visitorType(VisitorType.LOCAL).visitorCount(9_999).build());
+                    .signguCode(code).baseDate(date).visitorType(VisitorType.LOCAL).visitorCount(locals).build());
         }
     }
 }
