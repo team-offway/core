@@ -1,6 +1,8 @@
 package com.offway.core.inventory.infrastructure.probe;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
@@ -143,14 +145,35 @@ class ProbeRequestContractTest {
 
             assertFalse(captured.isEmpty(), probe.system() + " 가 요청을 내지 않았다");
             for (ClientRequest request : captured) {
-                String query = request.url().getRawQuery();
-                if (query == null || !query.contains("serviceKey=")) {
-                    continue; // 키를 쿼리에 안 싣는 프로브(헤더로 보내는 TMAP)는 해당 없음
+                // **키를 쿼리에 싣는 것은 data.go.kr 계열뿐**이다. TMAP 은 헤더(appKey)로 보내므로 대상이 아니다.
+                //
+                // "serviceKey 가 쿼리에 있으면 본다" 로 두면 안 된다 — 그러면 data.go.kr 프로브가 키를
+                // 빠뜨리거나 헤더로 옮겨도 이 테스트가 조용히 통과한다(CodeRabbit #494 리뷰).
+                if (!(probe instanceof AbstractDataGoKrProbe)) {
+                    continue;
                 }
-                assertTrue(query.contains("serviceKey=" + ENCODED_KEY),
-                        probe.system() + " 의 인증키가 원본과 다르다 — 다시 인코딩됐다: " + query);
+                String rawQuery = request.url().getRawQuery();
+                assertNotNull(rawQuery, probe.system() + " 요청에 쿼리가 없다 — serviceKey 를 싣지 않았다");
+                assertEquals(ENCODED_KEY, rawServiceKey(rawQuery),
+                        probe.system() + " 의 인증키가 원본과 다르다 — 다시 인코딩됐다");
             }
         }
+    }
+
+    /**
+     * raw 쿼리에서 {@code serviceKey} 값만 꺼낸다.
+     *
+     * <p>단언 메시지에 <b>쿼리 전체를 싣지 않으려는 것</b>이다(CodeRabbit #494 리뷰). 값 자체는
+     * 비교해야 한다 — 무엇으로 바뀌었는지({@code %253D} 인지 잘린 것인지) 안 보이면 실패를 못 읽는다.
+     * 그 값은 이 파일에 상수로 박힌 픽스처라 비밀이 아니다.
+     */
+    private static String rawServiceKey(String rawQuery) {
+        for (String pair : rawQuery.split("&")) {
+            if (pair.startsWith("serviceKey=")) {
+                return pair.substring("serviceKey=".length());
+            }
+        }
+        return null;
     }
 
     /** 요청 URL 을 메시지에 담은 실패 — {@code serviceKey} 가 쿼리에 실려 있다. */
