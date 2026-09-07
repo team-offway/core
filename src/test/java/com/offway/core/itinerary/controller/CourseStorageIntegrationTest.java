@@ -989,7 +989,11 @@ class CourseStorageIntegrationTest {
         int afterPeriodBenefits = benefitCountOf(afterPeriod);
 
         assertTrue(inPeriodBenefits > 0, "기간 안 여행이면 혜택이 실려야 한다: " + inPeriod);
-        assertEquals(0, afterPeriodBenefits, "기간 밖 여행이면 혜택이 없어야 한다: " + afterPeriod);
+        // **0 이 아니라 "줄어든다" 로 본다.** 기간이 없는 정책은 상시라 언제 가도 붙는다(#498 로
+        // 디지털관광주민증이 그렇게 됐다). 여기서 보려는 것은 "여행일로 매칭하는가" 이지 "혜택이
+        // 하나도 없는 날이 있는가" 가 아니다.
+        assertTrue(afterPeriodBenefits < inPeriodBenefits,
+                "기간이 끝나면 그만큼 혜택이 줄어야 한다: " + inPeriod + " → " + afterPeriod);
     }
 
     /**
