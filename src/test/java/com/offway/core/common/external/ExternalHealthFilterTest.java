@@ -196,6 +196,24 @@ class ExternalHealthFilterTest {
         assertTrue(notifier.sent.getFirst().contains("502"));
     }
 
+    /**
+     * 키가 막힌 것은 4xx 라도 장애다(#489). 2026-09-07 운영 키가 403 을 받는 동안 화면에서 장소 소개·
+     * 사진·공휴일이 통째로 사라졌는데 알림이 한 줄도 안 갔다.
+     */
+    @Test
+    void 키가_막히면_4xx라도_장애로_센다() {
+        RecordingNotifier notifier = new RecordingNotifier();
+        ExternalApiHealth health = new ExternalApiHealth(notifier);
+        ExchangeFilterFunction filter = ExternalHealthFilter.create(health);
+
+        for (int i = 0; i < 3; i++) {
+            filter.filter(request(), responding(HttpStatus.FORBIDDEN)).block();
+        }
+
+        assertFalse(health.isHealthy("train"), "다음 요청도 똑같이 막힌다 — 사용자에겐 죽은 것과 같다");
+        assertTrue(notifier.sent.getFirst().contains("키가 막혔습니다"), "할 일이 다르니 사유를 갈라 적는다");
+    }
+
     @Test
     void 응답이_4xx면_실패로_세지_않는다() {
         RecordingNotifier notifier = new RecordingNotifier();
