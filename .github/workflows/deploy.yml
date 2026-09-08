@@ -288,10 +288,24 @@ jobs:
           # 8080 을 **호스트 로컬에만** 묶는다(#232). 인터넷에서 오는 요청은 Caddy 가 443 에서 TLS 를
           # 끊고 offway-net 안에서 offway-core:8080 으로 넘긴다 — 그 경로는 호스트 포트를 안 거치므로
           # 이 바인딩과 무관하다. 아래 스모크는 서버 안에서 localhost 로 부르므로 그대로 산다.
+          #
+          # **메모리 상한을 건다(#526).** 상한이 없으면 앱이 커졌을 때 커널이 누구를 죽일지 고르는데,
+          # 그 선택이 우리 뜻과 다르다 — 실제로 앱이 아니라 **MySQL 이 죽었다**(2026-09-08). 앱은
+          # `--restart unless-stopped` 로 저절로 돌아오지만 DB 는 상태를 들고 있어 그 대가가 다르다.
+          # 상한이 있으면 커널이 아니라 이 숫자가 고른다.
+          #
+          # 두 값은 **함께 움직인다.** 상한만 걸면 JVM 이 컨테이너가 본 상한의 25% 만 힙으로 잡아
+          # 힙이 460MB 에서 200MB 로 주저앉는다. 55% 로 명시해 지금 힙(약 460MB)을 유지한다.
+          # 한쪽만 고치지 않는다.
+          #
+          # 이 인자들은 scripts/recover-container.sh 의 docker run 과 **같아야 한다.** 롤백이 상한 없이
+          # 띄우면, 하필 상황이 나쁠 때 안전망이 사라진다(포트 바인딩이 같은 이유로 거기 적혀 있다).
           if ! docker run -d \
             --name offway-core \
             --network offway-net \
             --restart unless-stopped \
+            -m 800m \
+            -e JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=55 \
             --env-file ~/offway/env.prod \
             -p 127.0.0.1:8080:8080 \
             "offway-core:$SHA"; then
