@@ -14,6 +14,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import com.offway.core.transport.domain.BusTerminalKind;
 import com.offway.core.transport.domain.Departure;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -80,10 +81,17 @@ public class RegionAccessService {
         // 쓰면 못 타는 차가 목록 맨 위에 뜬다. 아래 열차·버스·여객선이 전부 이 값을 쓴다.
         LocalTime notBefore = Departure.boardableFrom(date, plannedDeparture, LocalDateTime.now(SERVICE_ZONE));
         RegionAccess train = trainAccessService.accessTo(originLat, originLng, destLat, destLng, date, notBefore);
+        // **고속·시외를 둘 다 푼다**(#493). 예전에는 종류를 안 가린 최근접 하나만 풀어, 둘이 한 자리를
+        // 두고 경쟁했다. 종합터미널은 좌표가 같아 늘 시외가 이겼고 — 그 판단은 맞다(군 단위는 시외가
+        // 촘촘히 닿는다) — 진 쪽은 대안에도 안 남아 89곳 중 68곳에서 고속버스가 통째로 사라졌다.
+        // 고정 요청(#453)도 같은 이유로 무시됐다.
+        Optional<Terminal> destExpress = busTerminalResolver.nearest(destLat, destLng, BusTerminalKind.EXPRESS);
+        Optional<Terminal> destIntercity = busTerminalResolver.nearest(destLat, destLng, BusTerminalKind.INTERCITY);
+        // 대표 후보는 지금까지처럼 종류를 안 가린 최근접이다 — 뽑는 규칙은 안 건드린다(#463).
         Optional<Terminal> destTerminal = busTerminalResolver.nearest(destLat, destLng);
         Optional<Port> destPort = ferryPortResolver.nearest(destLat, destLng);
 
-        RegionAccess chosen = forcedTo(preferred, train, destTerminal, destPort)
+        RegionAccess chosen = forcedTo(preferred, train, destExpress, destIntercity, destPort)
                 .orElseGet(() -> train.orNearer(
                         new Coordinate(destLat, destLng),
                         boardable(originLat, originLng, destTerminal, destPort)));
@@ -93,18 +101,21 @@ public class RegionAccessService {
                     chosen.mode().label(), train.status(), chosen.toName());
             // 출발 지점명을 함께 싣는다(#396). 서버는 이미 이 지점을 찾고 있었는데 조회에만 쓰고
             // 이름을 버려, 버스·여객선 카드만 "어디서 타는지" 가 빈 채로 나갔다.
+            // 대표가 어느 종류든 **그 종류의 터미널**로 채운다. 고정 요청이 고속을 세웠는데 시외 터미널로
+            // 출발지·구간을 풀면 제공기관이 알 수 없는 코드로 읽는다(코드 공간이 겹치지 않는다).
+            Optional<Terminal> chosenTerminal = terminalFor(chosen.mode(), destExpress, destIntercity);
             chosen = chosen
-                    .withFromName(departurePoint(chosen.mode(), originLat, originLng, destTerminal, destPort)
+                    .withFromName(departurePoint(chosen.mode(), originLat, originLng, chosenTerminal, destPort)
                             .map(RegionArrival::name)
                             .orElse(null))
                     .withDuration(
-                            durationOf(chosen.mode(), originLat, originLng, destTerminal, destPort).orElse(null))
+                            durationOf(chosen.mode(), originLat, originLng, chosenTerminal, destPort).orElse(null))
                     .withDepartures(departuresOf(
-                            chosen.mode(), originLat, originLng, destTerminal, destPort, date, notBefore));
+                            chosen.mode(), originLat, originLng, chosenTerminal, destPort, date, notBefore));
         }
         return chosen.withDistanceKm(distanceKm(new Coordinate(originLat, originLng), chosen.arrivalPoint()))
                 .withAlternatives(alternativesTo(
-                        chosen, train, destTerminal, destPort, originLat, originLng, date, notBefore));
+                        chosen, train, destExpress, destIntercity, destPort, originLat, originLng, date, notBefore));
     }
 
     /**
@@ -154,19 +165,31 @@ public class RegionAccessService {
      * 지점을 알므로 그대로 열차로 답한다. 버스·여객선은 지점이 있어야 값이 만들어져 이 검사가 따로 필요 없다.
      */
     private static Optional<RegionAccess> forcedTo(
-            TransitMode preferred, RegionAccess train, Optional<Terminal> destTerminal, Optional<Port> destPort) {
+            TransitMode preferred, RegionAccess train,
+            Optional<Terminal> destExpress, Optional<Terminal> destIntercity, Optional<Port> destPort) {
         if (preferred == null) {
             return Optional.empty();
         }
         return switch (preferred) {
             case TRAIN -> Optional.of(train).filter(access -> access.arrivalPoint().isPresent());
-            case EXPRESS_BUS, INTERCITY_BUS -> destTerminal
-                    .filter(terminal -> TransitMode.of(terminal.kind()) == preferred)
-                    .map(RegionArrival::of)
-                    .map(RegionAccess::pointOnly);
+            // **그 종류의 터미널을 직접 본다**(#493). 예전에는 종류를 안 가린 최근접 하나를 받아 종류가
+            // 맞는지 걸렀는데, 종합터미널은 좌표가 같아 늘 시외가 그 자리를 차지했다. 그래서 고속으로
+            // 고정 요청해도 시외가 나갔다 — 사용자가 고른 수단이 조용히 무시된 것이다.
+            case EXPRESS_BUS -> destExpress.map(RegionArrival::of).map(RegionAccess::pointOnly);
+            case INTERCITY_BUS -> destIntercity.map(RegionArrival::of).map(RegionAccess::pointOnly);
             case FERRY -> destPort.map(RegionArrival::of).map(RegionAccess::pointOnly);
             // 자차는 이 경로로 오지 않는다 — carAccessTo 가 따로 있다.
             case CAR -> Optional.empty();
+        };
+    }
+
+    /** 이 수단이 쓰는 도착 터미널. 버스가 아니면 빈 값이다. */
+    private static Optional<Terminal> terminalFor(
+            TransitMode mode, Optional<Terminal> destExpress, Optional<Terminal> destIntercity) {
+        return switch (mode) {
+            case EXPRESS_BUS -> destExpress;
+            case INTERCITY_BUS -> destIntercity;
+            case TRAIN, FERRY, CAR -> Optional.empty();
         };
     }
 
@@ -218,7 +241,8 @@ public class RegionAccessService {
      * 대안뿐이고, 이 지역에 닿는 수단이 셋을 넘지 않아 <b>코스 하나에 최대 3건</b>이다.
      */
     private List<TransitOption> alternativesTo(
-            RegionAccess chosen, RegionAccess train, Optional<Terminal> destTerminal, Optional<Port> destPort,
+            RegionAccess chosen, RegionAccess train,
+            Optional<Terminal> destExpress, Optional<Terminal> destIntercity, Optional<Port> destPort,
             double originLat, double originLng, LocalDate date, LocalTime notBefore) {
         List<TransitOption> others = new ArrayList<>();
         if (chosen.mode() != TransitMode.TRAIN && train.toName() != null) {
@@ -230,15 +254,18 @@ public class RegionAccessService {
                     .departures(train.departures())
                     .build());
         }
-        destTerminal
+        // **고속·시외를 둘 다 싣는다**(#493). 대표로 진 쪽이 대안에서도 빠지면 그 수단은 화면에서
+        // 통째로 사라진다 — 89곳 중 68곳에서 고속버스가 그랬다. 둘은 같은 곳에 서더라도 다른 노선망이다.
+        Stream.of(destExpress, destIntercity)
+                .flatMap(Optional::stream)
                 .filter(terminal -> TransitMode.of(terminal.kind()) != chosen.mode())
-                .ifPresent(terminal -> {
+                .forEach(terminal -> {
                     TransitMode mode = TransitMode.of(terminal.kind());
                     others.add(TransitOption.builder()
                             .mode(mode)
                             .toName(terminal.name())
                             .departures(departuresOf(
-                                    mode, originLat, originLng, destTerminal, destPort, date, notBefore))
+                                    mode, originLat, originLng, Optional.of(terminal), destPort, date, notBefore))
                             .build());
                 });
         destPort
@@ -246,8 +273,9 @@ public class RegionAccessService {
                 .ifPresent(port -> others.add(TransitOption.builder()
                         .mode(TransitMode.FERRY)
                         .toName(port.name())
+                        // 여객선은 터미널을 안 쓴다 — 출발은 항구, 도착 코드도 항구다.
                         .departures(departuresOf(
-                                TransitMode.FERRY, originLat, originLng, destTerminal, destPort, date, notBefore))
+                                TransitMode.FERRY, originLat, originLng, Optional.empty(), destPort, date, notBefore))
                         .build()));
         return List.copyOf(others);
     }
