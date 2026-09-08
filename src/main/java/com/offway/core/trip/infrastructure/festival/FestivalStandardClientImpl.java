@@ -2,7 +2,6 @@ package com.offway.core.trip.infrastructure.festival;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
 import com.offway.core.common.logging.RootCause;
@@ -22,86 +21,124 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /**
- * 전국문화축제표준데이터 adapter(#433) — {@code tn_pubr_public_cltur_fstvl_api}.
+ * 전국문화축제표준데이터 adapter(#433) — <b>오픈API 가 아니라 파일</b>이다.
  *
- * <h2>필드명이 아직 실호출로 확정되지 않았다</h2>
+ * <h2>왜 파일인가</h2>
  *
- * <p>포털 상세 페이지가 응답 항목의 <b>영문 명세를 공개하지 않는다</b>(한글 항목명만 표로 보여준다).
- * 아래 상수는 표준데이터 계열의 통상 표기를 따른 것이고, <b>실호출 한 번으로 확정해야 한다.</b>
+ * <p>처음에는 {@code api.data.go.kr/openapi/tn_pubr_public_cltur_fstvl_api} 를 불렀다. 그 주소는
+ * 실재한다 — 키 없이 부르면 {@code SERVICE_KEY_IS_NULL} 이 오고, 없는 API 는
+ * {@code NO_OPENAPI_SERVICE_ERROR} 를 준다. 문제는 <b>활용신청할 데이터셋 페이지가 없다</b>는 것이다.
+ * 포털의 오픈API 목록에는 개별 지자체 것(광양·괴산·대전·울산…)만 있고 전국 통합본이 없다.
  *
- * <p>그래서 <b>못 찾으면 조용히 넘어가지 않는다</b> — 응답에 행은 있는데 축제명을 하나도 못 읽으면
- * <b>던진다.</b> 필드명이 틀렸을 때 "축제 0건" 이 정상처럼 보이면 안 되고, 그보다 나쁜 것은 그
- * 페이지가 <b>성공한 빈 페이지로 세어져</b> 취소 정리가 이번 회차를 온전한 것으로 판정하는 것이다 —
- * 그러면 못 읽은 페이지의 축제들이 취소로 간주돼 지워진다.
+ * <p>그래서 운영에서 계속 {@code SERVICE_KEY_IS_NOT_REGISTERED_ERROR}(403) 였고 축제가 <b>0건</b>이었다.
+ * 신청할 곳이 없으니 기다려도 풀리지 않는다.
  *
- * <p><b>"이름을 못 읽음" 과 "좌표가 없어 제외" 는 다르다.</b> 후자는 446건 중 101건이나 되는 정상
- * 상황이라, 그걸로 던지면 좌표 없는 행만 모인 페이지에서 멀쩡한 적재가 멈춘다. 이름을 읽은 행 수를
- * 따로 세어 가른다.
+ * <p>표준데이터 페이지({@code data.go.kr/data/15013104/standard.do})의 <b>다운로드 버튼이 실제로 부르는
+ * 주소</b>로 옮겼다. 인증키가 필요 없고 전량이 한 번에 온다.
+ *
+ * <h2>파라미터 규칙 — 실측으로 확인했다</h2>
+ *
+ * <ul>
+ *   <li>{@code totalCount} 는 <b>값이 무엇이든 상관없지만 있어야 한다.</b> 빼면 404 다. 우리는 미리
+ *       알 수 없으므로 넉넉한 상수를 넣는다 — 응답 크기를 정하는 것은 {@code perPage} 다.
+ *   <li>{@code colNmList} 는 <b>필수</b>다. 빼면 0바이트가 온다.
+ *   <li>{@code perPage} 를 크게 주면 페이지네이션이 필요 없다. 실측 1,305건이 약 900KB 다.
+ * </ul>
+ *
+ * <h2>응답은 영문 키 배열이다</h2>
+ *
+ * <p>브라우저로 받은 파일은 {@code {fields, records}} 에 한글 키지만, 그건 화면이 후처리한 것이다.
+ * <b>직접 부르면 영문 대문자 키의 평평한 배열</b>이 온다 — {@code FSTVL_NM}·{@code LATITUDE} 처럼.
+ * 예전 코드가 {@code fstvlNm} 같은 camelCase 를 기대한 것은 명세를 못 봐서 한 추측이었고, 틀렸다.
+ *
+ * <p><b>못 찾으면 조용히 넘어가지 않는다</b> — 행은 왔는데 축제명을 하나도 못 읽으면 던진다. 필드명이
+ * 틀렸을 때 "축제 0건" 이 정상처럼 보이면 안 되고, 그보다 나쁜 것은 그것이 <b>성공한 빈 결과로</b>
+ * 세어져 취소 정리가 이번 회차를 온전한 것으로 판정하는 것이다 — 그러면 못 읽은 축제들이 지워진다.
+ *
+ * <p><b>"이름을 못 읽음" 과 "좌표가 없어 제외" 는 다르다.</b> 후자는 1,305건 중 225건(17%)이나 되는
+ * 정상 상황이라, 그걸로 던지면 멀쩡한 적재가 멈춘다. 이름을 읽은 행 수를 따로 세어 가른다.
  */
 @Slf4j
 @Component
 class FestivalStandardClientImpl implements FestivalStandardClient {
 
-    private static final String BASE = "https://api.data.go.kr/openapi/tn_pubr_public_cltur_fstvl_api";
+    /** 표준데이터 파일 주소 — 다운로드 버튼이 부르는 것과 같다. */
+    private static final String BASE = "https://www.data.go.kr/download/standard.json";
+
+    /** 이 표준데이터의 포털 식별자와 테이블명. 둘 다 주소에 필요하다. */
+    private static final String PUBLIC_DATA_PK = "15013104";
+    private static final String SVC_TABLE = "tn_pubr_public_cltur_fstvl_svc";
 
     /**
-     * 한 건의 기본 상한. 표준데이터는 단순 조회라 TourAPI 계열(6초)과 같은 선에서 잡는다.
+     * 한 번에 받을 행 수 — 전량을 덮고도 남게 잡는다.
      *
-     * <p><b>아직 실측하지 못했다.</b> 첫 실호출에서 응답시간 분포를 재고
-     * {@code docs/external-api-inventory.md} 에 남긴 뒤 p99 기준으로 다시 정한다.
+     * <p>실측 1,305건이라 여유가 크다. 원본이 두 배로 늘어도 페이지를 나눌 필요가 없고, 나누면
+     * 그만큼 "일부만 받은 회차" 를 다루는 분기가 생긴다.
      */
-    private static final Duration TIMEOUT = Duration.ofSeconds(10);
+    private static final int PER_PAGE = 10_000;
 
-    private static final String TYPE_JSON = "json";
+    /**
+     * {@code totalCount} 자리 — <b>값은 안 쓰이지만 없으면 404 다.</b>
+     *
+     * <p>화면이 자기가 아는 총건수를 그대로 실어 보내는 파라미터인데, 서버는 그 값을 검증하지 않는다
+     * (1 을 넣어도 1,305건이 온다). 우리는 미리 알 수 없으므로 상한만 넉넉히 둔다.
+     */
+    private static final int TOTAL_COUNT_PLACEHOLDER = 1_000_000;
 
-    /** 성공 코드 — data.go.kr 계열이 "00" 과 "0000" 을 섞어 쓴다. */
-    private static final List<String> SUCCESS_CODES = List.of("00", "0000");
+    /**
+     * 이 한 건의 기본 상한.
+     *
+     * <p>전량을 한 번에 받으므로 페이지 하나보다 오래 걸린다 — 실측 900KB 에 1초 안팎이었다.
+     * 원본이 커지는 것을 감안해 여유를 둔다.
+     */
+    private static final Duration TIMEOUT = Duration.ofSeconds(30);
 
-    /** 날짜 형식 — 표준데이터는 {@code yyyy-MM-dd} 로 준다. 공백·빈칸이 섞여 오는 행이 있다. */
+    /** 날짜 형식 — {@code yyyy-MM-dd} 로 온다. 공백·빈칸이 섞여 오는 행이 있다. */
     private static final DateTimeFormatter YMD = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-    // ── 응답 필드명 (실호출로 확정 필요) ────────────────────────────────
-    private static final String F_NAME = "fstvlNm";
-    private static final String F_START = "fstvlStartDate";
-    private static final String F_END = "fstvlEndDate";
-    private static final String F_CONTENT = "fstvlCo";
-    private static final String F_VENUE = "opar";
-    private static final String F_HOST = "mnnstNm";
-    private static final String F_TEL = "phoneNumber";
-    private static final String F_HOMEPAGE = "homepageUrl";
-    private static final String F_ROAD_ADDRESS = "rdnmadr";
-    private static final String F_JIBUN_ADDRESS = "lnmadr";
-    private static final String F_LAT = "latitude";
-    private static final String F_LNG = "longitude";
+    // ── 응답 필드명. 2026-09-07 실호출로 확정했다 ──────────────────────
+    private static final String F_NAME = "FSTVL_NM";
+    private static final String F_START = "FSTVL_START_DATE";
+    private static final String F_END = "FSTVL_END_DATE";
+    private static final String F_CONTENT = "FSTVL_CO";
+    private static final String F_VENUE = "OPAR";
+    private static final String F_HOST = "MNNST_NM";
+    private static final String F_TEL = "PHONE_NUMBER";
+    private static final String F_HOMEPAGE = "HOMEPAGE_URL";
+    private static final String F_ROAD_ADDRESS = "RDNMADR";
+    private static final String F_JIBUN_ADDRESS = "LNMADR";
+    private static final String F_LAT = "LATITUDE";
+    private static final String F_LNG = "LONGITUDE";
+
+    /** 요청에 실을 컬럼 목록 — 빼면 응답이 0바이트다. */
+    private static final List<String> COLUMNS = List.of(
+            F_NAME, F_VENUE, F_START, F_END, F_CONTENT, F_HOST,
+            "AUSPC_INSTT_NM", "SUPRT_INSTT_NM", F_TEL, F_HOMEPAGE, "RELATE_INFO",
+            F_ROAD_ADDRESS, F_JIBUN_ADDRESS, F_LAT, F_LNG, "REFERENCE_DATE");
 
     private final WebClient webClient;
     private final ExternalApiCallRecorder callRecorder;
-    private final ExternalApiProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    FestivalStandardClientImpl(WebClient externalWebClient, ExternalApiProperties props,
-            ExternalApiCallRecorder callRecorder) {
+    FestivalStandardClientImpl(WebClient externalWebClient, ExternalApiCallRecorder callRecorder) {
         this.webClient = externalWebClient;
-        this.props = props;
         this.callRecorder = callRecorder;
     }
 
     @Override
-    public StandardFestivalResult findAll(int pageNo, int numOfRows, Duration maxWait) {
-        if (!props.dataGoKr().hasKey()) {
-            log.info("문화축제표준데이터 키 없음 — 축제 조회를 건너뜁니다");
-            return StandardFestivalResult.empty();
-        }
-        URI uri = UriComponentsBuilder.fromUriString(BASE)
-                .queryParam("serviceKey", props.dataGoKr().serviceKey())
-                .queryParam("type", TYPE_JSON)
-                .queryParam("pageNo", pageNo)
-                .queryParam("numOfRows", numOfRows)
-                .build(true)
-                .toUri();
+    public StandardFestivalResult findAll(Duration maxWait) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(BASE)
+                .queryParam("publicDataPk", PUBLIC_DATA_PK)
+                .queryParam("svcTableNm", SVC_TABLE)
+                .queryParam("perPage", PER_PAGE)
+                .queryParam("page", 1)
+                .queryParam("totalCount", TOTAL_COUNT_PLACEHOLDER);
+        COLUMNS.forEach(column -> builder.queryParam("colNmList", column));
+        URI uri = builder.build(true).toUri();
+
         Duration wait = maxWait.compareTo(TIMEOUT) < 0 ? maxWait : TIMEOUT;
         try {
-            // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
+            // 실호출 직전에 센다. 인증키를 안 쓰므로 한도와 무관하지만, 우리가 얼마나 부르는지는 남긴다.
             callRecorder.record(ExternalApi.FESTIVAL_STANDARD);
             String body = webClient.get()
                     .uri(uri)
@@ -109,39 +146,25 @@ class FestivalStandardClientImpl implements FestivalStandardClient {
                     .bodyToMono(String.class)
                     .timeout(wait)
                     .block();
-            return parse(body, pageNo);
+            return parse(body);
         } catch (Exception e) {
-            // 쿼리스트링(키 포함)은 로그에 남기지 않는다.
-            log.warn("문화축제표준데이터 조회 실패 page={} cause={}", pageNo, RootCause.of(e));
+            log.warn("문화축제표준데이터 조회 실패 cause={}", RootCause.of(e));
             throw TourApiException.festivalStandardLookupFailed(e);
         }
     }
 
-    private StandardFestivalResult parse(String body, int pageNo) throws Exception {
+    private StandardFestivalResult parse(String body) throws Exception {
         JsonNode root = objectMapper.readTree(body);
-        JsonNode response = root.path("response");
-
-        String resultCode = response.path("header").path("resultCode").asText();
-        if (!resultCode.isEmpty() && !SUCCESS_CODES.contains(resultCode)) {
-            throw new IllegalStateException("문화축제표준데이터 응답이 성공이 아닙니다: resultCode=" + resultCode);
-        }
-
-        JsonNode bodyNode = response.path("body");
-        int totalCount = bodyNode.path("totalCount").asInt(0);
-
-        // 표준데이터 계열은 items 가 배열로 오기도 하고 {item:[...]} 로 한 겹 더 감싸 오기도 한다.
-        JsonNode items = bodyNode.path("items");
-        if (items.isObject()) {
-            items = items.path("item");
-        }
-        if (items.isMissingNode() || items.isNull()) {
-            return new StandardFestivalResult(List.of(), totalCount);
+        if (!root.isArray()) {
+            // 배열이 아니면 오류 응답이다. 파일 주소는 성공하면 언제나 평평한 배열을 준다.
+            throw new IllegalStateException(
+                    "문화축제표준데이터 응답이 배열이 아닙니다: " + body.substring(0, Math.min(200, body.length())));
         }
 
         List<StandardFestival> parsed = new ArrayList<>();
         int rows = 0;
         int namedRows = 0;
-        for (JsonNode node : items.isArray() ? items : objectMapper.createArrayNode().add(items)) {
+        for (JsonNode node : root) {
             rows++;
             String name = text(node, F_NAME);
             if (name == null) {
@@ -154,41 +177,31 @@ class FestivalStandardClientImpl implements FestivalStandardClient {
             }
         }
 
-        // **행은 왔는데 이름을 하나도 못 읽었다 = 필드명이 틀렸다.**
-        //
-        // 처음에는 warn 만 남기고 빈 결과를 돌려줬는데, 그게 더 나빴다 — 호출자에게는 "성공한 빈
-        // 페이지" 로 보여 실패로 세어지지 않고, 다른 페이지가 하나라도 저장되면 취소 정리가 이번
-        // 회차를 온전한 것으로 판정한다. 그러면 **못 읽은 페이지의 축제들이 취소로 간주돼 지워진다.**
-        //
-        // 그래서 던진다. 던져야 그 페이지가 failedPages 로 세어지고 정리가 통째로 건너뛰어진다.
+        // **행은 왔는데 이름을 하나도 못 읽었다 = 필드명이 틀렸다.** 던져야 호출자가 실패로 세고
+        // 취소 정리를 건너뛴다 — 빈 결과로 돌려주면 멀쩡한 축제들이 취소로 간주돼 지워진다.
         if (rows > 0 && namedRows == 0) {
             throw new IllegalStateException(
-                    "문화축제표준데이터 %d행을 받았지만 축제명을 하나도 읽지 못했습니다 — 응답 필드명을 확인하세요 (기대한 이름: %s) 실제 키: %s"
-                            .formatted(rows, F_NAME, fieldNamesOf(items)));
+                    "문화축제표준데이터 %d행을 받았지만 축제명을 하나도 읽지 못했습니다 — 응답 필드명을 확인하세요 (기대: %s) 실제 키: %s"
+                            .formatted(rows, F_NAME, fieldNamesOf(root)));
         }
         if (namedRows > parsed.size()) {
-            // 이름은 읽혔는데 좌표·기간이 없어 빠진 것들이다. 정상이지만(446 중 101건이 좌표 없음)
-            // 갑자기 늘면 원본이 바뀐 신호라 남긴다.
-            log.info("문화축제표준데이터 page={} 좌표·기간이 없어 {}건을 뺐습니다", pageNo, namedRows - parsed.size());
+            // 이름은 읽혔는데 좌표·기간이 없어 빠진 것들이다. 실측 1,305건 중 225건이 좌표 없음이라
+            // 정상이지만, 갑자기 늘면 원본이 바뀐 신호라 남긴다.
+            log.info("문화축제표준데이터 좌표·기간이 없어 {}건을 뺐습니다", namedRows - parsed.size());
         }
-        log.debug("문화축제표준데이터 page={} 받은행={} 이름읽음={} 쓸수있음={} 전체={}",
-                pageNo, rows, namedRows, parsed.size(), totalCount);
-        return new StandardFestivalResult(parsed, totalCount);
+        log.debug("문화축제표준데이터 받은행={} 이름읽음={} 쓸수있음={}", rows, namedRows, parsed.size());
+        return new StandardFestivalResult(parsed, rows);
     }
 
     /** 첫 행의 키 목록 — 필드명이 틀렸을 때 무엇으로 고쳐야 하는지 로그가 바로 답하게 한다. */
-    private static String fieldNamesOf(JsonNode items) {
-        JsonNode first = items.isArray() ? items.path(0) : items;
+    private static String fieldNamesOf(JsonNode rows) {
         List<String> names = new ArrayList<>();
-        first.fieldNames().forEachRemaining(names::add);
+        rows.path(0).fieldNames().forEachRemaining(names::add);
         return String.join(", ", names);
     }
 
     /**
      * 한 행을 옮긴다. 좌표·기간이 없거나 형식이 어긋나면 <b>그 한 건만</b> 건너뛴다(null).
-     *
-     * <p>좌표 없는 행이 446건 중 101건이라 흔한 경우이고, 그 한 건 때문에 전체 페이지를 502로 터뜨릴
-     * 이유가 없다. <b>이름을 못 읽는 것은 다른 문제라</b> 호출자가 먼저 가른다.
      *
      * @param name 호출자가 이미 읽어 둔 축제명 — 여기서 다시 읽지 않는다
      */
@@ -213,8 +226,8 @@ class FestivalStandardClientImpl implements FestivalStandardClient {
     /**
      * 주소에서 시군구명을 뽑는다 — "경상북도 안동시 ..." 의 둘째 토큰.
      *
-     * <p>지역 매칭에 쓰는 값이라 못 뽑으면 그 축제는 어느 지역에도 안 붙는다. 주소 체계가 "시도 시군구"
-     * 로 시작하는 것은 도로명·지번 둘 다 같다.
+     * <p>주소 체계가 "시도 시군구" 로 시작하는 것은 도로명·지번 둘 다 같다. 같은 이름이 둘인 시군구를
+     * 가르는 일은 호출자가 주소 전체로 한다(#502).
      */
     private static String sigunguOf(String address) {
         if (address == null || address.isBlank()) {

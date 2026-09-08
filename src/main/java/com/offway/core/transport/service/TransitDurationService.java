@@ -81,6 +81,23 @@ public class TransitDurationService {
     }
 
     /**
+     * 이 구간이 <b>안 다니는 것으로 이미 판명됐나</b>(#507).
+     *
+     * <p>{@link #measuredMinutes} 와 갈라 둔다. 그쪽은 "쓸 수 있는 값이 있나" 를 묻고, 이쪽은 "없다는
+     * 것을 아나" 를 묻는다 — <b>아직 안 잰 것과 재봤더니 없는 것은 다르다.</b> 출발 터미널 코드를 고를
+     * 때 전자는 후보로 남기고 후자는 뺀다.
+     */
+    @Transactional(readOnly = true)
+    public boolean knownUnroutable(TransitMode mode, String depCode, String arrCode) {
+        if (mode == TransitMode.TRAIN || mode == TransitMode.CAR) {
+            return false; // 이 표를 쓰지 않는 수단이다
+        }
+        return transitLegDurationRepository.find(mode, depCode, arrCode)
+                .filter(TransitLegDuration::noService)
+                .isPresent();
+    }
+
+    /**
      * 배치가 잴 대상 {@code max} 건 — 아직 안 잰 구간이 먼저고, 그다음이 미운행으로 적힌 지 오래된 구간이다.
      *
      * <p><b>미운행도 다시 잰다.</b> 한 번의 조회로 굳히면 겨울에 쉬는 항로·새로 뚫린 노선이 영원히 없는 길이
