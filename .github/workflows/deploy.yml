@@ -153,36 +153,54 @@ jobs:
           df -h / | tail -1
           free -m | sed -n '2p'
 
-          # Docker 29 부터 --keep-storage 대신 --max-used-space 다. 옛 플래그를 쓰면 조용히 무시되는 게
-          # 아니라 unknown flag 로 죽으므로, 도커를 올릴 때 여기도 함께 본다.
+          # `docker builder prune` 이 `--max-used-space` 를 받는다(Docker 29.7.1 실측). `buildx prune`
+          # 을 따로 부를 필요는 없다 — 둘이 **같은 캐시**를 본다(양쪽 `du` 가 같은 값을 냈다).
           #
           # 정리 실패로 배포를 끊지 않는다 — 여유가 충분한데 정리만 실패한 경우까지 막을 이유가 없다.
-          # 정말 부족한지는 아래에서 실제 값으로 따로 판정한다.
-          docker builder prune -f --max-used-space 2GB >/dev/null 2>&1 || echo "빌드 캐시 정리 실패(계속 진행)"
+          # **다만 조용히 넘어가지도 않는다.** 이 명령이 언젠가 실패하면(플래그 개명·도커 교체) 상한이
+          # 안 걸린 채 초록불이 뜬다. 그게 이번 장애를 만든 모양 그대로다 — 아무도 모르는 사이에 쌓였다.
+          # 그래서 실패를 warning 으로 띄우고, 자른 뒤 실제 캐시 크기를 찍어 눈에 보이게 둔다.
+          #
+          # 참고로 옛 플래그 `--keep-storage` 는 죽지 않고 **exit 0 으로 통과한다**(실측). 안 죽는다는
+          # 뜻이라 "터지면 알겠지" 에 기댈 수 없다. 아래 크기 출력이 그 자리를 대신한다.
+          if ! docker builder prune -f --max-used-space 2GB >/dev/null 2>&1; then
+            echo "::warning::빌드 캐시 상한 적용 실패 — 캐시가 계속 자랄 수 있습니다"
+          fi
           docker image prune -f >/dev/null 2>&1 || echo "이미지 정리 실패(계속 진행)"
 
           echo "── 정리 후"
           df -h / | tail -1
           free -m | sed -n '2p'
+          echo "빌드 캐시 $(docker builder du 2>/dev/null | tail -1 || echo '크기 확인 실패')"
 
-          # 여기서 끊는다. 여유가 없는 채로 올리면 scp 가 전송 도중에 죽는데, 그때는 "왜 죽었는지" 가
+          # **메모리를 디스크 판정보다 먼저 찍는다.** 디스크가 모자라 아래에서 끊기는 배포야말로
+          # 그때 메모리가 어땠는지 궁금한 배포인데, 뒤에 두면 그 배포에서만 기록이 빠진다.
+          #
+          # 메모리로는 끊지 않는다. 배포 시점의 여유는 그때 트래픽에 따라 출렁이는데, 그걸로 배포를
+          # 막으면 정작 고치러 가는 배포가 못 나간다. 대신 매 배포가 값을 남겨 추세를 되짚게 한다.
+          AVAIL_RAM=$(free -m | awk 'NR==2 {print $7}')
+          SWAP_TOTAL=$(free -m | awk 'NR==3 {print $2}')
+          echo "메모리 여유 ${AVAIL_RAM:-?}MB · 스왑 ${SWAP_TOTAL:-?}MB"
+          if [[ "$AVAIL_RAM" =~ ^[0-9]+$ && "$SWAP_TOTAL" =~ ^[0-9]+$ ]] \
+             && [ "$SWAP_TOTAL" -eq 0 ] && [ "$AVAIL_RAM" -lt 300 ]; then
+            echo "::warning::스왑이 없고 메모리 여유가 ${AVAIL_RAM}MB 입니다 — OOM 으로 넘어갈 수 있습니다"
+          fi
+
+          # 디스크는 끊는다. 여유가 없는 채로 올리면 scp 가 전송 도중에 죽는데, 그때는 "왜 죽었는지" 가
           # 로그에 안 남는다 — 연결이 닫힐 뿐이다. 미리 재고 사유를 남기는 편이 낫다.
           AVAIL_MB=$(df -Pm / | awk 'NR==2 {print $4}')
+          # **못 잰 것을 괜찮다고 읽지 않는다.** 여기엔 `set -e` 가 없어서(정리 실패로 배포를 끊지
+          # 않으려는 선택이다) df·awk 가 실패해도 그냥 흘러간다. 그러면 빈 값이 아래 비교에 들어가
+          # 에러 한 줄만 찍고 통과해, **여유를 확인도 못 했는데 올리는** 상태가 된다.
+          if ! [[ "$AVAIL_MB" =~ ^[0-9]+$ ]]; then
+            echo "::error::서버 디스크 여유를 확인하지 못했습니다(값='${AVAIL_MB}') — 전송을 중단합니다"
+            exit 1
+          fi
           if [ "$AVAIL_MB" -lt 3072 ]; then
             echo "::error::서버 디스크 여유가 ${AVAIL_MB}MB 뿐입니다(3GB 미만) — 전송을 중단합니다"
             exit 1
           fi
           echo "디스크 여유 ${AVAIL_MB}MB"
-
-          # 메모리는 끊지 않고 남기기만 한다. 배포 시점의 여유는 그때 트래픽에 따라 출렁이는데,
-          # 그걸로 배포를 막으면 정작 고치러 가는 배포가 못 나간다. 대신 매 배포가 값을 남겨
-          # 여유가 줄어드는 추세를 나중에 되짚을 수 있게 한다.
-          AVAIL_RAM=$(free -m | awk 'NR==2 {print $7}')
-          SWAP_TOTAL=$(free -m | awk 'NR==3 {print $2}')
-          echo "메모리 여유 ${AVAIL_RAM}MB · 스왑 ${SWAP_TOTAL}MB"
-          if [ "$SWAP_TOTAL" -eq 0 ] && [ "$AVAIL_RAM" -lt 300 ]; then
-            echo "::warning::스왑이 없고 메모리 여유가 ${AVAIL_RAM}MB 입니다 — OOM 으로 넘어갈 수 있습니다"
-          fi
           REMOTE
 
       - name: 배포 산출물 전송
