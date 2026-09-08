@@ -28,6 +28,8 @@ import org.springframework.boot.test.context.SpringBootTest;
  * <p>두 정책 기간이 겹치는 날로 고정해 본다 — 기간 밖이면 무엇을 물어도 비어서 지역 판정이 검증되지 않는다.
  */
 @SpringBootTest
+// 이 테스트가 정책을 직접 심으므로 롤백이 필요하다 — 안 걸면 다음 테스트의 매칭에 섞인다.
+@org.springframework.transaction.annotation.Transactional
 class PolicyMatchIntegrationTest {
 
     /** 반값여행 대상이자 비수도권 — 두 정책이 다 붙어야 한다. */
@@ -62,6 +64,9 @@ class PolicyMatchIntegrationTest {
 
     @Autowired
     private RegionTagRepository regionTagRepository;
+
+    @Autowired
+    private com.offway.core.policy.repository.PolicyRepository policyRepository;
 
     private Long regionId(String sido, String sigungu) {
         return regionRepository.findAll().stream()
@@ -120,21 +125,45 @@ class PolicyMatchIntegrationTest {
         assertTrue(matched.contains(PolicyType.STAY_FESTA), "실제=" + matched);
     }
 
+    /**
+     * <b>미검증 정책은 대상 지역이어도 안 붙는다.</b>
+     *
+     * <p>정책을 <b>이 테스트가 직접 심는다.</b> 예전에는 시드의 디지털관광주민증이 미검증이라 그것을
+     * 예시로 썼는데, 대상 명단을 확보해 검증으로 올라가면서(#498) 그 전제가 사라졌다. 시드 상태에
+     * 기대면 시드가 바뀔 때마다 엉뚱한 곳이 깨진다.
+     */
     @Test
     void 미검증_정책은_대상_지역이어도_붙지_않는다() {
-        // 디지털관광주민증은 52곳 명단을 확보하지 못해 아직 89곳을 대상으로 둔다.
-        // verified=FALSE 가 노출을 막고 있다는 것이 지금 거짓 뱃지가 안 나는 유일한 이유다.
-        assertFalse(matchedTypes(VOUCHER_SIDO, VOUCHER_SIGUNGU).contains(PolicyType.DIGITAL_TOURIST_CARD));
+        policyRepository.save(Policy.builder()
+                .type(PolicyType.WORKER_VACATION)
+                .name("아직 확인 못 한 혜택")
+                .benefitDetail("상세 미확정")
+                .targetAudience("전 국민")
+                .verified(false)
+                .checkedOn(LocalDate.of(2026, 9, 7))
+                .build());
+
+        assertFalse(matchedTypes(VOUCHER_SIDO, VOUCHER_SIGUNGU).contains(PolicyType.WORKER_VACATION));
     }
 
+    /**
+     * 기간이 있는 정책은 그 밖에서 안 붙는다.
+     *
+     * <p><b>기간이 없는 정책은 여기서 빠진다.</b> {@code null} 은 "모른다" 가 아니라 "상시" 라는 것이
+     * {@code isActiveOn} 의 계약이고, 디지털관광주민증이 실제로 그렇다 — 연중 언제 가도 쓸 수 있다.
+     * 그래서 "아무것도 안 붙는다" 가 아니라 <b>기간 있는 것만 빠진다</b> 로 단언한다.
+     */
     @Test
-    void 운영기간_밖이면_매칭되지_않는다() {
-        // 두 정책 다 끝난 뒤 — 기간 필터가 지역 판정과 따로 동작하는지 본다.
-        // 반값여행이 11-30 까지라 12월로 잡는다(#345). 10-01 은 이제 반값여행이 살아 있어 이 시나리오가 아니다.
+    void 운영기간_밖이면_기간이_있는_정책은_매칭되지_않는다() {
+        // 반값여행이 11-30 까지라 12월로 잡는다(#345).
         List<Policy> matched =
                 policyService.matchForRegion(regionId(VOUCHER_SIDO, VOUCHER_SIGUNGU), LocalDate.of(2026, 12, 1));
 
-        assertTrue(matched.isEmpty(), "실제=" + matched.stream().map(Policy::getType).toList());
+        List<PolicyType> types = matched.stream().map(Policy::getType).toList();
+        assertFalse(types.contains(PolicyType.REGIONAL_VOUCHER), "실제=" + types);
+        assertFalse(types.contains(PolicyType.STAY_FESTA), "실제=" + types);
+        assertTrue(matched.stream().allMatch(policy -> policy.isActiveOn(LocalDate.of(2026, 12, 1))),
+                "기간 밖 정책이 남아 있다: " + types);
     }
 
     @Test

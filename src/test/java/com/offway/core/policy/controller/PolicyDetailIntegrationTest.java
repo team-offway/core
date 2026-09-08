@@ -6,6 +6,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.offway.core.policy.domain.Policy;
+import com.offway.core.policy.domain.PolicyType;
+import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -16,10 +19,15 @@ import org.springframework.test.web.servlet.MockMvc;
 @SpringBootTest
 @AutoConfigureMockMvc
 @WithMockUser
+// 정책을 직접 심으므로 롤백이 필요하다.
+@org.springframework.transaction.annotation.Transactional
 class PolicyDetailIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private com.offway.core.policy.repository.PolicyRepository policyRepository;
 
     @Test
     void 반값여행_상세는_되는_지역_25곳만_반환한다() throws Exception {
@@ -69,9 +77,25 @@ class PolicyDetailIntegrationTest {
                 .andExpect(jsonPath("$.data.regions[?(@.name == '가평군 · 경기도')]", hasSize(0)));
     }
 
+    /**
+     * 미검증 정책은 상세로도 안 열린다.
+     *
+     * <p><b>정책을 이 테스트가 직접 심는다.</b> 예전에는 시드 3번(디지털관광주민증)이 미검증이라 그
+     * id 를 박아 썼는데, 대상 명단을 확보해 검증으로 올라가면서(#498) 그 전제가 사라졌다. 시드가
+     * 무엇을 담고 있는지에 기대면 시드가 바뀔 때마다 여기가 깨진다.
+     */
     @Test
     void 미검증_정책은_숨겨져_404() throws Exception {
-        mockMvc.perform(get("/api/v1/policies/{id}", 3)) // 디지털관광주민증 verified=false
+        Long id = policyRepository.save(Policy.builder()
+                .type(PolicyType.WORKER_VACATION)
+                .name("아직 확인 못 한 혜택")
+                .benefitDetail("상세 미확정")
+                .targetAudience("전 국민")
+                .verified(false)
+                .checkedOn(LocalDate.of(2026, 9, 7))
+                .build()).getId();
+
+        mockMvc.perform(get("/api/v1/policies/{id}", id))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.code").value("POLICY-001"))

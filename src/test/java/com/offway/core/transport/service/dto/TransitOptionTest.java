@@ -26,6 +26,7 @@ class TransitOptionTest {
     @Test
     void 대안도_시간표를_든다() {
         TransitOption 대안 = TransitOption.builder()
+                .status(RegionAccess.Status.POINT_ONLY)
                 .mode(TransitMode.FERRY)
                 .toName("울릉_도동")
                 .durationMinutes(140)
@@ -45,6 +46,7 @@ class TransitOptionTest {
     @Test
     void 시간표를_안_주면_빈_목록이다() {
         TransitOption 대안 = TransitOption.builder()
+                .status(RegionAccess.Status.POINT_ONLY)
                 .mode(TransitMode.INTERCITY_BUS)
                 .toName("정선")
                 .build();
@@ -56,6 +58,6 @@ class TransitOptionTest {
     void 도착_지점명_없이는_대안이_아니다() {
         // 어디에 내리는지 모르면 화면이 그릴 것이 없다 — "없는 선택지" 를 늘어놓는 셈이다.
         assertThrows(NullPointerException.class,
-                () -> TransitOption.builder().mode(TransitMode.FERRY).build());
+                () -> TransitOption.builder().status(RegionAccess.Status.POINT_ONLY).mode(TransitMode.FERRY).build());
     }
 }

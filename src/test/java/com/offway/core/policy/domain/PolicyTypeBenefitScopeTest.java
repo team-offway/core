@@ -22,8 +22,28 @@ class PolicyTypeBenefitScopeTest {
         assertEquals(Optional.of(BenefitScope.LODGING), PolicyType.STAY_FESTA.targetScope());
     }
 
+    /**
+     * 충남 트래블 페스타도 숙소다(#498).
+     *
+     * <p>주최 페이지가 <b>"숙박 예약 시에만 사용 가능(대실 불가)"</b> 이라고 못 박는다. 가맹점 목록이
+     * 필요 없는 이유는 대상이 특정 업소가 아니라 <b>충남 15개 시군 전 숙소</b>라서다 — 숙박세일페스타와
+     * 같은 구조다.
+     */
+    @Test
+    void 충남_트래블_페스타도_숙소에서_쓴다() {
+        assertEquals(Optional.of(BenefitScope.LODGING), PolicyType.CHUNGNAM_TRAVEL_FESTA.targetScope());
+    }
+
+    /**
+     * 나머지는 쓸 자리를 단정하지 않는다.
+     *
+     * <p>예외 둘은 <b>주최가 "숙박에만" 이라고 적어 둔 것</b>이다. 그 문장이 없으면 여기 들어온다 —
+     * 동해선 패스는 숙박·카페·체험을 묶은 패키지라 어디서 쓰는지 하나로 말할 수 없고, 반하다 경북은
+     * 열차운임 환급이라 애초에 장소에 붙지 않는다.
+     */
     @ParameterizedTest
-    @EnumSource(value = PolicyType.class, names = "STAY_FESTA", mode = EnumSource.Mode.EXCLUDE)
+    @EnumSource(value = PolicyType.class,
+            names = {"STAY_FESTA", "CHUNGNAM_TRAVEL_FESTA"}, mode = EnumSource.Mode.EXCLUDE)
     void 나머지는_쓸_자리를_단정하지_않는다(PolicyType type) {
         // 지자체 바우처는 가맹점 목록이, 디지털관광주민증은 제휴처 목록이 있어야 한다. 우리에겐 없다.
         assertTrue(type.targetScope().isEmpty(), type + " 가 근거 없이 쓸 자리를 단정한다");

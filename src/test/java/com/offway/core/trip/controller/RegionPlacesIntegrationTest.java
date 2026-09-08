@@ -40,7 +40,9 @@ class RegionPlacesIntegrationTest {
                 .andExpect(jsonPath("$.data.places[0].name").exists())
                 .andExpect(jsonPath("$.data.places[0].categoryLabel").exists())
                 .andExpect(jsonPath("$.pageResponse.page").value(0))
-                .andExpect(jsonPath("$.pageResponse.totalElements").value(3));
+                // 셋이었다가 넷이 됐다 — 야영장을 볼거리에서 숙박으로 옮겼다(#516).
+                // 의성군에 야영장이 하나 있어 숙소 목록에 함께 나온다. 잘 곳이니 맞는 자리다.
+                .andExpect(jsonPath("$.pageResponse.totalElements").value(4));
     }
 
     /** 화면이 필터 칩을 그리려면 그 종류에 어떤 분류가 있는지 알아야 한다. */
