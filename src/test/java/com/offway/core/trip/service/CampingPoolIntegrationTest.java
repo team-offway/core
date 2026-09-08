@@ -7,7 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.offway.core.itinerary.domain.Density;
+import com.offway.core.itinerary.domain.Slot;
+import com.offway.core.itinerary.domain.SlotKind;
+import com.offway.core.itinerary.service.CourseGenerationService;
+import com.offway.core.itinerary.service.dto.GenerateCourse;
+import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.region.domain.Region;
+import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.CampingPlace;
 import com.offway.core.trip.domain.TourApiException;
@@ -72,6 +79,9 @@ class CampingPoolIntegrationTest {
 
     @Autowired
     private PoiDetailService poiDetailService;
+
+    @Autowired
+    private CourseGenerationService courseGenerationService;
 
     @Autowired
     private RegionRepository regionRepository;
@@ -291,6 +301,62 @@ class CampingPoolIntegrationTest {
         assertNotNull(detail.mapSearchUrl(), "사진도 운영정보도 없으면 지도로 넘긴다");
     }
 
+    /**
+     * <b>사진 있는 숙소가 있으면 야영장을 코스에 안 올린다</b>(#510).
+     *
+     * <h2>왜 이걸 잠그나</h2>
+     *
+     * <p>숙박 슬롯은 볼거리 중심에서 <b>가장 가까운 것</b>으로 뽑는다. 야영장은 산·계곡·유적 근처라
+     * 그 중심에 가까워, 거리만 보면 <b>사진 있는 호텔을 밀어낸다.</b>
+     *
+     * <p>실측(2026-09-08 · 83곳 × 2박)이 그 대가를 보여준다 — 거리만 보면 야영장이 숙박 자리의
+     * 42%(71/166)를 차지하고 두 밤 다 캠핑인 지역이 20곳 나오며, <b>사진 있는 숙소가 141 → 119 로
+     * 줄었다.</b> 야영장을 들여온 이유와 정반대다.
+     *
+     * <p>이 픽스처가 정확히 그 상황이다 — 야영장이 볼거리 중심에서 약 7km, 관광 API 숙소가 약 14km 다.
+     * <b>거리만 보면 야영장이 반드시 뽑힌다.</b>
+     */
+    @Test
+    void 사진_있는_숙소가_있으면_야영장이_코스에_안_올라간다() {
+        Region region = 우리지역();
+        stub().respond(() -> new GoCampsiteResult(List.of(야영장(region, "1", "가까운야영장")), 1));
+        refreshService.refresh(FIRST_RUN);
+        ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지와숙박(15, 5), 20));
+
+        List<Slot> stays = courseGenerationService.generate(코스요청(region)).course().getDays().stream()
+                .flatMap(day -> day.getSlots().stream())
+                .filter(slot -> slot.getKind() == SlotKind.STAY)
+                .toList();
+
+        assertFalse(stays.isEmpty(), "이 시나리오는 숙박 슬롯이 있어야 성립한다");
+        assertTrue(stays.stream().noneMatch(slot -> slot.getPoiContentId().startsWith("CMP-")),
+                "야영장이 사진 있는 숙소를 밀어냈다 — 뽑힌 것: "
+                        + stays.stream().map(Slot::getPoiContentId).toList());
+    }
+
+    /**
+     * <b>숙소가 아예 없으면 야영장이라도 올린다.</b>
+     *
+     * <p>앞 단언만 두면 "야영장을 아예 안 쓴다" 로 고쳐도 초록이다. 그러면 이 표를 들여온 이유가
+     * 통째로 사라지는데, 코스는 여전히 나오므로 아무도 모른다.
+     */
+    @Test
+    void 숙소가_없으면_야영장을_올린다() {
+        Region region = 우리지역();
+        stub().respond(() -> new GoCampsiteResult(List.of(야영장(region, "1", "유일한야영장")), 1));
+        refreshService.refresh(FIRST_RUN);
+        // 숙박이 하나도 없는 지역 — 관광 API 가 볼거리만 준다.
+        ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지와숙박(15, 0), 15));
+
+        List<Slot> stays = courseGenerationService.generate(코스요청(region)).course().getDays().stream()
+                .flatMap(day -> day.getSlots().stream())
+                .filter(slot -> slot.getKind() == SlotKind.STAY)
+                .toList();
+
+        assertTrue(stays.stream().anyMatch(slot -> slot.getPoiContentId().startsWith("CMP-")),
+                "잘 곳이 야영장뿐인데 슬롯이 비었다");
+    }
+
     @Test
     void 없는_야영장을_물으면_404() {
         assertThrows(TourApiException.class, () -> poiDetailService.detail("CMP-99999999"));
@@ -411,6 +477,20 @@ class CampingPoolIntegrationTest {
                     36.4 + i * 0.001, 128.6 + i * 0.001, "http://img/a" + i + ".jpg", null, null));
         }
         return pois;
+    }
+
+    /** 2박3일 자차 코스 — 숙박 슬롯이 생기는 가장 단순한 요청이다. */
+    private static GenerateCourse 코스요청(Region region) {
+        return GenerateCourse.builder()
+                .regionId(region.getId())
+                .travelDays(3)
+                .density(Density.RELAXED)
+                .transport(TransportMode.CAR)
+                .originLat(36.5)
+                .originLng(128.7)
+                .travelDate(TRAVEL_DATE)
+                .startDayLeave(StartDayLeave.FULL_DAY)
+                .build();
     }
 
     private StubGoCampingClient stub() {
