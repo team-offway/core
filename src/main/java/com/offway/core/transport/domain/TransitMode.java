@@ -19,7 +19,16 @@ import java.util.Optional;
 public enum TransitMode {
 
     /** 열차 — TAGO 열차정보. 유일하게 실제 운행 편·도착 시각까지 안다. */
-    TRAIN("열차") {
+    TRAIN("열차", "역") {
+        /**
+         * 열차는 <b>끝자리</b>로만 본다. {@code contains} 로 보면 {@code 역곡}·{@code 역삼}처럼 이름 안에
+         * "역" 이 든 곳이 이미 붙은 것으로 읽혀 영영 "역" 이 안 붙는다.
+         */
+        @Override
+        boolean alreadyNamed(String rawName) {
+            return rawName.endsWith("역");
+        }
+
         @Override
         public int lookaheadDays() {
             throw new IllegalStateException("열차는 구간 소요시간 대상이 아닙니다 — TrainInfoClient 가 시각까지 답합니다.");
@@ -32,7 +41,7 @@ public enum TransitMode {
     },
 
     /** 고속버스 — {@code ExpBusInfo}. 주요 도시를 잇는다. */
-    EXPRESS_BUS("고속버스") {
+    EXPRESS_BUS("고속버스", "터미널") {
         @Override
         public int lookaheadDays() {
             return BUS_LOOKAHEAD_DAYS;
@@ -45,7 +54,7 @@ public enum TransitMode {
     },
 
     /** 시외버스 — {@code SuburbsBusInfo}. 군 단위까지 촘촘히 닿는다. */
-    INTERCITY_BUS("시외버스") {
+    INTERCITY_BUS("시외버스", "터미널") {
         @Override
         public int lookaheadDays() {
             return BUS_LOOKAHEAD_DAYS;
@@ -58,7 +67,17 @@ public enum TransitMode {
     },
 
     /** 여객선 — {@code DmstcShipNvgInfo}. 섬 지역엔 이것뿐이다(울릉군·옹진군). */
-    FERRY("여객선") {
+    FERRY("여객선", "여객선터미널") {
+        /**
+         * 항구 이름은 {@code 완도항}·{@code 부산_연안부두}처럼 이미 타는 곳을 가리키는 말을 품는 경우가
+         * 있다. 그때는 두 번 붙이지 않는다 — "완도항여객선터미널" 이 된다.
+         */
+        @Override
+        boolean alreadyNamed(String rawName) {
+            return rawName.contains("터미널") || rawName.contains("항")
+                    || rawName.contains("부두") || rawName.contains("선착장");
+        }
+
         @Override
         public int lookaheadDays() {
             return FERRY_LOOKAHEAD_DAYS;
@@ -76,7 +95,8 @@ public enum TransitMode {
      * <p>도착 지점이 역·터미널·항구가 아니라 <b>지역 그 자체</b>고, 배차라는 것이 없어 조회창도 구간 측정도
      * 해당하지 않는다. 소요시간은 출발지→지역 이동시간에서 바로 나온다.
      */
-    CAR("자차") {
+    CAR("자차", "") {
+
         @Override
         public int lookaheadDays() {
             throw new IllegalStateException("자차는 배차가 없어 조회창이 없습니다.");
@@ -155,8 +175,12 @@ public enum TransitMode {
 
     private final String label;
 
-    TransitMode(String label) {
+    /** 이름 뒤에 붙일 종류. 자차는 지역명을 그대로 쓰므로 비어 있다. */
+    private final String placeSuffix;
+
+    TransitMode(String label, String placeSuffix) {
         this.label = label;
+        this.placeSuffix = placeSuffix;
     }
 
     /** 화면 노출 한글 라벨. */
@@ -180,6 +204,48 @@ public enum TransitMode {
             case EXPRESS -> EXPRESS_BUS;
             case INTERCITY -> INTERCITY_BUS;
         };
+    }
+
+    /**
+     * 타고 내리는 곳의 <b>이름</b> — 수단을 붙여 어디로 가야 하는지 말이 되게 한다.
+     *
+     * <h2>왜 필요했나</h2>
+     *
+     * <p>마스터 이름이 그대로 화면에 나가서 코스 첫 칸이 <b>"태안"</b> 이었다. 태안 어디로 가라는 것인지
+     * 알 수 없다 — 열차면 태안역, 버스면 태안터미널이다.
+     *
+     * <p>이름에 종류가 안 붙어 있는 것이 예외가 아니라 <b>기본</b>이다(실측 2026-09-08):
+     *
+     * <table border="1">
+     *   <caption>마스터 이름에 종류가 붙어 있는 비율</caption>
+     *   <tr><th>마스터</th><th>전체</th><th>종류가 붙은 것</th></tr>
+     *   <tr><td>{@code train_station}</td><td>343</td><td><b>0</b></td></tr>
+     *   <tr><td>{@code bus_terminal}</td><td>789</td><td>10</td></tr>
+     *   <tr><td>{@code ferry_port}</td><td>500</td><td>17</td></tr>
+     * </table>
+     *
+     * <h2>이미 붙은 이름은 두 번 붙이지 않는다</h2>
+     *
+     * <p>{@code 서울고속버스터미널(경부)}·{@code 완도항}처럼 종류가 이미 들어 있는 이름이 있다. 무조건
+     * 덧붙이면 "완도항여객선터미널" 이 된다. 무엇을 이미 붙은 것으로 볼지는 수단마다 다르므로
+     * {@link #alreadyNamed(String)} 가 상수별로 답한다.
+     *
+     * @return 종류가 붙은 이름. {@code null}·빈 문자열은 그대로 돌려준다(없는 것을 지어내지 않는다)
+     */
+    public String placeName(String rawName) {
+        if (rawName == null || rawName.isBlank() || placeSuffix.isEmpty() || alreadyNamed(rawName)) {
+            return rawName;
+        }
+        return rawName + placeSuffix;
+    }
+
+    /**
+     * 이 이름에 종류가 이미 들어 있는가.
+     *
+     * <p>기본은 접미사를 그대로 품고 있는지다. 수단마다 다르게 봐야 하면 상수가 재정의한다.
+     */
+    boolean alreadyNamed(String rawName) {
+        return rawName.contains(placeSuffix);
     }
 
     /**
