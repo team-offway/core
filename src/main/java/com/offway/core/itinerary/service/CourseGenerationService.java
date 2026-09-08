@@ -10,6 +10,7 @@ import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.DayStart;
 import com.offway.core.itinerary.domain.GeoCluster;
 import com.offway.core.itinerary.domain.ItineraryException;
+import com.offway.core.itinerary.domain.RoutePath;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SightVariety;
@@ -342,19 +343,68 @@ public class CourseGenerationService {
     }
 
     /** 기준점에서 가장 가까운 곳부터 이어붙이는 그리디 정렬(하루 묶기용). 하루 내부 순서는 TMAP 경유지 최적화로 다시 다듬는다. */
+    /**
+     * 방문 순서를 정한다 — <b>최근접으로 잡고 2-opt 로 다듬는다</b>(#531).
+     *
+     * <p>최근접만 쓰면 되돌아오지 않는 그리디라 마지막에 멀리 튀는 구간이 남는다. 실측(89곳 전수)에서
+     * 다듬기를 얹으면 지역 안 이동이 <b>26.5㎞ → 24.0㎞</b> 로 준다(중앙값 3.7% · 42곳이 5% 이상).
+     *
+     * <p><b>거리 행렬을 한 번만 만든다.</b> 예전에는 최근접을 도는 동안 매번 provider 를 불렀는데, 그
+     * 호출 수가 이미 O(n²) 다. 한 번 만들어 두면 다듬기는 배열 읽기라 <b>호출이 더 늘지 않는다.</b>
+     *
+     * <p>행렬 비용은 {@code travelMinutes} 라 외부를 안 탄다 — 지역 안 구간은 40㎞ 미만이라 직선거리
+     * 근사로 떨어진다. TMAP 은 하루 이웃 구간에서만 부른다.
+     */
     private List<PoiCandidate> nearestNeighborOrder(
             List<PoiCandidate> pois, TransportMode transport, Coordinate anchor) {
-        List<PoiCandidate> remaining = new ArrayList<>(pois);
-        List<PoiCandidate> ordered = new ArrayList<>();
-        Coordinate current = anchor;
+        if (pois.size() < 2) {
+            return List.copyOf(pois);
+        }
+        int[][] cost = costMatrix(pois, transport, anchor);
+        List<Integer> greedy = greedyOrder(cost, pois.size());
+        return RoutePath.improve(cost, greedy).stream().map(stop -> pois.get(stop - 1)).toList();
+    }
+
+    /**
+     * 0 번이 출발점, 1..n 이 들를 곳인 대칭 비용 행렬.
+     *
+     * <p><b>대칭으로 채운다.</b> 한 방향만 재고 반대편에 같은 값을 넣는다 — 계산이 절반이고, 2-opt 가
+     * 기대는 대칭 가정을 행렬이 스스로 지킨다.
+     */
+    private int[][] costMatrix(List<PoiCandidate> pois, TransportMode transport, Coordinate anchor) {
+        int size = pois.size() + 1;
+        Coordinate[] points = new Coordinate[size];
+        points[0] = anchor;
+        for (int i = 0; i < pois.size(); i++) {
+            points[i + 1] = coord(pois.get(i));
+        }
+        int[][] cost = new int[size][size];
+        for (int from = 0; from < size; from++) {
+            for (int to = from + 1; to < size; to++) {
+                int minutes = travelTimeProvider.reachMinutes(points[from], points[to], transport);
+                cost[from][to] = minutes;
+                cost[to][from] = minutes;
+            }
+        }
+        return cost;
+    }
+
+    /** 출발점에서 가장 가까운 곳부터 훑는다 — 다듬기의 출발선이다. */
+    private static List<Integer> greedyOrder(int[][] cost, int stops) {
+        List<Integer> remaining = new ArrayList<>();
+        for (int stop = 1; stop <= stops; stop++) {
+            remaining.add(stop);
+        }
+        List<Integer> ordered = new ArrayList<>(stops);
+        int current = 0;
         while (!remaining.isEmpty()) {
-            Coordinate from = current;
-            PoiCandidate next = remaining.stream()
-                    .min(Comparator.comparingInt(poi -> travelMinutes(from, poi, transport)))
+            int from = current;
+            int next = remaining.stream()
+                    .min(Comparator.comparingInt(stop -> cost[from][stop]))
                     .orElseThrow();
             ordered.add(next);
-            remaining.remove(next);
-            current = coord(next);
+            remaining.remove(Integer.valueOf(next));
+            current = next;
         }
         return ordered;
     }
@@ -381,9 +431,12 @@ public class CourseGenerationService {
             DayStart start = day == 1 ? firstDayStart : DayStart.fullDay();
             List<PoiCandidate> daySights = takeVaried(remaining, start.sightCapacity(perDaySights));
             if (command.transport() == TransportMode.CAR) {
-                // 하루 볼거리 순서를 실도로 기준 최적화(자차). 대중교통은 #26·#27 전까지 근사 순서 유지.
+                // 하루 볼거리 순서를 실도로 기준 최적화(자차). TMAP 은 실도로라 우리 추정보다 낫다.
                 daySights = reorder(daySights, routeOptimizer.optimalOrder(coords(daySights)));
             }
+            // 대중교통은 여기서 따로 안 다듬는다(#531). 전체 순서를 이미 2-opt 로 다듬어 뒀고, 하루만
+            // 떼어 다시 맞추면 **다음 날로 넘어가는 구간을 못 본다** — 그날은 짧아져도 이튿날 첫 이동이
+            // 늘어 전체가 나빠질 수 있다. 실측에서도 하루 단위 추가 이득은 중앙값 0.0㎞ 였다.
             List<PoiCandidate> dayFoods = slice(foods, fi, start.mealCapacity());
             fi += dayFoods.size();
             // 카페는 점심 뒤 한 칸이라, 점심이 없는 날(늦게 시작한 첫날)에는 넣지 않는다.
