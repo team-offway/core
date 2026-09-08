@@ -1,5 +1,7 @@
 package com.offway.core.trip.service.dto;
 
+import com.offway.core.trip.domain.FoodTaste;
+
 import lombok.Builder;
 
 /**
@@ -39,13 +41,13 @@ public record PoiCandidate(
          */
         String lclsSystm2,
         /**
-         * 음식 분류 코드 — 인허가는 {@code PlaceCategory} 이름({@code KOREAN}·{@code NOODLE}),
-         * TourAPI 는 {@code cat3}({@code A05020100}) 이다(#음식중복).
+         * 분류가 말해 주는 음식(#520) — <b>이미 도메인 값으로 풀린 것</b>이다.
          *
-         * <p><b>두 출처의 코드를 한 칸에 담는다.</b> 갈라 두면 쓰는 쪽이 매번 어느 출처인지 물어야 하는데,
-         * 판정은 {@link com.offway.core.trip.domain.FoodTaste} 한 곳이 소유하므로 거기서 둘 다 읽으면 된다.
+         * <p>인허가는 {@code PlaceCategory}, TourAPI 는 {@code cat3} 로 코드 체계가 다른데, 그 해석은
+         * <b>각 출처가 소유한다</b>. 여기에 코드를 그대로 담으면 쓰는 쪽이 어느 출처인지 매번 물어야 하고,
+         * 도메인이 외부 API 세부에 묶인다.
          *
-         * <p>없으면 null 이다 — 국가유산·축제처럼 음식이 아닌 출처가 그렇다.
+         * <p>없으면 null 이다 — 분류가 음식을 말해 주지 않거나(한식), 음식이 아닌 출처(국가유산·축제)다.
          */
-        String foodCategory) {
+        FoodTaste foodCategory) {
 }

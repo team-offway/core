@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -62,27 +63,42 @@ class FoodTasteTest {
                 "둘 다 못 읽었는데 같다고 하면 이름만 비슷한 다른 집이 지워진다");
     }
 
-    /** 상호를 못 읽으면 분류를 본다 — 다만 한 칸이 너무 큰 분류는 근거가 못 된다. */
+    /** 상호를 못 읽으면 <b>이미 풀린 분류</b>를 쓴다. */
     @Test
     void 상호를_못_읽으면_분류로_갈린다() {
-        assertTrue(FoodTaste.same("바다마을", "SEAFOOD", "포구식당", "SEAFOOD"));
-        assertFalse(FoodTaste.same("느티나무가든", "KOREAN", "그린가든", "KOREAN"),
-                "한식은 인허가 52%·TourAPI 84곳의 대표라 같다고 말할 근거가 못 된다");
-        assertFalse(FoodTaste.same("바다마을", "SEAFOOD", "면옥", "NOODLE"));
+        assertTrue(FoodTaste.same("바다마을", FoodTaste.RAW_FISH, "포구식당", FoodTaste.RAW_FISH));
+        assertFalse(FoodTaste.same("느티나무가든", null, "그린가든", null),
+                "한식은 분류가 아무 말도 안 해 준다 — 그때 같다고 하면 멀쩡한 후보가 지워진다");
+        assertFalse(FoodTaste.same("바다마을", FoodTaste.RAW_FISH, "면옥", FoodTaste.NOODLE));
     }
 
-    /** 분류보다 상호가 먼저다 — 분류를 먼저 보면 KOREAN 인 한우집이 상호까지 못 간다. */
+    /** 분류보다 상호가 먼저다 — 분류를 먼저 보면 한식으로 풀린 한우집이 상호까지 못 간다. */
     @Test
     void 분류보다_상호가_먼저다() {
-        assertEquals(Optional.of(FoodTaste.BEEF), FoodTaste.of("횡성한우마을", "KOREAN"));
-        assertTrue(FoodTaste.same("횡성한우마을", "KOREAN", "횡성순한우", "KOREAN"));
+        assertEquals(Optional.of(FoodTaste.BEEF), FoodTaste.of("횡성한우마을", null));
+        assertTrue(FoodTaste.same("횡성한우마을", null, "횡성순한우", null));
     }
 
-    /** TourAPI cat3 도 같은 표에서 읽는다 — 두 출처를 한 칸에 담기로 한 결과다. */
+    /**
+     * <b>코드 해석은 각 출처가 소유한다.</b> 도메인이 {@code A05020200} 을 직접 읽으면 외부 API 세부에
+     * 묶인다(CodeRabbit #521 리뷰).
+     */
     @Test
-    void 관광API_분류도_읽는다() {
-        assertEquals(Optional.of(FoodTaste.CHINESE), FoodTaste.of("만리포반점", "A05020400"));
-        assertEquals(Optional.of(FoodTaste.CAFE), FoodTaste.of("나문재", "A05020900"));
-        assertTrue(FoodTaste.of("어느집", "A05020100").isEmpty(), "한식은 뺐다 — 갈리는 것이 없다");
+    void 관광API_코드는_어댑터가_옮긴다() {
+        assertEquals(Optional.of(FoodTaste.CHINESE),
+                TourPoi.builder().cat3("A05020400").build().foodTaste());
+        assertEquals(Optional.of(FoodTaste.CAFE),
+                TourPoi.builder().cat3("A05020900").build().foodTaste());
+        assertTrue(TourPoi.builder().cat3("A05020100").build().foodTaste().isEmpty(),
+                "한식은 89곳 중 84곳의 대표라 갈리는 것이 없다");
+    }
+
+    /** 인허가 분류도 자기가 옮긴다 — 한 칸이 큰 것은 아무 말도 안 한다. */
+    @Test
+    void 인허가_분류는_자기가_옮긴다() {
+        assertEquals(Optional.of(FoodTaste.RAW_FISH), PlaceCategory.SEAFOOD.taste());
+        assertEquals(Optional.of(FoodTaste.CAFE), PlaceCategory.COFFEE.taste());
+        assertTrue(PlaceCategory.KOREAN.taste().isEmpty(), "전체의 52% 라 근거가 못 된다");
+        assertTrue(PlaceCategory.RESTAURANT.taste().isEmpty());
     }
 }

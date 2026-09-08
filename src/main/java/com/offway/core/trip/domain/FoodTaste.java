@@ -21,6 +21,11 @@ import java.util.Optional;
  * <p>실제로 사용자가 느끼는 겹침이 거기 있다 — 횡성 {@code 횡성한우마을} · {@code 횡성순한우}, 태안
  * {@code 꽃지원조꽃게집} · {@code 꽃게장집}. 지역 특산이 곧 음식점 풀이라 어디서나 같은 모양이다.
  *
+ * <h2>분류는 각 출처가 풀어서 준다</h2>
+ *
+ * <p>인허가는 {@code PlaceCategory}, TourAPI 는 {@code cat3} 로 코드 체계가 다르다. <b>그 해석은 각
+ * 출처가 소유한다</b> — 여기서 외부 코드를 읽으면 도메인이 API 세부에 묶인다.
+ *
  * <h2>못 읽는 것이 3분의 2다</h2>
  *
  * <p>인허가 9만 건에서 상호로 음식이 읽히는 것은 <b>33%</b> 다({@code 가든}·{@code 식당}·{@code 소담}
@@ -112,33 +117,6 @@ public enum FoodTaste {
         BY_WORD.put("분식", SNACK);
     }
 
-    /**
-     * 분류로도 갈리는 것 — 상호를 못 읽었을 때의 <b>두 번째 근거</b>다.
-     *
-     * <p>여기 없는 분류는 일부러 뺐다. {@code KOREAN}(인허가 52%)·{@code RESTAURANT}·TourAPI 한식처럼
-     * <b>한 칸이 너무 큰 것</b>은 같다고 말할 근거가 못 된다 — 한식집끼리 전부 겹친 것으로 처리하면
-     * 사진 있는 후보를 무더기로 밀어낸다.
-     */
-    private static final Map<String, FoodTaste> BY_CATEGORY = new LinkedHashMap<>();
-
-    static {
-        // 인허가 분류(PlaceCategory 이름)
-        BY_CATEGORY.put("SEAFOOD", RAW_FISH);
-        BY_CATEGORY.put("NOODLE", NOODLE);
-        BY_CATEGORY.put("BUFFET", BUFFET);
-        BY_CATEGORY.put("FASTFOOD", SNACK);
-        BY_CATEGORY.put("COFFEE", CAFE);
-        BY_CATEGORY.put("TEAROOM", CAFE);
-        BY_CATEGORY.put("TRADITIONAL_TEA", CAFE);
-        BY_CATEGORY.put("BAKERY", BAKERY);
-        BY_CATEGORY.put("DESSERT", BAKERY);
-        // TourAPI cat3 — 한식(A05020100)은 뺀다. 89곳 중 84곳의 대표라 갈리는 것이 없다.
-        BY_CATEGORY.put("A05020200", WESTERN);
-        BY_CATEGORY.put("A05020300", JAPANESE);
-        BY_CATEGORY.put("A05020400", CHINESE);
-        BY_CATEGORY.put("A05020900", CAFE);
-    }
-
     /** 상호에서 음식을 읽는다. 못 읽으면 빈 값 — 그때는 <b>다른 음식으로 본다</b>. */
     public static Optional<FoodTaste> of(String title) {
         if (title == null || title.isBlank()) {
@@ -154,17 +132,17 @@ public enum FoodTaste {
     }
 
     /**
-     * 상호를 먼저 보고, 못 읽으면 분류를 본다.
+     * 상호를 먼저 보고, 못 읽으면 <b>이미 풀어 둔 분류</b>를 쓴다.
      *
      * <p>순서가 중요하다 — 분류를 먼저 보면 {@code 횡성한우마을}(인허가 {@code KOREAN})이 분류에서
      * 걸리지 않아 상호까지 못 간다. 상호가 <b>더 좁은 근거</b>이므로 먼저다.
+     *
+     * <p><b>여기서 외부 코드를 읽지 않는다.</b> {@code A05020200} 같은 값은 TourAPI 의 구현 세부라,
+     * 도메인이 그걸 알면 외부 API 에 묶인다. 코드를 이 값으로 옮기는 것은 각 출처의 어댑터가 한다.
      */
-    public static Optional<FoodTaste> of(String title, String category) {
+    public static Optional<FoodTaste> of(String title, FoodTaste category) {
         Optional<FoodTaste> byTitle = of(title);
-        if (byTitle.isPresent()) {
-            return byTitle;
-        }
-        return category == null ? Optional.empty() : Optional.ofNullable(BY_CATEGORY.get(category));
+        return byTitle.isPresent() ? byTitle : Optional.ofNullable(category);
     }
 
     /**
@@ -173,7 +151,7 @@ public enum FoodTaste {
      * <p>한쪽이라도 못 읽으면 {@code false} 다 — 모르는 것을 같다고 하면 멀쩡한 후보를 지운다.
      * 실측에서 상호로 읽히는 것이 33% 뿐이라, 이 보수적인 선택이 결과를 좌우한다.
      */
-    public static boolean same(String oneTitle, String oneCategory, String otherTitle, String otherCategory) {
+    public static boolean same(String oneTitle, FoodTaste oneCategory, String otherTitle, FoodTaste otherCategory) {
         Optional<FoodTaste> a = of(oneTitle, oneCategory);
         Optional<FoodTaste> b = of(otherTitle, otherCategory);
         return a.isPresent() && a.equals(b);

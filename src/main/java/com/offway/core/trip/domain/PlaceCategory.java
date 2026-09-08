@@ -1,5 +1,7 @@
 package com.offway.core.trip.domain;
 
+import java.util.Optional;
+
 import java.util.Arrays;
 import java.util.List;
 
@@ -102,5 +104,24 @@ public enum PlaceCategory {
     /** 이 종류에 속한 분류들(선언 순서 = 적합도 순서). 목록 화면의 필터 칩 재료다. */
     public static List<PlaceCategory> of(PlaceKind kind) {
         return Arrays.stream(values()).filter(category -> category.kind == kind).toList();
+    }
+
+    /**
+     * 이 분류가 <b>무슨 음식인지 말해 주는가</b>(#520).
+     *
+     * <p>말해 주는 것만 담는다. {@code KOREAN}(전체의 52%)·{@code RESTAURANT} 처럼 <b>한 칸이 너무
+     * 큰 것</b>은 같다고 말할 근거가 못 된다 — 한식집끼리 전부 겹친 것으로 처리하면 사진 있는 후보를
+     * 무더기로 밀어낸다.
+     */
+    public Optional<FoodTaste> taste() {
+        return switch (this) {
+            case SEAFOOD -> Optional.of(FoodTaste.RAW_FISH);
+            case NOODLE -> Optional.of(FoodTaste.NOODLE);
+            case BUFFET -> Optional.of(FoodTaste.BUFFET);
+            case FASTFOOD -> Optional.of(FoodTaste.SNACK);
+            case COFFEE, TEAROOM, TRADITIONAL_TEA -> Optional.of(FoodTaste.CAFE);
+            case BAKERY, DESSERT -> Optional.of(FoodTaste.BAKERY);
+            default -> Optional.empty();
+        };
     }
 }
