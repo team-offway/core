@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.logging.RootCause;
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.UnroutableReason;
 import com.offway.core.transport.infrastructure.tmap.dto.CarRouteResult;
 import com.offway.core.transport.infrastructure.tmap.dto.TmapRoute;

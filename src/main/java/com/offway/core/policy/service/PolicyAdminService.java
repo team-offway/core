@@ -5,11 +5,12 @@ import com.offway.core.policy.domain.PolicyException;
 import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.policy.repository.PolicyRepository;
 import com.offway.core.policy.service.dto.PolicyCommand;
+import java.util.function.Supplier;
+import org.springframework.dao.PessimisticLockingFailureException;
 import com.offway.core.policy.service.dto.PolicyScope;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.domain.RegionTagType;
-import com.offway.core.region.repository.RegionRepository;
-import com.offway.core.region.repository.RegionTagRepository;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.user.service.AdminAccountService;
 import java.util.Arrays;
 import java.util.List;
@@ -50,8 +51,7 @@ public class PolicyAdminService {
 
     private final PolicyRepository policyRepository;
     private final AdminAccountService adminAccountService;
-    private final RegionTagRepository regionTagRepository;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
 
     /**
      * 분류마다 <b>어느 지역에 뜨는지</b>(#393).
@@ -66,7 +66,7 @@ public class PolicyAdminService {
                 .distinct()
                 .collect(Collectors.toMap(
                         tag -> tag,
-                        tag -> regionRepository.findByIds(regionTagRepository.findRegionIdsByTag(tag))));
+                        tag -> regionQuery.byIds(regionQuery.idsWithTag(tag))));
         return Arrays.stream(PolicyType.values())
                 .map(type -> new PolicyScope(type, byTag.getOrDefault(type.targetTag(), List.of())))
                 .toList();
@@ -84,11 +84,35 @@ public class PolicyAdminService {
 
     @Transactional
     public Policy create(PolicyCommand command, UUID adminUserId) {
-        requireNoOverlappingBadge(command, null);
-        String label = labelOf(adminUserId);
-        Policy saved = policyRepository.save(command.toPolicy(label));
-        log.info("정책 생성 id={} 분류={} 검증={} by={}", saved.getId(), saved.getType(), saved.isVerified(), label);
-        return saved;
+        return withoutLockNoise(command, () -> {
+            requireNoOverlappingBadge(command, null);
+            String label = labelOf(adminUserId);
+            Policy saved = policyRepository.save(command.toPolicy(label));
+            log.info("정책 생성 id={} 분류={} 검증={} by={}", saved.getId(), saved.getType(), saved.isVerified(), label);
+            return saved;
+        });
+    }
+
+    /**
+     * 잠금 대기 실패를 <b>정직한 409</b> 로 바꾼다(#391).
+     *
+     * <p>중복을 막으려고 잠그고 읽는데, 동시에 여럿이 들어오면 대기가 한도를 넘어 실패한다(실측:
+     * 여덟이 동시에 저장할 때 한 명). 그대로 두면 어드민이 <b>500</b> 을 받는다 — 정상적인 동시
+     * 저장이지 서버 버그가 아닌데 서버 오류로 보인다.
+     *
+     * <p><b>읽기와 저장을 함께 감싼다.</b> 잠금 대기는 잠금 조회에서도 나지만, 기존 행이 없어 잠글
+     * 행이 없을 때는 <b>INSERT 의 gap 대기</b>에서 난다 — 정작 이 이슈가 막으려는 "그 분류의 첫
+     * 정책" 경합이 그쪽이다. 한쪽만 감싸면 그 경우가 그대로 샌다.
+     *
+     * <p>{@code DUPLICATE_ACTIVE_TYPE} 로 뭉뚱그리지 않는 이유는 {@code PolicyErrorCode} 에 적었다.
+     */
+    private <T> T withoutLockNoise(PolicyCommand command, Supplier<T> body) {
+        try {
+            return body.get();
+        } catch (PessimisticLockingFailureException e) {
+            log.info("같은 분류를 동시에 저장 중이라 잠금을 못 잡았다 분류={}", command.type());
+            throw PolicyException.concurrentSave();
+        }
     }
 
     /**
@@ -96,12 +120,14 @@ public class PolicyAdminService {
      */
     @Transactional
     public Policy update(long id, PolicyCommand command, UUID adminUserId) {
-        Policy policy = policyRepository.findById(id).orElseThrow(PolicyException::notFound);
-        requireNoOverlappingBadge(command, id);
-        String label = labelOf(adminUserId);
-        command.applyTo(policy, label);
-        log.info("정책 수정 id={} 분류={} 검증={} by={}", id, policy.getType(), policy.isVerified(), label);
-        return policy;
+        return withoutLockNoise(command, () -> {
+            Policy policy = policyRepository.findById(id).orElseThrow(PolicyException::notFound);
+            requireNoOverlappingBadge(command, id);
+            String label = labelOf(adminUserId);
+            command.applyTo(policy, label);
+            log.info("정책 수정 id={} 분류={} 검증={} by={}", id, policy.getType(), policy.isVerified(), label);
+            return policy;
+        });
     }
 
     /**
@@ -138,7 +164,9 @@ public class PolicyAdminService {
         if (!command.verified()) {
             return;
         }
-        boolean overlaps = policyRepository.findVerifiedByType(command.type()).stream()
+        // **잠그고 읽는다**(#391). 안 잠그면 읽기와 쓰기 사이에 창이 남아, 어드민 둘이
+        // 동시에 저장할 때 둘 다 "중복 없음" 을 읽고 둘 다 저장한다.
+        boolean overlaps = policyRepository.findVerifiedByTypeForUpdate(command.type()).stream()
                 .filter(other -> !other.getId().equals(excludedId))
                 .anyMatch(other -> other.periodOverlaps(command.periodStart(), command.periodEnd()));
         if (overlaps) {

@@ -1,5 +1,6 @@
 package com.offway.core.transport.domain;
 
+import com.offway.core.common.geo.Coordinate;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Objects;

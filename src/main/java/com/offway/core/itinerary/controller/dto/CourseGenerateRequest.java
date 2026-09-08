@@ -4,6 +4,7 @@ import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
 import com.offway.core.leave.domain.StartDayLeave;
+import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.domain.TransportMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMax;
@@ -37,6 +38,16 @@ public record CourseGenerateRequest(
         @Schema(example = "127.02", requiredMode = Schema.RequiredMode.REQUIRED)
                 @NotNull @DecimalMin("-180") @DecimalMax("180") Double originLng,
         @Schema(example = "2026-05-01", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull LocalDate travelDate,
+        @Schema(description = """
+                이 수단으로 코스를 짠다(#453). 카드에서 수단 칩을 눌렀을 때만 보낸다.
+
+                **도착 지점이 바뀌면 동선도 바뀐다** — 코스는 집이 아니라 내린 곳에서 시작하므로,
+                시간표만 갈아끼우면 순서와 첫날 시각이 어긋난 채 남는다. 지역에 따라 역과 터미널이
+                수십 km 떨어져 있다(양양은 강릉역까지 42km).
+
+                그 지역에 그 수단이 안 닿으면 **서버가 고른 수단으로 돌아간다.**""",
+                example = "TRAIN", nullable = true)
+                TransitMode transitMode,
         @Schema(
                         description = "첫날에 쓴 연차 (선택, 기본 FULL_DAY). 출발 시각이 여기서 나오고 그 시각이 "
                                 + "첫날 일정을 자른다 — FULL_DAY 08시 · HALF_DAY 12시 · QUARTER_DAY 15시",
@@ -51,6 +62,7 @@ public record CourseGenerateRequest(
                 .travelDays(travelDays)
                 .density(density)
                 .transport(transport)
+                .transitMode(transitMode)
                 .originLat(originLat)
                 .originLng(originLng)
                 .travelDate(travelDate)

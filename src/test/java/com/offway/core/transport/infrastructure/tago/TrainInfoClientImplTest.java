@@ -44,8 +44,8 @@ class TrainInfoClientImplTest {
         TrainAvailability result = client(body).fastestTrain("NAT010000", "NAT013271", DATE);
 
         TrainAvailability.Available available = assertInstanceOf(TrainAvailability.Available.class, result);
-        assertEquals("KTX", available.fastestDepartingFrom(LocalTime.MIN).orElseThrow().trainType()); // 100분 < 무궁화 210분
-        assertEquals(100, available.fastestDepartingFrom(LocalTime.MIN).orElseThrow().durationMinutes());
+        assertEquals("KTX", available.earliestArrivalDepartingFrom(LocalTime.MIN).orElseThrow().trainType()); // 08:40 도착 < 무궁화 09:30 도착
+        assertEquals(100, available.earliestArrivalDepartingFrom(LocalTime.MIN).orElseThrow().durationMinutes());
     }
 
     @Test
@@ -59,8 +59,8 @@ class TrainInfoClientImplTest {
         TrainAvailability result = client(body).fastestTrain("NAT010000", "NAT013271", DATE);
 
         TrainAvailability.Available available = assertInstanceOf(TrainAvailability.Available.class, result);
-        assertEquals("KTX", available.fastestDepartingFrom(LocalTime.MIN).orElseThrow().trainType());
-        assertEquals(100, available.fastestDepartingFrom(LocalTime.MIN).orElseThrow().durationMinutes());
+        assertEquals("KTX", available.earliestArrivalDepartingFrom(LocalTime.MIN).orElseThrow().trainType());
+        assertEquals(100, available.earliestArrivalDepartingFrom(LocalTime.MIN).orElseThrow().durationMinutes());
     }
 
     @Test

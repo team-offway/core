@@ -1,15 +1,23 @@
 package com.offway.core.transport.repository;
 
+import com.offway.core.common.geo.Coordinate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.transport.domain.BusTerminal;
 import com.offway.core.transport.domain.BusTerminalKind;
+import com.offway.core.transport.domain.Terminal;
 import com.offway.core.transport.service.BusTerminalResolver;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -28,14 +36,28 @@ class BusTerminalSeedIntegrationTest {
     private static final int EXPECTED_TERMINALS = EXPECTED_EXPRESS + EXPECTED_INTERCITY;
 
     /**
-     * 검증을 통과해 좌표를 남긴 행 수 — 고속 195 + 시외 335 = 530(2026-08-06 실측).
+     * 좌표를 가진 행 수 — <b>316</b>(2026-09-05 재지오코딩 후).
      *
-     * <p>이름만으로 지오코딩하면 동음이의·상호명에 걸리므로 <b>근거로 검증한 것만 남긴다</b> — 시외는
-     * API 가 주는 소재지와 대조하고, 고속은 소재지가 없어 좌표 충돌로 걸러낸다. 검증 못 한 좌표는 비운다.
+     * <p><b>530 에서 줄었다.</b> 시드는 이름만으로 좌표를 붙여 동음이의에 걸린 값이 섞여 있었다. 도시를
+     * 붙여 다시 찾고 주소의 시도가 맞는 것만 남기니(#436) 확인되지 않은 217곳이 빠졌다.
+     *
+     * <p><b>줄어든 것이 손해가 아니다.</b> 인구감소지역 커버리지는 그대로고(아래 {@link #EXPECTED_REACHABLE_REGIONS}),
+     * 빠진 것은 대부분 경유 정류소와 다른 터미널의 좌표를 베껴 쓰던 행이다. 틀린 좌표는 resolver 가
+     * 엉뚱한 곳을 답하게 하지만 빈 좌표는 최근접 탐색에서 빠질 뿐이다.
+     *
+     * <p><b>다시 늘었다 — 563</b>(2026-09-06, #463). 위 재지오코딩이 **시외만** 다뤄 고속이 195곳에서
+     * 14곳으로 떨어져 있었다. 소재지를 얻을 길이 없어서였는데(TAGO 고속 목록은 terminalId·terminalNm 뿐이다),
+     * 세 가지로 채웠다 — 같은 건물의 시외 터미널 좌표를 쓰거나(161곳), 카카오 분류가 버스 터미널·정류장인
+     * 것만 골라 지오코딩하거나(83곳), 손으로 바로잡거나(3곳).
+     *
+     * <p><b>이름으로 거르면 안 된다.</b> '터미널' 은 물류·택배·편의점 상호에도 쓰는 말이라
+     * `금강탱크터미널`(화학) · `풍기택배터미널` · `GS25 동광양터미널점` · `동대구고속터미널 퀵서비스` 가
+     * 전부 통과했다. 분류로 가르면 걸러질 뿐 아니라 정답이 잡힌다 — 동광양은 중마버스터미널로,
+     * 동대구는 동대구터미널로 바뀐다.
      *
      * <p>정확한 값으로 고정한다. 하한만 보면 좌표가 조용히 줄어도 통과한다.
      */
-    private static final int EXPECTED_WITH_COORDINATE = 530;
+    private static final int EXPECTED_WITH_COORDINATE = 563;
 
     /** 인구감소지역 수 — 행안부 고시 89곳. */
     private static final int EXPECTED_REGIONS = 89;
@@ -49,8 +71,40 @@ class BusTerminalSeedIntegrationTest {
      */
     private static final int EXPECTED_REACHABLE_REGIONS = 88;
 
+    /**
+     * <b>고속버스로</b> 닿는 인구감소지역 수 — <b>84곳</b>(2026-09-06, #463).
+     *
+     * <p><b>1곳이었다.</b> 고속 좌표가 14곳뿐이라 89곳 중 한 곳만 30㎞ 안에 고속 터미널을 가졌다.
+     * 화면에서 고속버스 칩을 눌러도 볼 것이 없었고, #443 이 지적한 "고속버스 소요시간 13/14 비어 있음" 도
+     * 적재가 아니라 이 문제였다.
+     *
+     * <p>수단별로 따로 센다. 합계({@link #EXPECTED_REACHABLE_REGIONS})만 보면 시외가 덮고 있어
+     * 고속이 통째로 죽어도 88 이 그대로다 — 실제로 그렇게 지나갔다.
+     */
+    private static final int EXPECTED_EXPRESS_REACHABLE_REGIONS = 84;
+
+    /** 임자(대광) 정류소 — 신안 임자도. 30km 안에 시외 터미널이 없어 정류소가 유일한 접점이다. */
+    private static final double IMJA_STOP_LAT = 35.101826;
+
+    private static final double IMJA_STOP_LNG = 126.073492;
+
     /** 터미널이 이보다 멀면 "그 지역 터미널" 로 보지 않는다 — resolver 상한과 같은 값. */
     private static final double NEAR_KM = 30.0;
+
+    /** 정정한 좌표에서 이만큼 벗어나면 다른 자리로 본다. */
+    private static final double CORRECTED_TOLERANCE_KM = 1.0;
+
+    /** 광나루역 정류소 자리 — 여기서 그 정류소는 0㎞, 동서울 터미널은 1.4㎞다. */
+    private static final double GWANGNARU_STOP_LAT = 37.5453;
+    private static final double GWANGNARU_STOP_LNG = 127.1035;
+
+    /** 광주 충장로 — 도심 한복판이다. 유스퀘어까지 약 3.8㎞. */
+    private static final double GWANGJU_LAT = 35.1489;
+    private static final double GWANGJU_LNG = 126.9190;
+
+    /** 서울역 — 89곳 전수 실측(#443)이 쓴 출발 좌표 그대로다. */
+    private static final double SEOUL_STATION_LAT = 37.5547;
+    private static final double SEOUL_STATION_LNG = 126.9707;
 
     @Autowired
     private BusTerminalRepository terminalRepository;
@@ -105,6 +159,24 @@ class BusTerminalSeedIntegrationTest {
                 "버스로 닿는 지역 수가 다릅니다 — 시드·좌표 회귀를 의심하세요");
     }
 
+    /**
+     * <b>수단별로 따로 센다</b>(#463). 합계만 보면 시외가 덮고 있어 고속이 통째로 죽어도 88 이 그대로다 —
+     * 실제로 고속이 84곳에서 1곳으로 떨어진 채 이 테스트가 초록이었다.
+     */
+    @Test
+    void 고속버스로도_인구감소지역_대부분에_닿는다() {
+        List<Region> regions = regionRepository.findAll();
+
+        long reachable = regions.stream()
+                .filter(region -> resolver
+                        .nearest(region.getLat(), region.getLng(), BusTerminalKind.EXPRESS)
+                        .isPresent())
+                .count();
+
+        assertEquals(EXPECTED_EXPRESS_REACHABLE_REGIONS, reachable,
+                "고속버스로 닿는 지역 수가 다릅니다 — 고속 좌표 회귀를 의심하세요");
+    }
+
     @Test
     void 태백은_자기_터미널로_해석된다() {
         // 동음이의·엉뚱한 좌표를 잡으면 여기서 드러난다. 태백시청 좌표에서 태백터미널이 나와야 한다.
@@ -112,7 +184,167 @@ class BusTerminalSeedIntegrationTest {
 
         assertEquals("태백", terminal.name());
         assertTrue(terminal.coordinate().haversineKmTo(
-                        new com.offway.core.transport.domain.Coordinate(37.1641, 128.9856)) < NEAR_KM,
+                        new com.offway.core.common.geo.Coordinate(37.1641, 128.9856)) < NEAR_KM,
                 "해석된 터미널이 너무 멉니다 — 지오코딩이 다른 지역을 잡았을 수 있습니다");
+    }
+
+    /**
+     * 서울권 세 터미널이 제자리에 있어야 한다(#436).
+     *
+     * <p><b>왜 값으로 못 박는가.</b> 이 셋은 이름으로 좌표를 붙이다 엉뚱한 자리에 놓였던 곳이고, 시드를
+     * 다시 만들면 같은 자리로 돌아가기 쉽다. 특히 김포공항은 서울역에서 <b>0.2㎞</b> 떨어진 자리에
+     * 놓여 있어, 서울 출발 시외버스 코스 30곳의 출발 터미널을 전부 끌어당겼다(#443).
+     *
+     * <p>허용 오차는 1㎞다 — 좌표를 더 정밀하게 다듬는 것은 막지 않되 다른 자리로 옮겨가는 것은 잡는다.
+     */
+    @ParameterizedTest(name = "{1}")
+    @MethodSource("correctedSeoulTerminals")
+    void 서울권_터미널이_제자리에_있다(String code, String name, double lat, double lng) {
+        Terminal terminal = terminalRepository.findAll().stream()
+                .filter(each -> each.getCode().equals(code))
+                .findFirst()
+                .map(each -> Terminal.builder()
+                        .code(each.getCode())
+                        .name(each.getName())
+                        .kind(each.getKind())
+                        .coordinate(new Coordinate(each.getLat(), each.getLng()))
+                        .isTerminal(each.isTerminal())
+                        .build())
+                .orElseThrow(() -> new AssertionError(name + " 터미널이 시드에 없습니다"));
+
+        double off = terminal.coordinate().haversineKmTo(new Coordinate(lat, lng));
+
+        assertTrue(off <= CORRECTED_TOLERANCE_KM,
+                "%s(%s) 좌표가 확인된 위치에서 %.1f㎞ 벗어났습니다".formatted(name, code, off));
+    }
+
+    private static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> correctedSeoulTerminals() {
+        return java.util.stream.Stream.of(
+                org.junit.jupiter.params.provider.Arguments.of(
+                        "NAI0511601", "동서울", 37.53393134, 127.09476219),
+                org.junit.jupiter.params.provider.Arguments.of(
+                        "NAI0750501", "김포공항", 37.55994673, 126.80279331),
+                org.junit.jupiter.params.provider.Arguments.of(
+                        "NAI0750503", "김포공항(도심공항)", 37.55994673, 126.80279331),
+                org.junit.jupiter.params.provider.Arguments.of(
+                        "NAI0671801", "서울남부", 37.48473869, 127.01618622));
+    }
+
+    /**
+     * 김포공항이 서울역을 끌어당기지 않아야 한다(#436).
+     *
+     * <p>좌표를 값으로 고정하는 것과 별개로, <b>증상 자체</b>를 남긴다 — 서울역에서 김포공항이 최근접
+     * 시외버스 터미널로 뽑히면 그때가 이 버그의 재발이다.
+     */
+    @Test
+    void 서울역의_최근접_시외버스_터미널은_김포공항이_아니다() {
+        Terminal nearest = resolver
+                .nearest(SEOUL_STATION_LAT, SEOUL_STATION_LNG, BusTerminalKind.INTERCITY)
+                .orElseThrow(() -> new AssertionError("서울역 근처에 시외버스 터미널이 없다"));
+
+        // **코드로 본다.** 이름으로 보면 두 코드 중 하나만 막힌다 — NAI0750503 이 다시 어긋나면
+        // 뽑히는 이름이 "김포공항(도심공항)" 이라 이름 단언은 그대로 통과한다.
+        assertNotEquals("NAI0750501", nearest.code(),
+                "김포공항이 서울역 최근접으로 뽑혔다 — 좌표가 다시 어긋났다");
+        assertNotEquals("NAI0750503", nearest.code(),
+                "김포공항(도심공항)이 서울역 최근접으로 뽑혔다 — 좌표가 다시 어긋났다");
+    }
+
+    /**
+     * 광주에서 시외버스를 타면 <b>유스퀘어</b>다(#436).
+     *
+     * <p>서울만 고쳐서는 안 되는 이유가 여기 있다. 유스퀘어는 시외 시드에서 <b>여수</b>(84㎞), 고속
+     * 시드에서 <b>경기 광주</b>(253㎞) 좌표를 달고 있었다. 그래서 광주 도심에서 가장 가까운 시외버스
+     * 터미널이 <b>성전</b>(실제로는 강진군에 있는데 좌표가 광주 북구에 박혀 있었다)으로 잡혔다.
+     *
+     * <p>서울의 김포공항과 정확히 같은 구조다 — 터미널 하나의 좌표가 그 도시 전체의 안내를 망가뜨린다.
+     */
+    @Test
+    void 광주_도심에서_가장_가까운_시외버스_터미널은_유스퀘어다() {
+        Terminal nearest = resolver
+                .nearest(GWANGJU_LAT, GWANGJU_LNG, BusTerminalKind.INTERCITY)
+                .orElseThrow(() -> new AssertionError("광주 도심 근처에 시외버스 터미널이 없다"));
+
+        assertEquals("광주(유·스퀘어)", nearest.name());
+    }
+
+    /**
+     * 정류소 바로 앞에 서 있어도 <b>터미널</b>을 준다(#446).
+     *
+     * <p>광나루역 정류소 좌표에서 재면 그 정류소가 <b>0㎞</b>이고 동서울은 1.4㎞다. 거리만 보면 정류소가
+     * 이긴다 — 그런데 정류소는 지나가며 서는 곳이라 특정 노선만 선다. "광나루역에서 타세요" 는 그 노선이
+     * 목적지로 갈 때만 맞는 말이고, 구간 소요시간·출발 시각 조회도 터미널 코드를 전제한다.
+     *
+     * <p><b>서울역으로 재면 이 규칙이 안 드러난다.</b> #436 으로 DDP 좌표가 비면서 서울역 최근접이
+     * 이미 터미널이 됐다 — 규칙을 지워도 통과한다. 정류소가 실제로 이기는 자리에서 재야 한다.
+     */
+    @Test
+    void 정류소가_더_가까워도_터미널을_앞세운다() {
+        Terminal nearest = resolver
+                .nearest(GWANGNARU_STOP_LAT, GWANGNARU_STOP_LNG, BusTerminalKind.INTERCITY)
+                .orElseThrow(() -> new AssertionError("광나루역 근처에 시외버스 터미널이 없다"));
+
+        assertEquals("동서울", nearest.name());
+        assertTrue(nearest.isTerminal(), "정류소가 뽑혔다 — 터미널을 앞세우는 규칙이 깨졌다");
+    }
+
+    /**
+     * 반경 안에 터미널이 없으면 <b>정류소를 그대로 쓴다</b>(#446).
+     *
+     * <p>우선순위만 바꾸는 것이지 목록에서 빼는 것이 아니다. 정류소를 버리면 그것이 유일한 접점인 자리가
+     * 통째로 안 닿는 곳이 된다.
+     *
+     * <p><b>인구감소지역으로는 더 이상 못 잰다</b>(#463). 고속 터미널 좌표를 되살리면서 89곳 전부가
+     * 정류소보다 가까운 터미널을 갖게 됐다 — 그건 개선이지만, 이 규칙을 확인할 자리는 사라졌다. 그래서
+     * <b>정류소 자신의 좌표</b>에서 잰다. 임자(대광)은 신안 임자도라 30km 안에 시외 터미널이 없다.
+     */
+    @Test
+    void 반경_안에_터미널이_없으면_정류소를_쓴다() {
+        Terminal nearest = resolver
+                .nearest(IMJA_STOP_LAT, IMJA_STOP_LNG, BusTerminalKind.INTERCITY)
+                .orElseThrow(() -> new AssertionError("정류소가 목록에서 빠졌습니다 — 그 자리가 안 닿는 곳이 됩니다"));
+
+        assertTrue(!nearest.isTerminal(), "정류소가 유일한 접점인 자리인데 터미널이 뽑혔습니다: " + nearest.name());
+    }
+
+    /**
+     * 이름이 다른 두 터미널이 <b>한 좌표에 있을 수는 없다</b>(#447).
+     *
+     * <p>시드가 이름만으로 지오코딩하던 시절, 서로 다른 터미널이 같은 좌표를 베껴 쓰는 묶음이 아홉 개
+     * 있었다 — 해남·땅끝, 당진·서산, 울진·온정·평해 같은 것들이다. 그 하나가 뽑히면 사용자는 다른 지역의
+     * 터미널로 안내받는다.
+     *
+     * <p><b>같은 터미널의 코드 변형은 정상이다.</b> 진주는 운영사별로 여섯 코드(`진주`·`진주(경전)`·
+     * `진주(경남)`…)가 한 자리를 가리키고, 김해공항도 그렇다. 괄호를 떼고 한쪽이 다른 쪽의 앞부분이면
+     * 같은 곳으로 본다.
+     */
+    @Test
+    void 이름이_다른_터미널이_같은_좌표를_쓰지_않는다() {
+        Map<String, List<String>> byPoint = new LinkedHashMap<>();
+        for (BusTerminal terminal : terminalRepository.findAll()) {
+            if (!terminal.hasCoordinate()) {
+                continue;
+            }
+            String point = "%s|%.5f,%.5f".formatted(terminal.getKind(), terminal.getLat(), terminal.getLng());
+            byPoint.computeIfAbsent(point, key -> new ArrayList<>()).add(terminal.getName());
+        }
+
+        List<String> collisions = byPoint.entrySet().stream()
+                .filter(entry -> entry.getValue().size() > 1 && !samePlace(entry.getValue()))
+                .map(entry -> "%s — %s".formatted(entry.getKey(), String.join(", ", entry.getValue())))
+                .toList();
+
+        assertTrue(collisions.isEmpty(),
+                "이름이 다른 터미널이 같은 좌표를 씁니다 — 한쪽은 다른 터미널의 좌표를 베낀 것입니다:\n"
+                        + String.join("\n", collisions));
+    }
+
+    /** 괄호·공백을 떼고 한쪽이 다른 쪽의 앞부분이면 같은 곳 — 운영사별 코드 변형을 통과시킨다. */
+    private static boolean samePlace(List<String> names) {
+        List<String> bases = names.stream()
+                .map(name -> name.replaceAll("\\(.*?\\)|국제|\\s", ""))
+                .toList();
+        String first = bases.getFirst();
+        return bases.stream().allMatch(base -> base.startsWith(first) || first.startsWith(base));
     }
 }

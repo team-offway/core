@@ -48,8 +48,9 @@ class RequestLoggingFilterTest {
                 });
 
         assertNotNull(seen[0], "체인이 도는 동안 추적 id 가 없다");
-        // 앞 8자다 — UUID 36자를 매 줄에 박으면 정작 읽어야 할 경로·메시지가 밀려난다.
-        assertEquals("3f2a9c81", seen[1]);
+        // 전문이다. 앞 8자만 싣던 때가 있었는데, 우리 식별자는 첫 마디가 호스트 IP 라 모든 사용자가
+        // 같은 앞자리로 시작해 구분이 안 됐다.
+        assertEquals("3f2a9c81-4b7d-4e0a-9f21-0c7d5e8b1234", seen[1]);
     }
 
     @Test

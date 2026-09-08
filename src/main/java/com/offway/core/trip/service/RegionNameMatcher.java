@@ -10,9 +10,12 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * 갤러리 사진의 <b>촬영 위치 원문</b>을 우리 89곳에 붙인다(#196).
+ * <b>지명이 섞인 자유 텍스트</b>를 우리 89곳에 붙인다(#196 · #502).
  *
- * <p><b>원문은 자유 텍스트다.</b> 실측(2026-08-09, 6,118건)에서 이런 값들이 나왔다.
+ * <p>갤러리 사진의 촬영 위치와 축제 표준데이터의 소재지 주소가 이것을 쓴다. 둘 다 "시도 시군구 …" 로
+ * 시작하지만 표기가 제각각이라, 같은 규칙이 두 벌 생기면 한쪽이 반드시 뒤처진다.
+ *
+ * <p><b>원문은 자유 텍스트다.</b> 갤러리 실측(2026-08-09, 6,118건)에서 이런 값들이 나왔다.
  *
  * <pre>
  *   전남광주통합특별시  711건   ← 개편 후 표기. 지금은 이쪽이 우리 정본이다(#347)
@@ -27,7 +30,7 @@ import java.util.Set;
  * 겹치고, 갤러리에는 우리 목록 밖의 동구·남구 사진도 많다. 시군구명만으로 세면 대구 남구가 104건으로
  * 부풀었다(정규화 후 6건). 지명 매칭의 이 함정은 방문자 집계에서 이미 겪었다(#65).
  */
-final class GalleryRegionMatcher {
+final class RegionNameMatcher {
 
     /**
      * 시도 표기 별칭 → 우리 시드가 쓰는 정본.
@@ -82,7 +85,7 @@ final class GalleryRegionMatcher {
     /** 우리 시드에 있는 시도 정본 — 생성자에서 한 번 만든다(입력이 안 바뀌는 값). */
     private final Set<String> knownSidos = new HashSet<>();
 
-    GalleryRegionMatcher(List<RegionKey> regions) {
+    RegionNameMatcher(List<RegionKey> regions) {
         for (RegionKey region : regions) {
             bySidoSigungu.put(key(region.sido(), region.sigungu()), region.id());
             nameCounts.merge(region.sigungu(), 1, Integer::sum);
@@ -95,8 +98,8 @@ final class GalleryRegionMatcher {
     }
 
     /** 지역 엔티티에서 매처를 만든다. */
-    static GalleryRegionMatcher from(List<Region> regions) {
-        return new GalleryRegionMatcher(regions.stream()
+    static RegionNameMatcher from(List<Region> regions) {
+        return new RegionNameMatcher(regions.stream()
                 .map(region -> new RegionKey(region.getId(), region.getSido(), region.getSigungu()))
                 .toList());
     }
@@ -125,6 +128,11 @@ final class GalleryRegionMatcher {
             }
         }
         return matchByNameAlone(location);
+    }
+
+    /** 이 시군구명이 우리 89곳 안에 있는가 — 호출자가 "밖이라 안 붙음" 과 "못 갈라서 버림" 을 가른다. */
+    boolean knowsName(String sigungu) {
+        return sigungu != null && nameCounts.containsKey(sigungu.strip());
     }
 
     /**

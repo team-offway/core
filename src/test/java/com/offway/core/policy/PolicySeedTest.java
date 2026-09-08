@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.domain.PolicyType;
+import com.offway.core.region.domain.RegionTagType;
 import com.offway.core.policy.repository.PolicyRepository;
 import java.time.LocalDate;
 import java.util.List;
@@ -47,13 +48,30 @@ class PolicySeedTest {
         Set<PolicyType> verified =
                 policyRepository.findAllVerified().stream().map(Policy::getType).collect(Collectors.toSet());
 
-        assertEquals(Set.of(PolicyType.REGIONAL_VOUCHER, PolicyType.STAY_FESTA), verified);
+        assertEquals(
+                Set.of(PolicyType.REGIONAL_VOUCHER, PolicyType.STAY_FESTA, PolicyType.DIGITAL_TOURIST_CARD,
+                        PolicyType.DONGHAE_RAIL_PASS, PolicyType.GANGWON_MARINE_HEALING,
+                        PolicyType.CHUNGNAM_TRAVEL_FESTA, PolicyType.GYEONGBUK_RAIL_REFUND),
+                verified);
     }
 
+    /**
+     * 디지털관광주민증이 <b>전용 태그</b>를 본다(#498).
+     *
+     * <p>대상 지역을 몰라 {@code POPULATION_DECLINE}(89곳)을 보던 동안은 {@code verified=FALSE} 로
+     * 눌러 두었다. 그대로 열면 참여하지 않는 37곳에도 뱃지가 나가고, 그곳 사용자는 발급받아도 쓸
+     * 데가 없다 — 거짓 뱃지 대신 아무것도 안 내보내는 쪽을 골랐던 것이다(#217).
+     *
+     * <p><b>대상 태그가 이 정책의 안전장치다.</b> 여기가 다시 89곳짜리 태그로 돌아가면 검증된 상태와
+     * 겹쳐 거짓 뱃지가 난다.
+     */
     @Test
-    void 디지털관광주민증은_대상_지역_미확보라_미검증이다() {
-        // 실제 대상은 52곳인데 명단이 없어 아직 89곳을 본다. verified=FALSE 가 노출을 막고 있다.
-        assertFalse(seeded(DIGITAL_CARD_ID, PolicyType.DIGITAL_TOURIST_CARD).isVerified());
+    void 디지털관광주민증은_참여_지자체_태그만_본다() {
+        Policy card = seeded(DIGITAL_CARD_ID, PolicyType.DIGITAL_TOURIST_CARD);
+
+        assertTrue(card.isVerified(), "대상 명단을 확보했으므로 더 이상 누를 이유가 없다");
+        assertEquals(RegionTagType.DIGITAL_TOURIST_CARD, card.getType().targetTag(),
+                "89곳짜리 태그로 돌아가면 참여하지 않는 37곳에 거짓 뱃지가 난다");
     }
 
     @Test

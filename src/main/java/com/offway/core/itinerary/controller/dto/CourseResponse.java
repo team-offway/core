@@ -7,6 +7,7 @@ import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
+import com.offway.core.trip.controller.dto.RegionVisitMetricsResponse;
 import com.offway.core.trip.domain.MapSearchLink;
 import com.offway.core.trip.domain.PlaceOrigin;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
@@ -121,26 +122,46 @@ public record CourseResponse(
                         example = "1.25",
                         nullable = true)
                 Double consumedLeaveDays,
-        List<CuratedLinkResponse> curatedLinks) implements LogSummary, Attributed {
+        List<CuratedLinkResponse> curatedLinks,
+        @Schema(
+                        description = "코스 지역의 한산한 요일·인기 추세(#394). 지역 상세와 같은 모양이라 "
+                                + "같은 컴포넌트로 그린다. 안의 두 값은 각각 null 일 수 있고, "
+                                + "그러면 그 줄을 지운다")
+                RegionVisitMetricsResponse visitMetrics) implements LogSummary, Attributed {
 
     /**
-     * 코스에는 <b>두 기관</b>이 섞인다(#399) — 슬롯의 장소와 날마다 붙는 날씨다.
+     * 코스에는 <b>여러 기관</b>이 섞인다(#399) — 슬롯의 장소, 날마다 붙는 날씨, 그리고 방문 지표다.
      *
      * <p>장소는 인허가·국가유산·공사가 섞이므로 실린 것만 센다. 날씨는 예보 범위 밖이거나 조회에
      * 실패하면 통째로 비므로, 한 날이라도 실렸을 때만 기상청을 더한다.
+     *
+     * <p><b>방문 지표도 공사 값이다</b>(#394) — 관광빅데이터에서 온다. 장소가 전부 인허가이고 날씨도
+     * 없는 코스에서 지표만 실리면, 실제로 공사 데이터를 쓰고도 표기가 빠진다.
      */
     @Override
     public Set<DataSource> sources() {
         Set<DataSource> sources = EnumSet.noneOf(DataSource.class);
+        if (hasVisitMetrics()) {
+            sources.add(DataSource.KTO);
+        }
         for (Day day : days) {
             if (day.weather() != null) {
                 sources.add(DataSource.KMA);
             }
             for (Item item : day.items()) {
-                sources.add(dataSourceOf(PlaceOrigin.of(item.poiContentId())));
+                // 교통 거점 칸(도착·출발)은 장소 풀이 아니라 우리 DB 의 역·터미널이라 식별자가 없다(#415).
+                // 건너뛰지 않으면 접두어 없는 값으로 읽혀 실린 적 없는 기관이 출처에 적힌다.
+                if (item.poiContentId() != null) {
+                    sources.add(dataSourceOf(PlaceOrigin.of(item.poiContentId())));
+                }
             }
         }
         return Set.copyOf(sources);
+    }
+
+    private boolean hasVisitMetrics() {
+        return visitMetrics != null
+                && (visitMetrics.quietestDay() != null || visitMetrics.trend() != null);
     }
 
     /**
@@ -157,6 +178,9 @@ public record CourseResponse(
             case TOUR_API -> DataSource.KTO;
             case LICENSED -> DataSource.LOCAL_PERMIT;
             case HERITAGE -> DataSource.KHS;
+            case FESTIVAL -> DataSource.PUBLIC_DATA_PORTAL;
+            // 고캠핑도 한국관광공사가 낸다 — 활용신청이 갈렸을 뿐 표기할 기관은 같다(#510).
+            case CAMPING -> DataSource.KTO;
         };
     }
 
@@ -190,6 +214,7 @@ public record CourseResponse(
                                 generated.weatherByDay().get(course.getDays().get(i).getDayNumber()),
                                 course.distanceFromPrevDayMeters(i),
                                 generated.hoursByContentId(),
+                                generated.hubPhotoUrlByName(),
                                 generated.festivalPeriodByContentId(),
                                 slotBenefits(generated)))
                         .toList())
@@ -199,6 +224,11 @@ public record CourseResponse(
                 .shareToken(generated.shareToken())
                 .firstDayChange(generated.firstDayChange() == null ? null : generated.firstDayChange().name())
                 .curatedLinks(CuratedLinkResponse.from(curatedLinks))
+                // 지역 지표는 trip 이 소유한 값이라 그 응답 조각을 그대로 문다. 위의 출처 매핑과 다른
+                // 자리다 — 저기는 "무슨 기관인가" 를 판정하는 로직이라 도메인(PlaceOrigin)을 봐야 하고,
+                // 여기는 이미 만들어진 값 한 덩이를 옮겨 싣는 것이다. 지역 상세와 같은 모양이어야
+                // 클라이언트가 같은 컴포넌트로 그린다.
+                .visitMetrics(RegionVisitMetricsResponse.from(generated.visitMetrics()))
                 // 차감 정보는 소유자 조회에서만 뜻이 있다. 생성(아직 저장 전)·공개 공유는 이 경로로 오며,
                 // 그때는 값이 없다는 사실 자체가 정확한 답이다. 빌더라 적지 않으면 그대로 null 이다.
                 .build();
@@ -295,6 +325,7 @@ public record CourseResponse(
         static Day from(
                 DaySchedule schedule, LocalDate travelDate, String regionName, DailyWeather weather,
                 Integer distanceFromPrevDayMeters, Map<String, SlotHours> hoursByContentId,
+                Map<String, String> hubPhotoUrlByName,
                 Map<String, FestivalPeriod> festivalPeriodByContentId,
                 Map<SlotKind, String> slotBenefits) {
             // 표시 번호가 아니라 달력 오프셋으로 센다 — 첫날이 빠진 코스에서 하루 앞당겨지지 않게(#159).
@@ -302,9 +333,12 @@ public record CourseResponse(
             List<Slot> slots = schedule.getSlots();
             List<Item> items = IntStream.range(0, slots.size())
                     .mapToObj(i -> Item.from(slots.get(i), schedule.distanceFromPrevMeters(i), regionName,
-                            hoursByContentId.get(slots.get(i).getPoiContentId()),
-                            festivalPeriodByContentId.get(slots.get(i).getPoiContentId()),
-                            benefitFor(slots.get(i), slotBenefits)))
+                            // 교통 거점 칸은 식별자가 없다(#415). Map.of() 는 get(null) 에서 NPE 라
+                            // 조회 자체를 하지 않는다 — 운영시간·축제 기간이 있을 수 없는 칸이다.
+                            lookup(hoursByContentId, slots.get(i)),
+                            lookup(festivalPeriodByContentId, slots.get(i)),
+                            benefitFor(slots.get(i), slotBenefits),
+                            hubPhotoUrlByName))
                     .toList();
             return new Day(
                     schedule.getDayNumber(),
@@ -320,9 +354,10 @@ public record CourseResponse(
     /**
      * @param order 하루 안 방문 순서
      * @param timeOfDay 시간대(MORNING·LUNCH·AFTERNOON·DINNER)
-     * @param kind 장소 종류(SIGHT·FOOD·STAY)
-     * @param categoryLabel 종류 한글 라벨(관광·맛집·숙박) — 카드 표시용
-     * @param poiContentId TourAPI 콘텐츠 ID(장소 상세 조회용)
+     * @param kind 칸 종류(SIGHT·FOOD·STAY, 대중교통 코스의 첫·끝 칸은 ARRIVAL·DEPARTURE)
+     * @param categoryLabel 종류 한글 라벨(관광·맛집·숙박·도착·출발) — 카드 표시용
+     * @param poiContentId TourAPI 콘텐츠 ID(장소 상세 조회용). <b>교통 거점 칸은 없다</b>(#415) — 역·터미널은
+     *     장소 풀이 아니라 장소 상세로 이어지지 않는다
      * @param title 장소명
      * @param imageUrl 대표 이미지(없으면 null)
      * @param address 주소(없으면 null)
@@ -347,7 +382,8 @@ public record CourseResponse(
             String timeOfDay,
             String kind,
             @Schema(example = "관광") String categoryLabel,
-            String poiContentId,
+            @Schema(description = "장소 상세 조회 키. 교통 거점 칸(ARRIVAL·DEPARTURE)에는 없다",
+                    example = "126508", nullable = true) String poiContentId,
             @Schema(example = "완도타워 전망대") String title,
             @Schema(nullable = true) String imageUrl,
             @Schema(example = "전남 완도군", nullable = true) String address,
@@ -394,7 +430,11 @@ public record CourseResponse(
                     example = "2026-09-12 ~ 2026-09-14", nullable = true) String festivalPeriod) {
 
         static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName,
-                SlotHours hours, FestivalPeriod festival, String benefit) {
+                SlotHours hours, FestivalPeriod festival, String benefit,
+                Map<String, String> hubPhotoUrlByName) {
+            // 한 번만 푼다 — 지도 링크 판단도 같은 값을 봐야 한다. 슬롯의 원본만 보면 교통 거점 칸이
+            // 사진과 지도 링크를 함께 내려보낸다(사진이 있으면 링크는 군더더기다).
+            String imageUrl = imageUrlOf(slot, hubPhotoUrlByName);
             return new Item(
                     slot.getOrderInDay(),
                     slot.getTimeOfDay().name(),
@@ -402,7 +442,7 @@ public record CourseResponse(
                     slot.getKind().label(),
                     slot.getPoiContentId(),
                     slot.getTitle(),
-                    slot.getImageUrl(),
+                    imageUrl,
                     slot.getAddress(),
                     slot.getCatchphrase(),
                     slot.getTel(),
@@ -410,13 +450,27 @@ public record CourseResponse(
                     hours == null ? null : hours.restDate(),
                     hours == null ? null : hours.displayStatus(),
                     benefit,
-                    mapSearchUrlFor(slot),
+                    mapSearchUrlFor(slot, imageUrl),
                     slot.getLat(),
                     slot.getLng(),
                     slot.getTravelMinutesFromPrev(),
                     distanceFromPrevMeters,
                     regionName,
                     periodTextOf(festival));
+        }
+
+        /**
+         * 칸의 사진 — 교통 거점만 <b>따로 얻는다</b>(#450).
+         *
+         * <p>장소 칸은 생성 때 받은 사진을 슬롯이 들고 있다. 교통 거점 칸은 장소 상세 키가 없어(#415)
+         * 그 경로로는 못 받고, 그래서 지금까지 빈 채로 나갔다 — 대중교통 코스의 첫 칸과 끝 칸이다.
+         * 관광사진갤러리에서 지점 이름으로 미리 받아 둔 것을 여기서 붙인다.
+         */
+        private static String imageUrlOf(Slot slot, Map<String, String> hubPhotoUrlByName) {
+            if (slot.getKind().hasPlace()) {
+                return slot.getImageUrl();
+            }
+            return hubPhotoUrlByName.get(slot.getTitle());
         }
 
         /**
@@ -504,13 +558,13 @@ public record CourseResponse(
             if (access == null || access.mode() != TransitMode.TRAIN) {
                 return null;
             }
-            boolean hasTrain = access.fastest() != null;
+            boolean hasTrain = access.chosen() != null;
             return new TrainAccessResponse(
                     access.status().name(),
                     access.fromName(),
                     access.toName(),
-                    hasTrain ? access.fastest().trainType() : null,
-                    hasTrain ? access.fastest().durationMinutes() : null);
+                    hasTrain ? access.chosen().trainType() : null,
+                    hasTrain ? access.chosen().durationMinutes() : null);
         }
     }
 
@@ -524,12 +578,20 @@ public record CourseResponse(
      *     <b>ORIGIN_UNKNOWN 일 때만 null</b> — 무엇을 타는지는 출발지가 있어야 정해진다
      * @param modeLabel 화면에 그대로 쓸 한글 수단명(열차·고속버스·시외버스·여객선·자차)
      * @param status AVAILABLE(운행 편 있음, 도착 시각까지 앎) · POINT_ONLY(도착 지점만 앎) ·
-     *     NO_STATION(닿는 지점 없음) · NO_SERVICE_ON_DATE(그날 미운행) · UNAVAILABLE(조회 실패) ·
+     *     NO_STATION(닿는 지점 없음) · NO_SERVICE_ON_DATE(그날 미운행) ·
+     *     <b>NO_ROUTE</b>(두 지점을 잇는 노선이 없음 — 그날의 문제가 아니라 노선 자체가 없다) ·
+     *     UNAVAILABLE(조회 실패) ·
      *     <b>ORIGIN_UNKNOWN</b>(저장할 때 출발지를 안 받아 계산할 근거가 없음 — #422).
      *     <b>이 객체는 항상 있다</b>. 예전에는 근거가 없으면 필드가 통째로 빠져, 앱이 "이 값을 모르는
      *     옛 서버" 와 "서버가 답을 못 하는 코스" 를 구분할 수 없었다
      * @param fromPlace 출발 지점명(역·터미널·항구, 없으면 null)
      * @param toPlace 도착 지점명(없으면 null)
+     * @param viaPlace <b>갈아타는 지점명</b>(#508). 직통이 없어 허브를 한 번 거칠 때만 채워진다 — 화면은
+     *     이 값이 있을 때 "○○ 경유" 를 함께 보여주고, {@code durationMinutes} 는 두 구간의 합에 환승
+     *     대기를 더한 값이며 {@code departures} 는 비어 있다.
+     *     <p><b>null 을 "직통" 으로 읽으면 안 된다.</b> {@code NO_ROUTE}·{@code NO_SERVICE_ON_DATE}·
+     *     {@code ORIGIN_UNKNOWN} 처럼 <b>갈 길을 못 찾은 경우에도</b> null 이다. 직통인지는 이 값이
+     *     아니라 {@code status} 로 판단한다 — 이 값은 "경유가 붙었는가" 만 말한다
      * @param vehicleType 운행 편의 등급(AVAILABLE 일 때만, 예: KTX)
      * @param durationMinutes 소요시간(분). 열차는 실제 편에서, 버스·여객선은 저장해 둔 구간 측정값에서 온다.
      *     <b>기다리는 시간은 안 들어 있다</b> — 버스·여객선은 시간표를 못 물어 다음 편까지의 대기를 모른다
@@ -545,6 +607,7 @@ public record CourseResponse(
             @Schema(example = "POINT_ONLY") String status,
             @Schema(example = "동서울", nullable = true) String fromPlace,
             @Schema(example = "정선", nullable = true) String toPlace,
+            @Schema(example = "대전복합", nullable = true) String viaPlace,
             @Schema(example = "KTX", nullable = true) String vehicleType,
             @Schema(example = "150", nullable = true) Integer durationMinutes,
             @Schema(example = "200", nullable = true) Integer distanceKm,
@@ -576,7 +639,7 @@ public record CourseResponse(
             if (access == null) {
                 return originUnknown();
             }
-            boolean hasLeg = access.fastest() != null;
+            boolean hasLeg = access.chosen() != null;
             // 이름을 붙여 조립한다. String 이 다섯 개 연달아 있어 위치 생성자로는 둘을 맞바꿔도
             // 컴파일이 통과한다 — 수단 라벨 자리에 상태가 들어가는 종류의 사고다.
             return TransitAccessResponse.builder()
@@ -584,14 +647,15 @@ public record CourseResponse(
                     .modeLabel(access.mode().label())
                     .status(access.status().name())
                     .fromPlace(access.fromName())
+                    .viaPlace(access.viaName())
                     .toPlace(access.toName())
-                    .vehicleType(hasLeg ? access.fastest().trainType() : null)
+                    .vehicleType(hasLeg ? access.chosen().trainType() : null)
                     // 열차는 실제 편에서, 버스·여객선은 저장해 둔 구간 측정값에서 온다(#107).
                     //
                     // Integer.valueOf 가 필요하다. 한쪽이 int(TrainLeg.durationMinutes)이고 다른 쪽이
                     // Integer 면 삼항 전체가 int 로 언박싱돼, 소요시간을 모르는 코스마다 NPE 가 난다.
                     .durationMinutes(
-                            hasLeg ? Integer.valueOf(access.fastest().durationMinutes()) : access.durationMinutes())
+                            hasLeg ? Integer.valueOf(access.chosen().durationMinutes()) : access.durationMinutes())
                     .distanceKm(access.distanceKm())
                     .alternatives(access.alternatives().stream().map(TransitOptionResponse::from).toList())
                     .departures(access.departures().stream().map(DepartureResponse::from).toList())
@@ -643,6 +707,11 @@ public record CourseResponse(
             @Schema(example = "FERRY") String mode,
             @Schema(example = "여객선") String modeLabel,
             @Schema(example = "울릉_도동") String toPlace,
+            @Schema(description = "이 수단의 상태 — AVAILABLE(편이 있음) · POINT_ONLY(지점만 앎) · "
+                    + "NO_ROUTE(이 두 지점을 잇는 노선이 없음) · NO_SERVICE_ON_DATE(그날 미운행) · "
+                    + "UNAVAILABLE(조회 실패). <b>durationMinutes 가 null 인 이유</b>를 여기서 읽는다 — "
+                    + "아직 안 잰 것과 노선이 없는 것은 화면이 할 말이 다르다",
+                    example = "POINT_ONLY") String status,
             @Schema(example = "140", nullable = true) Integer durationMinutes,
             List<DepartureResponse> departures) {
 
@@ -651,6 +720,7 @@ public record CourseResponse(
                     option.mode().name(),
                     option.mode().label(),
                     option.toName(),
+                    option.status().name(),
                     option.durationMinutes(),
                     option.departures().stream().map(DepartureResponse::from).toList());
         }
@@ -673,6 +743,12 @@ public record CourseResponse(
         return slotBenefits.get(slot.getKind());
     }
 
+    /** 장소 식별자로 걸어 둔 값을 꺼낸다 — 식별자가 없는 칸(교통 거점)은 조회하지 않는다(#415). */
+    private static <T> T lookup(Map<String, T> byContentId, Slot slot) {
+        String contentId = slot.getPoiContentId();
+        return contentId == null ? null : byContentId.get(contentId);
+    }
+
     /**
      * 사진이 없는 슬롯에만 지도 링크를 준다(#236).
      *
@@ -680,8 +756,12 @@ public record CourseResponse(
      *
      * <p>숙소가 이 경우의 대부분이다 — 89곳 중 45곳에서 사진 있는 숙소가 2곳도 안 된다.
      */
-    private static String mapSearchUrlFor(Slot slot) {
-        if (slot.getImageUrl() != null && !slot.getImageUrl().isBlank()) {
+    /**
+     * @param imageUrl <b>이 응답에 실제로 나가는</b> 사진. 슬롯의 원본이 아니다 — 교통 거점 칸은 사진을
+     *     따로 얻으므로(#450), 원본만 보면 사진과 지도 링크가 함께 나간다
+     */
+    private static String mapSearchUrlFor(Slot slot, String imageUrl) {
+        if (imageUrl != null && !imageUrl.isBlank()) {
             return null;
         }
         return MapSearchLink.of(slot.getTitle(), slot.getAddress()).orElse(null);

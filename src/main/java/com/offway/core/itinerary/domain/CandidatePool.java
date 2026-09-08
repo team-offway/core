@@ -1,6 +1,6 @@
 package com.offway.core.itinerary.domain;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;

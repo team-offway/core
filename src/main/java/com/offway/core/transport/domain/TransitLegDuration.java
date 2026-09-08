@@ -75,17 +75,68 @@ public class TransitLegDuration {
     @Column(name = "requested_at", nullable = false)
     private LocalDateTime requestedAt;
 
-    private TransitLegDuration(TransitMode mode, String depCode, String arrCode, LocalDateTime requestedAt) {
+    /**
+     * 코스가 <b>마지막으로 이 구간을 물어본</b> 시각(#491). 아무도 안 물어본 시드 후보는 비어 있다.
+     *
+     * <p>{@code requestedAt} 과 갈라 둔다 — "처음 물어본 때" 와 "마지막으로 물어본 때" 는 다른 질문이다.
+     * 전자를 덮어쓰면 이 구간이 얼마나 오래 값 없이 나가고 있었는지를 잃는다.
+     */
+    @Column(name = "last_asked_at")
+    private LocalDateTime lastAskedAt;
+
+    private TransitLegDuration(
+            TransitMode mode, String depCode, String arrCode, LocalDateTime requestedAt, LocalDateTime lastAskedAt) {
         this.mode = Objects.requireNonNull(mode, "수단은 null 일 수 없습니다.");
         this.depCode = Objects.requireNonNull(depCode, "출발 코드는 null 일 수 없습니다.");
         this.arrCode = Objects.requireNonNull(arrCode, "도착 코드는 null 일 수 없습니다.");
         this.requestedAt = Objects.requireNonNull(requestedAt, "요청 시각은 null 일 수 없습니다.");
+        this.lastAskedAt = lastAskedAt;
     }
 
-    /** 코스가 물었는데 값이 없을 때 만드는 <b>빈 자리</b>. 배치가 나중에 채운다. */
+    /**
+     * 코스가 물었는데 값이 없을 때 만드는 <b>빈 자리</b>. 배치가 나중에 채운다.
+     *
+     * <p>물어본 자리이므로 {@code lastAskedAt} 이 함께 찍힌다 — 배치가 이걸 보고 먼저 잰다(#491).
+     */
     public static TransitLegDuration requested(
             TransitMode mode, String depCode, String arrCode, LocalDateTime now) {
-        return new TransitLegDuration(mode, depCode, arrCode, now);
+        return new TransitLegDuration(mode, depCode, arrCode, now, now);
+    }
+
+    /**
+     * 미리 넣어 두는 후보(#450) — <b>아직 아무도 안 물어봤다.</b>
+     *
+     * <p>{@link #requested} 와 갈라야 한다. 시드 3만 건이 물어본 것과 같은 자격을 가지면, 사용자가 방금
+     * 요청한 구간이 그 뒤에 서서 배치 주기로 28일을 기다린다 — 실제로 그 상태였다.
+     */
+    public static TransitLegDuration seeded(
+            TransitMode mode, String depCode, String arrCode, LocalDateTime now) {
+        return new TransitLegDuration(mode, depCode, arrCode, now, null);
+    }
+
+    /**
+     * 코스가 이 구간을 물었다 — 아직 값이 없는 자리의 순번을 올린다(#491).
+     *
+     * <p>이미 잰 구간에는 부르지 않는다. 그쪽은 순번을 올릴 이유가 없고, 다시 재는 기준은
+     * {@code measuredAt} 의 나이다(#469).
+     */
+    public void asked(LocalDateTime now) {
+        this.lastAskedAt = Objects.requireNonNull(now, "요청 시각은 null 일 수 없습니다.");
+    }
+
+    /**
+     * <b>재봤더니 그 구간에 차가 없더라</b>(#507). 아직 안 잰 것과 갈라야 한다.
+     *
+     * <p>같은 터미널인데 코드가 여럿인 경우가 있고(동대구 7개·전주 5개·동서울 4개), <b>그중 한쪽으로만
+     * 조회된다.</b> 출발 코드를 고를 때 이미 "없다" 로 판명된 코드를 피하려면 이 구분이 필요하다.
+     */
+    public boolean noService() {
+        return measuredAt != null && minutes == null;
+    }
+
+    /** 아직 안 쟀는가 — 배치가 채울 자리다. */
+    public boolean unmeasured() {
+        return measuredAt == null;
     }
 
     /** 실호출 결과를 적는다. {@code leg} 가 null 이면 "재봤더니 운행이 없다" 는 뜻이고, 그것도 결과다. */

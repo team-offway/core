@@ -13,6 +13,11 @@ import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
+import com.offway.core.trip.domain.Category;
+import com.offway.core.trip.domain.RegionPoi;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import com.offway.core.trip.domain.HeritagePlace;
@@ -27,10 +32,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @WithMockUser
+// region_poi 를 갈아끼우는 테스트가 있어 롤백이 필요하다 — 지역 57 의 시드 데이터를 지운 채로 두면
+// 뒤에 도는 테스트가 실행 순서에 따라 fixture 를 읽는다(테스트 규약: DB 격리는 클래스 레벨 롤백으로).
+@Transactional
 class PoiDetailIntegrationTest {
 
     @Autowired
@@ -48,8 +57,33 @@ class PoiDetailIntegrationTest {
     @Autowired
     private com.offway.core.trip.repository.LicensedPlaceRepository licensedPlaceRepository;
 
+    @Autowired
+    private com.offway.core.trip.repository.RegionPoiRepository regionPoiRepository;
+
+    @Autowired
+    private com.offway.core.trip.repository.FestivalPlaceRepository festivalPlaceRepository;
+
+    /** 폴백 검증용 지역 — 다른 테스트의 지역 풀을 건드리지 않게 따로 둔다. */
+    private static final long FALLBACK_REGION = 57L;
+
     /** 테스트 국가유산 풀이 채운 지역 — 경상북도 의성군. */
     private static final long UISEONG = 76L;
+
+    /** 심은 축제를 알아보는 시각 — 정리할 때 이 값을 넘는 것만 지운다. */
+    private static final java.time.LocalDateTime FESTIVAL_FETCHED_AT =
+            java.time.LocalDateTime.of(2099, 1, 1, 0, 0);
+
+    /**
+     * 이 클래스는 롤백이 없다 — 심은 것을 지우지 않으면 다음 테스트의 조회에 섞인다.
+     *
+     * <p>폴백 지역(#472)도 함께 비운다. 심는 쪽만 있고 지우는 쪽이 없어 그 지역의 장소 풀이 테스트
+     * 사이에 남아 있었다.
+     */
+    @org.junit.jupiter.api.AfterEach
+    void clearSeededPlaces() {
+        festivalPlaceRepository.deleteFetchedBefore(FESTIVAL_FETCHED_AT.plusSeconds(1));
+        regionPoiRepository.replaceRegion(FALLBACK_REGION, List.of());
+    }
 
     @TestConfiguration
     static class StubConfig {
@@ -84,6 +118,102 @@ class PoiDetailIntegrationTest {
                 // (PoiApi 도 그렇게 문서화한다), 나중에 필드가 사라져도 doesNotExist() 는 그대로 통과한다.
                 .andExpect(jsonPath("$.data.food").value(nullValue()))
                 .andExpect(jsonPath("$.data.stay").value(nullValue()));
+    }
+
+    /**
+     * 장소 사진이 <b>여러 장</b> 나간다(#464).
+     *
+     * <p>지금까지는 대표 한 장({@code firstimage})뿐이었다. 같은 장소에 사진이 더 있는데(실측으로
+     * 완도타워가 16장) 안 쓰고 있었다.
+     */
+    @Test
+    void 장소_상세에_추가_사진이_함께_나간다() throws Exception {
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
+                "126508", 12, "완도타워", "전남 완도군", "061-1", 34.3, 126.7, "http://img/rep.jpg", "전망대 소개")));
+        tourApiClient.respondIntro(Optional::empty);
+        tourApiClient.respondImages(() -> List.of("http://img/2.jpg", "http://img/3.jpg"));
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "126508"))
+                .andExpect(status().isOk())
+                // 대표는 그대로다 — 추가 사진이 대표를 밀어내지 않는다
+                .andExpect(jsonPath("$.data.imageUrl").value("http://img/rep.jpg"))
+                .andExpect(jsonPath("$.data.images.length()").value(2))
+                .andExpect(jsonPath("$.data.images[0]").value("http://img/2.jpg"));
+    }
+
+    /**
+     * 사진이 없는 장소가 흔하다 — <b>빈 배열</b>로 나간다.
+     *
+     * <p>null 로 두면 화면이 매번 검사해야 하고, 조회가 실패해도 상세는 그대로 나가야 한다(사진은 곁가지다).
+     */
+    @Test
+    void 추가_사진이_없으면_빈_배열이다() throws Exception {
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> Optional.of(new TourPoiDetail(
+                "126509", 12, "장소", "전남", null, 34.3, 126.7, null, null)));
+        tourApiClient.respondIntro(Optional::empty);
+        tourApiClient.respondImages(List::of);
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "126509"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.images").isArray())
+                .andExpect(jsonPath("$.data.images").isEmpty());
+    }
+
+    /**
+     * 관광 API 가 죽어도 <b>저장된 값으로 카드가 선다</b>(#472).
+     *
+     * <p>2026-09-06 `apis.data.go.kr` 이 통째로 죽었을 때, 코스 카드에 이름과 사진이 떠 있는 장소를 누르면
+     * 502 였다. 그런데 그 값은 {@code region_poi} 에 있었다 — 코스에 그 장소를 넣을 때 쓴 값이다.
+     *
+     * <p>인허가·국가유산 장소는 그때도 멀쩡히 떴다. 같은 화면인데 출처에 따라 갈리는 것을 없앤다.
+     */
+    @Test
+    void 관광_API가_죽어도_저장된_값으로_상세가_나간다() throws Exception {
+        String contentId = "990001";
+        regionPoiRepository.replaceRegion(FALLBACK_REGION, List.of(RegionPoi.builder()
+                .regionId(FALLBACK_REGION)
+                .contentId(contentId)
+                .contentTypeId(12)
+                .category(Category.SIGHT)
+                .title("저장된 전망대")
+                .imageUrl("https://img/stored.jpg")
+                .address("전남 완도군")
+                .lat(34.3)
+                .lng(126.7)
+                .tel("061-000-0000")
+                .baseYm(YearMonth.now())
+                .fetchedAt(LocalDateTime.now())
+                .build()));
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> {
+            throw TourApiException.serviceUnavailable();
+        });
+
+        mockMvc.perform(get("/api/v1/pois/{id}", contentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.title").value("저장된 전망대"))
+                .andExpect(jsonPath("$.data.imageUrl").value("https://img/stored.jpg"))
+                .andExpect(jsonPath("$.data.address").value("전남 완도군"))
+                .andExpect(jsonPath("$.data.tel").value("061-000-0000"))
+                // 소개·운영시간은 상세 조회에서만 온다 — 없는 것을 지어내지 않는다.
+                .andExpect(jsonPath("$.data.overview").value(nullValue()))
+                .andExpect(jsonPath("$.data.sight").value(nullValue()));
+    }
+
+    /** 우리도 모르는 장소면 지금처럼 502 다 — 폴백이 "없는 것" 까지 덮지 않는다. */
+    @Test
+    void 저장된_값도_없으면_502다() throws Exception {
+        poiDetailService.evictCache();
+        tourApiClient.respondDetail(() -> {
+            throw TourApiException.serviceUnavailable();
+        });
+
+        mockMvc.perform(get("/api/v1/pois/{id}", "999999999"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("TOUR-001"));
     }
 
     @Test
@@ -424,6 +554,69 @@ class PoiDetailIntegrationTest {
         tourApiClient.resetDetailCallCount();
 
         mockMvc.perform(get("/api/v1/pois/{id}", heritage.publicId())).andExpect(status().isOk());
+
+        assertEquals(0, tourApiClient.detailCallCount());
+    }
+
+    /**
+     * <b>코스에 나가는 축제를 누르면 상세가 나온다</b>(#480).
+     *
+     * <p>축제를 코스 후보로 실으면서(#439) 상세 분기를 안 붙였다. {@code FST-} 식별자가 관광 API 로
+     * 넘어가 <b>외부가 멀쩡할 때도 404</b> 였다 — 카드에 떠 있는 축제를 눌렀더니 없다고 답하는 셈이다.
+     */
+    @Test
+    void 축제를_누르면_우리_DB_로_상세가_나온다() throws Exception {
+        festivalPlaceRepository.upsertAll(List.of(com.offway.core.trip.domain.FestivalPlace.builder()
+                .regionId(UISEONG)
+                .name("의성 산수유마을 꽃맞이행사")
+                .venue("의성군 사곡면 화전리")
+                .address("경북 의성군 사곡면 화전리")
+                .eventStart(java.time.LocalDate.of(2099, 3, 20))
+                .eventEnd(java.time.LocalDate.of(2099, 3, 24))
+                .description("산수유 꽃이 피는 시기에 맞춰 여는 마을 행사")
+                .host("의성군")
+                .tel("054-830-6000")
+                .lat(36.35)
+                .lng(128.52)
+                .fetchedAt(FESTIVAL_FETCHED_AT)
+                .build()));
+        com.offway.core.trip.domain.FestivalPlace festival =
+                festivalPlaceRepository.findOpenOn(UISEONG, java.time.LocalDate.of(2099, 3, 21), 1).getFirst();
+
+        mockMvc.perform(get("/api/v1/pois/{id}", festival.publicId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.title").value("의성 산수유마을 꽃맞이행사"))
+                .andExpect(jsonPath("$.data.typeLabel").value("축제"))
+                .andExpect(jsonPath("$.data.overview").value("산수유 꽃이 피는 시기에 맞춰 여는 마을 행사"))
+                .andExpect(jsonPath("$.data.tel").value("054-830-6000"))
+                // 사진은 표준데이터가 주지 않는다 — 지어내지 않고 비운다.
+                .andExpect(jsonPath("$.data.imageUrl").value(nullValue()))
+                .andExpect(jsonPath("$.data.mapSearchUrl").isNotEmpty());
+    }
+
+    /** 축제 상세는 <b>외부를 부르지 않는다</b> — 우리 DB 에 있는 값이다. */
+    @Test
+    void 축제_상세는_외부를_부르지_않는다() throws Exception {
+        festivalPlaceRepository.upsertAll(List.of(com.offway.core.trip.domain.FestivalPlace.builder()
+                .regionId(UISEONG)
+                .name("의성 마늘축제")
+                .venue("의성읍")
+                .address("경북 의성군 의성읍")
+                .eventStart(java.time.LocalDate.of(2099, 7, 1))
+                .eventEnd(java.time.LocalDate.of(2099, 7, 3))
+                .description("마늘 주산지 축제")
+                .host("의성군")
+                .tel("054-830-6001")
+                .lat(36.35)
+                .lng(128.69)
+                .fetchedAt(FESTIVAL_FETCHED_AT)
+                .build()));
+        com.offway.core.trip.domain.FestivalPlace festival =
+                festivalPlaceRepository.findOpenOn(UISEONG, java.time.LocalDate.of(2099, 7, 2), 1).getFirst();
+        tourApiClient.resetDetailCallCount();
+
+        mockMvc.perform(get("/api/v1/pois/{id}", festival.publicId())).andExpect(status().isOk());
 
         assertEquals(0, tourApiClient.detailCallCount());
     }

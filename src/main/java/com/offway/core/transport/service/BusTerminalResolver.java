@@ -2,13 +2,14 @@ package com.offway.core.transport.service;
 
 import com.offway.core.transport.domain.BusTerminal;
 import com.offway.core.transport.domain.BusTerminalKind;
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.Terminal;
 import com.offway.core.transport.repository.BusTerminalRepository;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -28,6 +29,9 @@ public class BusTerminalResolver {
     /** 이 반경 안에 터미널이 없으면 "버스 접근 불가"로 본다. */
     private static final double MAX_KM = 30.0;
 
+    /** 같은 자리로 볼 거리. TAGO 중복은 좌표가 그대로 같지만 소수점 흔들림을 감안한다. */
+    private static final double SAME_SPOT_KM = 0.5;
+
     private final BusTerminalRepository terminalRepository;
     private volatile List<BusTerminal> cache;
 
@@ -46,18 +50,87 @@ public class BusTerminalResolver {
      * @param kind 고정할 종류. {@code null} 이면 종류를 가리지 않는다
      */
     public Optional<Terminal> nearest(double lat, double lng, BusTerminalKind kind) {
+        return candidatesNear(lat, lng, kind, 1).stream().findFirst();
+    }
+
+    /**
+     * 반경 안 터미널을 <b>우선순위 순서대로</b> 준다(#507).
+     *
+     * <p>{@link #nearest} 는 이 목록의 첫 줄이다. 하나만으로 부족한 이유 — TAGO 목록에는 <b>같은 이름·같은
+     * 자리인데 코드가 여러 개</b>인 터미널이 있고(동대구 7개·전주 5개·동서울 4개·센트럴시티 2개),
+     * <b>그중 한쪽으로만 구간이 조회된다.</b> 좌표가 같으니 최근접만 보면 DB 순서가 결정하는데, 그건
+     * 우연이지 판단이 아니다.
+     *
+     * <p>실제로 그렇게 틀렸다 — {@code NAEK020}(센트럴시티) → 광주는 0편이고 {@code NAEK021}(같은
+     * 센트럴시티) → 광주는 68편이다. 우리는 0편 쪽을 쓰고 있었다.
+     *
+     * <p>어느 쪽이 되는지는 <b>이미 잰 구간</b>이 안다. 그 판정은 호출자가 하고, 여기서는 후보만 준다.
+     *
+     * @param max 훑을 상한. 서울처럼 터미널이 몰린 곳에서 후보가 무한정 늘지 않게 자른다
+     */
+    public List<Terminal> candidatesNear(double lat, double lng, BusTerminalKind kind, int max) {
         Coordinate target = new Coordinate(lat, lng);
+        return nearbyOrdered(target, kind).limit(max).toList();
+    }
+
+    /**
+     * 최근접 터미널과 <b>같은 자리에 있는 중복 코드들</b>(#507).
+     *
+     * <p>{@link #candidatesNear} 와 다르다 — 그쪽은 근처의 <b>다른</b> 터미널까지 준다(서울경부와
+     * 센트럴시티는 노선망이 갈려서, 출발지를 고를 때는 그게 맞다). 이쪽은 <b>같은 터미널의 다른 코드</b>만
+     * 준다. 도착 지점은 지역이 정하는 것이라 옆 동네 터미널로 바꿔치면 안 되고, 바꿀 수 있는 것은
+     * "같은 곳을 가리키는 코드가 여럿" 인 경우뿐이다.
+     *
+     * <p>같은 자리의 판정은 <b>이름이 같고 {@value #SAME_SPOT_KM}㎞ 안</b>이다. TAGO 의 중복은 이름·좌표가
+     * 그대로 같게 들어온다(동대구 7개·전주 5개·동서울 4개).
+     */
+    public List<Terminal> nearestWithDuplicates(double lat, double lng, BusTerminalKind kind) {
+        // **자르고 묶지 않는다.** 상한을 먼저 걸면 선두와 같은 자리인 코드가 그 밖으로 밀릴 수 있다 —
+        // 사이에 다른 터미널이 끼기 때문이다(서울 반경 안에는 서울경부·동서울·서울남부·김포공항이 함께
+        // 잡힌다). 밀려난 코드는 적재도 안 되고, 그러면 배치가 그 코드를 재볼 기회 자체가 없다.
+        List<Terminal> ordered = nearbyOrdered(new Coordinate(lat, lng), kind).toList();
+        if (ordered.isEmpty()) {
+            return List.of();
+        }
+        Terminal head = ordered.getFirst();
+        return ordered.stream().filter(candidate -> sameSpot(head, candidate)).toList();
+    }
+
+    private static boolean sameSpot(Terminal head, Terminal candidate) {
+        return head.name().equals(candidate.name())
+                && head.coordinate().haversineKmTo(candidate.coordinate()) <= SAME_SPOT_KM;
+    }
+
+    private Stream<Terminal> nearbyOrdered(Coordinate target, BusTerminalKind kind) {
         return terminals().stream()
                 .filter(BusTerminal::hasCoordinate)
                 .filter(t -> kind == null || t.getKind() == kind)
                 .map(t -> Map.entry(t, target.haversineKmTo(new Coordinate(t.getLat(), t.getLng()))))
                 .filter(entry -> entry.getValue() <= MAX_KM)
-                .min(Comparator.comparingDouble(Map.Entry::getValue))
-                .map(entry -> new Terminal(
-                        entry.getKey().getCode(),
-                        entry.getKey().getName(),
-                        entry.getKey().getKind(),
-                        new Coordinate(entry.getKey().getLat(), entry.getKey().getLng())));
+                // **터미널을 정류소보다 앞세운다**(#446). 거리만 보면 경유 정류소가 이긴다 — 서울역에서
+                // DDP(3.8㎞)가 동서울(11㎞)을 이겼다. 정류소는 특정 노선만 서므로 "거기서 타세요" 가
+                // 틀린 안내가 될 수 있고, 구간 소요시간·출발 시각 조회도 터미널 코드를 전제한다.
+                //
+                // 반경({@value #MAX_KM}㎞) 안이면 거리를 접고 종류를 먼저 본다. 그 반경이 이미 "이보다
+                // 멀면 그 지역 터미널로 안 본다" 는 선이라, 그 안에서는 어느 쪽이든 갈 만하다고 본 것이다.
+                .sorted(Comparator.<Map.Entry<BusTerminal, Double>, Boolean>comparing(
+                                entry -> !entry.getKey().isTerminal())
+                        .thenComparing(Map.Entry::getValue)
+                        // **거리까지 같으면 시외를 앞세운다**(#463). 한 건물에서 고속·시외를 함께 취급하는
+                        // 종합터미널이 많아 좌표가 그대로 같은 경우가 흔하다. 여기서 안 정하면 DB 순서
+                        // (고속이 먼저 시드됐다)가 결과를 가르는데, 그건 우연이지 판단이 아니다.
+                        //
+                        // 시외를 고르는 이유는 이 서비스가 다루는 곳이 군 단위이기 때문이다 — 시외는 군까지
+                        // 촘촘히 닿고 고속은 주요 도시를 잇는다(TransitMode 주석의 그 구분). 목록에 이름이
+                        // 있다고 그 구간에 차가 있는 것도 아니다. 실제 연결 여부로 고르는 것은 #450 이다.
+                        .thenComparing(entry -> entry.getKey().getKind() != BusTerminalKind.INTERCITY))
+                .map(entry -> Terminal.builder()
+                        .code(entry.getKey().getCode())
+                        .name(entry.getKey().getName())
+                        .kind(entry.getKey().getKind())
+                        .coordinate(new Coordinate(entry.getKey().getLat(), entry.getKey().getLng()))
+                        .isTerminal(entry.getKey().isTerminal())
+                        .build());
     }
 
     /** 캐시 무효화 — 시드 갱신·통합 테스트 격리용. */

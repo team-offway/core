@@ -18,6 +18,7 @@
 사용:
     docker logs -f offway-core 2>&1 | logfmt.py
     ... | logfmt.py --trace a1b2c3        # 그 요청만
+    ... | logfmt.py --user ac120003-a034   # 그 사용자만 (앞부분만 줘도 된다)
     ... | logfmt.py --level WARN          # WARN 이상만
     ... | logfmt.py --grep 갤러리          # 메시지 정규식
     ... | logfmt.py --compact             # 한 줄로
@@ -29,6 +30,14 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+
+# **stdin·stdout 을 UTF-8 로 못 박는다.** 윈도우 파이썬은 파이프·리다이렉트에서 로케일 인코딩(cp949)을
+# 쓰는데 로그는 UTF-8 이라, 그대로 읽으면 한글이 통째로 깨진다(`적재 완료` → `?쟻?옱 ?셿猷`).
+# 읽는 쪽만 고치면 쓰는 쪽에서 다시 깨지므로 둘 다 잡는다. errors="replace" 는 로그 한 줄이 깨져도
+# 파이프가 죽지 않게 하려는 것이다 — tail -f 를 UnicodeDecodeError 로 끊는 것이 가장 나쁘다.
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 # Spring Boot 기본 콘솔 한 줄. level 뒤 대괄호는 이 프로젝트의 `logging.pattern.level` 이 붙인 traceId 다.
 LINE = re.compile(
@@ -86,6 +95,13 @@ GUTTER = "▌"
 # traceId 폭 — `logging.pattern.level` 의 `%-6.6X{traceId}` 와 같은 값이라야 칸이 맞는다.
 TRACE_ID_WIDTH = 6
 
+# 사용자 식별자 폭 — 같은 패턴의 `%-36.36X{userId}` (UUID 전문)와 같은 값. 앞자리만 싣던 시절에는 8이었는데,
+# 우리 UUID 는 앞 8자가 컨테이너 IP 라 모든 사용자가 `ac120003` 으로 시작해 구분이 안 됐다.
+USER_ID_WIDTH = 36
+
+# 두 값이 `|` 로 이어져 한 칸을 이룬다. traceId 가 없는 줄(배치·기동)도 이 폭을 비워 둬야 칸이 안 흔들린다.
+TRACE_FIELD_WIDTH = TRACE_ID_WIDTH + 1 + USER_ID_WIDTH
+
 # 클래스명 칸 폭. 가장 긴 것이 34자(ApiResponseAuthenticationEntryPoint)라 그만큼 잡았다. 넘치는 줄은
 # 그만큼 밀리지만, 대다수를 정렬해 두는 편이 이름을 자르는 것보다 낫다.
 LOGGER_WIDTH = 34
@@ -103,13 +119,26 @@ class Painter:
         return "".join(codes) + text + RESET
 
     def trace_chip(self, trace: str) -> str:
-        """같은 traceId 면 늘 같은 색. 요청 하나를 색으로 따라가게 하는 것이 목적이다.
+        """`traceId|userId` 를 각각 제 색으로 물들인다.
 
-        폭을 {@code TRACE_ID_WIDTH} 로 고정한다 — 배치 로그처럼 traceId 가 없는 줄과 칸이 어긋나면
-        오른쪽 로거 이름이 들쭉날쭉해져 훑는 이점이 사라진다.
+        **두 값의 색을 따로 뽑는 것이 요점이다.** traceId 색은 요청 하나를 잇고, userId 색은 같은 사람이
+        남긴 줄을 잇는다. 합쳐서 한 번에 해싱하면 요청마다 색이 바뀌어 사람 쪽 연결이 사라진다.
+
+        폭을 고정한다 — 배치 로그처럼 이 값이 없는 줄과 칸이 어긋나면 오른쪽 로거 이름이 들쭉날쭉해져
+        훑는 이점이 사라진다.
         """
-        color = TRACE_COLORS[sum(trace.encode()) % len(TRACE_COLORS)]
-        return self(f"·{trace:<{TRACE_ID_WIDTH}}·", color, BOLD)
+        trace_id, separator, user_id = trace.partition("|")
+        body = self._tint(trace_id.strip(), TRACE_ID_WIDTH)
+        if separator:
+            body += self("|", DIM) + self._tint(user_id.strip(), USER_ID_WIDTH)
+        return self("·", DIM) + body + self("·", DIM)
+
+    def _tint(self, value: str, width: int) -> str:
+        """값에서 색을 뽑아 칠하고 폭을 맞춘다. 여백은 색 밖에 둬야 실제 칸 폭이 맞는다."""
+        if not value:
+            return " " * width
+        color = TRACE_COLORS[sum(value.encode()) % len(TRACE_COLORS)]
+        return self(value, color, BOLD) + " " * max(0, width - len(value))
 
 
 def short_logger(logger: str) -> str:
@@ -154,6 +183,7 @@ def paint_message(message: str, paint: Painter) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=True, description="운영 로그 색칠기")
     parser.add_argument("--trace", help="이 traceId 의 로그만 본다")
+    parser.add_argument("--user", help="이 사용자의 로그만 본다 (UUID 앞부분만 줘도 된다)")
     parser.add_argument("--level", default="TRACE", help="이 레벨 이상만 (기본 TRACE)")
     parser.add_argument("--grep", help="메시지 정규식으로 거른다")
     parser.add_argument("--compact", action="store_true", help="두 줄이 아니라 한 줄로")
@@ -175,7 +205,7 @@ def main() -> int:
     #
     # 첫 로그 줄보다 앞서는 것(JVM 경고·기동 배너)은 주인이 없다. 필터가 걸려 있으면 감추고, 아니면
     # 보여 준다 — 필터를 걸었는데 배너부터 쏟아지면 거른 의미가 없다.
-    filtering = bool(args.trace or grep or floor > LEVEL_ORDER["TRACE"])
+    filtering = bool(args.trace or args.user or grep or floor > LEVEL_ORDER["TRACE"])
     showing_previous = not filtering
 
     for raw in iter(sys.stdin.readline, ""):
@@ -190,11 +220,18 @@ def main() -> int:
         level = matched.group("level")
         trace = matched.group("trace").strip()
         message = matched.group("msg")
+        # 이 칸은 `traceId|userId` 한 덩어리다. 거를 때는 반드시 갈라서 본다 — 예전에는 덩어리째
+        # 비교해서 `--trace 66f337` 이 영영 아무것도 못 맞췄다(패턴에 userId 가 붙은 뒤로 계속).
+        trace_id, _, user_id = (part.strip() for part in trace.partition("|"))
 
         if LEVEL_ORDER.get(level, 0) < floor:
             showing_previous = False
             continue
-        if args.trace and trace != args.trace:
+        if args.trace and trace_id != args.trace:
+            showing_previous = False
+            continue
+        # 앞부분만 줘도 맞게 한다 — UUID 전문을 매번 붙여넣는 것은 손이 많이 간다.
+        if args.user and not user_id.startswith(args.user):
             showing_previous = False
             continue
         if grep and not grep.search(message):
@@ -206,7 +243,7 @@ def main() -> int:
         cls = short_logger(matched.group("logger"))
         clock = matched.group("ts")[11:23]
         # traceId 가 없는 줄(배치·기동)도 같은 폭을 차지해야 오른쪽 칸이 안 흔들린다.
-        chip = paint.trace_chip(trace) if trace else " " * (TRACE_ID_WIDTH + 2)
+        chip = paint.trace_chip(trace) if trace else " " * (TRACE_FIELD_WIDTH + 2)
         padding = " " * max(1, LOGGER_WIDTH - len(cls))
 
         head = (

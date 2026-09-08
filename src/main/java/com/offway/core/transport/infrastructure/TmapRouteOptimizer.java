@@ -1,6 +1,6 @@
 package com.offway.core.transport.infrastructure;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.infrastructure.tmap.TmapClient;
 import com.offway.core.transport.service.RouteOptimizer;
 import java.util.ArrayList;

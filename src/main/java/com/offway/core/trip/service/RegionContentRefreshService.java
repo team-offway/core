@@ -7,7 +7,7 @@ import com.offway.core.common.config.BatchBudgetProperties;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiBatchPolicy;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.domain.RegionContent;
 import com.offway.core.trip.domain.StoredRegionContent;
 import com.offway.core.trip.repository.RegionContentRepository;
@@ -66,7 +66,7 @@ public class RegionContentRefreshService {
     private final RegionContentProvider regionContentProvider;
     private final RegionCategoryCountProvider regionCategoryCountProvider;
     private final RegionContentRepository regionContentRepository;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final BatchRunRepository batchRunRepository;
     private final BatchBudgetProperties batchBudget;
 
@@ -109,7 +109,7 @@ public class RegionContentRefreshService {
      * 쏘므로, 운영에서는 스케줄러만 이 경로를 탄다.
      */
     public void refresh() {
-        List<Region> all = regionRepository.findAll();
+        List<Region> all = regionQuery.all();
         if (all.isEmpty()) {
             return;
         }

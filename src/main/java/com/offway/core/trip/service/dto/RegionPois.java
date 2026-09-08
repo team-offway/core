@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import lombok.Builder;
 
 /**
  * 한 지역의 코스 후보 POI 를 세 풀로 분류한 결과(course-logic ①: 볼거리풀·맛집풀·숙박풀). itinerary 가 이 풀에서 필요 수만큼
@@ -15,8 +16,14 @@ import java.util.Set;
  * @param sights 볼거리(관광지·문화·축제·레포츠)
  * @param foods 맛집(음식점)
  * @param stays 숙박
+ *
+ * <p><b>빌더로 조립한다.</b> 세 칸이 전부 {@code List<PoiCandidate>} 라, 위치 생성자로는 맛집과 숙박을
+ * 맞바꿔도 컴파일이 통과한다 — 끼니 자리에 숙소가 들어가고 잘 곳이 사라진 코스가 나갈 때까지 아무도
+ * 모른다.
  */
-public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, List<PoiCandidate> stays) {
+@Builder
+public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods,
+        List<PoiCandidate> cafes, List<PoiCandidate> stays) {
 
     /**
      * 각 풀이 최소한 갖춰야 할 후보 수 — 가장 긴 코스(2박3일 빡빡)가 요구하는 양이다.
@@ -38,11 +45,12 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, Li
     public RegionPois {
         sights = List.copyOf(sights);
         foods = List.copyOf(foods);
+        cafes = cafes == null ? List.of() : List.copyOf(cafes);
         stays = List.copyOf(stays);
     }
 
     public static RegionPois empty() {
-        return new RegionPois(List.of(), List.of(), List.of());
+        return RegionPois.builder().sights(List.of()).foods(List.of()).cafes(List.of()).stays(List.of()).build();
     }
 
     /** 어느 풀이라도 가장 긴 코스를 못 채우는가. */
@@ -75,16 +83,44 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, Li
      */
     public RegionPois supplementedWith(
             List<PoiCandidate> moreSights, List<PoiCandidate> moreFoods, List<PoiCandidate> moreStays) {
-        return new RegionPois(
-                merge(sights, moreSights, MIN_SIGHTS),
-                merge(foods, moreFoods, MIN_FOODS),
-                merge(stays, moreStays, MIN_STAYS));
+        return RegionPois.builder()
+                .sights(merge(sights, moreSights, MIN_SIGHTS))
+                .foods(merge(foods, moreFoods, MIN_FOODS))
+                .cafes(cafes)
+                .stays(merge(stays, moreStays, MIN_STAYS))
+                .build();
+    }
+
+    /**
+     * 숙박 풀을 <b>부족 여부와 무관하게</b> 넓힌다(#510) — 야영장이 쓰는 자리.
+     *
+     * <p>{@link #supplementedWith} 와 갈라 둔 이유가 이 한 줄이다. 그쪽은 {@link #MIN_STAYS}(2)에
+     * 못 미칠 때만 쓰이는데, 우리 숙박 풀은 지역당 평균 12건이라 <b>사실상 한 번도 참이 아니다</b>.
+     * 야영장을 거기 넣으면 한 건도 안 쓰인다.
+     *
+     * <p>인허가 숙박(사진 0%)과 달리 야영장은 사진이 75% 라, "TourAPI 가 못 채웠을 때의 대타" 가
+     * 아니라 같은 급의 후보다. 다만 <b>뒤에 붙인다</b> — 기존 후보를 밀어내는 것이 아니라 선택지를
+     * 넓히는 것이 목적이고, TourAPI 숙박은 사진 보유율이 더 높다(86%).
+     *
+     * <p>같은 야영장이 두 소스에 다 있으면 코스에 두 번 뜨므로 {@link #identity} 로 걸러낸다 —
+     * 실측에서 375건이 겹쳤다.
+     */
+    public RegionPois withMoreStays(List<PoiCandidate> extra) {
+        if (extra.isEmpty()) {
+            return this;
+        }
+        return RegionPois.builder().sights(sights).foods(foods).cafes(cafes).stays(dedupe(stays, extra)).build();
     }
 
     private static List<PoiCandidate> merge(List<PoiCandidate> base, List<PoiCandidate> extra, int minimum) {
         if (base.size() >= minimum || extra.isEmpty()) {
             return base;
         }
+        return dedupe(base, extra);
+    }
+
+    /** 뒤에 붙이되 <b>같은 장소는 한 번만</b>. 판정은 {@link #identity} 가 소유한다. */
+    private static List<PoiCandidate> dedupe(List<PoiCandidate> base, List<PoiCandidate> extra) {
         Set<String> seen = new HashSet<>();
         for (PoiCandidate candidate : base) {
             seen.add(identity(candidate));

@@ -46,8 +46,13 @@ public class Slot {
     @Enumerated(EnumType.STRING)
     private SlotKind kind;
 
-    /** TourAPI 콘텐츠 ID(raw 참조 — 애그리거트 경계 밖). */
-    @Column(name = "poi_content_id", nullable = false, length = 64)
+    /**
+     * TourAPI 콘텐츠 ID(raw 참조 — 애그리거트 경계 밖).
+     *
+     * <p><b>교통 거점 칸은 없다</b>(#415). 역·터미널·항구는 장소 풀이 아니라 우리 DB 에서 오고 장소
+     * 상세로 이어지지 않는다. 무엇을 요구하는지는 {@link SlotKind#hasPlace()} 가 소유한다.
+     */
+    @Column(name = "poi_content_id", length = 64)
     private String poiContentId;
 
     /**
@@ -112,7 +117,7 @@ public class Slot {
         this.orderInDay = orderInDay;
         this.timeOfDay = Objects.requireNonNull(timeOfDay, "시간대는 필수입니다");
         this.kind = Objects.requireNonNull(kind, "슬롯 종류는 필수입니다");
-        this.poiContentId = requireText(poiContentId, "POI content id");
+        this.poiContentId = placeIdFor(this.kind, poiContentId);
         this.poiContentTypeId = poiContentTypeId; // 우리 DB 출처는 없다 — 검증하지 않는다
         this.title = requireText(title, "장소명");
         this.lat = lat;
@@ -155,6 +160,45 @@ public class Slot {
             SlotDisplay display) {
         return new Slot(orderInDay, timeOfDay, kind, poiContentId, poiContentTypeId, title, lat, lng,
                 travelMinutesFromPrev, display);
+    }
+
+    /**
+     * 교통 거점 칸을 만든다 — 대중교통 코스의 도착·출발 지점(#415).
+     *
+     * <p>{@link #of} 와 나눠 두는 이유는 <b>장소 식별자 자리에 null 을 적어 넣게 하지 않으려는 것</b>이다.
+     * 같은 팩토리로 받으면 호출부가 {@code Slot.of(1, MORNING, ARRIVAL, null, ...)} 이 되어, 그 null 이
+     * 실수인지 의도인지 읽는 쪽이 알 수 없다.
+     *
+     * <p>표시 정보(사진·주소·추천 문구·전화)는 없다. 역·터미널은 장소 풀이 아니라 좌표와 이름만 있는
+     * 값이다 — 없는 것을 지어내지 않는다.
+     *
+     * @param kind {@link SlotKind#ARRIVAL} 또는 {@link SlotKind#DEPARTURE}
+     * @param name 지점 이름(역명·터미널명·항구명)
+     */
+    public static Slot transitHub(int orderInDay, TimeOfDay timeOfDay, SlotKind kind, String name,
+            double lat, double lng, int travelMinutesFromPrev) {
+        if (kind == null || kind.hasPlace()) {
+            throw new IllegalArgumentException("교통 거점 칸이 아닙니다: " + kind);
+        }
+        return new Slot(orderInDay, timeOfDay, kind, null, null, name, lat, lng, travelMinutesFromPrev,
+                SlotDisplay.none());
+    }
+
+    /**
+     * 이 종류가 요구하는 장소 식별자 — 장소 칸은 반드시 있고, 교통 거점 칸은 반드시 없다(#415).
+     *
+     * <p>양쪽을 다 막는다. 장소 칸에서 빠지면 상세 조회가 통째로 죽고, 교통 거점에 값이 들어오면
+     * {@code PlaceOrigin} 이 접두어 없는 값을 TourAPI 로 읽어 <b>실린 적 없는 출처</b>를 응답에 적는다.
+     * 뒤쪽은 예외가 안 나고 조용히 틀리는 쪽이라 더 위험하다.
+     */
+    private static String placeIdFor(SlotKind kind, String poiContentId) {
+        if (!kind.hasPlace()) {
+            if (poiContentId != null) {
+                throw new IllegalArgumentException(kind.label() + " 칸은 장소 식별자를 가질 수 없습니다");
+            }
+            return null;
+        }
+        return requireText(poiContentId, "POI content id");
     }
 
     private static void requireCoordinate(double value, double min, double max, String name) {

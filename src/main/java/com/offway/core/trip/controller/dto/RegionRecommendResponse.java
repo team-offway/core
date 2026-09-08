@@ -49,6 +49,8 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary,
      * @param categories 볼거리 카테고리 태그 (필터칩과 달리 개수가 없다 — {@link CategoryTagResponse})
      * @param neighborIncluded 볼거리 부족으로 인접 50km 지역이 포함됐는지
      * @param benefits 적용 혜택 뱃지
+     * @param visitMetrics 한산한 요일·인기 추세(#394). 카드의 "최근 인기 상승" 칩이 여기서 나오고,
+     *     목록 순서도 이 값을 본다 — 혜택 있는 곳 다음이 인기 상승한 곳이다
      */
     @Builder
     public record Item(
@@ -76,7 +78,8 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary,
                     감성 카피가 아니라 사실이다 — 지역 소개를 주는 외부 출처가 없어, 지어내는 대신
                     우리가 가진 것(국가유산·볼거리)의 이름을 조합한다. 재료가 없으면 필드가 없다.""",
                     example = "탑리리 오층석탑과 고운사 가운루가 있는 곳", nullable = true) String intro,
-            List<Benefit> benefits) {
+            List<Benefit> benefits,
+            RegionVisitMetricsResponse visitMetrics) {
 
         static Item from(RecommendedRegion region) {
             // 이름을 붙여 조립한다. lat·lng 가 나란한 double 이라 위치 생성자로는 둘을 맞바꿔도
@@ -95,6 +98,7 @@ public record RegionRecommendResponse(List<Item> regions) implements LogSummary,
                     .neighborIncluded(region.neighborIncluded())
                     .intro(region.intro())
                     .benefits(region.benefits().stream().map(Benefit::from).toList())
+                    .visitMetrics(RegionVisitMetricsResponse.from(region.visitMetrics()))
                     .build();
         }
     }

@@ -8,6 +8,8 @@ import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.policy.service.PolicyService;
+import com.offway.core.trip.domain.CampingPlace;
+import com.offway.core.trip.domain.FestivalPlace;
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.MapSearchLink;
@@ -17,8 +19,11 @@ import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
+import com.offway.core.trip.repository.CampingPlaceRepository;
+import com.offway.core.trip.repository.FestivalPlaceRepository;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
+import com.offway.core.trip.repository.RegionPoiRepository;
 import com.offway.core.trip.service.dto.PoiDetail;
 import com.offway.core.trip.service.dto.RegionBenefit;
 import java.time.Duration;
@@ -44,6 +49,15 @@ public class PoiDetailService {
 
     /** TourAPI 콘텐츠가 아님을 뜻하는 타입 — 인허가·국가유산이 함께 쓴다. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
     private static final int NON_TOUR_CONTENT_TYPE = 0;
+
+    /** 축제의 뱃지 — 표준데이터에는 업종·종목에 해당하는 값이 없어 종류 자체가 곧 분류다. */
+    private static final String FESTIVAL_TYPE_LABEL = "축제";
+
+    /** 야영장의 뱃지 — 업종({@code induty})이 없는 1% 에만 쓰는 기본값이다. */
+    private static final String CAMPING_TYPE_LABEL = "야영장";
+
+    /** 운영기간과 운영일을 한 줄로 이을 때의 구분자 — `봄,여름,가을 · 평일+주말`. */
+    private static final String CAMPING_OPERATION_SEPARATOR = " · ";
 
     /**
      * 성공 캐시 TTL — 상세는 <b>느리게 변하는 값</b>이다(주소·개요·운영시간·휴무일).
@@ -94,7 +108,10 @@ public class PoiDetailService {
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
     private final LicensedPlaceRepository licensedPlaceRepository;
+    private final RegionPoiRepository regionPoiRepository;
     private final HeritagePlaceRepository heritagePlaceRepository;
+    private final FestivalPlaceRepository festivalPlaceRepository;
+    private final CampingPlaceRepository campingPlaceRepository;
     private final PolicyService policyService;
 
     /** 캐시를 켜고 끄는 스위치(#403). 조회마다 물어, 운영 중 바뀐 값도 곧바로 듣는다. */
@@ -167,6 +184,14 @@ public class PoiDetailService {
         if (heritageId.isPresent()) {
             return heritageDetail(heritageId.get());
         }
+        Optional<Long> festivalId = FestivalPlace.parsePublicId(contentId);
+        if (festivalId.isPresent()) {
+            return festivalDetail(festivalId.get());
+        }
+        Optional<Long> campingId = CampingPlace.parsePublicId(contentId);
+        if (campingId.isPresent()) {
+            return campingDetail(campingId.get());
+        }
 
         return tourDetail(contentId);
     }
@@ -178,9 +203,54 @@ public class PoiDetailService {
      * 40초 안에 세 번</b> 조회되는 것을 봤는데, 호출이 세 배면 외부가 멈춘 순간을 만날 확률도 세 배다.
      */
     private PoiDetail tourDetail(String contentId) {
-        return detailCache
-                .get(contentId, this::loadDetail, CachedDetail.failed(), StalePolicy.ALLOW_STALE)
-                .orThrow();
+        CachedDetail cached =
+                detailCache.get(contentId, this::loadDetail, CachedDetail.failed(), StalePolicy.ALLOW_STALE);
+        if (cached.isFound()) {
+            return cached.orThrow();
+        }
+        // 조회가 실패했을 때만 저장된 값으로 떨어진다. "없는 장소"(NOT_FOUND)는 폴백 대상이 아니다 —
+        // 그건 외부가 정상으로 답한 결과다.
+        if (cached.status() == DetailStatus.LOOKUP_FAILED) {
+            Optional<PoiDetail> stored = storedDetail(contentId);
+            if (stored.isPresent()) {
+                return stored.get();
+            }
+        }
+        return cached.orThrow();
+    }
+
+    /**
+     * 관광 API 가 죽었을 때 <b>우리가 이미 가진 것</b>으로 채운다(#472).
+     *
+     * <p>2026-09-06 `apis.data.go.kr` 이 통째로 죽었을 때, 코스 카드에 이름과 사진이 떠 있는 장소를 누르면
+     * 502 가 났다. 그런데 그 값은 {@code region_poi} 에 있었다 — 코스에 그 장소를 넣을 때 쓴 바로 그 값이다.
+     *
+     * <p>인허가({@code LIC-})·국가유산({@code HER-}) 장소는 그때도 멀쩡히 떴다. DB 에서 오기 때문이다.
+     * 같은 화면인데 출처에 따라 하나는 살고 하나는 죽는 것을 없앤다.
+     *
+     * <p><b>없는 것을 지어내지 않는다.</b> 소개·운영시간·휴무일은 상세 조회에서만 오므로 비운다. 우리가
+     * 가진 것(이름·사진·주소·좌표·전화)만 채운다.
+     */
+    private Optional<PoiDetail> storedDetail(String contentId) {
+        return regionPoiRepository.findByContentId(contentId).map(poi -> {
+            log.info("관광 API 상세를 저장된 값으로 대신합니다 contentId={} 지역={}",
+                    SensitiveParams.forLog(contentId), poi.getRegionId());
+            return PoiDetail.withoutIntro(
+                    poi.getContentId(),
+                    poi.getContentTypeId(),
+                    PoiContentType.labelOf(poi.getContentTypeId()),
+                    poi.getTitle(),
+                    poi.getAddress(),
+                    poi.getTel(),
+                    poi.getLat(),
+                    poi.getLng(),
+                    poi.getImageUrl(),
+                    null, // 소개 — 상세 조회에서만 온다
+                    // 사진이 없으면 지도로 넘긴다 — 카드가 설 수 없을 때의 그 규칙 그대로다.
+                    MapSearchLink.of(poi.getTitle(), poi.getAddress()).orElse(null),
+                    // 혜택은 슬롯 종류별로 매칭된다(#172). 인허가 장소가 이미 쓰는 그 축으로 옮긴다.
+                    benefitFor(poi.getRegionId(), poi.getCategory().slotKind()));
+        });
     }
 
     /**
@@ -235,7 +305,10 @@ public class PoiDetailService {
                 null, // 관광 API 콘텐츠는 사진·소개·운영시간이 이미 있어 지도로 넘길 이유가 없다
                 // 혜택은 지역 단위로 매칭되는데 상세 응답에 지역 코드가 없어 어느 지역인지 모른다(#172).
                 null,
-                catchphraseProvider.forContentId(contentId).orElse(null));
+                catchphraseProvider.forContentId(contentId).orElse(null),
+                // 대표 한 장(firstimage)뿐이던 것에 추가 사진을 더한다(#464). 실측으로 완도타워가 16장이다.
+                // 상세와 같은 캐시에 실려 나가므로 호출은 캐시 미스 때만 는다.
+                tourApiClient.findImages(contentId));
     }
 
     /** 강제 갱신·통합 테스트 격리용. 공유 컨텍스트에서 앞 테스트의 캐시가 뒤 테스트를 통과시키지 않게. */
@@ -271,6 +344,91 @@ public class PoiDetailService {
                 // 국가유산도 운영시간·전화가 없다. 사진·설명은 있지만 "언제 여나" 는 지도가 답한다.
                 MapSearchLink.of(heritage.getName(), heritage.getAddress()).orElse(null),
                 benefitFor(heritage.getRegionId(), SlotKind.SIGHT));
+    }
+
+    /**
+     * 축제의 상세(#480) — <b>코스에 나가는데 상세가 없던 자리</b>다.
+     *
+     * <p>축제를 후보로 실으면서(#439) 이 분기를 안 붙였다. {@code FST-} 식별자가 관광 API 로 넘어가
+     * <b>외부가 멀쩡할 때도 404</b> 였다 — 카드에 떠 있는 축제를 누르면 없다고 답하는 셈이다.
+     * 인허가·국가유산이 같은 이유로 각자 분기를 갖는다.
+     *
+     * <p>사진은 표준데이터가 주지 않는다. 기간은 상세 계약에 담을 자리가 없어 함께 비운다 — 없는 것을
+     * 지어내지 않는다.
+     */
+    private PoiDetail festivalDetail(long id) {
+        FestivalPlace festival = festivalPlaceRepository.findById(id).orElseThrow(TourApiException::poiNotFound);
+        return PoiDetail.withoutIntro(
+                festival.publicId(),
+                NON_TOUR_CONTENT_TYPE,
+                FESTIVAL_TYPE_LABEL,
+                festival.getName(),
+                festival.getAddress(),
+                festival.getTel(),
+                festival.getLat(),
+                festival.getLng(),
+                null, // 사진 — 표준데이터에 없다
+                festival.getDescription(),
+                MapSearchLink.of(festival.getName(), festival.getAddress()).orElse(null),
+                benefitFor(festival.getRegionId(), SlotKind.SIGHT));
+    }
+
+    /**
+     * 야영장의 상세(#510) — <b>우리 DB 출처 중 유일하게 "언제 여나" 에 답한다</b>.
+     *
+     * <p>이 분기를 함께 넣는다. 축제를 후보로 실으면서 이걸 빠뜨려 {@code FST-} 가 관광 API 로 넘어가
+     * <b>외부가 멀쩡할 때도 404</b> 였다(#480) — 카드에 떠 있는 장소를 누르면 없다고 답하는 셈이다.
+     *
+     * <p>지도 링크는 <b>사진이 없을 때만</b> 붙인다. 사진·소개·운영시간이 함께 있으면 링크가 오히려
+     * 사용자를 갈라놓는다는 것이 관광 API 콘텐츠에 안 붙이는 이유인데, 야영장은 사진이 75% 라 그 조건이
+     * 건마다 갈린다.
+     */
+    private PoiDetail campingDetail(long id) {
+        CampingPlace camping = campingPlaceRepository.findById(id).orElseThrow(TourApiException::poiNotFound);
+        PoiDetail detail = PoiDetail.withoutIntro(
+                camping.publicId(),
+                NON_TOUR_CONTENT_TYPE,
+                // 업종이 곧 뱃지다 — `일반야영장`·`자동차야영장`·`글램핑`·`카라반`.
+                camping.getInduty() == null ? CAMPING_TYPE_LABEL : camping.getInduty(),
+                camping.getName(),
+                camping.getAddress(),
+                camping.getTel(),
+                camping.getLat(),
+                camping.getLng(),
+                camping.getImageUrl(),
+                camping.getIntro(),
+                camping.hasPhoto()
+                        ? null
+                        : MapSearchLink.of(camping.getName(), camping.getAddress()).orElse(null),
+                benefitFor(camping.getRegionId(), SlotKind.STAY));
+        return detail.withIntro(campingIntro(camping), camping.getLineIntro());
+    }
+
+    /**
+     * 야영장의 운영 정보 — <b>아는 것이 하나도 없으면 비운다</b>.
+     *
+     * <p>빈 {@link PoiIntro} 를 얹으면 화면이 "운영시간" 칸을 만들고 그 안이 빈다. 없는 것을 지어내지
+     * 않는 것과 같은 이유로, 모르면 칸 자체를 안 만든다.
+     *
+     * <p>운영기간과 운영일을 한 줄로 잇는다 — `봄,여름,가을` 과 `평일+주말` 이 따로 오는데, 화면에는
+     * "언제 여나" 한 줄이면 된다.
+     */
+    private static PoiIntro campingIntro(CampingPlace camping) {
+        if (!camping.knowsOperation()) {
+            return null;
+        }
+        return PoiIntro.builder()
+                .useTime(joinOperation(camping.getOperPeriod(), camping.getOperDays()))
+                .reservation(camping.getReservation())
+                .build();
+    }
+
+    /** 둘 다 있으면 이어 붙이고, 하나만 있으면 그것만. 둘 다 없으면 null 이다. */
+    private static String joinOperation(String period, String days) {
+        if (period == null) {
+            return days;
+        }
+        return days == null ? period : period + CAMPING_OPERATION_SEPARATOR + days;
     }
 
     /** 인허가 장소의 상세 — 우리가 가진 것만 채우고 나머지는 비운다. 없는 것을 지어내지 않는다. */

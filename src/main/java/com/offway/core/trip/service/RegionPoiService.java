@@ -1,7 +1,17 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.external.CallerContext;
+import jakarta.annotation.PreDestroy;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
+import com.offway.core.trip.domain.CampingPlace;
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.PlaceKind;
@@ -13,6 +23,9 @@ import com.offway.core.trip.domain.PoiContentType;
 import com.offway.core.trip.repository.FestivalPeriodRepository;
 import java.time.LocalDate;
 import com.offway.core.trip.service.dto.PoiCandidate;
+import com.offway.core.trip.domain.FestivalPlace;
+import com.offway.core.trip.repository.CampingPlaceRepository;
+import com.offway.core.trip.repository.FestivalPlaceRepository;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.RegionPois;
@@ -21,6 +34,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.Objects;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -55,6 +70,9 @@ public class RegionPoiService {
 
     private static final String LCLS_FOOD = "FD";
 
+    /** 음식점 대분류 안의 카페 중분류 — 끼니와 갈라야 하는 자리다(#522). */
+    private static final String LCLS_CAFE = "FD05";
+
     /**
      * 중분류로만 갈리는 잘 곳 — <b>복합관광시설(리조트)</b>(#304).
      *
@@ -65,18 +83,81 @@ public class RegionPoiService {
     private static final int FOOD_TYPE = 39;
     private static final int STAY_TYPE = 32;
 
+    /**
+     * 전체타입 조회의 자리표시자(#434). {@code contentTypeId} 는 전체타입일 때 {@code null} 인데,
+     * {@link ConcurrentHashMap} 은 null 키를 받지 않아 결과를 담을 수가 없다. 실제 타입 번호와 겹치지
+     * 않는 값을 써 조회 시점에 다시 {@code null} 로 되돌린다.
+     */
+    private static final Integer ALL_TYPES_SCOPE = 0;
+
+    /** 병렬로 조회할 세 스코프 — 전체타입·맛집·숙박. */
+    private static final List<Integer> POI_SCOPES = List.of(ALL_TYPES_SCOPE, FOOD_TYPE, STAY_TYPE);
+
+    /**
+     * 세 조회 전체의 시간 상한(#434).
+     *
+     * <p>호출 하나의 상한은 {@code TourApiClientImpl} 이 갖는다(시도 6초 · 재시도 포함 8초). 셋이 동시에
+     * 그 상한을 쳐도 여기서 끝난다 — 재시도까지 감안한 8초에 여유 2초를 얹었다.
+     *
+     * <p><b>기다림만 끊는다.</b> 이미 나간 호출은 각자 read-timeout 까지 스레드를 문다. 남은 예산을
+     * 클라이언트까지 내리는 것은 포트 소비자가 여럿이라 별도 작업이다.
+     */
+    private static final long POI_FANOUT_DEADLINE_SECONDS = 10;
+
+    /**
+     * 세 스코프 조회 전용 풀. 요청마다 만들지 않고 빈이 소유한다 — 코스 생성은 매 요청이라 풀 생성 비용을
+     * 거기에 얹을 이유가 없다.
+     *
+     * <p>스레드는 셋이다. 이 팬아웃은 <b>항상 세 갈래</b>라 더 둘 이유가 없고, 상한이 곧 TourAPI 에 거는
+     * 동시 부하다. 데몬으로 둬 종료를 막지 않는다(전부 재시도 가능한 조회다).
+     */
+    private final ExecutorService poiFanoutExecutor = Executors.newFixedThreadPool(POI_SCOPES.size(), runnable -> {
+        Thread thread = new Thread(runnable, "region-poi-fanout");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    @PreDestroy
+    void shutdownPoiFanout() {
+        poiFanoutExecutor.shutdownNow();
+    }
+
     /** TourAPI 콘텐츠가 아님을 뜻하는 타입 — 인허가·국가유산이 함께 쓴다. 실제 contentTypeId 는 12·32·39 처럼 모두 양수다. */
     private static final int NON_TOUR_CONTENT_TYPE = 0;
 
     /** 축제 콘텐츠 타입 — 이 타입만 기간을 물어본다(#388). */
     private static final int FESTIVAL_TYPE = PoiContentType.FESTIVAL.contentTypeId();
 
-    private final RegionRepository regionRepository;
+    /**
+     * 여행일에 열리는 축제를 몇 건까지 볼거리로 올릴 것인가(#433).
+     *
+     * <p>후보 100건과 달리 작게 잡는다. 이 목록은 <b>이미 그날로 걸러진 것</b>이라 한 지역에서 보통
+     * 0~2건이고, 많아 봐야 큰 지역의 겹치는 행사 몇 건이다. 상한이 필요한 이유는 한 지역이 축제로만
+     * 채워져 다른 볼거리를 밀어내지 않게 하려는 것이다.
+     */
+    private static final int OPEN_FESTIVAL_LIMIT = 5;
+
+    /**
+     * 숙박 후보로 올릴 야영장 수(#510).
+     *
+     * <p>후보 100건(볼거리)과 달리 작게 잡는다. 숙박은 가장 긴 코스(2박3일)가 두 자리를 쓸 뿐이라,
+     * 필요한 것은 <b>고를 여지</b>지 목록의 길이가 아니다. TourAPI 숙박이 지역당 평균 12건이니
+     * 스물이면 동선을 고를 폭이 세 배 가까이 된다.
+     *
+     * <p>상한이 필요한 이유는 지역 편차다 — 실측에서 최대 지역이 196건인데, 그 지역만 숙박 후보가
+     * 200건이 되면 코스 생성의 후보 정렬 비용이 거기서만 튄다.
+     */
+    private static final int CAMPING_ROWS = 20;
+
+    private final RegionQuery regionQuery;
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
     private final LicensedPlaceRepository licensedPlaceRepository;
     private final HeritagePlaceRepository heritagePlaceRepository;
     private final FestivalPeriodRepository festivalPeriodRepository;
+    private final FestivalPlaceRepository festivalPlaceRepository;
+    private final CampingPlaceRepository campingPlaceRepository;
+    private final RelatedAttractionQuery relatedAttractionQuery;
 
     /**
      * 지역의 후보 POI 를 세 풀로 분류해 돌려준다. 좌표가 없는 POI 는 지도·동선에 못 쓰므로 제외한다.
@@ -85,12 +166,11 @@ public class RegionPoiService {
      * 갈 수 없는 곳이다. 날짜를 인자로 둬서 <b>호출자가 "언제 가는 코스인가" 에 답하게</b> 한다.
      */
     public RegionPois collect(long regionId, LocalDate travelDate) {
-        List<Region> found = regionRepository.findByIds(List.of(regionId));
-        if (found.isEmpty()) {
+        Region region = regionQuery.byId(regionId).orElse(null);
+        if (region == null) {
             log.debug("코스 POI 수집 — 없는 지역 regionId={}", regionId);
             return RegionPois.empty();
         }
-        Region region = found.get(0);
 
         // 볼거리·맛집·숙박을 각각 타입 스코프로 조회한다. 전체타입을 한 번만 뽑으면 인구감소지역처럼 등록 수가 적은 곳에서
         // 맛집·숙박이 볼거리에 밀려 과소표집돼(끼니·숙소가 코스에서 빠짐), 풀마다 독립 조회로 채운다.
@@ -98,17 +178,44 @@ public class RegionPoiService {
         // **전체타입 응답은 대분류(lclsSystm1)로 가른다**(#304). contentTypeId 로 가르면 야영장·캠핑장이
         // 볼거리로 샌다 — 실측(89곳 전수)에서 AC05(숙박) 625건이 타입 28(레포츠)로 왔다. 숙박 조회
         // (contentTypeId=32)에는 안 잡히는 값이라, 그동안 지방 숙소가 통째로 빠지고 있었다.
-        List<PoiCandidate> allTypes = candidates(region, null);
-        List<PoiCandidate> sights = withoutClosedFestivals(
-                allTypes.stream().filter(c -> isSight(c)).toList(), travelDate);
-        List<PoiCandidate> foods = merge(allTypes.stream().filter(c -> LCLS_FOOD.equals(c.lclsSystm1())).toList(),
-                candidates(region, FOOD_TYPE));
+        //
+        // **셋을 동시에 부른다**(#434). 순차로 돌면 외부가 느려질 때 지연이 셋만큼 곱해진다 — 운영에서
+        // `tour 18002ms×3`(6초 timeout 세 번)이 그대로 사용자 대기 시간이 된 요청을 봤다.
+        Map<Integer, List<PoiCandidate>> byScope = candidatesInParallel(region);
+        List<PoiCandidate> allTypes = byScope.getOrDefault(ALL_TYPES_SCOPE, List.of());
+        List<PoiCandidate> sights =
+                withoutClosedFestivals(allTypes.stream().filter(c -> isSight(c)).toList(), travelDate);
+        // **카페를 끼니에서 갈라낸다**(#522). 음식점 대분류(FD)에 카페(FD05)가 섞여 있어 그대로 두면
+        // 카페가 점심 자리에 뽑힌다 — 실제로 태안 1일차 점심이 카페였다.
+        List<PoiCandidate> allFood = merge(
+                allTypes.stream().filter(c -> LCLS_FOOD.equals(c.lclsSystm1())).toList(),
+                byScope.getOrDefault(FOOD_TYPE, List.of()));
+        List<PoiCandidate> foods = allFood.stream().filter(c -> !isCafe(c)).toList();
+        // **연관 카페를 반드시 싣는다**(#527). 인허가 후보는 적합도·이름순 상위 100건만 올라오는데,
+        // 연관 카페 375곳 중 139곳(37%)이 그 컷 밖이다 — 순서만 바꾸면 그것들은 영영 안 뽑힌다.
+        List<PoiCandidate> cafes = merge(
+                allFood.stream().filter(RegionPoiService::isCafe).toList(),
+                merge(relatedCafeCandidates(regionId), licensedCandidates(regionId, PlaceKind.CAFE)));
         List<PoiCandidate> stays = merge(allTypes.stream().filter(RegionPoiService::isStay).toList(),
-                candidates(region, STAY_TYPE));
+                byScope.getOrDefault(STAY_TYPE, List.of()));
 
-        RegionPois pois = new RegionPois(sights, foods, stays);
-        log.debug("코스 POI 수집 regionId={} 볼거리={} 맛집={} 숙박={}", regionId, sights.size(), foods.size(), stays.size());
-        return pois.needsSupplement() ? supplement(pois, regionId) : pois;
+        RegionPois pois = RegionPois.builder().sights(sights).foods(foods).cafes(cafes).stays(stays).build();
+        log.debug("코스 POI 수집 regionId={} 볼거리={} 맛집={} 카페={} 숙박={}",
+                regionId, sights.size(), foods.size(), cafes.size(), stays.size());
+        RegionPois filled = pois.needsSupplement() ? supplement(pois, regionId) : pois;
+
+        // **축제는 보충 판정이 끝난 뒤에 붙인다**(#433). 앞에 붙이면 축제가 볼거리 수에 섞여
+        // needsMoreSights() 를 넘겨버려, 국가유산·인허가 보충이 통째로 안 돈다.
+        //
+        // 실측이 그 대가를 보여준다 — 우리 DB 볼거리가 지역당 평균 82개인데, TourAPI 15개 + 축제
+        // 4건이 19개로 "충분" 판정을 받으면 그 82개를 아예 안 쓴다. 축제 4건을 얻고 후보 풀을
+        // 97개에서 19개로 줄이는 셈이라, 동선을 고를 여지가 그만큼 사라진다.
+        //
+        // **야영장도 보충 판정 밖에서 붙인다**(#510). 이유는 축제와 다르다 — 축제는 볼거리 수를
+        // 부풀려 보충을 막는 것이 문제였고, 야영장은 그 반대로 **보충이 애초에 안 도는 것**이 문제다.
+        // MIN_STAYS 가 2 라 지역당 평균 12건인 숙박 풀에서는 needsMoreStays() 가 거의 참이 아니고,
+        // 인허가와 같은 자리에 넣으면 야영장이 한 건도 안 쓰인다.
+        return withOpenFestivals(withCampsites(filled, regionId), regionId, travelDate);
     }
 
     /**
@@ -164,18 +271,17 @@ public class RegionPoiService {
      * 한 줄 홍보 문구가 아니라 수백 자짜리 해설이라, 카드에 그대로 흘리면 레이아웃이 무너진다. 그건 상세에서 쓴다.
      */
     private static PoiCandidate toCandidate(HeritagePlace heritage) {
-        return new PoiCandidate(
-                heritage.publicId(),
-                NON_TOUR_CONTENT_TYPE,
-                heritage.getName(),
-                heritage.getLat(),
-                heritage.getLng(),
-                heritage.getImageUrl(),
-                heritage.getAddress(),
-                null,  // 캐치프레이즈는 TourAPI 콘텐츠에만 붙는다
-                null,  // 국가유산청은 전화를 주지 않는다
-                null,  // TourAPI 분류체계 밖이라 대분류가 없다 — 이미 볼거리로 정해져 넘어온다
-                null);
+        return PoiCandidate.builder()
+                .contentId(heritage.publicId())
+                .contentTypeId(NON_TOUR_CONTENT_TYPE)
+                .title(heritage.getName())
+                .lat(heritage.getLat())
+                .lng(heritage.getLng())
+                .imageUrl(heritage.getImageUrl())
+                .address(heritage.getAddress())
+                // 캐치프레이즈는 TourAPI 콘텐츠에만 붙고, 국가유산청은 전화를 주지 않는다.
+                // TourAPI 분류체계 밖이라 대분류도 없다 — 이미 볼거리로 정해져 넘어온다.
+                .build();
     }
 
     /**
@@ -189,22 +295,52 @@ public class RegionPoiService {
     }
 
     /**
+     * "그 관광지 가는 사람이 실제로 들르는 카페"(#527).
+     *
+     * <p>연관 관광지의 원본 분류는 {@code 음식} 하나뿐이라 식당과 카페가 섞여 온다. <b>어느 쪽인지는
+     * 우리 인허가 분류가 답한다</b> — 원본을 다시 해석하지 않고, 이미 갈라 둔 {@code kind} 를 쓴다.
+     *
+     * <p>순서는 여기서 정하지 않는다. 후보를 <b>풀에 넣는 것</b>이 이 메서드의 일이고, 순위대로 고르는
+     * 것은 코스 생성이 {@code foodPlaceIds} 로 따로 한다.
+     */
+    private List<PoiCandidate> relatedCafeCandidates(long regionId) {
+        List<Long> placeIds = relatedAttractionQuery.foodPlaceRawIds(regionId);
+        if (placeIds.isEmpty()) {
+            return List.of();
+        }
+        return licensedPlaceRepository.findAllByIds(placeIds).stream()
+                .filter(place -> place.getKind() == PlaceKind.CAFE)
+                .map(RegionPoiService::toCandidate)
+                .toList();
+    }
+
+    /**
      * 인허가 장소는 TourAPI 콘텐츠가 아니라 상세 조회 대상이 아니다. 식별자에 접두어를 붙여 두 출처를 구분할 수 있게 하고,
      * 콘텐츠 타입은 "TourAPI 아님" 을 뜻하는 0 으로 둔다.
      */
+    /**
+     * 카페인가 — 음식점 대분류 안의 <b>카페 중분류</b>({@code FD05})다(#522).
+     *
+     * <p>{@code contentTypeId} 로는 못 가른다. 카페도 음식점(39)이라 같은 값이 온다.
+     */
+    private static boolean isCafe(PoiCandidate candidate) {
+        return LCLS_CAFE.equals(candidate.lclsSystm2());
+    }
+
     private static PoiCandidate toCandidate(LicensedPlace place) {
-        return new PoiCandidate(
-                place.publicId(),
-                NON_TOUR_CONTENT_TYPE,
-                place.getName(),
-                place.getLat(),
-                place.getLng(),
-                null, // 인허가 데이터에는 사진이 없다
-                place.getAddress(),
-                null, // 캐치프레이즈도 TourAPI 콘텐츠에만 붙는다
-                place.getTel(), // 49% 가 채워져 있다 — 있는 것을 버리지 않는다
-                null,           // TourAPI 분류체계 밖이라 대분류가 없다 — 호출부가 kind 로 이미 갈랐다
-                null);
+        return PoiCandidate.builder()
+                .contentId(place.publicId())
+                .contentTypeId(NON_TOUR_CONTENT_TYPE)
+                .title(place.getName())
+                .lat(place.getLat())
+                .lng(place.getLng())
+                // 인허가 데이터에는 사진이 없고, 캐치프레이즈도 TourAPI 콘텐츠에만 붙는다.
+                .address(place.getAddress())
+                .tel(place.getTel()) // 49% 가 채워져 있다 — 있는 것을 버리지 않는다
+                // 대분류는 호출부가 kind 로 이미 갈랐다.
+                // 세부 분류는 같은 끼니를 두 번 넣지 않는 판정에 쓴다 — 이미 DB 에 있는 값이다.
+                .foodCategory(place.getCategory().taste().orElse(null))
+                .build();
     }
 
     /**
@@ -263,14 +399,219 @@ public class RegionPoiService {
         return open;
     }
 
-    /** 축제가 아니거나, 기간을 모르거나, 그날 열리면 남긴다. */
+    /**
+     * <b>그날 열리는 축제를 볼거리 맨 앞에 올린다</b>(#433).
+     *
+     * <h2>보충 판정이 끝난 뒤에 붙인다</h2>
+     *
+     * <p><b>순서가 중요하다.</b> 축제를 먼저 붙이면 그 수가 볼거리에 섞여 {@code needsMoreSights()} 를
+     * 넘겨버리고, 국가유산·인허가 보충이 통째로 안 돈다 — 축제 몇 건을 얻고 후보 풀 수십 개를 잃는다.
+     *
+     * <h2>왜 보충이 아니라 항상인가</h2>
+     *
+     * <p>인허가·국가유산은 TourAPI 가 못 채웠을 때만 쓴다({@code supplement}). 축제는 다르다 —
+     * <b>그날만 있는 것</b>이라 볼거리가 넉넉한 지역에서도 넣어야 한다. 보충으로 두면 TourAPI 볼거리가
+     * 충분한 안동시에서 안동국제탈춤페스티벌이 코스에 안 들어간다.
+     *
+     * <p>같은 이유로 <b>맨 앞</b>이다. 국가유산은 다음 달에 가도 그 자리에 있지만 축제는 그 주에만
+     * 열린다. 여행 코스라면 그날 갈 수 있는 것을 먼저 넣는 편이 맞다.
+     *
+     * <h2>여행일을 모르면 넣지 않는다</h2>
+     *
+     * <p>언제 여는지로 거를 수 없으면 끝난 축제를 코스에 올리게 된다 — #390 이 막으려던 바로 그 일이다.
+     *
+     * <h2>중복은 이름으로 접고, TourAPI 를 남긴다</h2>
+     *
+     * <p>TourAPI 축제와 겹칠 수 있다. 89곳에서는 TourAPI 가 1건이라 거의 없지만(#392) 규칙은 둔다.
+     * <b>TourAPI 쪽을 남기는 이유</b>는 사진과 개요가 함께 오고 {@code contentId} 로 상세까지 이어지기
+     * 때문이다 — 표준데이터에는 사진이 없다.
+     *
+     * <p>좌표까지 보지 않는다. 축제명은 고유성이 높고("안동국제탈춤페스티벌"), 좌표는 출처마다 정밀도가
+     * 달라 같은 축제를 둘로 세기 쉽다.
+     */
+    private RegionPois withOpenFestivals(RegionPois pois, long regionId, LocalDate travelDate) {
+        if (travelDate == null) {
+            return pois;
+        }
+        List<FestivalPlace> open = festivalPlaceRepository.findOpenOn(regionId, travelDate, OPEN_FESTIVAL_LIMIT);
+        if (open.isEmpty()) {
+            return pois;
+        }
+
+        // 보충까지 끝난 볼거리 전체와 견준다 — 국가유산·인허가에도 같은 축제가 있을 수 있다.
+        Set<String> existingNames = pois.sights().stream()
+                .map(candidate -> normalizedName(candidate.title()))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        List<PoiCandidate> added = open.stream()
+                .filter(festival -> !existingNames.contains(normalizedName(festival.getName())))
+                .map(RegionPoiService::toCandidate)
+                .toList();
+        if (added.isEmpty()) {
+            return pois;
+        }
+
+        // 무엇이 늘었는지 남긴다 — 축제가 코스에 들어간 이유를 나중에 설명할 수 있어야 한다.
+        // **여행일은 안 남긴다**(로깅 규약) — 사용자가 언제 집을 비우는지가 로그에 남는다.
+        log.info("그날 열리는 축제를 볼거리에 올렸습니다 regionId={} 축제={}건 볼거리={}→{}",
+                regionId, added.size(), pois.sights().size(), pois.sights().size() + added.size());
+        return RegionPois.builder()
+                .sights(Stream.concat(added.stream(), pois.sights().stream()).toList())
+                .foods(pois.foods())
+                .stays(pois.stays())
+                .build();
+    }
+
+    /**
+     * 야영장을 숙박 풀에 더한다(#510) — <b>부족할 때만이 아니라 언제나</b>.
+     *
+     * <p>사진 있는 숙박 후보가 지역당 열두 곳 남짓이라 카드가 빈다. 인허가 숙박은 296곳이나 되지만
+     * <b>사진 컬럼이 없어</b> 회색 판이 된다. 야영장은 사진 75%·좌표 99.8% 를 들고 오므로 그 자리를
+     * 실제로 메운다 — 실측으로 사진 있는 숙박이 922 → 1,886건이 된다.
+     *
+     * <p>겹침은 {@code RegionPois} 가 이름·좌표로 걸러낸다. TourAPI 숙박에 이미 야영장이 섞여 있어
+     * (대분류 AC 977건 중 625건이 타입 28) 실측에서 375건이 겹쳤다.
+     */
+    private RegionPois withCampsites(RegionPois pois, long regionId) {
+        List<CampingPlace> campsites = campingPlaceRepository.findCandidates(regionId, CAMPING_ROWS);
+        if (campsites.isEmpty()) {
+            return pois;
+        }
+        RegionPois merged = pois.withMoreStays(campsites.stream()
+                .map(RegionPoiService::toCandidate)
+                .toList());
+        if (merged.stays().size() == pois.stays().size()) {
+            return pois; // 전부 이미 있던 곳이다
+        }
+        // 무엇이 늘었는지 남긴다 — 야영장이 코스에 들어간 이유를 나중에 설명할 수 있어야 한다.
+        log.info("야영장을 숙박 후보에 올렸습니다 regionId={} 야영장={}건 숙박={}→{}",
+                regionId, campsites.size(), pois.stays().size(), merged.stays().size());
+        return merged;
+    }
+
+    /**
+     * 야영장을 후보로 옮긴다.
+     *
+     * <p><b>사진이 온다</b>(75%) — 우리 DB 출처 중 인허가·축제에는 없고 국가유산에만 있던 것이다.
+     * 그게 이 소스를 들여온 이유라 반드시 함께 넘긴다.
+     *
+     * <p>한 줄 소개를 캐치프레이즈 자리에 넣는다. 국가유산 설명·축제 내용을 뺐던 것과 갈리는 지점은
+     * <b>길이가 정해져 있다</b>는 점이다 — 고캠핑은 카드 한 줄용 {@code lineIntro} 를 따로 준다(51%).
+     * 긴 소개글은 {@code intro} 로 따로 와 상세에서만 쓴다.
+     */
+    private static PoiCandidate toCandidate(CampingPlace campsite) {
+        return PoiCandidate.builder()
+                .contentId(campsite.publicId())
+                .contentTypeId(NON_TOUR_CONTENT_TYPE)
+                .title(campsite.getName())
+                .lat(campsite.getLat())
+                .lng(campsite.getLng())
+                .imageUrl(campsite.getImageUrl())
+                .address(campsite.getAddress())
+                .catchphrase(campsite.getLineIntro())
+                .tel(campsite.getTel())
+                // 대분류는 호출부가 숙박 풀로 이미 갈랐다 — TourAPI 분류체계 밖이라 값이 없다.
+                .build();
+    }
+
+    /**
+     * 이름 비교용 정규화 — <b>공백만 지운다</b>.
+     *
+     * <p>더 손대지 않는다. 괄호·연도를 떼면 "○○축제 2026" 과 "○○축제 2025" 가 같아져, 다른 회차가
+     * 하나로 접힌다.
+     */
+    private static String normalizedName(String name) {
+        return name == null ? null : name.replaceAll("\\s+", "");
+    }
+
+    /**
+     * 축제를 후보로 옮긴다.
+     *
+     * <p><b>사진이 없다.</b> 표준데이터는 이미지를 주지 않아 카드가 비는데, 그래도 넣는 이유는 축제가
+     * 그날 그 지역에서 <b>실제로 벌어지는 일</b>이라서다. 이름·기간·좌표만으로도 코스에 올릴 값어치가
+     * 있고, 사진 없는 카드 문제는 지도 이미지로 메우는 쪽(#394 ④)이 따로 다룬다.
+     *
+     * <p>설명은 캐치프레이즈 자리에 넣지 않는다 — 지자체가 쓴 글이라 길이가 제각각이고, 카드 한 줄에
+     * 흘리면 레이아웃이 무너진다. 국가유산 설명을 뺀 것과 같은 판단이다.
+     */
+    private static PoiCandidate toCandidate(FestivalPlace festival) {
+        return PoiCandidate.builder()
+                .contentId(festival.publicId())
+                .contentTypeId(NON_TOUR_CONTENT_TYPE)
+                .title(festival.getName())
+                .lat(festival.getLat())
+                .lng(festival.getLng())
+                // 표준데이터는 사진을 주지 않는다. 캐치프레이즈·대분류도 TourAPI 콘텐츠 것이다.
+                .address(festival.getAddress())
+                .tel(festival.getTel())
+                .build();
+    }
+
+    /**
+     * 축제가 아니거나, 기간을 모르거나, 그날 열리면 남긴다.
+     *
+     * <p><b>여행일을 모르면 축제를 뺀다.</b> 언제 가는지 모르면 그날 여는지도 가릴 수 없어, 남기면
+     * 끝난 축제를 코스에 올리게 된다 — #390 이 막으려던 그 일이다. 게다가 기간을 아는 축제는
+     * {@code isOpenOn(null)} 에서 터진다.
+     *
+     * <p>지금은 요청 DTO 가 여행일을 {@code @NotNull} 로 받아 정상 요청으로는 여기에 null 이 안 온다.
+     * 그래도 막아 두는 것은 표준데이터 축제 쪽({@code withOpenFestivals})이 같은 가드를 갖고 있어서다 —
+     * 한쪽만 있으면 나중에 이 경로가 열렸을 때 두 출처가 다르게 동작한다.
+     */
     private static boolean isOpenOrUnknown(
             PoiCandidate candidate, Map<String, FestivalPeriod> periods, LocalDate travelDate) {
         if (candidate.contentTypeId() != FESTIVAL_TYPE) {
             return true;
         }
+        if (travelDate == null) {
+            return false;
+        }
         FestivalPeriod period = periods.get(candidate.contentId());
         return period == null || period.isOpenOn(travelDate);
+    }
+
+    /**
+     * 세 타입 스코프를 <b>동시에</b> 조회한다(#434).
+     *
+     * <p><b>왜 병렬인가.</b> 셋은 서로를 기다릴 이유가 없는 독립 조회인데 순차로 돌고 있었다. TourAPI 가
+     * 느려지면 호출 하나의 상한(6초)이 셋으로 곱해져 <b>18초가 그대로 사용자 대기 시간</b>이 된다. 실제로
+     * 운영에서 그 요청을 봤고, 거기에 날씨·열차가 얹혀 30초가 나왔다(성능 규약 "팬아웃은 병렬, 순차 루프 금지").
+     *
+     * <p><b>전체 상한을 따로 둔다.</b> 호출 하나의 timeout 과 작업 전체의 deadline 은 별개다 — 셋이 동시에
+     * 상한을 쳐도 {@value #POI_FANOUT_DEADLINE_SECONDS} 초 안에는 결론이 난다.
+     *
+     * <p>상한에 걸리면 <b>그 스코프만</b> 빈 목록이 된다. 조회 실패는 이미 정상 흐름이고(인허가·국가유산으로
+     * 보충한다 — #144·#160), 여기서 예외를 올리면 멀쩡한 두 스코프까지 버리게 된다.
+     */
+    private Map<Integer, List<PoiCandidate>> candidatesInParallel(Region region) {
+        Map<Integer, List<PoiCandidate>> byScope = new ConcurrentHashMap<>();
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        for (Integer scope : POI_SCOPES) {
+            // 맥락을 붙여 넘긴다(#285·#421). 스레드가 바뀌면 호출 주체와 사용량 집계가 통째로 미상이 된다.
+            futures.add(CompletableFuture.runAsync(
+                    CallerContext.wrap(() -> byScope.put(scope, candidates(region, scopeOf(scope)))),
+                    poiFanoutExecutor));
+        }
+        try {
+            CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                    .get(POI_FANOUT_DEADLINE_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            log.warn("코스 POI 조회 시간 상한({}초) 초과 — {}/{}개 스코프만 채웁니다 regionId={}",
+                    POI_FANOUT_DEADLINE_SECONDS, byScope.size(), POI_SCOPES.size(), region.getId());
+        } catch (ExecutionException e) {
+            log.warn("코스 POI 조회가 예외로 끝났습니다 — {}/{}개 스코프만 채웁니다 regionId={}",
+                    byScope.size(), POI_SCOPES.size(), region.getId(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("코스 POI 조회가 중단됐습니다 — {}/{}개 스코프만 채웁니다 regionId={}",
+                    byScope.size(), POI_SCOPES.size(), region.getId());
+        }
+        return byScope;
+    }
+
+    /** 맵 키로 쓰려고 전체타입을 자리표시자로 바꾼 것을 되돌린다 — {@code null} 은 키가 될 수 없다. */
+    private static Integer scopeOf(Integer scope) {
+        return ALL_TYPES_SCOPE.equals(scope) ? null : scope;
     }
 
     private List<PoiCandidate> candidates(Region region, Integer contentTypeId) {
@@ -336,12 +677,21 @@ public class RegionPoiService {
             return null;
         }
         // 추천 한 줄(catchphrase)·주소는 코스 슬롯을 트리플식으로 인라인 렌더하기 위한 표시 정보다.
-        return new PoiCandidate(
-                poi.contentId(), poi.contentTypeId(), poi.title(), poi.lat(), poi.lng(),
-                poi.firstImage(), poi.address(), catchphraseProvider.forContentId(poi.contentId()).orElse(null),
+        return PoiCandidate.builder()
+                .contentId(poi.contentId())
+                .contentTypeId(poi.contentTypeId())
+                .title(poi.title())
+                .lat(poi.lat())
+                .lng(poi.lng())
+                .imageUrl(poi.firstImage())
+                .address(poi.address())
+                .catchphrase(catchphraseProvider.forContentId(poi.contentId()).orElse(null))
                 // 후보 조회 응답에 이미 들어 있다. 여기서 안 들고 가면 상세를 다시 불러야 얻는다.
-                poi.tel(),
-                poi.lclsSystm1(),
-                poi.lclsSystm2());
+                .tel(poi.tel())
+                .lclsSystm1(poi.lclsSystm1())
+                .lclsSystm2(poi.lclsSystm2())
+                .foodCategory(poi.foodTaste().orElse(null))
+                .sightKind(poi.cat3())
+                .build();
     }
 }

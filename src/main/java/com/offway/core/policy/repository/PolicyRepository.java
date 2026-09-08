@@ -33,4 +33,12 @@ public interface PolicyRepository {
 
     /** 같은 분류의 노출 대상 — 뱃지 중복을 막으려고 읽는다(#344). */
     List<Policy> findVerifiedByType(PolicyType type);
+
+    /**
+     * 같은 조회를 <b>잠그고</b> 읽는다(#391) — 중복 뱃지 판정 직전에 쓴다.
+     *
+     * <p>잠그지 않으면 읽기와 쓰기 사이에 창이 남아, 어드민 둘이 동시에 저장할 때 같은 분류의
+     * 검증 정책이 둘 저장된다. 그러면 앱에 <b>글자까지 같은 뱃지가 두 개</b> 뜬다.
+     */
+    List<Policy> findVerifiedByTypeForUpdate(PolicyType type);
 }

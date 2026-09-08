@@ -1,5 +1,6 @@
 package com.offway.core.transport.domain;
 
+import com.offway.core.common.geo.Coordinate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;

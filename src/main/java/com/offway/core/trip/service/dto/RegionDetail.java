@@ -1,6 +1,7 @@
 package com.offway.core.trip.service.dto;
 
 import com.offway.core.trip.domain.RegionPoi;
+import com.offway.core.trip.domain.RegionVisitMetrics;
 import java.util.List;
 import lombok.Builder;
 
@@ -15,6 +16,8 @@ import lombok.Builder;
  * @param photos 대표 이미지. 없으면 빈 목록이고, 지금은 한 장이 최대다
  * @param benefit 이 지역에 걸리는 혜택. 없으면 null
  * @param highlightSpots 매력 포인트 장소 — <b>사진 있는 것만</b> 담긴다
+ * @param visitMetrics 한산한 요일·인기 추세(#394). <b>객체는 항상 있고 안의 값이 비어 있을 수
+ *     있다</b> — 아직 못 재는 지역이면 둘 다 null 이다
  */
 @Builder
 public record RegionDetail(
@@ -24,7 +27,8 @@ public record RegionDetail(
         String overview,
         List<String> photos,
         RegionBenefit benefit,
-        List<Spot> highlightSpots) {
+        List<Spot> highlightSpots,
+        RegionVisitMetrics visitMetrics) {
 
     /**
      * 매력 포인트 장소 하나.

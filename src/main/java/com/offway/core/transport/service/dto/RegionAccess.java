@@ -1,6 +1,6 @@
 package com.offway.core.transport.service.dto;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.Departure;
 import com.offway.core.transport.domain.RegionArrival;
 import com.offway.core.transport.domain.TrainLeg;
@@ -31,13 +31,16 @@ import lombok.Builder;
  * @param fromName 출발 지점명(역·터미널·항구, 없으면 null)
  * @param toName 도착 지점명(없으면 null)
  * @param toPoint 도착 지점 좌표(해석됐으면 non-null) — 지역 안 동선의 기준점
- * @param fastest 가장 빠른 운행 편({@link Status#AVAILABLE} 일 때만, 아니면 null)
+ * @param chosen 코스가 탈 편 — <b>가장 일찍 닿는</b> 편이다({@link Status#AVAILABLE} 일 때만, 아니면 null).
+ *     소요시간이 가장 짧은 편이 아니다(#442)
  * @param durationMinutes 소요시간(분, 모르면 null). 버스·여객선은 저장해 둔 구간 측정값에서, 자차는
  *     출발지→지역 이동시간에서 온다. 시간표를 못 묻는 수단이라 <b>시각 대신 이것으로</b> 도착 시각을
  *     만든다(#107 · #379)
  * @param distanceKm 출발지에서 도착 지점까지의 직선거리(㎞, 모르면 null). 화면이 "약 2시간 29분 · 200km"
  *     로 소요시간 옆에 붙인다(#379). 실제 주행거리가 아니라 직선거리다
  * @param alternatives 대표 말고 이 지역에 닿는 다른 수단들. 없으면 빈 목록이다
+ * @param viaName 갈아타는 지점명(#508). 직통이 없어 허브를 한 번 경유할 때만 채워진다 — 없으면 null 이고,
+ *     그때는 출발에서 도착까지 바로 간다는 뜻이다
  * @param departures 그날 탈 수 있는 편들(#414) — 몇 시 차인가. <b>비어 있는 것이 정상</b>이다:
  *     버스·여객선은 여행일이 조회창(오늘~+2일, 여객선 +7일) 밖이면 물을 수 없고, 열차도 그날 운행이
  *     없거나 막차가 지났으면 빈다. 화면은 그때 시간표 줄만 접고 소요시간으로 그린다
@@ -49,15 +52,24 @@ public record RegionAccess(
         String fromName,
         String toName,
         Coordinate toPoint,
-        TrainLeg fastest,
+        TrainLeg chosen,
         Integer durationMinutes,
         Integer distanceKm,
+        String viaName,
         List<TransitOption> alternatives,
         List<Departure> departures) {
 
     public RegionAccess {
         Objects.requireNonNull(mode, "수단은 null 일 수 없습니다.");
         Objects.requireNonNull(status, "접근 상태는 null 일 수 없습니다.");
+        // **지점 이름에 종류를 붙인다.** 마스터 이름이 그대로 나가면 코스 첫 칸이 "태안" 이 되는데,
+        // 태안 어디로 가라는 것인지 알 수 없다 — 열차면 태안역, 버스면 태안터미널이다.
+        //
+        // 여기서 붙이는 이유는 **읽는 곳이 여럿**이라서다(코스 슬롯·교통 카드·대안 목록). 읽는 쪽마다
+        // 붙이면 한 곳을 빠뜨렸을 때 화면에서만 조용히 다르게 보인다. 규칙은 TransitMode 가 소유한다.
+        fromName = mode.placeName(fromName);
+        toName = mode.placeName(toName);
+        viaName = mode.placeName(viaName);
         // null 을 그대로 두면 화면과 테스트가 매번 null 검사를 한다. 없는 것은 빈 목록이다.
         alternatives = alternatives == null ? List.of() : List.copyOf(alternatives);
         departures = departures == null ? List.of() : List.copyOf(departures);
@@ -75,6 +87,18 @@ public record RegionAccess(
         NO_STATION,
         /** 지점은 있으나 그 날짜에 운행이 없음. */
         NO_SERVICE_ON_DATE,
+        /**
+         * 지점은 있는데 <b>그 구간에 노선이 없다</b>(#508) — 경유할 길도 못 찾았다.
+         *
+         * <p>{@link #NO_SERVICE_ON_DATE} 와 갈라야 한다. 그쪽은 "그날 차가 없다"(다른 날은 있다)이고
+         * 이쪽은 "이 두 지점을 잇는 노선이 없다" 다. 사용자가 할 일이 다르다 — 전자는 날짜를 바꾸면 되고
+         * 후자는 다른 수단을 봐야 한다.
+         *
+         * <p><b>왜 필요했나.</b> 예전에는 여기서도 {@code POINT_ONLY}("아직 안 물었다")로 답했다. 그래서
+         * 서울에서 봉화까지 고속버스로 가라는 안내가 나갔다 — 봉화행 노선은 어디에도 없는데. <b>없는 길을
+         * 안내하는 것은 아무 안내도 안 하는 것보다 나쁘다.</b>
+         */
+        NO_ROUTE,
         /** 조회 실패(키 없음·외부 오류). */
         UNAVAILABLE,
         /**
@@ -118,15 +142,15 @@ public record RegionAccess(
     /**
      * 지역에 닿는 시각 — 실제 운행 편을 찾았을 때만 안다. 1일차에 어느 시간대부터 일정을 넣을지의 근거다.
      *
-     * <p>근거는 둘이다. 열차는 {@code fastest}(가장 빠른 편)에서, <b>버스·여객선은 시간표의 첫 편</b>에서
+     * <p>근거는 둘이다. 열차는 {@code chosen}(고른 편)에서, <b>버스·여객선은 시간표의 첫 편</b>에서
      * 온다(#422). 뒤쪽이 없던 시절에는 그 둘이 소요시간으로만 답했는데, #414 로 시간표가 붙으면서
      * 실제 도착 시각을 알게 됐다.
      *
      * <p>{@code departures} 는 이미 "탈 수 있는 편만, 이른 순" 이라 첫 편이 곧 가장 이른 도착이다.
      */
     public Optional<LocalDateTime> arrivalAt() {
-        if (fastest != null) {
-            return Optional.of(fastest.arriveAt());
+        if (chosen != null) {
+            return Optional.of(chosen.arriveAt());
         }
         return departures.stream().findFirst().map(Departure::arriveAt);
     }
@@ -158,7 +182,47 @@ public record RegionAccess(
         return toBuilder().durationMinutes(minutes).build();
     }
 
+    /**
+     * 출발 지점명을 얹은 사본(#396) — <b>어디서 타는가</b>.
+     *
+     * <p>버스·여객선은 도착 지점을 정한 뒤에야 출발 쪽을 해석할 수 있다. 고속·시외는 코드 공간이
+     * 갈려 있어 <b>도착 터미널과 같은 종류</b>로 찾아야 하고, 여객선도 마찬가지다 — 그래서 지점을
+     * 고르는 {@code pointOnly} 시점에는 아직 모른다.
+     *
+     * <p>모르면 null 그대로 둔다. 지어내지 않고 화면이 그 조각만 접는다.
+     */
+    public RegionAccess withFromName(String fromName) {
+        if (Objects.equals(this.fromName, fromName)) {
+            return this;
+        }
+        return toBuilder().fromName(fromName).build();
+    }
+
     /** 출발지에서 도착 지점까지의 거리를 얹은 사본(#379). 지점을 고른 뒤라야 잴 수 있어 따로 붙인다. */
+    /**
+     * 갈아타는 지점을 단다(#508). 소요시간은 두 구간의 합이라 함께 받는다.
+     *
+     * <p>상태는 {@link Status#POINT_ONLY} 로 둔다 — 얼마나 걸리는지는 알지만 <b>몇 시 차인지는 모른다.</b>
+     * 두 구간의 시간표를 이으려면 환승 대기까지 맞춰야 하는데, 버스 시간표는 오늘~+2일만 답해서 다음 달
+     * 코스에는 애초에 없는 정보다.
+     */
+    public RegionAccess withVia(String viaName, Integer totalMinutes) {
+        // **시간표를 비운다.** 여기 실려 있던 것은 <b>직통 구간</b>의 편들이다 — 그 구간은 안 다니는
+        // 것으로 판명돼 경유로 넘어온 참이라, 그대로 두면 "대전복합 경유" 라고 말하면서 서울→무주
+        // 직통 시각을 함께 보여주게 된다. 두 구간의 환승 대기를 맞출 수 없어 대신 채울 것도 없다.
+        return toBuilder()
+                .viaName(viaName)
+                .durationMinutes(totalMinutes)
+                .status(Status.POINT_ONLY)
+                .departures(List.of())
+                .build();
+    }
+
+    /** 그 구간에 노선이 없다고 답한다(#508) — 지점은 그대로 두고 상태만 바꾼다. */
+    public RegionAccess withoutRoute() {
+        return toBuilder().status(Status.NO_ROUTE).durationMinutes(null).departures(List.of()).build();
+    }
+
     public RegionAccess withDistanceKm(Integer km) {
         if (Objects.equals(distanceKm, km)) {
             return this;
@@ -172,14 +236,14 @@ public record RegionAccess(
     }
 
     public static RegionAccess available(
-            String fromName, String toName, Coordinate toPoint, TrainLeg fastest, List<Departure> departures) {
+            String fromName, String toName, Coordinate toPoint, TrainLeg chosen, List<Departure> departures) {
         return RegionAccess.builder()
                 .mode(TransitMode.TRAIN)
                 .status(Status.AVAILABLE)
                 .fromName(fromName)
                 .toName(toName)
                 .toPoint(toPoint)
-                .fastest(fastest)
+                .chosen(chosen)
                 .departures(departures)
                 .build();
     }

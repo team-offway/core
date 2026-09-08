@@ -6,6 +6,7 @@ import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -64,5 +65,15 @@ public interface TourApiClient {
      * 무장애정보(KorWithService2 · detailWithTour2) — 이용약자 편의. 등록 정보가 없으면 빈 Optional
      * (TourAPI 는 정상 응답으로 0건을 준다 — 조회 실패와 구분한다).
      */
+    /**
+     * 장소의 <b>추가 사진</b>(#464) — {@code detailImage2}.
+     *
+     * <p>상세({@link #findDetail})가 주는 것은 대표 한 장({@code firstimage})뿐이다. 이 오퍼레이션은
+     * 같은 장소의 사진을 여러 장 준다 — 실측으로 완도타워가 16장이다.
+     *
+     * @return 없으면 빈 목록. <b>예외가 아니다</b> — 사진이 없는 장소가 흔하다
+     */
+    List<String> findImages(String contentId);
+
     Optional<TourAccessibility> findAccessibility(String contentId);
 }

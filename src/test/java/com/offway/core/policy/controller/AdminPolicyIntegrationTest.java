@@ -230,11 +230,18 @@ class AdminPolicyIntegrationTest {
 
     // ── seed 가 하던 일을 이제 여기가 한다 ────────────────────────────────
 
+    /**
+     * 시드 정책이 마이그레이션으로 들어와 있다.
+     *
+     * <p>세 행으로 시작해(V20260901184241) 지역 혜택 넷이 더해졌다(#498). 이게 없으면 새 DB 에서
+     * 정책이 하나도 없는 채로 뜬다.
+     *
+     * <p><b>수를 박아 두는 이유</b>는 시드가 조용히 빠지는 것을 잡기 위해서다. 늘 때는 여기도 함께
+     * 고치게 되고, 그 순간이 "정말 늘리려던 것이 맞나" 를 묻는 자리가 된다.
+     */
     @Test
-    void 초기_세_행이_마이그레이션으로_들어와_있다() throws Exception {
-        // R__seed_policies.sql 을 비운 대신 V20260901184241 이 넣는다. 이게 없으면 새 DB 에서
-        // 정책이 하나도 없는 채로 뜬다.
-        assertEquals(3, policyJpaRepository.findAll().size());
+    void 시드_정책이_마이그레이션으로_들어와_있다() throws Exception {
+        assertEquals(7, policyJpaRepository.findAll().size());
     }
 
     private long created() {

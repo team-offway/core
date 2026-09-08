@@ -8,6 +8,7 @@ import com.offway.core.itinerary.controller.dto.CourseRegenerateRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.UUID;
 
 /** 코스 생성 API 문서 계약. 매핑·검증은 구현체({@link CourseGenerateController})가 소유한다. */
 @Tag(name = "코스", description = "지역+조건으로 날짜별 타임라인 코스 자동 생성")
@@ -28,7 +29,7 @@ public interface CourseGenerateApi {
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "해당 지역으로 만들 수 있는 코스가 없음(볼거리 부족)")
     @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")
-    ApiResponseBody<CourseResponse> generate(CourseGenerateRequest request);
+    ApiResponseBody<CourseResponse> generate(UUID userId, CourseGenerateRequest request);
 
     @Operation(
             summary = "코스 재생성 — 기존과 다른 코스로",
@@ -56,5 +57,5 @@ public interface CourseGenerateApi {
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "해당 지역으로 만들 수 있는 코스가 없음 (제외한 장소가 많아 볼거리가 남지 않은 경우 포함)")
     @ApiResponse(responseCode = "502", description = "관광정보(TourAPI) 조회 실패")
-    ApiResponseBody<CourseRegenerateResponse> regenerate(CourseRegenerateRequest request);
+    ApiResponseBody<CourseRegenerateResponse> regenerate(UUID userId, CourseRegenerateRequest request);
 }

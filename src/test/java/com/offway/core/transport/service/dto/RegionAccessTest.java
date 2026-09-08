@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.Departure;
 import com.offway.core.transport.domain.RegionArrival;
 import com.offway.core.transport.domain.TrainLeg;
@@ -49,7 +49,7 @@ class RegionAccessTest {
 
         assertEquals(RegionAccess.Status.POINT_ONLY, 결과.status());
         assertEquals(TransitMode.INTERCITY_BUS, 결과.mode());
-        assertEquals("완도", 결과.toName());
+        assertEquals("완도터미널", 결과.toName(), "시외버스로 내리는데 종류가 안 붙었다");
         assertEquals(읍내_터미널, 결과.arrivalPoint().orElseThrow());
     }
 
@@ -89,7 +89,7 @@ class RegionAccessTest {
         RegionAccess 결과 = RegionAccess.noStation(null, null).orNearer(울릉군청, null, 도동항);
 
         assertEquals(TransitMode.FERRY, 결과.mode());
-        assertEquals("울릉_도동", 결과.toName());
+        assertEquals("울릉_도동여객선터미널", 결과.toName(), "여객선으로 내리는데 종류가 안 붙었다");
     }
 
     @Test

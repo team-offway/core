@@ -1,5 +1,7 @@
 package com.offway.core.itinerary.service;
 
+import com.offway.core.common.external.CallerContext;
+import com.offway.core.common.external.RequestUsage;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.itinerary.service.dto.RegeneratedCourse;
@@ -9,6 +11,7 @@ import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.dto.RegionPois;
 import java.util.Set;
 import java.util.SplittableRandom;
+import java.util.UUID;
 import java.util.random.RandomGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +56,7 @@ public class CourseRegenerationService {
     private final CourseGenerationService courseGenerationService;
     private final RegionPoiService regionPoiService;
     private final UnroutableCoordinateService unroutableCoordinateService;
+    private final CourseUsageAlert courseUsageAlert;
 
     /**
      * 직전 코스와 다른 코스를 만든다.
@@ -64,6 +68,26 @@ public class CourseRegenerationService {
      * @param requestedSeed 씨앗을 직접 고르면 그 값, 맡기면 {@code null}
      * @param previousSeed 지금 화면에 떠 있는 코스의 씨앗. 없으면 첫 생성({@link GenerateCourse#FIRST_SEED})으로 본다
      */
+    /**
+     * 재생성하고 <b>이 한 건이 태운 외부 호출을 알린다</b>(#421).
+     *
+     * <p>재생성도 알린다. 안 붙이면 <b>재생성이 태우는 양이 통째로 안 보인다</b> — 사용자가 "다시
+     * 추천" 을 연달아 누르는 경로라 오히려 생성보다 클 수 있고, 후보를 다시 안 모으는 것(#114)이
+     * 실제로 듣는지도 여기서 보인다.
+     */
+    public RegeneratedCourse regenerate(
+            GenerateCourse command, Long requestedSeed, Long previousSeed, UUID userId) {
+        RequestUsage usage = CallerContext.beginUsage();
+        boolean succeeded = false;
+        try {
+            RegeneratedCourse regenerated = regenerate(command, requestedSeed, previousSeed);
+            succeeded = true;
+            return regenerated;
+        } finally {
+            courseUsageAlert.send(userId, command, usage, succeeded, true);
+        }
+    }
+
     public RegeneratedCourse regenerate(GenerateCourse command, Long requestedSeed, Long previousSeed) {
         // 후보는 한 번만 모은다. collect 는 캐시가 없어 호출마다 TourAPI 를 세 번 부른다.
         RegionPois pois = regionPoiService.collect(command.regionId(), command.travelDate());

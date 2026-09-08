@@ -44,13 +44,6 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
 
     private static final String ANONYMOUS = "anon";
 
-    /**
-     * 로그에 남길 사용자 식별자 앞자리 수(#41).
-     *
-     * <p>UUID 라 8자면 사실상 유일하다 — 같은 앞자리를 가진 둘을 만나려면 수만 개가 필요한데 우리 사용자
-     * 수는 그 근처도 아니다. 로그 패턴이 이 폭({@code %-8.8X}) 을 전제로 칸을 잡는다.
-     */
-    private static final int USER_ID_PREFIX_LENGTH = 8;
     /** 추적 id 길이(hex). 한 번에 살아 있는 요청 수가 많지 않아 6자면 눈으로 구분하기에 충분하다. */
     private static final int TRACE_ID_BYTES = 3;
     private static final double NANOS_PER_SECOND = 1_000_000_000.0;
@@ -146,13 +139,17 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 요청을 보낸 주체 — Bearer 면 사용자 식별자 <b>앞자리</b>, Basic 이면 계정 이름, 아니면 {@value #ANONYMOUS}.
+     * 요청을 보낸 주체 — Bearer 면 사용자 식별자 <b>전문</b>, Basic 이면 계정 이름, 아니면 {@value #ANONYMOUS}.
      *
-     * <p><b>UUID 를 통째로 싣지 않는다.</b> 36자가 매 줄에 박히면 정작 읽어야 할 경로·메시지가 밀려난다.
-     * 앞자리 {@value #USER_ID_PREFIX_LENGTH} 자면 로그끼리 묶고 DB 에서 {@code LIKE 'xxxxxxxx%'} 로 되짚기에
-     * 충분하다 — 전문이 필요한 자리는 로그인 성공 줄 하나뿐이고 거기서는 전문을 남긴다.
+     * <p><b>앞자리만 싣던 것을 전문으로 되돌렸다.</b> 예전 판단은 "UUID 라 앞 8자면 사실상 유일하다" 였는데,
+     * 우리 식별자에는 해당하지 않는다 — {@code @UuidGenerator(style = TIME)} 이 첫 마디에 <b>호스트 IP</b> 를
+     * 박기 때문이다. 그래서 같은 컨테이너에서 만들어진 사용자가 전부 같은 앞자리(`ac120003` = 172.18.0.3)로
+     * 시작했고, 운영 로그에서 누가 누군지 구분이 아예 안 됐다. 폭만 차지하고 정보량이 0이던 셈이다.
      *
-     * <p>Basic 계정 이름은 자르지 않는다. 이미 짧고, 앞자리만 남기면 어느 계정인지 오히려 알 수 없어진다.
+     * <p>전문이면 로그에서 바로 집어 DB 조회에 그대로 넣을 수 있다는 이점도 따라온다. 대신 줄이 길어지므로
+     * 메시지는 다음 줄로 내려 읽는다({@code scripts/logfmt.py}).
+     *
+     * <p>Basic 계정 이름은 그대로 둔다. 이미 짧다.
      */
     private static String currentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -166,14 +163,8 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
         }
         // Bearer 로 들어온 요청은 principal 이 UUID 다(JwtAuthenticationFilter 가 넣는다).
         if (authentication.getPrincipal() instanceof UUID userId) {
-            return shortId(userId);
+            return userId.toString();
         }
         return authentication.getName();
-    }
-
-    /** UUID 앞자리 — 하이픈 앞 첫 마디가 그대로 이 길이다. */
-    private static String shortId(UUID userId) {
-        String text = userId.toString();
-        return text.length() <= USER_ID_PREFIX_LENGTH ? text : text.substring(0, USER_ID_PREFIX_LENGTH);
     }
 }

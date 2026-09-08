@@ -72,7 +72,7 @@ public interface AdminPolicyApi {
     @ApiResponse(responseCode = "403", description = "어드민이 아님")
     @ApiResponse(
             responseCode = "409",
-            description = "같은 분류가 이미 그 기간에 노출됨(POLICY-004) — 뱃지가 두 개 뜬다")
+            description = "같은 분류가 이미 그 기간에 노출됨(POLICY-004) — 뱃지가 두 개 뜬다 · 같은 분류를 다른 관리자가 저장 중(POLICY-005)")
     ApiResponseBody<AdminPolicyResponse> create(UUID adminUserId, AdminPolicyRequest request);
 
     @Operation(
@@ -90,7 +90,8 @@ public interface AdminPolicyApi {
     @ApiResponse(responseCode = "401", description = "자격증명 없음")
     @ApiResponse(responseCode = "403", description = "어드민이 아님")
     @ApiResponse(responseCode = "404", description = "없는 정책(POLICY-001)")
-    @ApiResponse(responseCode = "409", description = "같은 분류가 이미 그 기간에 노출됨(POLICY-004)")
+    @ApiResponse(responseCode = "409",
+            description = "같은 분류가 이미 그 기간에 노출됨(POLICY-004) · 같은 분류를 다른 관리자가 저장 중(POLICY-005)")
     ApiResponseBody<AdminPolicyResponse> update(
             UUID adminUserId, @Parameter(description = "정책 ID", example = "2") long id, AdminPolicyRequest request);
 

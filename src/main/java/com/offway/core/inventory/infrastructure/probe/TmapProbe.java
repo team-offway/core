@@ -1,6 +1,10 @@
 package com.offway.core.inventory.infrastructure.probe;
 
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.external.ExternalHealthFilter;
+import com.offway.core.common.logging.ExternalSystems;
+import com.offway.core.common.logging.RootCause;
+import java.net.URI;
 import java.time.Duration;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -35,6 +39,8 @@ class TmapProbe implements ExternalApiProbe {
         try {
             String body = webClient.post()
                     .uri(URL)
+                    // 필터는 비켜선다 — 응답 본문까지 보고 스케줄러가 단독으로 적는다(#479).
+                    .attribute(ExternalHealthFilter.SKIP_ATTRIBUTE, true)
                     .header("appKey", props.tmap().appKey())
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(SAMPLE_BODY)
@@ -49,10 +55,15 @@ class TmapProbe implements ExternalApiProbe {
             return ProbeResult.fail(NAME, PROVIDER, 200, "totalTime 없음", sample);
         } catch (WebClientResponseException e) {
             return ProbeResult.fail(NAME, PROVIDER, e.getStatusCode().value(),
-                    e.getMessage(), ProbeSupport.snippet(e.getResponseBodyAsString()));
+                    RootCause.of(e), ProbeSupport.snippet(e.getResponseBodyAsString()));
         } catch (Exception e) {
             return ProbeResult.fail(NAME, PROVIDER, 0,
-                    e.getClass().getSimpleName() + ": " + e.getMessage(), "");
+                    RootCause.of(e), "");
         }
+    }
+
+    @Override
+    public String system() {
+        return ExternalSystems.label(URI.create(URL));
     }
 }

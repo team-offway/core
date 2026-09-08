@@ -7,7 +7,7 @@ import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiBatchPolicy;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.domain.Category;
 import com.offway.core.trip.domain.RegionPoi;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
@@ -139,7 +139,7 @@ public class RegionPoiRefreshService {
      */
     private static final List<Integer> CONTENT_TYPES = List.of(39, 32);
 
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final RegionPoiRepository regionPoiRepository;
     private final TourApiClient tourApiClient;
     private final BatchRunRepository batchRunRepository;
@@ -183,7 +183,7 @@ public class RegionPoiRefreshService {
      * @return 이 실행으로 새로 채운 지역 수
      */
     public int refresh(YearMonth baseYm) {
-        List<Region> all = regionRepository.findAll();
+        List<Region> all = regionQuery.all();
         if (all.isEmpty()) {
             log.info("지역 장소 풀 — 지역 마스터가 비어 있어 건너뜁니다");
             return 0;

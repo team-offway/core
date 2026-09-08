@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import java.time.LocalDate;
 import java.util.List;
@@ -46,7 +46,7 @@ class CourseTest {
     void 공유전용_코스는_주인이_없고_출발지는_받는다() {
         Course course = Course.sharedOnly(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 2)),
                 LocalDate.of(2026, 9, 12), 1,
-                Origin.of(new Coordinate(37.55, 126.97), "서울"), StartDayLeave.FULL_DAY);
+                Origin.of(new Coordinate(37.55, 126.97), "서울"), StartDayLeave.FULL_DAY, null);
 
         assertNull(course.getUserId());
         assertEquals(42L, course.getRegionId());
@@ -59,10 +59,10 @@ class CourseTest {
     @Test
     void 공유전용_코스도_구성_불변식을_그대로_지킨다() {
         assertThrows(IllegalArgumentException.class,
-                () -> Course.sharedOnly(42L, Density.RELAXED, TransportMode.CAR, List.of(), null, 1, null, StartDayLeave.FULL_DAY));
+                () -> Course.sharedOnly(42L, Density.RELAXED, TransportMode.CAR, List.of(), null, 1, null, StartDayLeave.FULL_DAY, null));
         assertThrows(IllegalArgumentException.class,
                 () -> Course.sharedOnly(42L, Density.RELAXED, TransportMode.CAR,
-                        List.of(day(1, 1), day(2, 1), day(3, 1), day(4, 1)), null, 3, null, StartDayLeave.FULL_DAY));
+                        List.of(day(1, 1), day(2, 1), day(3, 1), day(4, 1)), null, 3, null, StartDayLeave.FULL_DAY, null));
     }
 
     @Test
@@ -268,6 +268,51 @@ class CourseTest {
     }
 
     @Test
+    void 자차_코스에_교통_거점_칸이_있으면_거부한다() {
+        // 생성은 수단으로 가르지만 저장·공유는 클라이언트가 보낸 것을 그대로 받는다(#415).
+        // 만든 쪽만 막으면 들어오는 쪽이 열려 있다.
+        List<DaySchedule> days = List.of(DaySchedule.of(1, List.of(
+                Slot.transitHub(1, TimeOfDay.MORNING, SlotKind.ARRIVAL, "정선역", 37.38, 128.66, 0),
+                slotAt(2, TimeOfDay.MORNING, SlotKind.SIGHT))));
+
+        assertThrows(IllegalArgumentException.class, () -> Course.of(42L, Density.PACKED, TransportMode.CAR,
+                days, LocalDate.of(2026, 9, 11), 1, StartDayLeave.FULL_DAY));
+    }
+
+    @Test
+    void 교통_거점_칸은_장소_수에_안_들어간다() {
+        // 목록 카드의 "N곳" 이다. 함께 세면 같은 밀도로 뽑았는데 대중교통 코스만 두 곳 많아 보인다(#415).
+        Course course = Course.of(42L, Density.PACKED, TransportMode.TRANSIT,
+                List.of(DaySchedule.of(1, List.of(
+                        Slot.transitHub(1, TimeOfDay.MORNING, SlotKind.ARRIVAL, "정선역", 37.38, 128.66, 0),
+                        slotAt(2, TimeOfDay.MORNING, SlotKind.SIGHT),
+                        slotAt(3, TimeOfDay.LUNCH, SlotKind.FOOD),
+                        Slot.transitHub(4, TimeOfDay.LUNCH, SlotKind.DEPARTURE, "정선역", 37.38, 128.66, 12)))),
+                LocalDate.of(2026, 9, 11), 1, StartDayLeave.FULL_DAY);
+
+        assertEquals(4, course.totalSlots(), "타임라인의 칸은 넷이다");
+        assertEquals(2, course.placeCount(), "장소는 관광·맛집 둘뿐이다");
+    }
+
+    @Test
+    void 도착_칸은_시간대_판정을_타지_않아_남는다() {
+        // 도착 칸이 곧 그 늦은 도착 자체다. 늦었다는 이유로 지우면 남는 코스가 어디서 시작하는지 사라진다(#415).
+        Course course = Course.of(42L, Density.PACKED, TransportMode.TRANSIT,
+                List.of(DaySchedule.of(1, List.of(
+                        Slot.transitHub(1, TimeOfDay.MORNING, SlotKind.ARRIVAL, "정선역", 37.38, 128.66, 0),
+                        slotAt(2, TimeOfDay.MORNING, SlotKind.SIGHT))),
+                        day(2, 2)),
+                LocalDate.of(2026, 9, 11), 2, StartDayLeave.FULL_DAY);
+
+        int removed = course.trimFirstDayTo(DayStart.none());
+
+        assertEquals(1, removed, "관광만 걷어낸다");
+        List<Slot> first = course.getDays().getFirst().getSlots();
+        assertEquals(1, first.size());
+        assertEquals(SlotKind.ARRIVAL, first.getFirst().getKind());
+    }
+
+    @Test
     void 첫날이_통째로_비면_그_날을_없애고_표시번호를_다시_붙인다() {
         Course course = Course.of(42L, Density.PACKED, TransportMode.CAR,
                 List.of(DaySchedule.of(1, List.of(slotAt(1, TimeOfDay.MORNING, SlotKind.SIGHT))),
@@ -345,5 +390,143 @@ class CourseTest {
 
         assertNull(course.distanceFromPrevDayMeters(1));
         assertNull(course.distanceFromPrevDayMeters(-1));
+    }
+
+    // ─── 수단 고정과 교통 거점 교체(#456) ────────────────────────────────────────
+
+    /** 대중교통 코스 하나 — 도착·출발 칸을 세운 모양이 생성 결과와 같다. */
+    private static Course transitCourse(String hubName, double hubLat, double hubLng, int days) {
+        List<DaySchedule> schedules = new java.util.ArrayList<>();
+        for (int dayNumber = 1; dayNumber <= days; dayNumber++) {
+            List<Slot> slots = new java.util.ArrayList<>();
+            if (dayNumber == 1) {
+                slots.add(Slot.transitHub(1, TimeOfDay.MORNING, SlotKind.ARRIVAL, hubName, hubLat, hubLng, 0));
+            }
+            slots.add(Slot.of(slots.size() + 1, TimeOfDay.MORNING, SlotKind.SIGHT, "c" + dayNumber,
+                    // 하루의 첫 슬롯은 이동시간이 0 이어야 한다(DaySchedule 불변식). 1일차만 도착 칸 뒤라 값이 붙는다.
+                    "장소" + dayNumber, 37.5, 127.0, dayNumber == 1 ? 25 : 0));
+            if (dayNumber == days) {
+                slots.add(Slot.transitHub(slots.size() + 1, TimeOfDay.MORNING, SlotKind.DEPARTURE, hubName,
+                        hubLat, hubLng, 30));
+            }
+            schedules.add(DaySchedule.of(dayNumber, dayNumber - 1, slots));
+        }
+        return Course.of(42L, Density.PACKED, TransportMode.TRANSIT, schedules, LocalDate.of(2026, 9, 12), days,
+                StartDayLeave.FULL_DAY);
+    }
+
+    private static Slot arrivalOf(Course course) {
+        return course.getDays().getFirst().getSlots().getFirst();
+    }
+
+    private static Slot departureOf(Course course) {
+        return course.getDays().getLast().getSlots().getLast();
+    }
+
+    /**
+     * 도착 칸만 바꾸고 출발 칸을 두면 <b>같은 코스가 두 지점을 갖는다</b> — 동서울에 내려 강릉역에서 떠난다.
+     * 생성이 한 지점으로 둘을 세우므로 교체도 둘을 함께 간다.
+     */
+    @Test
+    void 수단을_바꾸면_도착과_출발_칸이_함께_새_지점으로_간다() {
+        Course course = transitCourse("동서울터미널", 37.5347, 127.0947, 2);
+
+        boolean replaced = course.replaceTransitHub("강릉역", new Coordinate(37.7639, 128.8996), 42, 55);
+
+        assertTrue(replaced);
+        assertEquals("강릉역", arrivalOf(course).getTitle());
+        assertEquals("강릉역", departureOf(course).getTitle());
+        assertEquals(37.7639, arrivalOf(course).getLat());
+        assertEquals(37.7639, departureOf(course).getLat());
+    }
+
+    /** 지점이 바뀌면 그 지점에 잇닿은 이동시간도 다시 잰 값이어야 한다 — 안 그러면 42㎞ 밖 역까지 옛 25분이 남는다. */
+    @Test
+    void 새_지점에_잇닿은_이동시간을_다시_받는다() {
+        Course course = transitCourse("동서울터미널", 37.5347, 127.0947, 2);
+
+        course.replaceTransitHub("강릉역", new Coordinate(37.7639, 128.8996), 42, 55);
+
+        // 도착 칸 자체는 직전이 없으므로 0, 그 뒤 첫 장소가 "역에서 여기까지" 를 받는다.
+        assertEquals(0, arrivalOf(course).getTravelMinutesFromPrev());
+        assertEquals(42, course.getDays().getFirst().getSlots().get(1).getTravelMinutesFromPrev());
+        assertEquals(55, departureOf(course).getTravelMinutesFromPrev());
+    }
+
+    /**
+     * 하루짜리 코스는 도착·출발이 <b>같은 날</b>에 있다. 두 날을 따로 갈아 끼우면 나중 것이 앞 것을 덮어
+     * 도착 칸이 옛 지점으로 되돌아간다.
+     */
+    @Test
+    void 하루짜리_코스도_도착과_출발이_함께_바뀐다() {
+        Course course = transitCourse("동서울터미널", 37.5347, 127.0947, 1);
+
+        course.replaceTransitHub("강릉역", new Coordinate(37.7639, 128.8996), 42, 55);
+
+        assertEquals("강릉역", arrivalOf(course).getTitle());
+        assertEquals("강릉역", departureOf(course).getTitle());
+        assertEquals(3, course.getDays().getFirst().slotCount());
+    }
+
+    /** 나머지 슬롯의 순서는 그대로다 — 다시 정렬하려면 후보가 필요한데 저장 코스에는 슬롯만 있다. */
+    @Test
+    void 나머지_장소는_그대로_둔다() {
+        Course course = transitCourse("동서울터미널", 37.5347, 127.0947, 2);
+
+        course.replaceTransitHub("강릉역", new Coordinate(37.7639, 128.8996), 42, 55);
+
+        assertEquals("장소1", course.getDays().getFirst().getSlots().get(1).getTitle());
+        assertEquals("장소2", course.getDays().getLast().getSlots().getFirst().getTitle());
+    }
+
+    /**
+     * 생성 때 내릴 지점을 몰라 교통 거점 칸이 없는 코스가 있다. 여기서 새로 끼우면 순서·이동시간을 통째로
+     * 다시 매기게 되고 그건 재생성이 할 일이다 — 손대지 않고 그 사실을 돌려준다.
+     */
+    @Test
+    void 교통_거점_칸이_없으면_손대지_않는다() {
+        Course course = Course.of(42L, Density.PACKED, TransportMode.TRANSIT, List.of(day(1, 2)),
+                LocalDate.of(2026, 9, 12), 1, StartDayLeave.FULL_DAY);
+
+        boolean replaced = course.replaceTransitHub("강릉역", new Coordinate(37.7639, 128.8996), 42, 55);
+
+        assertFalse(replaced);
+        assertEquals("장소1", course.getDays().getFirst().getSlots().getFirst().getTitle());
+    }
+
+    /**
+     * 자차 코스는 역·터미널을 해석할 것이 없어 이 값이 아무것도 바꾸지 못한다. 조용히 담아 두면 화면에는
+     * 아무 일도 안 일어나는데 저장은 성공해, 앱이 무엇이 잘못됐는지 알 길이 없다.
+     */
+    @Test
+    void 자차_코스에는_수단을_고정할_수_없다() {
+        Course course = Course.of(42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 2)),
+                LocalDate.of(2026, 9, 12), 1, StartDayLeave.FULL_DAY);
+
+        assertThrows(ItineraryException.class,
+                () -> course.changeTransitMode(com.offway.core.transport.domain.TransitMode.TRAIN));
+    }
+
+    /**
+     * 자차 코스에 수단을 실어 <b>만들 수도</b> 없다 — 바꾸는 쪽만 막으면 모순된 코스가 DB 에 남는다.
+     * 도메인은 누가 만들든 스스로 유효함을 보장하는 최후의 보루다.
+     */
+    @Test
+    void 자차_코스는_수단을_실어_만들_수_없다() {
+        assertThrows(IllegalArgumentException.class, () -> Course.ownedBy(
+                java.util.UUID.randomUUID(), 42L, Density.PACKED, TransportMode.CAR, List.of(day(1, 2)),
+                LocalDate.of(2026, 9, 12), 1, null, StartDayLeave.FULL_DAY,
+                com.offway.core.transport.domain.TransitMode.TRAIN));
+    }
+
+    /** 고정을 풀면 서버가 고른다(#453 의 자동 선택) — null 은 오류가 아니다. */
+    @Test
+    void 고정을_풀면_null_이_된다() {
+        Course course = transitCourse("동서울터미널", 37.5347, 127.0947, 2);
+        course.changeTransitMode(com.offway.core.transport.domain.TransitMode.TRAIN);
+
+        course.changeTransitMode(null);
+
+        assertNull(course.getTransitMode());
     }
 }

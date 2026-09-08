@@ -97,4 +97,39 @@ class PlacePoolCsvReaderTest {
 
         assertThrows(IllegalStateException.class, () -> new PlacePoolCsvReader().read(gzip(csv)));
     }
+    /**
+     * <b>종류는 파일이 아니라 분류가 정한다</b>(#516).
+     *
+     * <p>두 칸이 따로 실리면 어긋날 수 있고, 실제로 어긋났다 — 야영장이 볼거리로 실려 관광 슬롯에
+     * 캠핑장이 떴다. 파일의 {@code kind} 를 그대로 읽으면 분류를 고쳐도 재생성 전까지 반영되지 않는다.
+     */
+    @Test
+    void 파일의_종류가_분류와_어긋나면_분류를_따른다() {
+        // 야영장인데 파일에는 옛 값(SIGHT)이 박혀 있다 — 지금 배포된 place-pool.csv.gz 가 그 상태다.
+        String csv = HEADER + "\n1,SIGHT,CAMPGROUND,어느야영장,강원특별자치도 어딘가 1,,37.5,128.5";
+
+        List<LicensedPlace> places = new PlacePoolCsvReader().read(gzip(csv));
+
+        assertEquals(1, places.size());
+        assertEquals(PlaceKind.STAY, places.get(0).getKind(), "야영장은 잘 곳이다");
+    }
+
+    /**
+     * <b>자연키가 겹치면 접는다.</b> 한 업소가 야영장업과 숙박업으로 각각 신고된 경우가 있어(실측 36건),
+     * 종류를 합치면 {@code ux_licensed_place_natural} 에 걸려 적재가 통째로 실패한다.
+     *
+     * <p>남기는 쪽은 <b>야영장이 아닌 행</b>이다 — 분류가 더 구체적인 업종이라 뱃지로도 낫고,
+     * 보정 마이그레이션도 같은 규칙으로 정리한다.
+     */
+    @Test
+    void 같은_장소가_두_업종으로_오면_야영장이_아닌_쪽을_남긴다() {
+        String csv = HEADER
+                + "\n1,SIGHT,CAMPGROUND,남해에덴캠핑장,경상남도 남해군 창선면 동부대로 2058-12,,34.8,128.0"
+                + "\n1,STAY,LODGING,남해에덴캠핑장,경상남도 남해군 창선면 동부대로 2058-12,,34.8,128.0";
+
+        List<LicensedPlace> places = new PlacePoolCsvReader().read(gzip(csv));
+
+        assertEquals(1, places.size(), "자연키가 겹치는데 둘 다 남으면 적재가 유니크 제약에 걸린다");
+        assertEquals(PlaceCategory.LODGING, places.get(0).getCategory());
+    }
 }

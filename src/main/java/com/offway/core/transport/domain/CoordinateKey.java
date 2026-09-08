@@ -1,5 +1,6 @@
 package com.offway.core.transport.domain;
 
+import com.offway.core.common.geo.Coordinate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Objects;

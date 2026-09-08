@@ -1,4 +1,4 @@
-package com.offway.core.transport.domain;
+package com.offway.core.common.geo;
 
 import java.util.Objects;
 

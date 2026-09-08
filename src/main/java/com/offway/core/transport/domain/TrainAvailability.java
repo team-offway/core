@@ -40,17 +40,27 @@ public sealed interface TrainAvailability {
         }
 
         /**
-         * 이 시각 이후에 떠나는 편 중 가장 빠른 것.
+         * 이 시각 이후에 떠나는 편 중 <b>가장 일찍 닿는</b> 것.
          *
          * <p><b>비어 있을 수 있다.</b> 반반차로 15시에 나서는데 그 지역 막차가 14시면 그날 열차로는 못 간다 —
          * 그것을 "가장 빠른 편"(새벽 첫차)으로 답하면 지킬 수 없는 코스가 된다.
          *
-         * <p>정렬 기준은 소요시간이다(출발 시각이 아니다). 늦게 떠나도 빨리 닿는 편이 첫날을 더 남긴다.
+         * <p><b>기준은 도착 시각이다.</b> 예전에는 소요시간으로 골랐고 "늦게 떠나도 빨리 닿는 편이 첫날을 더
+         * 남긴다" 고 적어 뒀는데, 그 문장이 성립하지 않는다 — 늦게 떠나면 아무리 빨라도 늦게 닿는다. 실제로
+         * 밤 8시에 떠나는 111분 편이 아침 8시 57분에 떠나는 121분 편을 이겨서, 코스가 그 늦은 도착을 첫날
+         * 시작점으로 삼았다. 89곳 실측에서 첫날이 통째로 빈 지역이 아홉 곳이었다(#442).
+         *
+         * <p>이 값이 정하는 것은 <b>첫날에 무엇을 넣을 수 있는가</b>다. 그러니 재야 할 것은 "얼마나 빨리
+         * 가는가" 가 아니라 "언제 도착하는가" 다.
+         *
+         * <p>도착이 같으면 <b>늦게 떠나는 편</b>을 고른다. 같은 시각에 닿는다면 역에서 기다리는 시간이 짧은
+         * 쪽이 낫다.
          */
-        public Optional<TrainLeg> fastestDepartingFrom(LocalTime notBefore) {
+        public Optional<TrainLeg> earliestArrivalDepartingFrom(LocalTime notBefore) {
             return legs.stream()
                     .filter(leg -> !leg.departAt().toLocalTime().isBefore(notBefore))
-                    .min(Comparator.comparingInt(TrainLeg::durationMinutes));
+                    .min(Comparator.comparing(TrainLeg::arriveAt)
+                            .thenComparing(Comparator.comparing(TrainLeg::departAt).reversed()));
         }
     }
 

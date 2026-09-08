@@ -4,7 +4,7 @@ import com.offway.core.inventory.infrastructure.probe.ExternalApiProbe;
 import com.offway.core.inventory.infrastructure.probe.ProbeResult;
 import com.offway.core.inventory.service.dto.InventoryRow;
 import com.offway.core.inventory.service.dto.InventorySnapshot;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
@@ -24,15 +24,15 @@ public class InventoryService {
             "TMAP 경로");
 
     private final List<ExternalApiProbe> probes;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
 
-    public InventoryService(List<ExternalApiProbe> probes, RegionRepository regionRepository) {
+    public InventoryService(List<ExternalApiProbe> probes, RegionQuery regionQuery) {
         this.probes = probes;
-        this.regionRepository = regionRepository;
+        this.regionQuery = regionQuery;
     }
 
     public InventorySnapshot snapshot() {
-        long regionCount = regionRepository.count();
+        long regionCount = regionQuery.count();
 
         List<InventoryRow> rows = new ArrayList<>();
         rows.add(new InventoryRow(

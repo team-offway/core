@@ -10,7 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.jayway.jsonpath.JsonPath;
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.UnroutableReason;
 import com.offway.core.transport.repository.UnroutableProbeJpaRepository;
 import com.offway.core.transport.service.UnroutableCoordinateService;

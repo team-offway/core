@@ -9,7 +9,7 @@ import com.offway.core.common.external.ExternalApiBatchPolicy;
 import com.offway.core.common.logging.DegradeTally;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.domain.HubAttraction;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.datalab.HubAttractionClient;
@@ -106,7 +106,7 @@ public class HubAttractionRefreshService {
     private final BatchRunRepository batchRunRepository;
     private final BatchBudgetProperties batchBudget;
     private final HubAttractionRepository hubAttractionRepository;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
 
     /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
     private final ExternalApiBatchPolicy batchPolicy;
@@ -140,7 +140,7 @@ public class HubAttractionRefreshService {
     })
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
-            if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TOUR_DATA_LAB)) {
+            if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TOUR_HUB_ATTRACTION)) {
                 // 조용히 넘기지 않는다 — 꺼 둔 줄 모르면 "중심 관광지이 왜 안 채워지지" 가 된다.
                 log.info("중심 관광지 배치가 꺼져 있거나 배치 한도를 넘겨 건너뜁니다");
                 return;
@@ -164,7 +164,7 @@ public class HubAttractionRefreshService {
      * 빈 목록으로 덮으면 그 지역 카드에서 대표 사진과 볼거리가 통째로 사라진다.
      */
     public void refresh(YearMonth target) {
-        List<Region> all = regionRepository.findAll();
+        List<Region> all = regionQuery.all();
         if (all.isEmpty()) {
             return;
         }

@@ -98,6 +98,7 @@ class CourseStorageIntegrationTest {
     @Autowired
     private StubTrainInfoClient trainInfoClient;
 
+
     @Autowired
     private TrainRouteService trainRouteService;
 
@@ -212,6 +213,73 @@ class CourseStorageIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("COMMON-401"));
+    }
+
+    @Test
+    void 교통_거점_칸은_장소_식별자_없이_저장되고_그대로_돌아온다() throws Exception {
+        // 대중교통 코스는 역·터미널로 시작해 역·터미널로 끝난다(#415). 그 칸에는 장소 상세 키가 없다.
+        String body = """
+                { "regionId": 16, "density": "PACKED", "transport": "TRANSIT", "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"ARRIVAL","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":0},
+                    {"order":2,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":22},
+                    {"order":3,"timeOfDay":"MORNING","kind":"DEPARTURE","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":22}
+                  ]}
+                ]}""";
+
+        long courseId = save(body);
+
+        // 목록 카드의 "N곳" 은 장소만 센다 — 역·터미널을 함께 세면 대중교통 코스만 부풀어 보인다
+        mockMvc.perform(get(URL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].courseId").value(courseId))
+                .andExpect(jsonPath("$.data[0].placeCount").value(1));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
+                .andExpect(jsonPath("$.data.days[0].items[0].categoryLabel").value("도착"))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value("정선역"))
+                .andExpect(jsonPath("$.data.days[0].items[0].poiContentId").doesNotExist())
+                .andExpect(jsonPath("$.data.days[0].items[2].kind").value("DEPARTURE"))
+                .andExpect(jsonPath("$.data.days[0].items[2].poiContentId").doesNotExist())
+                // 출처는 실제로 실린 것만 적는다(#399). 역·터미널은 식별자가 없어 집계에서 빠지고,
+                // 장소 하나(TourAPI)만 남는다 — 접두어 없는 값으로 읽혀 엉뚱한 기관이 붙지 않는지 본다.
+                .andExpect(jsonPath("$.sources.length()").value(1))
+                .andExpect(jsonPath("$.sources[0].key").value("KTO"));
+    }
+
+    @Test
+    void 자차_코스에_교통_거점_칸을_보내면_400이다() throws Exception {
+        // 생성은 대중교통일 때만 그 칸을 세우지만, 저장은 클라이언트가 보낸 것을 그대로 받는다(#415).
+        // 막지 않으면 "역에서 시작하는 자차 코스" 가 저장된다.
+        String invalid = """
+                { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"ARRIVAL","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":0},
+                    {"order":2,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":22}
+                  ]}
+                ]}""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(invalid))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    @Test
+    void 장소_칸에_식별자가_없으면_400이다() throws Exception {
+        // 종류를 봐야 필수인지 정해지므로 필드에 @NotBlank 를 못 건다. 그래도 계약 위반은 400 이어야 한다 —
+        // 도메인에만 맡기면 클라이언트 실수가 500 으로 나간다.
+        String invalid = """
+                { "regionId": 16, "density": "PACKED", "transport": "CAR", "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","title":"장소1","lat":37.5,"lng":128.6,"travelMinutes":0}
+                  ]}
+                ]}""";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(invalid))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
     }
 
     @Test
@@ -477,12 +545,12 @@ class CourseStorageIntegrationTest {
 
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.trainAccess.toStation").value("정선"))
+                .andExpect(jsonPath("$.data.trainAccess.toStation").value("정선역"))
                 // 새 필드도 같은 값을 담는다 — 옛 필드를 걷어낼 때 화면이 비지 않게(#97)
                 .andExpect(jsonPath("$.data.transitAccess.mode").value("TRAIN"))
                 .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("열차"))
                 .andExpect(jsonPath("$.data.transitAccess.status").value("AVAILABLE"))
-                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"));
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선역"));
     }
 
     @Test
@@ -490,19 +558,44 @@ class CourseStorageIntegrationTest {
         // 예전에는 역이 그날 안 다녀도 역 좌표를 동선 기준점으로 썼다. 정선은 터미널이 읍내에 있어
         // 역보다 가깝다 — 먼 역을 기준으로 잡으면 지역 반대편부터 코스를 짠다(#97 · #127).
         //
-        // 고속인지 시외인지는 여기서 중요하지 않다. 정선에는 둘 다 있고(시드 기준 좌표가 조금 다르다)
-        // 코스가 알고 싶은 것은 "어디에 내리는가" 하나다. 지금 시드에서는 고속 쪽이 더 가깝다.
+        // 고속인지 시외인지는 여기서 중요하지 않다. 정선에는 둘 다 있고 코스가 알고 싶은 것은
+        // "어디에 내리는가" 하나다. 지금은 시외 쪽이 더 가깝다 — 재지오코딩(#436) 으로 정선
+        // 시외터미널이 읍내 제자리로 돌아오면서 고속보다 가까워졌다.
         trainDoesNotRun();
         long courseId = save(transitBody(true));
 
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
-                .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("고속버스"))
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("INTERCITY_BUS"))
+                .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("시외버스"))
                 .andExpect(jsonPath("$.data.transitAccess.status").value("POINT_ONLY"))
-                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선터미널"))
                 // 옛 필드는 열차만 담기로 했다 — 버스로 가는 코스에 "역 없음" 을 내리면 화면이 "못 간다" 고 말한다
                 .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
+    }
+
+    /**
+     * <b>어디서 타는지도 함께 내린다</b>(#396).
+     *
+     * <p>버스·여객선은 도착 지점만 뜨고 출발 쪽이 비어, 열차·자차와 같은 카드가 수단에 따라 다른
+     * 모양이 됐다. 정작 서버는 <b>이미 출발 터미널을 찾고 있었다</b> — 구간 소요시간을 물으려고
+     * 해석해 놓고 이름만 버렸다.
+     */
+    @Test
+    void 버스로_가는_코스에도_어디서_타는지_실린다() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(transitBody(true));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("INTERCITY_BUS"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선터미널"))
+                // 출발지(서울)에서 <b>같은 종류</b>의 최근접 터미널. 값을 못 박는다 — exists() 로 두면
+                // 도착지명이 들어와도 초록이라, 정작 확인하려는 "출발 쪽" 이 맞는지를 못 본다.
+                //
+                // 이름이 '고속' 인데 시외 목록에 있다 — TAGO 가 그렇게 준다. 한 건물에서 둘 다 취급하는
+                // 터미널이라 양쪽 목록에 다른 이름으로 올라 있다.
+                .andExpect(jsonPath("$.data.transitAccess.fromPlace").value("서울고속버스터미널(경부)"));
     }
 
     @Test
@@ -514,9 +607,9 @@ class CourseStorageIntegrationTest {
 
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("INTERCITY_BUS"))
                 .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'TRAIN')]").exists())
-                .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'EXPRESS_BUS')]").doesNotExist());
+                .andExpect(jsonPath("$.data.transitAccess.alternatives[?(@.mode == 'INTERCITY_BUS')]").doesNotExist());
     }
 
     @Test
@@ -585,9 +678,12 @@ class CourseStorageIntegrationTest {
         transitDurationRefreshService.measurePending();
 
         LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        // **날짜 집합으로 본다.** 재는 구간이 몇 개인지는 이 테스트의 관심사가 아니다 — 대안에도
+        // 소요시간을 채우면서(#508) 한 번의 조회로 여러 구간이 대기열에 들어가게 됐다. 확인하려는 것은
+        // "어느 날짜까지 묻는가" 다.
         assertIterableEquals(
                 List.of(today, today.plusDays(1), today.plusDays(2)), // 정선은 버스 — 조회창이 사흘이다
-                transitLegClient.askedDates());
+                transitLegClient.askedDates().stream().distinct().sorted().toList());
     }
 
     @Test
@@ -608,10 +704,11 @@ class CourseStorageIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.transitAccess.durationMinutes").doesNotExist());
 
-        // 적은 지 오래됐으면 다시 잰다.
+        // 적은 지 오래됐으면 다시 잰다. 재측정 간격(TransitDurationRefreshService.REMEASURE_DAYS)보다
+        // 확실히 지난 값을 쓴다 — 그 값이 30일에서 90일로 늘면서(#450) 60일로는 더 이상 안 걸린다.
         jdbcTemplate.update(
                 "UPDATE transit_leg_duration SET measured_at = ? WHERE minutes IS NULL AND measured_at IS NOT NULL",
-                LocalDateTime.now().minusDays(60));
+                LocalDateTime.now().minusDays(200));
         transitDurationRefreshService.measurePending();
 
         mockMvc.perform(get(URL + "/{id}", courseId))
@@ -895,7 +992,11 @@ class CourseStorageIntegrationTest {
         int afterPeriodBenefits = benefitCountOf(afterPeriod);
 
         assertTrue(inPeriodBenefits > 0, "기간 안 여행이면 혜택이 실려야 한다: " + inPeriod);
-        assertEquals(0, afterPeriodBenefits, "기간 밖 여행이면 혜택이 없어야 한다: " + afterPeriod);
+        // **0 이 아니라 "줄어든다" 로 본다.** 기간이 없는 정책은 상시라 언제 가도 붙는다(#498 로
+        // 디지털관광주민증이 그렇게 됐다). 여기서 보려는 것은 "여행일로 매칭하는가" 이지 "혜택이
+        // 하나도 없는 날이 있는가" 가 아니다.
+        assertTrue(afterPeriodBenefits < inPeriodBenefits,
+                "기간이 끝나면 그만큼 혜택이 줄어야 한다: " + inPeriod + " → " + afterPeriod);
     }
 
     /**
@@ -1041,5 +1142,287 @@ class CourseStorageIntegrationTest {
                 .andExpect(jsonPath("$.data.transitAccess.mode").doesNotExist())
                 .andExpect(jsonPath("$.data.transitAccess.departures").isArray())
                 .andExpect(jsonPath("$.data.transitAccess.departures").isEmpty());
+    }
+
+    // ─── 저장 코스의 수단 고정(#456) ─────────────────────────────────────────────
+
+    /**
+     * 교통 거점 칸까지 갖춘 대중교통 코스 — 수단을 바꾸면 이 칸들이 새 지점으로 간다.
+     *
+     * <p>{@link #transitBody} 와 달리 {@code ARRIVAL}·{@code DEPARTURE} 를 싣는다. 그 칸이 없는 코스는
+     * 서버가 손대지 않으므로(끼우는 것은 재생성이 할 일이다) 교체를 검증할 수 없다.
+     */
+    private static String transitHubBody(String transitMode) {
+        return transitHubBody(transitMode, "정선역");
+    }
+
+    /**
+     * 교통 거점 이름을 갈라 받는다 — 사진처럼 <b>지점명이 키인 값</b>을 다루는 테스트가 서로 간섭하지
+     * 않게 한다. 이 클래스는 롤백이 아니라 사용자로 격리해서, 이름이 같으면 앞 회차가 쓴 행이 남는다.
+     */
+    private static String transitHubBody(String transitMode, String hubName) {
+        String mode = transitMode == null ? "" : "\"transitMode\": \"%s\",".formatted(transitMode);
+        return """
+                { "regionId": 16, "density": "PACKED", "transport": "TRANSIT",
+                  "travelDate": "2026-09-11", "originLat": 37.5547, "originLng": 126.9707, %s
+                  "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"ARRIVAL","title":"%s","lat":37.38,"lng":128.66,"travelMinutes":0},
+                    {"order":2,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":22},
+                    {"order":3,"timeOfDay":"MORNING","kind":"DEPARTURE","title":"%s","lat":37.38,"lng":128.66,"travelMinutes":22}
+                  ]}
+                ]}""".formatted(mode, hubName, hubName);
+    }
+
+    private static String transitModeBody(String transitMode) {
+        return "{ \"transitMode\": \"%s\" }".formatted(transitMode);
+    }
+
+    /**
+     * 담을 때 고른 수단을 상세가 그대로 쓴다(#456).
+     *
+     * <p><b>자동 선택과 갈리는 자리에서 잰다.</b> 그날 열차가 없으면 자동은 더 가까운 시외버스 터미널로
+     * 넘어간다 — 거기서 열차를 고정해야 저장 값이 실제로 쓰이는지가 드러난다.
+     */
+    @Test
+    void 담을_때_고른_수단으로_상세가_답한다() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(transitHubBody("TRAIN"));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                // 열차가 없어도 물어본 수단으로 답한다 — 없으면 없다고 말하는 것이 옳다(#453 과 같은 규칙)
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("TRAIN"))
+                .andExpect(jsonPath("$.data.transitAccess.status").value("NO_SERVICE_ON_DATE"));
+    }
+
+    /** 안 보내면 지금까지와 똑같다 — 서버가 고른다. */
+    @Test
+    void 수단을_안_보내면_서버가_고른다() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(transitHubBody(null));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("INTERCITY_BUS"));
+    }
+
+    /**
+     * 칩을 누르면 <b>카드와 도착·출발 칸이 함께</b> 간다(#456).
+     *
+     * <p>카드만 바꾸면 한 화면에서 두 값이 어긋난다 — 카드는 "기차" 인데 첫 칸은 버스 터미널에 서 있다.
+     * 저장된 칸 이름("정선역")과 서버가 해석한 지점명("정선")이 달라 교체 여부가 그대로 드러난다.
+     */
+    @Test
+    void 수단을_바꾸면_카드와_도착_출발_칸이_함께_바뀐다() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(transitHubBody(null));
+
+        mockMvc.perform(patch(URL + "/{id}/transit-mode", courseId)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitModeBody("TRAIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("TRAIN"))
+                // 저장된 이름이 그대로면 칸을 안 바꾼 것이다
+                .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value("정선역"))
+                .andExpect(jsonPath("$.data.days[0].items[2].kind").value("DEPARTURE"))
+                .andExpect(jsonPath("$.data.days[0].items[2].title").value("정선역"));
+    }
+
+    /**
+     * <b>다시 열어도 같은 수단이다.</b> 조회 인자로 받았다면 여기서 원래 수단으로 돌아간다 — 그것이
+     * 저장을 고른 이유다.
+     */
+    @Test
+    void 바꾼_수단은_저장돼_다시_열어도_같다() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(transitHubBody(null));
+
+        mockMvc.perform(patch(URL + "/{id}/transit-mode", courseId)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitModeBody("TRAIN")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transitAccess.mode").value("TRAIN"));
+    }
+
+    /**
+     * 자차 코스는 역·터미널을 해석할 것이 없다. 조용히 담아 두면 화면에는 아무 일도 안 일어나는데 저장은
+     * 성공해, 앱이 무엇이 잘못됐는지 알 길이 없다.
+     */
+    @Test
+    void 자차_코스는_수단을_바꿀_수_없다_400_ITINERARY_010() throws Exception {
+        long courseId = save(VALID_BODY);
+
+        mockMvc.perform(patch(URL + "/{id}/transit-mode", courseId)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitModeBody("TRAIN")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("ITINERARY-010"))
+                .andExpect(jsonPath("$.data").value(nullValue()));
+    }
+
+    @Test
+    void 모르는_수단은_400이다() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(transitHubBody(null));
+
+        mockMvc.perform(patch(URL + "/{id}/transit-mode", courseId)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitModeBody("KTX")))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * 바꾼 뒤 <b>다시 읽어도 장소가 그대로 있다</b>.
+     *
+     * <p>응답만 보면 못 잡는 자리다 — PATCH 응답은 아직 flush 전의 메모리 상태로 조립되므로, DB 에서
+     * 장소가 지워져도 그 응답은 멀쩡해 보인다. 커밋 뒤에 다시 읽어야 드러난다.
+     */
+    @Test
+    void 수단을_바꿔도_장소_칸은_다시_읽어도_남아_있다() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(transitHubBody(null));
+
+        mockMvc.perform(patch(URL + "/{id}/transit-mode", courseId)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitModeBody("TRAIN")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items.length()").value(3))
+                .andExpect(jsonPath("$.data.days[0].items[1].kind").value("SIGHT"))
+                .andExpect(jsonPath("$.data.days[0].items[1].poiContentId").value("c1"))
+                .andExpect(jsonPath("$.data.days[0].items[1].title").value("장소1"))
+                // 목록 카드의 "N곳" 도 장소를 세므로 함께 본다
+                .andExpect(jsonPath("$.data.days[0].items[1].travelMinutes").isNumber());
+    }
+
+    /**
+     * 도착 칸과 출발 칸이 <b>다른 날</b>에 있는 코스 — 두 날이 각각 갈린다.
+     *
+     * <p>하루짜리는 한 날만 교체되므로 이쪽이 더 넓은 경우다. 중간에 낀 날(2일차 앞)의 장소가 딸려
+     * 지워지지 않는지도 여기서 드러난다.
+     */
+    private static String twoDayTransitHubBody() {
+        return """
+                { "regionId": 16, "density": "PACKED", "transport": "TRANSIT",
+                  "travelDate": "2026-09-11", "originLat": 37.5547, "originLng": 126.9707,
+                  "days": [
+                  { "day": 1, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"ARRIVAL","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":0},
+                    {"order":2,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c1","title":"장소1","lat":37.50,"lng":128.60,"travelMinutes":22},
+                    {"order":3,"timeOfDay":"DINNER","kind":"STAY","poiContentId":"s1","title":"숙소","lat":37.51,"lng":128.61,"travelMinutes":15}
+                  ]},
+                  { "day": 2, "items": [
+                    {"order":1,"timeOfDay":"MORNING","kind":"SIGHT","poiContentId":"c2","title":"장소2","lat":37.52,"lng":128.62,"travelMinutes":0},
+                    {"order":2,"timeOfDay":"AFTERNOON","kind":"DEPARTURE","title":"정선역","lat":37.38,"lng":128.66,"travelMinutes":18}
+                  ]}
+                ]}""";
+    }
+
+    @Test
+    void 도착과_출발이_다른_날이어도_장소는_다시_읽어도_남아_있다() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(twoDayTransitHubBody());
+
+        mockMvc.perform(patch(URL + "/{id}/transit-mode", courseId)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitModeBody("TRAIN")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                // 1일차: 도착 칸이 갈리고 장소·숙소는 그대로
+                .andExpect(jsonPath("$.data.days[0].items.length()").value(3))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value("정선역"))
+                .andExpect(jsonPath("$.data.days[0].items[1].poiContentId").value("c1"))
+                .andExpect(jsonPath("$.data.days[0].items[2].poiContentId").value("s1"))
+                // 2일차: 출발 칸이 갈리고 장소는 그대로
+                .andExpect(jsonPath("$.data.days[1].items.length()").value(2))
+                .andExpect(jsonPath("$.data.days[1].items[0].poiContentId").value("c2"))
+                .andExpect(jsonPath("$.data.days[1].items[1].kind").value("DEPARTURE"))
+                .andExpect(jsonPath("$.data.days[1].items[1].title").value("정선역"));
+
+        // 목록 카드의 "N곳" 은 장소만 센다 — 슬롯이 지워졌으면 여기서도 줄어든다
+        mockMvc.perform(get(URL))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].placeCount").value(3));
+    }
+
+    /**
+     * 담을 때부터 막는다 — 자차 코스에 수단을 실으면 코스 구성 오류다(ITINERARY-002).
+     *
+     * <p>바꾸는 쪽만 막으면 <b>모순된 코스가 DB 에 남는다</b>. 저장은 통과했는데 바꾸려 하면 400 이
+     * 나오는 상태라, 앱이 그 코스를 어떻게 다뤄야 하는지 알 수 없다.
+     */
+    @Test
+    void 자차_코스에_수단을_실어_담으면_400이다() throws Exception {
+        String body = VALID_BODY.replace("\"transport\": \"CAR\"", "\"transport\": \"CAR\", \"transitMode\": \"TRAIN\"");
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ITINERARY-002"));
+    }
+
+    /**
+     * 도착·출발 칸에 <b>사진이 실린다</b>(#450).
+     *
+     * <p>대중교통 코스는 교통 거점으로 시작해 교통 거점으로 끝나는데(#415), 그 칸이 사진 없이 나갔다.
+     * 장소 상세 키가 없어(TourAPI 장소가 아니라 TAGO 터미널이다) 그 경로로는 못 받는다. 관광사진갤러리에서
+     * 지점 이름으로 미리 받아 둔 것을 붙인다.
+     *
+     * <p><b>장소 칸은 건드리지 않는다</b> — 생성 때 받은 사진을 슬롯이 들고 있고, 그 값이 그대로 나가야 한다.
+     */
+    @Test
+    void 도착과_출발_칸에도_사진이_실린다() throws Exception {
+        // hub_name 이 유니크라 이 행을 남기면 재실행이 중복 키로 깨진다. 만든 것만 지운다 —
+        // 이름으로 지우면 배치가 받아 둔 기존 행까지 지울 수 있다.
+        String hubName = "사진있는역";
+        long courseId = save(transitHubBody(null, hubName));
+        jdbcTemplate.update(
+                "INSERT INTO transit_hub_photo (hub_name, image_url, photographer, title, fetched_at)"
+                        + " VALUES (?, ?, ?, ?, ?)",
+                hubName, "https://tong.visitkorea.or.kr/hub.jpg", "촬영자", "전경",
+                java.time.LocalDateTime.now());
+        try {
+            mockMvc.perform(get(URL + "/{id}", courseId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
+                    .andExpect(jsonPath("$.data.days[0].items[0].imageUrl")
+                            .value("https://tong.visitkorea.or.kr/hub.jpg"))
+                    // 사진이 있으면 지도 링크는 안 붙인다 — 카드가 이미 설 수 있어 군더더기다.
+                    // 이 필드는 null 이면 응답에서 아예 빠지므로 doesNotExist 로 본다.
+                    .andExpect(jsonPath("$.data.days[0].items[0].mapSearchUrl").doesNotExist())
+                    .andExpect(jsonPath("$.data.days[0].items[2].kind").value("DEPARTURE"))
+                    .andExpect(jsonPath("$.data.days[0].items[2].imageUrl")
+                            .value("https://tong.visitkorea.or.kr/hub.jpg"));
+        } finally {
+            jdbcTemplate.update("DELETE FROM transit_hub_photo WHERE hub_name = ?", hubName);
+        }
+    }
+
+    /** 안 받아 둔 지점은 그대로 빈다 — 없는 사진을 지어내지 않는다. */
+    @Test
+    void 사진을_안_받아_둔_거점은_그대로_빈다() throws Exception {
+        // 다른 테스트가 사진을 심는 이름과 갈라 둔다 — 이 클래스는 롤백으로 격리하지 않는다.
+        long courseId = save(transitHubBody(null, "사진없는역"));
+
+        mockMvc.perform(get(URL + "/{id}", courseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
+                .andExpect(jsonPath("$.data.days[0].items[0].imageUrl").doesNotExist());
+    }
+
+    /** 조회·삭제와 같은 규칙이다 — 없거나 남의 코스면 존재 여부를 흘리지 않도록 똑같이 404. */
+    @Test
+    void 남의_코스는_수단을_바꿀_수_없다_404() throws Exception {
+        trainDoesNotRun();
+        long courseId = save(transitHubBody(null), loginAs(UUID.randomUUID()));
+
+        mockMvc.perform(patch(URL + "/{id}/transit-mode", courseId)
+                        .contentType(MediaType.APPLICATION_JSON).content(transitModeBody("TRAIN")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ITINERARY-003"));
     }
 }

@@ -6,8 +6,7 @@ import com.offway.core.policy.repository.PolicyRepository;
 import com.offway.core.policy.service.dto.PolicyWithRegions;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.domain.RegionTagType;
-import com.offway.core.region.repository.RegionRepository;
-import com.offway.core.region.repository.RegionTagRepository;
+import com.offway.core.region.service.RegionQuery;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
@@ -26,8 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PolicyService {
 
     private final PolicyRepository policyRepository;
-    private final RegionTagRepository regionTagRepository;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
 
     /**
      * 정책 상세 + 이 혜택이 되는 지역 목록(정책→지역 역방향). 미검증 정책은 노출하지 않는다.
@@ -38,8 +36,8 @@ public class PolicyService {
         Policy policy = policyRepository.findById(id)
                 .filter(Policy::isVerified)
                 .orElseThrow(PolicyException::notFound);
-        List<Long> regionIds = regionTagRepository.findRegionIdsByTag(policy.getType().targetTag());
-        List<Region> regions = regionRepository.findByIds(regionIds);
+        List<Long> regionIds = regionQuery.idsWithTag(policy.getType().targetTag());
+        List<Region> regions = regionQuery.byIds(regionIds);
         return new PolicyWithRegions(policy, regions);
     }
 
@@ -49,7 +47,7 @@ public class PolicyService {
      * <p>홈·추천의 혜택 뱃지가 이 결과를 쓴다.
      */
     public List<Policy> matchForRegion(Long regionId, LocalDate travelDate) {
-        Set<RegionTagType> regionTags = Set.copyOf(regionTagRepository.findTagsByRegionId(regionId));
+        Set<RegionTagType> regionTags = Set.copyOf(regionQuery.tagsOf(regionId));
         return match(regionTags, travelDate);
     }
 
@@ -66,7 +64,7 @@ public class PolicyService {
             return Map.of();
         }
         List<Policy> verified = policyRepository.findAllVerified();
-        Map<Long, Set<RegionTagType>> tagsByRegion = regionTagRepository.findTagsByRegionIds(regionIds);
+        Map<Long, Set<RegionTagType>> tagsByRegion = regionQuery.tagsOf(regionIds);
 
         Map<Long, List<Policy>> matched = new HashMap<>();
         tagsByRegion.forEach((regionId, tags) -> {

@@ -1,6 +1,6 @@
 package com.offway.core.transport.infrastructure;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.transport.service.TravelTimeProvider;
 import java.util.Objects;

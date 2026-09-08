@@ -18,6 +18,10 @@ import org.springframework.web.reactive.function.client.WebClient;
  * 불릴 수 있다. 여기서 응답을 기다리면 디스코드가 느린 날 사용자 요청이 함께 느려진다. 구독만 걸고
  * 곧바로 돌아온다.
  *
+ * <p><b>외부 API 클라이언트와 다른 WebClient 를 쓴다.</b> 알림 통로는 우리가 상태를 관측하는 대상이
+ * 아니다 — 같은 빈을 쓰면 디스코드가 느린 날 그것이 "외부 장애" 로 집계되고, 그 장애를 알리려 또
+ * 디스코드를 부른다.
+ *
  * <p><b>실패는 삼키되 흔적을 남긴다.</b> 알림을 못 보낸 것 때문에 코스 생성이 깨지면 안 되지만, 조용히
  * 죽으면 알림이 없는 것과 같다. 예외 원인을 warn 으로 남긴다 — URL 은 {@link RootCause} 가 마스킹한다.
  */
@@ -49,8 +53,8 @@ public class DiscordWebhookNotifier implements Notifier {
     private final WebClient webClient;
     private final DiscordWebhookProperties properties;
 
-    public DiscordWebhookNotifier(WebClient externalWebClient, DiscordWebhookProperties properties) {
-        this.webClient = externalWebClient;
+    public DiscordWebhookNotifier(WebClient notifierWebClient, DiscordWebhookProperties properties) {
+        this.webClient = notifierWebClient;
         this.properties = properties;
         if (!properties.configured()) {
             log.warn("디스코드 웹훅 URL 이 없어 알림을 보내지 않습니다 — 설정하려면 offway.notification.discord.webhook-url");

@@ -3,8 +3,8 @@ package com.offway.core.trip.service;
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.region.service.RegionIntroProvider;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.domain.RegionPoi;
 import com.offway.core.trip.domain.TripException;
 import com.offway.core.trip.repository.RegionPoiRepository;
@@ -46,12 +46,13 @@ public class RegionDetailService {
     /** 서비스 기준 시간대. 혜택 매칭이 오늘 날짜를 보므로 서버 로케일에 맡기지 않는다. */
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final RegionPoiRepository regionPoiRepository;
     private final RegionIntroProvider regionIntroProvider;
     private final RegionHeroPhotoProvider regionHeroPhotoProvider;
     private final PolicyService policyService;
     private final CatchphraseProvider catchphraseProvider;
+    private final RegionVisitMetricsService regionVisitMetricsService;
 
     /**
      * 그 지역의 상세.
@@ -59,8 +60,7 @@ public class RegionDetailService {
      * @throws TripException 없는 지역이면 {@code TRIP-002}(404)
      */
     public RegionDetail detail(long regionId) {
-        Region region = regionRepository.findByIds(List.of(regionId)).stream()
-                .findFirst()
+        Region region = regionQuery.byId(regionId)
                 .orElseThrow(TripException::regionNotFound);
 
         List<RegionPoi> spots = regionPoiRepository.findShowable(regionId, MAX_HIGHLIGHT_SPOTS);
@@ -79,6 +79,8 @@ public class RegionDetailService {
                 .photos(photosOf(regionId))
                 .benefit(benefitOf(regionId))
                 .highlightSpots(toSpots(spots))
+                // 지명이 아니라 법정 시군구코드로 찾는다 — 동구 6곳·중구 6곳처럼 같은 이름이 전국에 여럿이다.
+                .visitMetrics(regionVisitMetricsService.of(region.getLegalCode()))
                 .build();
     }
 

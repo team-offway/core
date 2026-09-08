@@ -2,7 +2,7 @@ package com.offway.core.transport.infrastructure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.offway.core.transport.domain.Coordinate;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.infrastructure.tmap.TmapClient;
 import com.offway.core.transport.infrastructure.tmap.dto.CarRouteResult;
 import com.offway.core.transport.service.RouteOptimizer;

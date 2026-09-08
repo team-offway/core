@@ -29,4 +29,8 @@ public final class PolicyException extends BaseException {
     public static PolicyException duplicateActiveType() {
         return new PolicyException(PolicyErrorCode.DUPLICATE_ACTIVE_TYPE);
     }
+
+    public static PolicyException concurrentSave() {
+        return new PolicyException(PolicyErrorCode.CONCURRENT_SAVE);
+    }
 }

@@ -23,6 +23,11 @@ class TourDataLabProbe extends AbstractDataGoKrProbe {
     }
 
     @Override
+    protected String baseUrl() {
+        return BASE;
+    }
+
+    @Override
     protected URI uri(String serviceKey) {
         return UriComponentsBuilder.fromUriString(BASE)
                 .queryParam("serviceKey", serviceKey)
@@ -33,8 +38,10 @@ class TourDataLabProbe extends AbstractDataGoKrProbe {
                 .queryParam("pageNo", "1")
                 .queryParam("startYmd", "20260601")
                 .queryParam("endYmd", "20260607")
-                .encode()
-                .build()
+                // **다시 인코딩하지 않는다.** 우리 serviceKey 는 data.go.kr 이 발급한 Encoding 키라
+                // `%3D` 같은 값이 이미 들어 있다. `.encode()` 를 태우면 `%253D` 가 되어 게이트웨이가
+                // "등록되지 않은 서비스키"(403) 로 거절한다 — 런타임 클라이언트가 build(true) 를 쓰는 이유와 같다.
+                .build(true)
                 .toUri();
     }
 }

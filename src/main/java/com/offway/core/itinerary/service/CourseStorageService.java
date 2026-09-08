@@ -1,7 +1,10 @@
 package com.offway.core.itinerary.service;
 
 import com.offway.core.common.response.Paging;
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.itinerary.domain.Course;
+import com.offway.core.itinerary.domain.DaySchedule;
+import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.CourseScope;
 import com.offway.core.itinerary.domain.CourseShare;
 import com.offway.core.itinerary.domain.DayStart;
@@ -14,16 +17,24 @@ import com.offway.core.itinerary.service.dto.MyCourses;
 import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
-import com.offway.core.region.repository.RegionRepository;
+import com.offway.core.region.service.RegionQuery;
+import com.offway.core.trip.domain.RegionVisitMetrics;
+import com.offway.core.trip.service.RegionVisitMetricsService;
 import com.offway.core.trip.service.RegionImageProvider;
 import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.transport.domain.TransportMode;
+import com.offway.core.transport.domain.TransitMode;
+import com.offway.core.transport.service.TravelTimeProvider;
 import com.offway.core.transport.service.RegionAccessService;
 import com.offway.core.weather.domain.DailyWeather;
+import com.offway.core.trip.service.TransitHubPhotoProvider;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -52,15 +63,18 @@ public class CourseStorageService {
 
     private final CourseRepository courseRepository;
     private final PolicyService policyService;
-    private final RegionRepository regionRepository;
+    private final RegionQuery regionQuery;
     private final CourseWeatherProvider courseWeatherProvider;
     private final OpeningHoursProvider openingHoursProvider;
+    private final TransitHubPhotoProvider transitHubPhotoProvider;
     private final FestivalPeriodProvider festivalPeriodProvider;
     private final CoursePersistenceService coursePersistenceService;
     private final CourseLeaveDeductionService courseLeaveDeductionService;
     private final MyLeaveService myLeaveService;
     private final RegionAccessService regionAccessService;
+    private final TravelTimeProvider travelTimeProvider;
     private final RegionImageProvider regionImageProvider;
+    private final RegionVisitMetricsService regionVisitMetricsService;
 
     /** 이미 조립된 사용자 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
     public GeneratedCourse save(Course course) {
@@ -289,6 +303,92 @@ public class CourseStorageService {
     }
 
     /**
+     * 저장 코스의 대중교통 수단을 바꾼다(#456) — 상세 화면에서 "기차로 보기" 칩을 눌렀을 때.
+     *
+     * <p><b>왜 조회가 아니라 수정인가.</b> 조회 인자로 받으면 저장 값을 안 건드려 가볍지만, 그 코스를 다시
+     * 열면 원래 수단으로 돌아간다. 수단은 출발 좌표·첫날 연차와 같은 <b>입력</b>이라 저장해 두고 상세에서
+     * 계산하는 편이 맞다(#187·#423 과 같은 자리).
+     *
+     * <p><b>바뀌는 것과 안 바뀌는 것</b>을 분명히 해 둔다. 교통 카드와 도착·출발 칸은 새 수단의 지점으로
+     * 가고, 도착이 늦어져 갈 수 없게 된 첫날 일정은 걷어낸다. <b>나머지 슬롯의 순서는 그대로다</b> — 옛
+     * 지점 기준으로 정렬된 채 남는다. 다시 정렬하려면 후보가 필요한데 저장 코스에는 슬롯만 있어
+     * ({@link #realignFirstDay} 가 걷어내기만 하는 것과 같은 제약) 재생성이라야 고쳐진다.
+     *
+     * <p>고른 수단이 그 지역에 안 닿으면 <b>자동 선택으로 되돌아간다</b>(#453). 그때도 요청은 성공이고,
+     * 무엇이 쓰였는지는 응답의 교통 카드가 답한다 — 앱은 대안 목록에 있는 수단만 보내므로 흔한 일이 아니다.
+     *
+     * <p>순서는 {@link #changeTravelDate} 와 같다. 외부 호출(지점 해석·이동시간)을 트랜잭션 밖에서 끝내고,
+     * 저장은 짧은 트랜잭션 하나로 묶는다.
+     */
+    public OwnedCourse changeTransitMode(UUID userId, long courseId, TransitMode transitMode) {
+        // 트랜잭션 밖이라 이 인스턴스는 준영속이다 — 여기 건 값은 저장되지 않는다. 두 가지를 노린다.
+        // ① 자차 코스 거절을 외부 호출 <b>전에</b> 한다. 어차피 400 으로 돌려보낼 요청 때문에 TMAP 을 부를
+        //    이유가 없다. 규칙 자체는 Course#changeTransitMode 하나뿐이라 두 자리가 갈리지 않는다.
+        // ② 아래 regionAccessFor 가 새 수단으로 계산하게 한다. 저장은 applyTransitMode 가 영속 인스턴스에 한다.
+        Course course = coursePersistenceService.loadOwned(userId, courseId);
+        course.changeTransitMode(transitMode);
+
+        Region region = regionOf(course);
+        RegionAccess regionAccess = regionAccessFor(course, region);
+        Course updated = coursePersistenceService.applyTransitMode(
+                userId, courseId, transitMode, hubChange(course, regionAccess));
+
+        FirstDayChange change = realignFirstDay(userId, courseId, updated, updated.getTravelDate(), regionAccess);
+        Course finalCourse = change == FirstDayChange.TRIMMED
+                ? coursePersistenceService.loadOwned(userId, courseId) // 걷어낸 결과로 다시 읽는다
+                : updated;
+
+        return owned(
+                userId,
+                courseId,
+                assemble(finalCourse, region, regionAccess)
+                        .withShareToken(shareTokenOrNull(courseId))
+                        .withFirstDayChange(change));
+    }
+
+    /**
+     * 새 지점과 그 지점에 잇닿은 이동시간을 잰다 — <b>트랜잭션 밖에서</b>(TMAP 호출).
+     *
+     * <p>지점을 못 찾았거나 교통 거점 칸이 없는 코스면 null 이다. 지어내지 않는다 — 그런 코스는 지금도
+     * 관광지로 시작하고, 여기서 칸을 새로 끼우면 순서를 통째로 다시 매기게 된다(재생성이 할 일이다).
+     */
+    private CoursePersistenceService.TransitHubChange hubChange(Course course, RegionAccess regionAccess) {
+        if (regionAccess == null) {
+            return null;
+        }
+        String name = regionAccess.toName();
+        Optional<Coordinate> point = regionAccess.arrivalPoint();
+        if (name == null || name.isBlank() || point.isEmpty()) {
+            return null;
+        }
+        Optional<Slot> firstPlace = firstPlaceOf(course.getDays().getFirst());
+        Optional<Slot> lastPlace = lastPlaceOf(course.getDays().getLast());
+        if (firstPlace.isEmpty() || lastPlace.isEmpty()) {
+            return null; // 교통 거점 칸만 있는 날 — 잴 구간이 없다
+        }
+        Coordinate hub = point.get();
+        return new CoursePersistenceService.TransitHubChange(
+                name,
+                hub,
+                travelTimeProvider.reachMinutes(hub, coordinateOf(firstPlace.get()), TransportMode.TRANSIT),
+                travelTimeProvider.reachMinutes(coordinateOf(lastPlace.get()), hub, TransportMode.TRANSIT));
+    }
+
+    /** 교통 거점을 뺀 그날 첫 장소 — 도착 칸 바로 뒤다. */
+    private static Optional<Slot> firstPlaceOf(DaySchedule day) {
+        return day.getSlots().stream().filter(slot -> slot.getKind().hasPlace()).findFirst();
+    }
+
+    /** 교통 거점을 뺀 그날 마지막 장소 — 출발 칸 바로 앞이다. */
+    private static Optional<Slot> lastPlaceOf(DaySchedule day) {
+        return day.getSlots().stream().filter(slot -> slot.getKind().hasPlace()).reduce((first, second) -> second);
+    }
+
+    private static Coordinate coordinateOf(Slot slot) {
+        return new Coordinate(slot.getLat(), slot.getLng());
+    }
+
+    /**
      * 새 날짜의 도착 시각으로 첫날을 맞춘다(#214) — <b>걷어내기만</b> 한다.
      *
      * <p>도착이 늦어져 갈 수 없게 된 슬롯은 서버가 지운다. 반대로 도착이 빨라져 첫날을 쓸 수 있게 됐다면
@@ -360,7 +460,9 @@ public class CourseStorageService {
                         course.getTravelDate(),
                         // 저장할 때 기억해 둔 근거를 쓴다. 여기서 종일로 굳히면 반차로 짠 코스를 상세가
                         // 아침 출발로 되짚어, 같은 코스가 두 근거를 갖는다(#138·#214).
-                        course.startDayLeave().departureTime()))
+                        course.startDayLeave().departureTime(),
+                        // 사용자가 고정한 수단(#456). null 이면 서버가 고른다 — 생성 때와 같은 규칙이다.
+                        course.getTransitMode()))
                 .orElse(null);
     }
 
@@ -395,7 +497,7 @@ public class CourseStorageService {
         if (regionIds.isEmpty()) {
             return Map.of();
         }
-        return regionRepository.findByIds(regionIds).stream()
+        return regionQuery.byIds(regionIds).stream()
                 .collect(Collectors.toMap(Region::getId, Region::getSigungu, (a, b) -> a));
     }
 
@@ -422,9 +524,7 @@ public class CourseStorageService {
 
     /** 코스 지역 — 슬롯 표시명·날씨·열차 접근이 모두 이 값을 쓴다. 한 번만 읽는다. */
     private Region regionOf(Course course) {
-        return regionRepository.findByIds(List.of(course.getRegionId())).stream()
-                .findFirst()
-                .orElse(null);
+        return regionQuery.byId(course.getRegionId()).orElse(null);
     }
 
     private GeneratedCourse assemble(Course course, Region region, RegionAccess regionAccess) {
@@ -448,9 +548,29 @@ public class CourseStorageService {
                 .weatherByDay(weatherByDay)
                 .regionAccess(regionAccess)
                 .regionName(region == null ? null : region.getSigungu())
+                // 지명이 아니라 법정 시군구코드로 찾는다 — 같은 이름이 전국에 여럿이다. DB 만 읽는다.
+                .visitMetrics(region == null
+                        ? RegionVisitMetrics.none()
+                        : regionVisitMetricsService.of(region.getLegalCode()))
                 // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
                 .hoursByContentId(openingHoursProvider.forCourse(course))
+                .hubPhotoUrlByName(transitHubPhotoProvider.photoUrls(transitHubNames(course)))
                 .festivalPeriodByContentId(festivalPeriodProvider.forCourse(course))
                 .build();
+    }
+
+    /**
+     * 이 코스의 교통 거점 이름 — 도착·출발 칸이다(#450).
+     *
+     * <p>장소 칸은 생성 때 받은 사진을 슬롯이 들고 있고, 교통 거점만 이름으로 따로 얻는다. 둘이 같은
+     * 지점이라 보통 하나다.
+     */
+    private static Set<String> transitHubNames(Course course) {
+        return course.getDays().stream()
+                .flatMap(day -> day.getSlots().stream())
+                .filter(slot -> !slot.getKind().hasPlace())
+                .map(Slot::getTitle)
+                .filter(name -> name != null && !name.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 }
