@@ -1,5 +1,7 @@
 package com.offway.core.transport.domain;
 
+import java.util.Optional;
+
 /**
  * 코스가 지역까지 타고 가는 수단(#97 · #379). "무엇을 타고 가서 어디에 내리는가" 를 답할 때 쓴다.
  *
@@ -177,6 +179,20 @@ public enum TransitMode {
         return switch (kind) {
             case EXPRESS -> EXPRESS_BUS;
             case INTERCITY -> INTERCITY_BUS;
+        };
+    }
+
+    /**
+     * 이 수단이 쓰는 터미널 종류 — 버스가 아니면 빈 값이다(#508).
+     *
+     * <p>서비스에서 {@code switch} 로 가르고 {@code null} 로 답하던 것을 여기로 옮겼다. 수단별 정책은
+     * 이 enum 이 소유한다 — 새 수단이 붙을 때 매핑을 빠뜨리면 컴파일이 잡아준다.
+     */
+    public Optional<BusTerminalKind> terminalKind() {
+        return switch (this) {
+            case EXPRESS_BUS -> Optional.of(BusTerminalKind.EXPRESS);
+            case INTERCITY_BUS -> Optional.of(BusTerminalKind.INTERCITY);
+            case TRAIN, FERRY, CAR -> Optional.empty();
         };
     }
 }
