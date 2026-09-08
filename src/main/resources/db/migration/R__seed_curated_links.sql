@@ -11,41 +11,49 @@
 -- policy 가 소유하므로 여기 중복해 넣지 않는다 — 홈에서 같은 것이 뱃지와 칩으로 두 번 보인다.
 --
 -- 죽은 링크는 없는 것만 못하므로 넣기 전에 실호출로 200 을 확인한다(R__seed_policies 와 같은 규칙).
--- 셋 다 2026-08-29 에 확인했다. 기관 페이지는 개편이 잦아 확인일자가 오래되면 다시 봐야 한다.
+-- 기관 페이지는 개편이 잦아 확인일자가 오래되면 다시 봐야 한다.
 --
--- always_on 을 켠 것은 셋 다 **상설 기관 페이지**라 끝나는 날이 없기 때문이다. 기간이 있는 행사는
+-- always_on 을 켠 것은 전부 **상설 기관 페이지**라 끝나는 날이 없기 때문이다. 기간이 있는 행사는
 -- always_on=FALSE + ends_on 으로 넣는다 — 도메인이 종료일을 요구한다(#217 의 교훈).
 --
 -- 썸네일은 비운다. 기관 페이지의 이미지를 우리가 직접 링크하면 저쪽이 파일을 옮기는 순간 깨진 이미지가
 -- 뜨는데, 그건 빈 자리보다 나쁘다. 앱이 기본 이미지를 쓴다.
 --
--- ## 왜 INSERT IGNORE 인가
+-- ## 열쇠는 seed_key 다 — id 가 아니다
 --
--- 이 파일은 **첫 부팅에 한 번 채우는 것**이 전부다. id 를 명시하므로 이미 있는 세 행은 PK 로 걸려 건너뛰고,
--- 어드민이 이 셋을 고쳤다면 그 수정이 남는다. 어드민이 새로 만든 항목(id 4 이상)도 손대지 않는다.
+-- 예전에는 id 를 명시해 넣었다. 세 건일 때는 드러나지 않았는데, #498 이 아홉 건을 더하며 id 4 이상을
+-- 쓰기 시작하면서 **어드민 행과 열쇠를 두고 경쟁**하게 됐다. 운영 실측(2026-09-08)에서 이 표의
+-- AUTO_INCREMENT 가 정확히 **4** 였다 — 어드민이 링크를 하나만 만들어도 그다음 배포에서 시드 한 건이
+-- 조용히 건너뛰어졌을 것이다.
+--
+-- 이제 `seed_key`(UNIQUE)가 시드 행을 가리키고 id 는 AUTO_INCREMENT 에 맡긴다. 어드민 행은 seed_key 가
+-- NULL 이라 몇 건이 있든 걸리지 않는다.
+--
+-- `ON DUPLICATE KEY UPDATE id = id` 는 **아무것도 바꾸지 않는다**. 이미 있는 행은 그대로 두는 것이
+-- 의도다 — 어드민이 문구를 고쳤다면 그 수정이 남아야 한다.
 --
 -- 뒤집어 말하면 **여기 적힌 문구를 고쳐도 이미 뜬 DB 에는 반영되지 않는다.** 그게 맞다 — 이 표의 정본은
 -- 이제 이 파일이 아니라 DB 이고, 고치는 자리는 백오피스다.
-INSERT IGNORE INTO curated_link (id, title, chip_text, description, link_url, thumbnail_url,
+INSERT INTO curated_link (seed_key, title, chip_text, description, link_url, thumbnail_url,
                           starts_on, ends_on, always_on, surfaces, display_order, published) VALUES
 
 -- 한국관광공사 공식 여행정보. 우리 장소 카드의 소개·사진 상당수가 여기서 온다 — 더 보고 싶은 사람을
 -- 원본으로 보낸다. 네 면 모두에 켠다.
-(1, '대한민국 구석구석', '여행지 더 보기',
+('kto-visitkorea', '대한민국 구석구석', '여행지 더 보기',
  '한국관광공사가 운영하는 공식 여행정보. 지역별 명소와 축제를 더 찾아볼 수 있다.',
  'https://korean.visitkorea.or.kr', NULL,
  NULL, NULL, TRUE, 'HOME,REGION,COURSE,POI', 10, TRUE),
 
 -- 국가유산청 국가유산포털. 우리 장소 풀의 3,437건이 이 출처라, 관람시간·발굴 이력처럼 우리가 안 들고
 -- 있는 것을 보러 가는 자리다. 코스 화면에는 안 켠다 — 코스는 동선이 주인공이라 칩이 늘면 어지럽다.
-(2, '국가유산포털', '문화유산 자세히',
+('khs-heritage-portal', '국가유산포털', '문화유산 자세히',
  '국가유산청 공식 포털. 지정 사유와 관람 정보를 원문으로 볼 수 있다.',
  'https://www.heritage.go.kr', NULL,
  NULL, NULL, TRUE, 'REGION,POI', 20, TRUE),
 
 -- 코레일 승차권 예매. 대중교통 코스는 열차 접근을 우리가 계산해 주지만 예매는 못 한다.
 -- 장소·지역 상세에는 안 켠다 — 그 화면에서 기차표를 찾을 이유가 없다.
-(3, '코레일 승차권 예매', '기차표 예매',
+('korail-ticket', '코레일 승차권 예매', '기차표 예매',
  '한국철도공사 공식 예매. 우리가 안내한 열차 시간대로 바로 예매할 수 있다.',
  'https://www.letskorail.com', NULL,
  NULL, NULL, TRUE, 'HOME,COURSE', 30, TRUE),
@@ -59,13 +67,13 @@ INSERT IGNORE INTO curated_link (id, title, chip_text, description, link_url, th
 
 -- 고속버스 통합예매. 우리는 터미널과 소요시간까지만 안내하고 예매는 못 한다.
 -- 코스 화면에만 켠다 — 지역·장소 상세에서 버스표를 찾을 이유가 없다.
-(4, '고속버스 예매', '고속버스 예매',
+('kobus-booking', '고속버스 예매', '고속버스 예매',
  '전국 고속버스 통합예매. 우리가 안내한 터미널에서 바로 표를 끊을 수 있다.',
  'https://www.kobus.co.kr', NULL,
  NULL, NULL, TRUE, 'COURSE', 40, TRUE),
 
 -- 시외버스 예매. 인구감소지역은 고속버스가 안 닿는 곳이 많아 시외버스가 실질 수단인 경우가 잦다.
-(5, '시외버스 예매', '시외버스 예매',
+('txbus-booking', '시외버스 예매', '시외버스 예매',
  '전국 시외버스 예매. 고속버스가 닿지 않는 시군은 이쪽을 본다.',
  'https://txbus.t-money.co.kr', NULL,
  NULL, NULL, TRUE, 'COURSE', 50, TRUE),
@@ -78,7 +86,7 @@ INSERT IGNORE INTO curated_link (id, title, chip_text, description, link_url, th
 --
 -- **지역 칩이 아니라 여기 있는 이유**는 전국 어디서나 같은 조건이기 때문이다 — 89곳 전부에 같은
 -- 뱃지를 다는 것은 "이 지역이라서" 를 말하지 못한다.
-(6, '내일로 패스', '기차 자유여행',
+('korail-railro', '내일로 패스', '기차 자유여행',
  '7일 동안 KTX·일반열차를 자유롭게 타는 코레일 패스. 전 국민이 쓸 수 있고 29세 이하는 더 싸다.',
  'https://www.korail.com/tour/freeTravel/railro/passIntro', NULL,
  NULL, NULL, TRUE, 'HOME,COURSE', 60, TRUE),
@@ -91,6 +99,8 @@ INSERT IGNORE INTO curated_link (id, title, chip_text, description, link_url, th
 -- 올바른 주소(other/otherService.do?otdid=622bcd99-…)는 찾았지만 **우리 89곳이 그 100곳에 얼마나
 -- 드는지 확인하지 못했다.** 목록이 JS 로 그려져 지역을 셀 수 없었고, 전국 대표 관광지 목록이라
 -- 인구감소지역과 겹침이 적을 수 있다. 눌렀는데 우리 지역이 없으면 없는 것만 못하다.
+--
+-- display_order 70 이 비어 있는 것이 그 자리다.
 
 -- ── 아래 다섯은 우리 89곳의 성격에 맞춘 것이다(#498) ──────────────────────────
 --
@@ -104,31 +114,35 @@ INSERT IGNORE INTO curated_link (id, title, chip_text, description, link_url, th
 
 -- 코리아둘레길·지역 둘레길. 해안과 산촌을 도는 길이라 인구감소지역이 많이 걸린다.
 -- 코스 화면에도 켠다 — 걷기 자체가 하루 일정이 되는 지역이 있다.
-(8, '두루누비', '걷기여행길',
+('durunubi', '두루누비', '걷기여행길',
  '한국관광공사 걷기여행 정보. 코리아둘레길과 지역 둘레길을 코스별로 볼 수 있다.',
  'https://www.durunubi.kr', NULL,
  NULL, NULL, TRUE, 'HOME,REGION,COURSE', 80, TRUE),
 
 -- 농촌체험휴양마을. 우리 89곳의 성격에 가장 가까운 자리다 — 체험·숙박·먹거리를 마을 단위로 판다.
-(9, '웰촌', '농촌체험 마을',
+('welchon', '웰촌', '농촌체험 마을',
  '농림축산식품부 농촌여행 포털. 체험마을과 농가 숙박을 지역별로 찾을 수 있다.',
  'https://www.welchon.com', NULL,
  NULL, NULL, TRUE, 'REGION', 90, TRUE),
 
--- 야영장 정보. 우리 숙박 후보가 얇은 지역에서 실질 대안이 된다.
-(10, '고캠핑', '야영장 찾기',
+-- 야영장 정보. **사진이 있는 숙박을 찾는 자리다** — 우리 인허가 숙소는 지역당 296곳이나 되지만
+-- 사진이 한 장도 없어 화면이 빈다(#510 에서 실측했다). 등록 야영장은 75% 에 사진이 온다.
+('gocamping', '고캠핑', '야영장 찾기',
  '한국관광공사 야영장 정보. 등록된 캠핑장을 지역·유형별로 볼 수 있다.',
  'https://gocamping.or.kr', NULL,
  NULL, NULL, TRUE, 'REGION', 100, TRUE),
 
 -- 자연휴양림. 예약제라 우리가 재고를 알 수 없다 — 링크로 넘기는 것이 맞는 종류다.
-(11, '숲나들e', '자연휴양림 예약',
+('foresttrip', '숲나들e', '자연휴양림 예약',
  '산림청 숲속의집·자연휴양림 예약. 성수기에는 추첨으로 배정된다.',
  'https://www.foresttrip.go.kr', NULL,
  NULL, NULL, TRUE, 'REGION', 110, TRUE),
 
 -- 국립공원 탐방 예약. 탐방로 통제와 대피소는 그날그날 바뀌어 우리가 들고 있을 수 없다.
-(12, '국립공원 예약', '탐방 예약·통제 확인',
+('knps-reservation', '국립공원 예약', '탐방 예약·통제 확인',
  '국립공원공단 예약 시스템. 탐방로 통제와 대피소 상황을 함께 확인할 수 있다.',
  'https://reservation.knps.or.kr', NULL,
- NULL, NULL, TRUE, 'REGION', 120, TRUE);
+ NULL, NULL, TRUE, 'REGION', 120, TRUE)
+
+-- 이미 있는 행은 그대로 둔다 — 어드민이 고쳤다면 그 수정이 남아야 한다.
+ON DUPLICATE KEY UPDATE id = id;
