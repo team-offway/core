@@ -1,36 +1,70 @@
 package com.offway.core.transport.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
-/**
- * 수단별 배차 조회창(#107 · #97).
- *
- * <p>이 값이 실제 조회창보다 짧으면 <b>드문 배차가 미운행으로 굳는다</b>. 여객선을 버스에 맞춰 3일로 자르면
- * 주 몇 편짜리 항로가 없는 길이 되고, 배 말고 닿는 수단이 없는 울릉군은 그대로 "도달 불가" 가 된다.
- * 반대로 길면 어차피 0건인 날을 물어 외부 한도만 태운다.
- */
+@DisplayName("타고 내리는 곳 이름")
 class TransitModeTest {
 
-    @ParameterizedTest
-    @EnumSource(value = TransitMode.class, names = {"EXPRESS_BUS", "INTERCITY_BUS"})
-    void 버스는_오늘부터_사흘까지_묻는다(TransitMode mode) {
-        assertEquals(3, mode.lookaheadDays());
+    @ParameterizedTest(name = "{0} 로 가면 {1} → {2}")
+    @CsvSource({
+        "TRAIN,         태안, 태안역",
+        "EXPRESS_BUS,   태안, 태안터미널",
+        "INTERCITY_BUS, 태안, 태안터미널",
+        "FERRY,         부산, 부산여객선터미널",
+    })
+    void 수단에_맞는_종류를_붙인다(TransitMode mode, String rawName, String expected) {
+        assertEquals(expected, mode.placeName(rawName));
     }
 
     @Test
-    void 여객선은_버스보다_넓은_여드레를_묻는다() {
-        // 버스와 같은 값으로 두면 주 몇 편만 뜨는 항로를 못 보고 미운행으로 적는다.
-        assertEquals(8, TransitMode.FERRY.lookaheadDays());
+    void 자차는_지역명을_그대로_쓴다() {
+        // 자차의 도착 지점은 역·터미널이 아니라 지역 그 자체다.
+        assertEquals("태안", TransitMode.CAR.placeName("태안"));
+    }
+
+    @ParameterizedTest(name = "{0} 은 이미 터미널이라 그대로")
+    @ValueSource(strings = {"서울고속버스터미널(경부)", "동서울터미널"})
+    void 이미_터미널이면_두_번_붙이지_않는다(String rawName) {
+        assertEquals(rawName, TransitMode.EXPRESS_BUS.placeName(rawName));
+    }
+
+    @ParameterizedTest(name = "{0} 은 이미 타는 곳이라 그대로")
+    @ValueSource(strings = {"완도항", "부산_연안부두", "○○선착장", "부산여객선터미널"})
+    void 항구_이름에_타는_곳이_들어_있으면_그대로_둔다(String rawName) {
+        // 무조건 붙이면 "완도항여객선터미널" 이 된다.
+        assertEquals(rawName, TransitMode.FERRY.placeName(rawName));
     }
 
     @Test
-    void 열차에는_조회창이_없다() {
-        // 열차는 이 표를 쓰지 않고 실제 시각을 직접 답한다. 여기 닿았다면 호출부가 안 걸러낸 것이다.
-        assertThrows(IllegalStateException.class, TransitMode.TRAIN::lookaheadDays);
+    void 이미_역이면_두_번_붙이지_않는다() {
+        assertEquals("서울역", TransitMode.TRAIN.placeName("서울역"));
+    }
+
+    @ParameterizedTest(name = "{0} 에도 역을 붙인다")
+    @ValueSource(strings = {"역곡", "역삼"})
+    void 이름_안에_역이_들어_있어도_끝자리가_아니면_붙인다(String rawName) {
+        // contains 로 보면 이런 이름은 영영 "역" 이 안 붙는다 — 끝자리로만 판정한다.
+        assertEquals(rawName + "역", TransitMode.TRAIN.placeName(rawName));
+    }
+
+    @Test
+    void 두_번_불러도_같은_값이다() {
+        // RegionAccess 는 withVia 처럼 자기를 다시 만드는 경로가 있어 규칙이 여러 번 걸린다.
+        String once = TransitMode.INTERCITY_BUS.placeName("태안");
+        assertEquals(once, TransitMode.INTERCITY_BUS.placeName(once));
+    }
+
+    @Test
+    void 이름이_없으면_지어내지_않는다() {
+        assertNull(TransitMode.TRAIN.placeName(null));
+        assertEquals("", TransitMode.TRAIN.placeName(""));
+        assertEquals("  ", TransitMode.TRAIN.placeName("  "));
     }
 }

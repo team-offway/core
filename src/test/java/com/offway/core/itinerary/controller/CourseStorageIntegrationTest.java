@@ -545,12 +545,12 @@ class CourseStorageIntegrationTest {
 
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.trainAccess.toStation").value("정선"))
+                .andExpect(jsonPath("$.data.trainAccess.toStation").value("정선역"))
                 // 새 필드도 같은 값을 담는다 — 옛 필드를 걷어낼 때 화면이 비지 않게(#97)
                 .andExpect(jsonPath("$.data.transitAccess.mode").value("TRAIN"))
                 .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("열차"))
                 .andExpect(jsonPath("$.data.transitAccess.status").value("AVAILABLE"))
-                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"));
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선역"));
     }
 
     @Test
@@ -569,7 +569,7 @@ class CourseStorageIntegrationTest {
                 .andExpect(jsonPath("$.data.transitAccess.mode").value("INTERCITY_BUS"))
                 .andExpect(jsonPath("$.data.transitAccess.modeLabel").value("시외버스"))
                 .andExpect(jsonPath("$.data.transitAccess.status").value("POINT_ONLY"))
-                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선터미널"))
                 // 옛 필드는 열차만 담기로 했다 — 버스로 가는 코스에 "역 없음" 을 내리면 화면이 "못 간다" 고 말한다
                 .andExpect(jsonPath("$.data.trainAccess").doesNotExist());
     }
@@ -589,7 +589,7 @@ class CourseStorageIntegrationTest {
         mockMvc.perform(get(URL + "/{id}", courseId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.transitAccess.mode").value("INTERCITY_BUS"))
-                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선"))
+                .andExpect(jsonPath("$.data.transitAccess.toPlace").value("정선터미널"))
                 // 출발지(서울)에서 <b>같은 종류</b>의 최근접 터미널. 값을 못 박는다 — exists() 로 두면
                 // 도착지명이 들어와도 초록이라, 정작 확인하려는 "출발 쪽" 이 맞는지를 못 본다.
                 //
@@ -1225,9 +1225,9 @@ class CourseStorageIntegrationTest {
                 .andExpect(jsonPath("$.data.transitAccess.mode").value("TRAIN"))
                 // 저장된 이름이 그대로면 칸을 안 바꾼 것이다
                 .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
-                .andExpect(jsonPath("$.data.days[0].items[0].title").value("정선"))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value("정선역"))
                 .andExpect(jsonPath("$.data.days[0].items[2].kind").value("DEPARTURE"))
-                .andExpect(jsonPath("$.data.days[0].items[2].title").value("정선"));
+                .andExpect(jsonPath("$.data.days[0].items[2].title").value("정선역"));
     }
 
     /**
@@ -1335,14 +1335,14 @@ class CourseStorageIntegrationTest {
                 .andExpect(status().isOk())
                 // 1일차: 도착 칸이 갈리고 장소·숙소는 그대로
                 .andExpect(jsonPath("$.data.days[0].items.length()").value(3))
-                .andExpect(jsonPath("$.data.days[0].items[0].title").value("정선"))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value("정선역"))
                 .andExpect(jsonPath("$.data.days[0].items[1].poiContentId").value("c1"))
                 .andExpect(jsonPath("$.data.days[0].items[2].poiContentId").value("s1"))
                 // 2일차: 출발 칸이 갈리고 장소는 그대로
                 .andExpect(jsonPath("$.data.days[1].items.length()").value(2))
                 .andExpect(jsonPath("$.data.days[1].items[0].poiContentId").value("c2"))
                 .andExpect(jsonPath("$.data.days[1].items[1].kind").value("DEPARTURE"))
-                .andExpect(jsonPath("$.data.days[1].items[1].title").value("정선"));
+                .andExpect(jsonPath("$.data.days[1].items[1].title").value("정선역"));
 
         // 목록 카드의 "N곳" 은 장소만 센다 — 슬롯이 지워졌으면 여기서도 줄어든다
         mockMvc.perform(get(URL))
