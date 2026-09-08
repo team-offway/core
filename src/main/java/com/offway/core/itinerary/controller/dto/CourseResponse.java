@@ -576,12 +576,17 @@ public record CourseResponse(
      *     <b>ORIGIN_UNKNOWN 일 때만 null</b> — 무엇을 타는지는 출발지가 있어야 정해진다
      * @param modeLabel 화면에 그대로 쓸 한글 수단명(열차·고속버스·시외버스·여객선·자차)
      * @param status AVAILABLE(운행 편 있음, 도착 시각까지 앎) · POINT_ONLY(도착 지점만 앎) ·
-     *     NO_STATION(닿는 지점 없음) · NO_SERVICE_ON_DATE(그날 미운행) · UNAVAILABLE(조회 실패) ·
+     *     NO_STATION(닿는 지점 없음) · NO_SERVICE_ON_DATE(그날 미운행) ·
+     *     <b>NO_ROUTE</b>(두 지점을 잇는 노선이 없음 — 그날의 문제가 아니라 노선 자체가 없다) ·
+     *     UNAVAILABLE(조회 실패) ·
      *     <b>ORIGIN_UNKNOWN</b>(저장할 때 출발지를 안 받아 계산할 근거가 없음 — #422).
      *     <b>이 객체는 항상 있다</b>. 예전에는 근거가 없으면 필드가 통째로 빠져, 앱이 "이 값을 모르는
      *     옛 서버" 와 "서버가 답을 못 하는 코스" 를 구분할 수 없었다
      * @param fromPlace 출발 지점명(역·터미널·항구, 없으면 null)
      * @param toPlace 도착 지점명(없으면 null)
+     * @param viaPlace <b>갈아타는 지점명</b>(#508). 직통이 없어 허브를 한 번 거칠 때만 채워진다. null 이면
+     *     출발에서 도착까지 바로 간다는 뜻이다 — 화면은 이 값이 있을 때 "○○ 경유" 를 함께 보여준다.
+     *     이때 {@code durationMinutes} 는 두 구간의 합에 환승 대기를 더한 값이고 {@code departures} 는 비어 있다
      * @param vehicleType 운행 편의 등급(AVAILABLE 일 때만, 예: KTX)
      * @param durationMinutes 소요시간(분). 열차는 실제 편에서, 버스·여객선은 저장해 둔 구간 측정값에서 온다.
      *     <b>기다리는 시간은 안 들어 있다</b> — 버스·여객선은 시간표를 못 물어 다음 편까지의 대기를 모른다
@@ -597,6 +602,7 @@ public record CourseResponse(
             @Schema(example = "POINT_ONLY") String status,
             @Schema(example = "동서울", nullable = true) String fromPlace,
             @Schema(example = "정선", nullable = true) String toPlace,
+            @Schema(example = "대전복합", nullable = true) String viaPlace,
             @Schema(example = "KTX", nullable = true) String vehicleType,
             @Schema(example = "150", nullable = true) Integer durationMinutes,
             @Schema(example = "200", nullable = true) Integer distanceKm,
@@ -636,6 +642,7 @@ public record CourseResponse(
                     .modeLabel(access.mode().label())
                     .status(access.status().name())
                     .fromPlace(access.fromName())
+                    .viaPlace(access.viaName())
                     .toPlace(access.toName())
                     .vehicleType(hasLeg ? access.chosen().trainType() : null)
                     // 열차는 실제 편에서, 버스·여객선은 저장해 둔 구간 측정값에서 온다(#107).

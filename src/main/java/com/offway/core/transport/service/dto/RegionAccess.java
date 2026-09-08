@@ -39,6 +39,8 @@ import lombok.Builder;
  * @param distanceKm 출발지에서 도착 지점까지의 직선거리(㎞, 모르면 null). 화면이 "약 2시간 29분 · 200km"
  *     로 소요시간 옆에 붙인다(#379). 실제 주행거리가 아니라 직선거리다
  * @param alternatives 대표 말고 이 지역에 닿는 다른 수단들. 없으면 빈 목록이다
+ * @param viaName 갈아타는 지점명(#508). 직통이 없어 허브를 한 번 경유할 때만 채워진다 — 없으면 null 이고,
+ *     그때는 출발에서 도착까지 바로 간다는 뜻이다
  * @param departures 그날 탈 수 있는 편들(#414) — 몇 시 차인가. <b>비어 있는 것이 정상</b>이다:
  *     버스·여객선은 여행일이 조회창(오늘~+2일, 여객선 +7일) 밖이면 물을 수 없고, 열차도 그날 운행이
  *     없거나 막차가 지났으면 빈다. 화면은 그때 시간표 줄만 접고 소요시간으로 그린다
@@ -53,6 +55,7 @@ public record RegionAccess(
         TrainLeg chosen,
         Integer durationMinutes,
         Integer distanceKm,
+        String viaName,
         List<TransitOption> alternatives,
         List<Departure> departures) {
 
@@ -76,6 +79,18 @@ public record RegionAccess(
         NO_STATION,
         /** 지점은 있으나 그 날짜에 운행이 없음. */
         NO_SERVICE_ON_DATE,
+        /**
+         * 지점은 있는데 <b>그 구간에 노선이 없다</b>(#508) — 경유할 길도 못 찾았다.
+         *
+         * <p>{@link #NO_SERVICE_ON_DATE} 와 갈라야 한다. 그쪽은 "그날 차가 없다"(다른 날은 있다)이고
+         * 이쪽은 "이 두 지점을 잇는 노선이 없다" 다. 사용자가 할 일이 다르다 — 전자는 날짜를 바꾸면 되고
+         * 후자는 다른 수단을 봐야 한다.
+         *
+         * <p><b>왜 필요했나.</b> 예전에는 여기서도 {@code POINT_ONLY}("아직 안 물었다")로 답했다. 그래서
+         * 서울에서 봉화까지 고속버스로 가라는 안내가 나갔다 — 봉화행 노선은 어디에도 없는데. <b>없는 길을
+         * 안내하는 것은 아무 안내도 안 하는 것보다 나쁘다.</b>
+         */
+        NO_ROUTE,
         /** 조회 실패(키 없음·외부 오류). */
         UNAVAILABLE,
         /**
@@ -176,6 +191,22 @@ public record RegionAccess(
     }
 
     /** 출발지에서 도착 지점까지의 거리를 얹은 사본(#379). 지점을 고른 뒤라야 잴 수 있어 따로 붙인다. */
+    /**
+     * 갈아타는 지점을 단다(#508). 소요시간은 두 구간의 합이라 함께 받는다.
+     *
+     * <p>상태는 {@link Status#POINT_ONLY} 로 둔다 — 얼마나 걸리는지는 알지만 <b>몇 시 차인지는 모른다.</b>
+     * 두 구간의 시간표를 이으려면 환승 대기까지 맞춰야 하는데, 버스 시간표는 오늘~+2일만 답해서 다음 달
+     * 코스에는 애초에 없는 정보다.
+     */
+    public RegionAccess withVia(String viaName, Integer totalMinutes) {
+        return toBuilder().viaName(viaName).durationMinutes(totalMinutes).status(Status.POINT_ONLY).build();
+    }
+
+    /** 그 구간에 노선이 없다고 답한다(#508) — 지점은 그대로 두고 상태만 바꾼다. */
+    public RegionAccess withoutRoute() {
+        return toBuilder().status(Status.NO_ROUTE).durationMinutes(null).departures(List.of()).build();
+    }
+
     public RegionAccess withDistanceKm(Integer km) {
         if (Objects.equals(distanceKm, km)) {
             return this;
