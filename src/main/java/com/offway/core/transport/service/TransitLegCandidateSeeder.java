@@ -118,18 +118,27 @@ public class TransitLegCandidateSeeder {
         return candidates;
     }
 
-    /** 89곳이 그 종류로 내리는 터미널 코드 — 대표 선정과 <b>같은 규칙</b>으로 푼다. */
+    /**
+     * 89곳이 그 종류로 내리는 터미널 코드 — 대표 선정과 <b>같은 규칙</b>으로 푼다.
+     *
+     * <p><b>같은 자리의 중복 코드도 함께 넣는다</b>(#507). TAGO 목록에는 이름·좌표가 같은데 코드가 여러
+     * 개인 터미널이 있고 그중 한쪽으로만 구간이 조회된다. 최근접 하나만 넣으면 배치가 나머지를 재볼
+     * 기회 자체가 없어, 되는 코드가 있는데도 "운행 없음" 으로 남는다.
+     *
+     * <p>근처의 <b>다른</b> 터미널까지 넣지는 않는다 — 도착 지점은 지역이 정하는 것이라 옆 동네로
+     * 바꿔치면 안 된다. 늘리는 것은 "같은 곳을 가리키는 코드" 뿐이다.
+     */
     private Set<String> arrivalCodes(List<Region> regions, BusTerminalKind kind) {
         Set<String> codes = new LinkedHashSet<>();
         for (Region region : regions) {
             busTerminalResolver
-                    .nearest(region.getLat(), region.getLng(), kind)
+                    .nearestWithDuplicates(region.getLat(), region.getLng(), kind).stream()
                     // **도착도 터미널이어야 한다.** resolver 는 반경 안에 터미널이 없으면 정류소를 준다(#446).
                     // 구간 조회가 터미널 코드를 전제하므로 정류소 코드로 물으면 답이 없다 — 출발 쪽을
                     // 거르면서 도착 쪽을 안 걸렀다.
                     .filter(Terminal::isTerminal)
                     .map(Terminal::code)
-                    .ifPresent(codes::add);
+                    .forEach(codes::add);
         }
         return codes;
     }
