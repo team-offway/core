@@ -42,6 +42,14 @@ import org.springframework.stereotype.Service;
 public class RegionAccessService {
 
     /** 여행도 배차도 한국 기준이다 — 서버 기본 시간대에 기대지 않는다. */
+    /**
+     * 출발 후보를 몇 개까지 훑나(#507).
+     *
+     * <p>서울처럼 터미널이 몰린 곳은 반경 30㎞ 안에 열 곳이 넘는다. 후보마다 DB 를 한 번 보므로 상한을
+     * 둔다 — 같은 자리의 중복 코드를 가르는 것이 목적이라, 우선순위 위쪽 몇 개면 충분하다.
+     */
+    private static final int MAX_DEPARTURE_CANDIDATES = 8;
+
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
     private final TrainAccessService trainAccessService;
@@ -320,7 +328,7 @@ public class RegionAccessService {
             Optional<Terminal> destTerminal, Optional<Port> destPort) {
         return switch (mode) {
             case EXPRESS_BUS, INTERCITY_BUS -> destTerminal
-                    .flatMap(arrival -> busTerminalResolver.nearest(originLat, originLng, arrival.kind()))
+                    .flatMap(arrival -> boardableDeparture(mode, originLat, originLng, arrival))
                     .map(RegionArrival::of);
             case FERRY -> destPort.isPresent()
                     ? ferryPortResolver.nearest(originLat, originLng).map(RegionArrival::of)
@@ -328,6 +336,41 @@ public class RegionAccessService {
             // 구간 표를 쓰지 않는 둘. 열차는 실제 시각을 직접 답하고, 자차는 구간이 없다(#379).
             case TRAIN, CAR -> Optional.empty();
         };
+    }
+
+    /**
+     * 출발 터미널을 <b>실제로 노선이 있는 코드</b>로 고른다(#507).
+     *
+     * <p>TAGO 목록에는 같은 이름·같은 자리인데 코드가 여러 개인 터미널이 있고(동대구 7개·전주 5개·
+     * 동서울 4개·센트럴시티 2개), <b>그중 한쪽으로만 구간이 조회된다.</b> 좌표만 보면 DB 순서가 고르는데
+     * 그건 우연이다 — 실제로 {@code NAEK020}(센트럴시티)→광주는 0편, {@code NAEK021}(같은 센트럴시티)→
+     * 광주는 68편인데 우리는 0편 쪽을 쓰고 있었다. 서울에서 나가는 버스가 통째로 "운행 없음" 으로 보였다.
+     *
+     * <p>고르는 순서는 <b>아는 것부터</b>다.
+     *
+     * <ol>
+     *   <li>이 도착지로 <b>다니는 것이 확인된</b> 코드
+     *   <li>아직 안 재본 코드 — 모르는 것은 없는 것이 아니다
+     *   <li>그래도 없으면 최근접(지금까지의 동작)
+     * </ol>
+     *
+     * <p><b>외부를 안 친다.</b> 판정 근거는 이미 잰 구간뿐이고, 여기는 요청 경로다. 아직 안 잰 구간은
+     * {@code minutesFor} 가 자리를 만들어 배치가 채운다(#491 이 그 순번을 앞으로 당긴다).
+     */
+    private Optional<Terminal> boardableDeparture(
+            TransitMode mode, double originLat, double originLng, Terminal arrival) {
+        List<Terminal> nearby = busTerminalResolver.candidatesNear(
+                originLat, originLng, arrival.kind(), MAX_DEPARTURE_CANDIDATES);
+        return nearby.stream()
+                .filter(candidate -> transitDurationService
+                        .measuredMinutes(mode, candidate.code(), arrival.code())
+                        .isPresent())
+                .findFirst()
+                .or(() -> nearby.stream()
+                        .filter(candidate -> !transitDurationService
+                                .knownUnroutable(mode, candidate.code(), arrival.code()))
+                        .findFirst())
+                .or(() -> nearby.stream().findFirst());
     }
 
     /** 도착 쪽 지점 코드 — 구간 조회의 반대편이다. */
