@@ -12,6 +12,8 @@ import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SlotKind;
+import com.offway.core.itinerary.domain.StayPreference;
+import com.offway.core.trip.domain.PlaceOrigin;
 import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
@@ -139,7 +141,10 @@ public class CourseGenerationService {
         List<PoiCandidate> sights = selectSights(sightPool, command, needs.sights());
         Coordinate hub = GeoCluster.centroid(coords(sights));
         List<PoiCandidate> foods = reorder(foodPool, GeoCluster.nearest(coords(foodPool), hub, needs.foods()));
-        List<PoiCandidate> stays = reorder(stayPool, GeoCluster.nearest(coords(stayPool), hub, needs.stays()));
+        // **숙박은 거리만으로 고르지 않는다**(#510). 야영장이 후보에 들어오면서 그 규칙이 뒤집혔다 —
+        // 야영장은 산·계곡·유적 근처라 볼거리 중심에 가까워, 사진 있는 호텔을 사진 없는 야영장이
+        // 밀어냈다(실측: 사진 있는 숙소가 141 → 119 로 줄었다).
+        List<PoiCandidate> stays = selectStays(stayPool, hub, needs.stays());
 
         // 지역은 날씨·열차 접근 양쪽이 쓴다 — 한 번만 읽는다(#129).
         Region region = regionQuery.byId(command.regionId()).orElse(null);
@@ -627,6 +632,48 @@ public class CourseGenerationService {
                     fromRelation, more, regionId);
         }
         return Optional.of(List.copyOf(picked));
+    }
+
+    /**
+     * 잘 곳을 고른다 — <b>등급을 먼저 보고, 같은 등급 안에서 가까운 순</b>(#510).
+     *
+     * <p>야영장을 후보에 더하기 전에는 거리만 봐도 됐다. 후보가 관광 API 숙소뿐이라 등급이 하나였기
+     * 때문이다. 그 상태로 야영장을 넣자 <b>사진 있는 숙소가 141 → 119 로 줄었다</b> — 야영장이 볼거리
+     * 중심에 가까워 호텔을 밀어냈다.
+     *
+     * <p>등급 순서와 실측 근거는 {@link StayPreference} 가 소유한다. 여기서는 그 순서대로 채우고,
+     * 다 찼으면 다음 등급을 <b>읽지도 않는다</b> — 대부분의 지역이 첫 등급에서 끝난다.
+     */
+    private static List<PoiCandidate> selectStays(List<PoiCandidate> pool, Coordinate hub, int needed) {
+        List<PoiCandidate> picked = new ArrayList<>();
+        for (StayPreference tier : StayPreference.values()) {
+            if (picked.size() >= needed) {
+                break;
+            }
+            List<PoiCandidate> inTier = pool.stream()
+                    .filter(candidate -> tier.covers(isCamping(candidate), hasPhoto(candidate)))
+                    .toList();
+            if (inTier.isEmpty()) {
+                continue;
+            }
+            picked.addAll(reorder(inTier,
+                    GeoCluster.nearest(coords(inTier), hub, needed - picked.size())));
+        }
+        return List.copyOf(picked);
+    }
+
+    /**
+     * 야영장인가 — <b>식별자의 출처가 답한다</b>.
+     *
+     * <p>{@code PlaceOrigin} 이 접두어 파싱을 이미 소유하므로 여기서 {@code CMP-} 를 다시 적지 않는다.
+     * 한쪽만 바뀌면 조용히 틀린 등급으로 떨어진다.
+     */
+    private static boolean isCamping(PoiCandidate candidate) {
+        return PlaceOrigin.of(candidate.contentId()) == PlaceOrigin.CAMPING;
+    }
+
+    private static boolean hasPhoto(PoiCandidate candidate) {
+        return candidate.imageUrl() != null && !candidate.imageUrl().isBlank();
     }
 
     private static List<PoiCandidate> reorder(List<PoiCandidate> pois, List<Integer> order) {

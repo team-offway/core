@@ -179,6 +179,8 @@ public record CourseResponse(
             case LICENSED -> DataSource.LOCAL_PERMIT;
             case HERITAGE -> DataSource.KHS;
             case FESTIVAL -> DataSource.PUBLIC_DATA_PORTAL;
+            // 고캠핑도 한국관광공사가 낸다 — 활용신청이 갈렸을 뿐 표기할 기관은 같다(#510).
+            case CAMPING -> DataSource.KTO;
         };
     }
 

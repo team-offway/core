@@ -8,6 +8,7 @@ import com.offway.core.common.external.ExternalApiCachePolicy;
 import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.policy.service.PolicyService;
+import com.offway.core.trip.domain.CampingPlace;
 import com.offway.core.trip.domain.FestivalPlace;
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
@@ -18,6 +19,7 @@ import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourIntro;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiDetail;
+import com.offway.core.trip.repository.CampingPlaceRepository;
 import com.offway.core.trip.repository.FestivalPlaceRepository;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
@@ -50,6 +52,12 @@ public class PoiDetailService {
 
     /** 축제의 뱃지 — 표준데이터에는 업종·종목에 해당하는 값이 없어 종류 자체가 곧 분류다. */
     private static final String FESTIVAL_TYPE_LABEL = "축제";
+
+    /** 야영장의 뱃지 — 업종({@code induty})이 없는 1% 에만 쓰는 기본값이다. */
+    private static final String CAMPING_TYPE_LABEL = "야영장";
+
+    /** 운영기간과 운영일을 한 줄로 이을 때의 구분자 — `봄,여름,가을 · 평일+주말`. */
+    private static final String CAMPING_OPERATION_SEPARATOR = " · ";
 
     /**
      * 성공 캐시 TTL — 상세는 <b>느리게 변하는 값</b>이다(주소·개요·운영시간·휴무일).
@@ -103,6 +111,7 @@ public class PoiDetailService {
     private final RegionPoiRepository regionPoiRepository;
     private final HeritagePlaceRepository heritagePlaceRepository;
     private final FestivalPlaceRepository festivalPlaceRepository;
+    private final CampingPlaceRepository campingPlaceRepository;
     private final PolicyService policyService;
 
     /** 캐시를 켜고 끄는 스위치(#403). 조회마다 물어, 운영 중 바뀐 값도 곧바로 듣는다. */
@@ -178,6 +187,10 @@ public class PoiDetailService {
         Optional<Long> festivalId = FestivalPlace.parsePublicId(contentId);
         if (festivalId.isPresent()) {
             return festivalDetail(festivalId.get());
+        }
+        Optional<Long> campingId = CampingPlace.parsePublicId(contentId);
+        if (campingId.isPresent()) {
+            return campingDetail(campingId.get());
         }
 
         return tourDetail(contentId);
@@ -358,6 +371,64 @@ public class PoiDetailService {
                 festival.getDescription(),
                 MapSearchLink.of(festival.getName(), festival.getAddress()).orElse(null),
                 benefitFor(festival.getRegionId(), SlotKind.SIGHT));
+    }
+
+    /**
+     * 야영장의 상세(#510) — <b>우리 DB 출처 중 유일하게 "언제 여나" 에 답한다</b>.
+     *
+     * <p>이 분기를 함께 넣는다. 축제를 후보로 실으면서 이걸 빠뜨려 {@code FST-} 가 관광 API 로 넘어가
+     * <b>외부가 멀쩡할 때도 404</b> 였다(#480) — 카드에 떠 있는 장소를 누르면 없다고 답하는 셈이다.
+     *
+     * <p>지도 링크는 <b>사진이 없을 때만</b> 붙인다. 사진·소개·운영시간이 함께 있으면 링크가 오히려
+     * 사용자를 갈라놓는다는 것이 관광 API 콘텐츠에 안 붙이는 이유인데, 야영장은 사진이 75% 라 그 조건이
+     * 건마다 갈린다.
+     */
+    private PoiDetail campingDetail(long id) {
+        CampingPlace camping = campingPlaceRepository.findById(id).orElseThrow(TourApiException::poiNotFound);
+        PoiDetail detail = PoiDetail.withoutIntro(
+                camping.publicId(),
+                NON_TOUR_CONTENT_TYPE,
+                // 업종이 곧 뱃지다 — `일반야영장`·`자동차야영장`·`글램핑`·`카라반`.
+                camping.getInduty() == null ? CAMPING_TYPE_LABEL : camping.getInduty(),
+                camping.getName(),
+                camping.getAddress(),
+                camping.getTel(),
+                camping.getLat(),
+                camping.getLng(),
+                camping.getImageUrl(),
+                camping.getIntro(),
+                camping.hasPhoto()
+                        ? null
+                        : MapSearchLink.of(camping.getName(), camping.getAddress()).orElse(null),
+                benefitFor(camping.getRegionId(), SlotKind.STAY));
+        return detail.withIntro(campingIntro(camping), camping.getLineIntro());
+    }
+
+    /**
+     * 야영장의 운영 정보 — <b>아는 것이 하나도 없으면 비운다</b>.
+     *
+     * <p>빈 {@link PoiIntro} 를 얹으면 화면이 "운영시간" 칸을 만들고 그 안이 빈다. 없는 것을 지어내지
+     * 않는 것과 같은 이유로, 모르면 칸 자체를 안 만든다.
+     *
+     * <p>운영기간과 운영일을 한 줄로 잇는다 — `봄,여름,가을` 과 `평일+주말` 이 따로 오는데, 화면에는
+     * "언제 여나" 한 줄이면 된다.
+     */
+    private static PoiIntro campingIntro(CampingPlace camping) {
+        if (!camping.knowsOperation()) {
+            return null;
+        }
+        return PoiIntro.builder()
+                .useTime(joinOperation(camping.getOperPeriod(), camping.getOperDays()))
+                .reservation(camping.getReservation())
+                .build();
+    }
+
+    /** 둘 다 있으면 이어 붙이고, 하나만 있으면 그것만. 둘 다 없으면 null 이다. */
+    private static String joinOperation(String period, String days) {
+        if (period == null) {
+            return days;
+        }
+        return days == null ? period : period + CAMPING_OPERATION_SEPARATOR + days;
     }
 
     /** 인허가 장소의 상세 — 우리가 가진 것만 채우고 나머지는 비운다. 없는 것을 지어내지 않는다. */
