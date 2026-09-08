@@ -157,6 +157,7 @@ public class RegionPoiService {
     private final FestivalPeriodRepository festivalPeriodRepository;
     private final FestivalPlaceRepository festivalPlaceRepository;
     private final CampingPlaceRepository campingPlaceRepository;
+    private final RelatedAttractionQuery relatedAttractionQuery;
 
     /**
      * 지역의 후보 POI 를 세 풀로 분류해 돌려준다. 좌표가 없는 POI 는 지도·동선에 못 쓰므로 제외한다.
@@ -190,9 +191,11 @@ public class RegionPoiService {
                 allTypes.stream().filter(c -> LCLS_FOOD.equals(c.lclsSystm1())).toList(),
                 byScope.getOrDefault(FOOD_TYPE, List.of()));
         List<PoiCandidate> foods = allFood.stream().filter(c -> !isCafe(c)).toList();
+        // **연관 카페를 반드시 싣는다**(#527). 인허가 후보는 적합도·이름순 상위 100건만 올라오는데,
+        // 연관 카페 375곳 중 139곳(37%)이 그 컷 밖이다 — 순서만 바꾸면 그것들은 영영 안 뽑힌다.
         List<PoiCandidate> cafes = merge(
                 allFood.stream().filter(RegionPoiService::isCafe).toList(),
-                licensedCandidates(regionId, PlaceKind.CAFE));
+                merge(relatedCafeCandidates(regionId), licensedCandidates(regionId, PlaceKind.CAFE)));
         List<PoiCandidate> stays = merge(allTypes.stream().filter(RegionPoiService::isStay).toList(),
                 byScope.getOrDefault(STAY_TYPE, List.of()));
 
@@ -287,6 +290,26 @@ public class RegionPoiService {
      */
     private List<PoiCandidate> licensedCandidates(long regionId, PlaceKind kind) {
         return licensedPlaceRepository.findCandidates(regionId, kind, CANDIDATE_ROWS).stream()
+                .map(RegionPoiService::toCandidate)
+                .toList();
+    }
+
+    /**
+     * "그 관광지 가는 사람이 실제로 들르는 카페"(#527).
+     *
+     * <p>연관 관광지의 원본 분류는 {@code 음식} 하나뿐이라 식당과 카페가 섞여 온다. <b>어느 쪽인지는
+     * 우리 인허가 분류가 답한다</b> — 원본을 다시 해석하지 않고, 이미 갈라 둔 {@code kind} 를 쓴다.
+     *
+     * <p>순서는 여기서 정하지 않는다. 후보를 <b>풀에 넣는 것</b>이 이 메서드의 일이고, 순위대로 고르는
+     * 것은 코스 생성이 {@code foodPlaceIds} 로 따로 한다.
+     */
+    private List<PoiCandidate> relatedCafeCandidates(long regionId) {
+        List<Long> placeIds = relatedAttractionQuery.foodPlaceRawIds(regionId);
+        if (placeIds.isEmpty()) {
+            return List.of();
+        }
+        return licensedPlaceRepository.findAllByIds(placeIds).stream()
+                .filter(place -> place.getKind() == PlaceKind.CAFE)
                 .map(RegionPoiService::toCandidate)
                 .toList();
     }

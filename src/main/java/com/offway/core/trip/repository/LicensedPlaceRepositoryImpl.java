@@ -3,6 +3,7 @@ package com.offway.core.trip.repository;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.PlaceCategory;
 import com.offway.core.trip.domain.PlaceKind;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +53,17 @@ public class LicensedPlaceRepositoryImpl implements LicensedPlaceRepository {
     @Override
     public Optional<LicensedPlace> findById(long id) {
         return licensedPlaceJpaRepository.findById(id);
+    }
+
+    /**
+     * 빈 목록이면 조회하지 않는다 — {@code IN ()} 은 파싱 오류이고, 드라이버가 넘겨도 의미 없는 왕복이다.
+     */
+    @Override
+    public List<LicensedPlace> findAllByIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return licensedPlaceJpaRepository.findAllById(ids);
     }
 
     @Override
