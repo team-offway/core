@@ -19,6 +19,7 @@ import java.util.Set;
  * @param batches 기록이 있는 배치 전부
  * @param settings 손댄 연동의 설정. 없는 키는 기본값이다
  * @param disabledBatches 지금 꺼 둔 배치 이름
+ * @param runnableBatches 손으로 돌릴 수 있는 배치 이름(#537) — <b>기록이 없어도</b> 목록에 떠야 한다
  */
 public record ExternalApiSnapshot(
         LocalDate from,
@@ -27,11 +28,17 @@ public record ExternalApiSnapshot(
         Map<ExternalApi, Map<String, Long>> callers,
         List<BatchRun> batches,
         Map<ExternalApi, ExternalApiSetting> settings,
-        Set<String> disabledBatches) {
+        Set<String> disabledBatches,
+        Set<String> runnableBatches) {
 
     /** 손대지 않은 연동은 기본값이다 — 이 기능이 붙기 전과 같은 동작. */
     public ExternalApiSetting settingOf(ExternalApi api) {
         return settings.getOrDefault(api, ExternalApiSetting.defaultFor(api));
+    }
+
+    /** 이 배치를 손으로 돌릴 수 있나(#537). 알림 배치는 여기 없다 — 진짜 알림이 나간다. */
+    public boolean batchRunnable(String name) {
+        return runnableBatches.contains(name);
     }
 
     /** 이 배치가 지금 돌게 돼 있나. */

@@ -8,6 +8,9 @@ import com.offway.core.common.external.ExternalApiSnapshot;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.stream.Stream;
+import java.util.stream.Collectors;
+import com.offway.core.common.batch.domain.BatchRun;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -85,10 +88,15 @@ public record ExternalApiStatusResponse(
             Map<String, Long> counts) {
     }
 
+    /**
+     * @param lastRunAt 마지막 실행 시각. <b>한 번도 안 돈 배치는 null</b> 이다
+     * @param runnable 손으로 돌릴 수 있나(#537). 알림 배치는 false — 진짜 알림이 사용자에게 나간다
+     */
     public record Batch(
             @Schema(example = "poi-intro-refresh") String name,
-            @Schema(example = "2026-09-02T04:30:00") LocalDateTime lastRunAt,
-            @Schema(description = "꺼 두면 주기가 와도 돌지 않는다", example = "true") boolean enabled) {
+            @Schema(example = "2026-09-02T04:30:00", nullable = true) LocalDateTime lastRunAt,
+            @Schema(description = "꺼 두면 주기가 와도 돌지 않는다", example = "true") boolean enabled,
+            @Schema(description = "손으로 돌릴 수 있나", example = "true") boolean runnable) {
     }
 
     public static ExternalApiStatusResponse from(ExternalApiSnapshot snapshot) {
@@ -98,10 +106,29 @@ public record ExternalApiStatusResponse(
                 (int) (snapshot.to().toEpochDay() - snapshot.from().toEpochDay() + 1),
                 apis(snapshot),
                 days(snapshot),
-                snapshot.batches().stream()
-                        .map(run -> new Batch(
-                                run.getName(), run.getLastRunAt(), snapshot.batchEnabled(run.getName())))
-                        .toList());
+                batches(snapshot));
+    }
+
+    /**
+     * 배치 목록 — <b>기록이 있는 것과 손으로 돌릴 수 있는 것을 합친다</b>(#537).
+     *
+     * <p>기록만 실으면 <b>한 번도 안 돈 배치가 화면에서 사라진다</b> — 정작 그때가 "왜 안 돌지" 를
+     * 물어야 하는 순간이다. 반대로 등록만 실으면 이제는 안 쓰는 옛 배치의 기록이 사라진다.
+     *
+     * <p>이름순으로 준다. 마지막 실행 시각순으로 주면 목록이 회차마다 움직여 눈으로 좇기 어렵다.
+     */
+    private static List<Batch> batches(ExternalApiSnapshot snapshot) {
+        Map<String, LocalDateTime> lastRunByName = snapshot.batches().stream()
+                .collect(Collectors.toMap(BatchRun::getName, BatchRun::getLastRunAt, (a, b) -> a));
+        return Stream.concat(lastRunByName.keySet().stream(), snapshot.runnableBatches().stream())
+                .distinct()
+                .sorted()
+                .map(name -> new Batch(
+                        name,
+                        lastRunByName.get(name),
+                        snapshot.batchEnabled(name),
+                        snapshot.batchRunnable(name)))
+                .toList();
     }
 
     /** 한도가 큰 순이 아니라 <b>오늘 많이 쓴 순</b>이다 — 위험한 것이 위에 와야 한다. */

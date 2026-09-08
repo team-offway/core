@@ -59,4 +59,26 @@ public interface AdminExternalApiApi {
             UUID adminUserId,
             @Parameter(description = "batch_run.name", example = "poi-intro-refresh") String name,
             BatchSettingRequest request);
+
+    @Operation(
+            summary = "배치 지금 돌리기",
+            description = """
+                    주기를 기다리지 않고 손으로 돌린다(#537). 배치를 고쳐도 다음 주기까지 결과를 못 보는데,
+                    주 1회짜리는 그게 엿새다.
+
+                    **배치 자신의 가드는 그대로 탄다** — "오늘 이미 돌았으면 건너뛴다"·"받아 둔 것은 다시
+                    안 묻는다" 는 손으로 불러도 지켜진다. 눌러도 아무 일이 없을 수 있고 그건 정상이다.
+
+                    **끝날 때까지 기다린다.** 던져 놓고 "시작했습니다" 만 답하면 결과를 다시 로그에서
+                    찾아야 해서, 이 기능을 만든 이유와 어긋난다.
+
+                    사용자에게 알림이 나가는 배치는 대상이 아니다.
+                    """)
+    @ApiResponse(responseCode = "200", description = "실행 완료 — 마지막 실행 시각이 갱신된 현황")
+    @ApiResponse(responseCode = "400", description = "알 수 없는 배치 이름")
+    @ApiResponse(responseCode = "401", description = "로그인하지 않았거나 토큰이 만료됨")
+    @ApiResponse(responseCode = "403", description = "어드민 권한이 없음")
+    @ApiResponse(responseCode = "409", description = "같은 배치가 이미 실행 중")
+    @ApiResponse(responseCode = "500", description = "배치 실행 중 실패")
+    ApiResponseBody<ExternalApiStatusResponse> runBatch(String name);
 }
