@@ -26,14 +26,16 @@ class TransitLegCandidateSeedIntegrationTest {
     /**
      * 사전 적재로 만들어지는 구간 수 — <b>33,448</b>(2026-09-06 실측).
      *
-     * <p>고속 × 도착 74곳 + 시외 × 도착 74곳이다(자기 자신 제외). 도착은 인구감소지역 89곳이
+     * <p>고속 × 도착 82곳 + 시외 × 도착 74곳이다(자기 자신 제외). 고속이 74 에서 82 로 는 것은 같은
+     * 자리를 가리키는 <b>중복 코드</b>를 함께 넣기 때문이다(#507) — 그중 한쪽으로만 구간이 조회되는데,
+     * 하나만 넣으면 배치가 나머지를 재볼 기회 자체가 없어 되는 코드가 있어도 "운행 없음" 으로 남는다. 도착은 인구감소지역 89곳이
      * 실제로 쓰는 터미널만 센다 — 전국을 도착지로 두면 조합이 폭발하는데, 우리가 코스를 만드는 곳은
      * 인구감소지역뿐이다.
      *
      * <p><b>이 값이 크게 흔들리면 시드가 바뀐 것이다.</b> 터미널 좌표가 사라지면 출발 후보가 줄고,
      * 도착 해석이 바뀌면 곱해지는 쪽이 바뀐다. 하한만 보면 그 회귀를 놓친다.
      */
-    private static final int EXPECTED_CANDIDATES = 33_448;
+    private static final int EXPECTED_CANDIDATES = 35_504;
 
     /** 지연 생성으로 이미 있던 행까지 더해 이보다 적을 수는 없다 — 사전 적재가 통째로 안 돌면 여기서 걸린다. */
     private static final int MIN_ROWS = EXPECTED_CANDIDATES;
@@ -125,7 +127,10 @@ class TransitLegCandidateSeedIntegrationTest {
 
         // 정류소는 도착에서도 뺀다(#446·#450) — 구간 조회가 터미널 코드를 전제한다. 시외가 77 에서 74 로
         // 준 것이 그 결과다(세 곳은 최근접이 정류소였다).
-        assertEquals(74L, arrivals.get(TransitMode.EXPRESS_BUS), "고속 도착 터미널 수");
+        //
+        // 고속이 74 에서 82 로 는 것은 같은 자리의 중복 코드를 함께 넣기 때문이다(#507). 시외는 그대로인데,
+        // 89곳이 쓰는 시외 터미널에는 중복이 없다 — 중복은 고속 목록 쪽에 몰려 있다.
+        assertEquals(82L, arrivals.get(TransitMode.EXPRESS_BUS), "고속 도착 터미널 수");
         assertEquals(74L, arrivals.get(TransitMode.INTERCITY_BUS), "시외 도착 터미널 수");
     }
 
