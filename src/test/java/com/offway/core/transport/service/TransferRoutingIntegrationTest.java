@@ -107,7 +107,8 @@ class TransferRoutingIntegrationTest {
 
         RegionAccess after = accessToMuju();
 
-        assertEquals(TransferHub.DAEJEON.label(), after.viaName(), "대전복합을 거치는 길을 못 찾았다");
+        // 경유 지점도 종류가 붙어 나간다(#529) — 갈아탈 곳이 터미널임을 이름이 말해야 한다.
+        assertEquals(TransferHub.DAEJEON.label() + "터미널", after.viaName(), "대전복합을 거치는 길을 못 찾았다");
         assertNotNull(after.durationMinutes());
         assertTrue(after.durationMinutes() > 180,
                 "환승 대기가 안 얹혔다 — 모자라게 말하면 지킬 수 없는 코스가 된다: " + after.durationMinutes());

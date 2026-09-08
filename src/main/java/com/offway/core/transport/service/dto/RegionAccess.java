@@ -62,6 +62,14 @@ public record RegionAccess(
     public RegionAccess {
         Objects.requireNonNull(mode, "수단은 null 일 수 없습니다.");
         Objects.requireNonNull(status, "접근 상태는 null 일 수 없습니다.");
+        // **지점 이름에 종류를 붙인다.** 마스터 이름이 그대로 나가면 코스 첫 칸이 "태안" 이 되는데,
+        // 태안 어디로 가라는 것인지 알 수 없다 — 열차면 태안역, 버스면 태안터미널이다.
+        //
+        // 여기서 붙이는 이유는 **읽는 곳이 여럿**이라서다(코스 슬롯·교통 카드·대안 목록). 읽는 쪽마다
+        // 붙이면 한 곳을 빠뜨렸을 때 화면에서만 조용히 다르게 보인다. 규칙은 TransitMode 가 소유한다.
+        fromName = mode.placeName(fromName);
+        toName = mode.placeName(toName);
+        viaName = mode.placeName(viaName);
         // null 을 그대로 두면 화면과 테스트가 매번 null 검사를 한다. 없는 것은 빈 목록이다.
         alternatives = alternatives == null ? List.of() : List.copyOf(alternatives);
         departures = departures == null ? List.of() : List.copyOf(departures);

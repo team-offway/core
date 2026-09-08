@@ -35,6 +35,12 @@ public record TransitOption(
         Objects.requireNonNull(mode, "수단은 null 일 수 없습니다.");
         Objects.requireNonNull(status, "수단 상태는 null 일 수 없습니다.");
         Objects.requireNonNull(toName, "도착 지점명은 null 일 수 없습니다.");
+        // 대안 목록도 같은 규칙을 탄다 — 여기는 마스터 이름을 직접 받으므로 RegionAccess 의
+        // 정규화를 안 거친다. 한쪽만 붙이면 대표는 "태안터미널", 대안은 "태안" 이 된다.
+        //
+        // **검사 뒤에 둔다.** 앞에 두면 mode 가 null 일 때 "수단은 null 일 수 없습니다" 대신
+        // NullPointerException 이 나가 무엇이 잘못됐는지가 안 보인다.
+        toName = mode.placeName(toName);
         departures = departures == null ? List.of() : List.copyOf(departures);
     }
 }

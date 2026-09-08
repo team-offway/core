@@ -124,8 +124,8 @@ class TrainAccessServiceTest {
         RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(RegionAccess.Status.AVAILABLE, access.status());
-        assertEquals("서울", access.fromName());
-        assertEquals("정선", access.toName());
+        assertEquals("서울역", access.fromName());
+        assertEquals("정선역", access.toName());
         assertEquals(150, access.chosen().durationMinutes());
     }
 
@@ -140,7 +140,7 @@ class TrainAccessServiceTest {
         RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, 33.4996, 126.5312, DATE, DEPART_AT);
 
         assertEquals(RegionAccess.Status.NO_STATION, access.status());
-        assertEquals("서울", access.fromName());
+        assertEquals("서울역", access.fromName());
         assertEquals(null, access.toName());
     }
 
@@ -152,7 +152,7 @@ class TrainAccessServiceTest {
         RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(RegionAccess.Status.NO_SERVICE_ON_DATE, access.status());
-        assertEquals("정선", access.toName());
+        assertEquals("정선역", access.toName());
     }
 
     @Test
@@ -163,8 +163,8 @@ class TrainAccessServiceTest {
         RegionAccess access = service(stub).accessTo(SEOUL_LAT, SEOUL_LNG, JEONGSEON_LAT, JEONGSEON_LNG, DATE, DEPART_AT);
 
         assertEquals(RegionAccess.Status.UNAVAILABLE, access.status());
-        assertEquals("서울", access.fromName());
-        assertEquals("정선", access.toName());
+        assertEquals("서울역", access.fromName());
+        assertEquals("정선역", access.toName());
     }
 
     @Test
@@ -238,7 +238,7 @@ class TrainAccessServiceTest {
 
         assertEquals(RegionAccess.Status.AVAILABLE, access.status());
         // 화면에 뜨는 출발역도 실제로 조회한 역이라야 한다 — 수서라고 적어 두면 거기 가서 못 탄다.
-        assertEquals("왕십리", access.fromName());
+        assertEquals("왕십리역", access.fromName());
         assertTrue(access.arrivalAt().isPresent(), "운행을 찾았으면 도착 시각을 안다");
     }
 
@@ -257,7 +257,7 @@ class TrainAccessServiceTest {
                 .accessTo(GANGBYEON_LAT, GANGBYEON_LNG, JECHEON_LAT, JECHEON_LNG, DATE, DEPART_AT);
 
         assertEquals(RegionAccess.Status.NO_SERVICE_ON_DATE, access.status());
-        assertEquals("수서", access.fromName());
+        assertEquals("수서역", access.fromName());
         // 도착 지점은 조회 결과와 무관하게 남는다 — 코스 동선의 기준점이라 여기서 잃으면 안 된다(#127).
         assertEquals(new Coordinate(JECHEON_LAT, JECHEON_LNG), access.arrivalPoint().orElseThrow());
     }
