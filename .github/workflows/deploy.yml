@@ -135,6 +135,56 @@ jobs:
           # 중간자 공격을 그대로 받는다.
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
+      # **올리기 전에 자리를 만든다.** 산출물이 못 올라가면 아래 교체·정리 단계는 전부 건너뛰어지므로,
+      # 교체 단계에 붙어 있는 정리는 그때 이미 늦다 — 정리가 필요한 상황일수록 그 정리가 안 돈다.
+      #
+      # 실제로 그렇게 한 번 막혔다(2026-09-08, #524). 그날 직접 원인은 메모리였지만 함께 드러난 것이
+      # **빌드 캐시 8.9GB** 다 — 19GB 중 15GB 를 먹어 여유가 4GB 였다. 서버에서 `docker build` 를
+      # 돌리는데 아래 `docker image prune` 은 **빌드 캐시를 안 지운다.** 배포마다 조용히 쌓였다.
+      #
+      # 상한을 두고 자른다(전량 삭제가 아니다). 캐시를 통째로 비우면 다음 빌드가 매번 처음부터라
+      # 배포가 느려진다. 최근 것만 남기면 재사용과 상한을 둘 다 얻는다.
+      - name: 서버 여유 확보 (전송 전)
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' <<'REMOTE'
+          set -uo pipefail
+
+          echo "── 정리 전"
+          df -h / | tail -1
+          free -m | sed -n '2p'
+
+          # Docker 29 부터 --keep-storage 대신 --max-used-space 다. 옛 플래그를 쓰면 조용히 무시되는 게
+          # 아니라 unknown flag 로 죽으므로, 도커를 올릴 때 여기도 함께 본다.
+          #
+          # 정리 실패로 배포를 끊지 않는다 — 여유가 충분한데 정리만 실패한 경우까지 막을 이유가 없다.
+          # 정말 부족한지는 아래에서 실제 값으로 따로 판정한다.
+          docker builder prune -f --max-used-space 2GB >/dev/null 2>&1 || echo "빌드 캐시 정리 실패(계속 진행)"
+          docker image prune -f >/dev/null 2>&1 || echo "이미지 정리 실패(계속 진행)"
+
+          echo "── 정리 후"
+          df -h / | tail -1
+          free -m | sed -n '2p'
+
+          # 여기서 끊는다. 여유가 없는 채로 올리면 scp 가 전송 도중에 죽는데, 그때는 "왜 죽었는지" 가
+          # 로그에 안 남는다 — 연결이 닫힐 뿐이다. 미리 재고 사유를 남기는 편이 낫다.
+          AVAIL_MB=$(df -Pm / | awk 'NR==2 {print $4}')
+          if [ "$AVAIL_MB" -lt 3072 ]; then
+            echo "::error::서버 디스크 여유가 ${AVAIL_MB}MB 뿐입니다(3GB 미만) — 전송을 중단합니다"
+            exit 1
+          fi
+          echo "디스크 여유 ${AVAIL_MB}MB"
+
+          # 메모리는 끊지 않고 남기기만 한다. 배포 시점의 여유는 그때 트래픽에 따라 출렁이는데,
+          # 그걸로 배포를 막으면 정작 고치러 가는 배포가 못 나간다. 대신 매 배포가 값을 남겨
+          # 여유가 줄어드는 추세를 나중에 되짚을 수 있게 한다.
+          AVAIL_RAM=$(free -m | awk 'NR==2 {print $7}')
+          SWAP_TOTAL=$(free -m | awk 'NR==3 {print $2}')
+          echo "메모리 여유 ${AVAIL_RAM}MB · 스왑 ${SWAP_TOTAL}MB"
+          if [ "$SWAP_TOTAL" -eq 0 ] && [ "$AVAIL_RAM" -lt 300 ]; then
+            echo "::warning::스왑이 없고 메모리 여유가 ${AVAIL_RAM}MB 입니다 — OOM 으로 넘어갈 수 있습니다"
+          fi
+          REMOTE
+
       - name: 배포 산출물 전송
         id: transfer
         run: |
@@ -251,6 +301,11 @@ jobs:
           fi
 
           # 배포마다 쌓이는 dangling 이미지를 정리한다 — 인스턴스 디스크가 조용히 찬다.
+          #
+          # **이것은 빌드 캐시를 지우지 않는다.** 방금 돌린 `docker build` 가 만든 BuildKit 캐시는
+          # 이미지가 아니라 별도 저장소라 여기 안 걸린다 — 그렇게 8.9GB 까지 쌓인 적이 있다(#524).
+          # 캐시는 다음 배포의 "서버 여유 확보" 단계가 상한을 걸어 자른다. 여기서 지우면 방금 만든
+          # 캐시를 버리는 셈이라 다음 빌드가 매번 처음부터 돈다.
           docker image prune -f
 
           # SHA 태그는 롤백 대상이라 prune 이 지우지 않는다(태그가 붙어 있다). 대신 직접 최근 N개만 남긴다 —
