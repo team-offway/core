@@ -7,7 +7,9 @@ import com.offway.core.common.logging.RootCause;
 import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.gallery.dto.GalleryPhotoItem;
+import com.offway.core.trip.infrastructure.gallery.dto.GallerySearch;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,6 +20,7 @@ import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 
 /**
  * 관광사진 갤러리 adapter — {@code PhotoGalleryService1/galleryList1}(#196).
@@ -88,32 +91,59 @@ class GalleryPhotoClientImpl implements GalleryPhotoClient {
     }
 
     @Override
-    public List<GalleryPhotoItem> searchByKeyword(String keyword, int rows) {
+    public GallerySearch searchByKeyword(String keyword, int rows) {
         if (!props.dataGoKr().hasKey()) {
-            log.info("관광사진 갤러리 키 없음 — 검색을 건너뜁니다");
-            return List.of();
+            // **없음이 아니라 못 물어봄이다.** 예전에는 빈 목록으로 돌려줘 호출자가 "사진 없음" 으로
+            // 적었다 — 묻지도 않고 없다고 적는 셈이었다(#535).
+            log.warn("관광사진 갤러리 키 없음 — 검색을 건너뜁니다 keyword={}", keyword);
+            return GallerySearch.notAsked();
         }
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(SEARCH_URL)
-                .queryParam("serviceKey", props.dataGoKr().serviceKey())
+        try {
+            return GallerySearch.asked(parse(call(searchUri(props.dataGoKr().serviceKey(), keyword, rows))));
+        } catch (Exception e) {
+            // **던지지 않는다.** 사진은 카드의 곁가지라, 여기서 예외를 올리면 사진 한 장 때문에 코스가
+            // 통째로 실패한다. 키워드는 지점명이라 로그에 남겨도 안전하다(쿼리스트링은 안 남긴다).
+            //
+            // 다만 **없음으로 접지도 않는다**(#535). 실패는 다시 물어야 하는 상태다.
+            log.warn("관광사진 갤러리 검색 실패 keyword={} cause={}", keyword, RootCause.of(e));
+            return GallerySearch.notAsked();
+        }
+    }
+
+    /**
+     * 검색 URI — <b>키워드를 우리가 직접 인코딩한다</b>(#535).
+     *
+     * <h2>왜 필요했나</h2>
+     *
+     * <p>{@code build(true)} 는 "이 값들은 이미 인코딩돼 있다" 는 뜻이라, 원문 한글이 섞이면 URI 를
+     * 만들다 <b>{@code Invalid character '강' for QUERY_PARAM}</b> 으로 던진다. 그 예외가 호출 직전의
+     * 한도 기록보다 앞이라, 운영에서 <b>갤러리를 한 번도 못 부른 채</b> 155곳이 "사진 없음" 으로 적혔다.
+     *
+     * <p>{@code build(false)} 로 바꾸면 안 된다 — serviceKey 가 이미 퍼센트 인코딩된 값이라 한 번 더
+     * 인코딩되어 {@code %} 가 {@code %25} 가 된다(#165). 그래서 <b>우리 쪽 값을 같은 규격으로 맞춘다.</b>
+     *
+     * <p>{@code findPage} 는 파라미터가 전부 ASCII 라 이 함정을 안 밟았다 — 그래서 같은 클라이언트인데
+     * 한쪽만 조용히 죽어 있었다.
+     */
+    static URI searchUri(String serviceKey, String keyword, int rows) {
+        return UriComponentsBuilder.fromUriString(SEARCH_URL)
+                .queryParam("serviceKey", serviceKey)
                 .queryParam("MobileOS", MOBILE_OS)
                 .queryParam("MobileApp", MOBILE_APP)
                 .queryParam("_type", "json")
                 .queryParam("numOfRows", rows)
                 .queryParam("pageNo", FIRST_PAGE)
-                .queryParam("keyword", keyword);
-        try {
-            return parse(call(builder));
-        } catch (Exception e) {
-            // **던지지 않는다.** 사진은 카드의 곁가지라, 여기서 예외를 올리면 사진 한 장 때문에 코스가
-            // 통째로 실패한다. 키워드는 지점명이라 로그에 남겨도 안전하다(쿼리스트링은 안 남긴다).
-            log.warn("관광사진 갤러리 검색 실패 keyword={} cause={}", keyword, RootCause.of(e));
-            return List.of();
-        }
+                .queryParam("keyword", UriUtils.encode(keyword, StandardCharsets.UTF_8))
+                .build(true)
+                .toUri();
     }
 
     private String call(UriComponentsBuilder builder) {
         // serviceKey 는 이미 인코딩된 값이라 다시 인코딩하지 않는다(#165).
-        URI uri = builder.build(true).toUri();
+        return call(builder.build(true).toUri());
+    }
+
+    private String call(URI uri) {
         // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
         callRecorder.record(ExternalApi.TOUR_GALLERY);
         return webClient.get().uri(uri).retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();

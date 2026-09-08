@@ -13,6 +13,7 @@ import com.offway.core.transport.service.TrainStationResolver;
 import com.offway.core.trip.domain.TransitHubPhoto;
 import com.offway.core.trip.infrastructure.gallery.GalleryPhotoClient;
 import com.offway.core.trip.infrastructure.gallery.dto.GalleryPhotoItem;
+import com.offway.core.trip.infrastructure.gallery.dto.GallerySearch;
 import com.offway.core.trip.repository.TransitHubPhotoRepository;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -132,19 +133,33 @@ public class TransitHubPhotoRefreshService implements ManualBatch {
 
         int found = 0;
         int missing = 0;
+        int unasked = 0;
         for (String hubName : targets) {
-            Optional<GalleryPhotoItem> photo = search(hubName, regionByHub.get(hubName));
-            record(known.get(hubName), hubName, photo.orElse(null), now);
-            if (photo.isPresent()) {
+            HubSearch result = search(hubName, regionByHub.get(hubName));
+            if (!result.asked()) {
+                // **못 물어본 것을 없음으로 적지 않는다**(#535). 행을 그대로 두면 다음 회차가 다시 묻는다.
+                unasked++;
+                continue;
+            }
+            record(known.get(hubName), hubName, result.photo(), now);
+            if (result.photo() != null) {
                 found++;
             } else {
                 missing++;
             }
         }
         // 0건이어도 남긴다 — 배치가 돌았는지, 왜 0건인지 답할 수 있어야 한다(#310).
-        // 못 찾은 수를 warn 으로 가른다 — 갤러리가 죽어도 이 배치는 "정상 종료" 로 보이기 때문이다.
-        log.info("교통 거점 사진 갱신 — 대상 {}곳 중 {}곳 조회: 확보 {} · 없음 {}",
-                hubNames.size(), targets.size(), found, missing);
+        // **못 물어본 수를 따로 센다**(#535). 예전에는 이것이 "없음" 에 섞여 들어가, 갤러리를 한 번도
+        // 안 부르고도 "155곳 전부 사진 없음" 이 정상처럼 보였다.
+        // **"조회" 에 못 물어본 곳을 섞지 않는다.** targets 는 이번 회차가 다룬 수일 뿐이라, 그걸
+        // 조회 수로 적으면 한 번도 안 물어본 회차가 "155곳 조회" 로 보인다 — 이 이슈의 원인이 딱
+        // 그렇게 가려져 있었다.
+        log.info("교통 거점 사진 갱신 — 대상 {}곳 · 이번 회차 {}곳 중 {}곳에 물었습니다: 확보 {} · 없음 {} · 못 물어봄 {}",
+                hubNames.size(), targets.size(), found + missing, found, missing, unasked);
+        if (unasked > 0) {
+            log.warn("교통 거점 사진 — {}곳은 갤러리에 물어보지도 못했습니다(키 없음·조회 실패). "
+                    + "없음으로 적지 않았으니 다음 회차가 다시 묻습니다", unasked);
+        }
         if (found == 0 && missing > 0) {
             log.warn("교통 거점 사진 — 조회한 {}곳이 전부 빈 결과입니다. 갤러리 장애일 수 있어 {}일 뒤 다시 묻습니다",
                     missing, REFETCH_MISSING_AFTER.toDays());
@@ -189,16 +204,33 @@ public class TransitHubPhotoRefreshService implements ManualBatch {
      * 그 지점을 쓰는 지역으로 물으면 나온다(문경 812건 · 파주 877건). 89곳 전부 지역명으로는 사진이
      * 있으므로 여기서 멈춘다. 터미널 카드에 그 지역 사진이 붙는 것은 빈 칸보다 낫다.
      */
-    private Optional<GalleryPhotoItem> search(String hubName, String regionName) {
+    private HubSearch search(String hubName, String regionName) {
+        boolean asked = false;
         for (String keyword : keywords(hubName, regionName)) {
-            Optional<GalleryPhotoItem> found = galleryPhotoClient.searchByKeyword(keyword, ROWS_PER_HUB).stream()
+            GallerySearch result = galleryPhotoClient.searchByKeyword(keyword, ROWS_PER_HUB);
+            if (!result.asked()) {
+                // 한 키워드라도 못 물었으면 더 좁은 말로 물어볼 여지가 남는다 — 다음 키워드로 넘어가되
+                // "물어봤다" 로는 세지 않는다.
+                continue;
+            }
+            asked = true;
+            Optional<GalleryPhotoItem> found = result.items().stream()
                     .filter(GalleryPhotoItem::isComplete)
                     .findFirst();
             if (found.isPresent()) {
-                return found;
+                return new HubSearch(true, found.get());
             }
         }
-        return Optional.empty();
+        return new HubSearch(asked, null);
+    }
+
+    /**
+     * 한 지점 조회의 결과 — <b>물어봤는지</b>와 찾았는지를 함께 든다(#535).
+     *
+     * @param asked 키워드 중 하나라도 갤러리에 실제로 물어봤는가
+     * @param photo 찾은 사진. 못 찾았으면 {@code null}
+     */
+    private record HubSearch(boolean asked, GalleryPhotoItem photo) {
     }
 
     /** 구체적인 것부터. 중복은 접고, 지역명을 맨 뒤에 둔다. */

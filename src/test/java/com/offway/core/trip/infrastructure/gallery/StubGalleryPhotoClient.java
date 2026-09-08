@@ -1,6 +1,7 @@
 package com.offway.core.trip.infrastructure.gallery;
 
 import com.offway.core.trip.infrastructure.gallery.dto.GalleryPhotoItem;
+import com.offway.core.trip.infrastructure.gallery.dto.GallerySearch;
 import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -26,9 +27,24 @@ public class StubGalleryPhotoClient implements GalleryPhotoClient {
      * 코스를 만드는 수많은 기존 테스트가 이 값을 안 정한다. 여기서 던지면 그것들이 전부 깨지는데,
      * 깨진 이유가 "사진 stub 을 안 정했다" 라 시나리오와 무관하다.
      */
-    private Function<String, List<GalleryPhotoItem>> searchBehavior = keyword -> List.of();
+    private Function<String, GallerySearch> searchBehavior = keyword -> GallerySearch.asked(List.of());
 
+    /** 물어봤고 이것을 받았다 — 빈 목록이면 "그 지점의 사진이 없다" 다. */
     public void respondToSearch(Function<String, List<GalleryPhotoItem>> searchBehavior) {
+        this.searchBehavior = keyword -> GallerySearch.asked(searchBehavior.apply(keyword));
+    }
+
+    /** 못 물어봤다 — 키가 없거나 조회가 실패한 상황(#535). */
+    public void failSearch() {
+        this.searchBehavior = keyword -> GallerySearch.notAsked();
+    }
+
+    /**
+     * 결과를 <b>그대로</b> 지정한다 — 물어본 것과 못 물어본 것이 섞이는 시나리오용(#535).
+     *
+     * <p>{@link #respondToSearch} 는 전부 "물어봤다" 로 감싸므로 부분 실패를 못 만든다.
+     */
+    public void respondToSearchWith(Function<String, GallerySearch> searchBehavior) {
         this.searchBehavior = searchBehavior;
     }
 
@@ -38,7 +54,7 @@ public class StubGalleryPhotoClient implements GalleryPhotoClient {
     }
 
     @Override
-    public List<GalleryPhotoItem> searchByKeyword(String keyword, int rows) {
+    public GallerySearch searchByKeyword(String keyword, int rows) {
         return searchBehavior.apply(keyword);
     }
 }
