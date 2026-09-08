@@ -76,8 +76,10 @@ class PolicyAlertIntegrationTest {
 
         policyAlertService.send(PolicyAlertService.AlertKind.NEGLECT);
 
-        assertEquals(1, notifier.sent().size(), "시드에 미검증 정책이 있어 한 통은 나가야 한다");
-        assertTrue(notifier.sent().get(0).contains("미검증"), notifier.sent().get(0));
+        assertEquals(1, notifier.sent().size(), "손봐야 할 정책이 있으면 한 통은 나가야 한다");
+        // 시드의 미검증 정책이 사라져도(#498) 이 알림은 살아 있어야 한다 — 종료된 정책도 방치다.
+        // 무엇이 걸렸는지는 시드 상태에 달렸으므로 "무언가 걸렸다" 까지만 단언한다.
+        assertTrue(notifier.sent().get(0).contains("손봐야 할 정책"), notifier.sent().get(0));
     }
 
     /** 외부(디스코드) 경계 stub — 무엇을 보냈는지 기억한다. */

@@ -21,12 +21,13 @@ import java.util.Optional;
 public enum PolicyType {
 
     /**
-     * 디지털관광주민증 — 인구감소지역 가맹점 할인.
+     * 디지털관광주민증 — 참여 지자체 가맹점 할인. 발급·이용 무료.
      *
-     * <p><b>실제 대상은 52곳</b>인데 아직 명단을 확보하지 못해 89곳을 그대로 둔다. {@code verified=FALSE} 라
-     * 노출되지 않으므로 거짓 뱃지는 나지 않는다 — 명단을 확보하면 전용 태그로 좁힌다(#217).
+     * <p><b>대상은 52곳이다</b>(#498). 89곳 전부가 아니라, 참여하지 않는 37곳에서는 발급받아도 쓸 데가
+     * 없다. 공식 페이지가 참여 지역을 지도로만 보여줘 명단 확보가 늦었고 그동안 {@code verified=FALSE}
+     * 로 눌러 두었다 — 거짓 뱃지 대신 아무것도 안 내보내는 쪽을 골랐다(#217).
      */
-    DIGITAL_TOURIST_CARD("디지털관광주민증", RegionTagType.POPULATION_DECLINE, null),
+    DIGITAL_TOURIST_CARD("디지털관광주민증", RegionTagType.DIGITAL_TOURIST_CARD, null),
 
     /** 지역사랑 휴가지원(반값여행) — 여행경비 50% 환급. 2026 상반기 시범사업 16곳. */
     REGIONAL_VOUCHER("여행경비 50% 환급", RegionTagType.REGIONAL_VOUCHER, null),
@@ -44,7 +45,19 @@ public enum PolicyType {
     LOCAL_TOURISM("로컬100·관광두레", RegionTagType.POPULATION_DECLINE, null),
 
     /** 농촌체험·치유관광. */
-    RURAL("농촌체험·치유관광", RegionTagType.POPULATION_DECLINE, null);
+    RURAL("농촌체험·치유관광", RegionTagType.POPULATION_DECLINE, null),
+
+    /** 동해선 관광패스 — 숙박·카페·체험을 묶은 자유여행 패키지 할인(경북·강원 동해안). */
+    DONGHAE_RAIL_PASS("여행패키지 최대 50%", RegionTagType.DONGHAE_RAIL_PASS, null),
+
+    /** 강원 해양치유·요트체험 할인 — 레저 상품에만 붙는다. */
+    GANGWON_MARINE_HEALING("해양치유·요트 50%", RegionTagType.GANGWON_MARINE_HEALING, null),
+
+    /** 충남 트래블 페스타 — 숙박 추가 할인. 다른 쿠폰과 중복된다. */
+    CHUNGNAM_TRAVEL_FESTA("숙박 추가할인", RegionTagType.CHUNGNAM_TRAVEL_FESTA, BenefitScope.LODGING),
+
+    /** 반하다! 경북 — 열차운임과 역사매장이용권을 묶은 상품의 결제액 환급. */
+    GYEONGBUK_RAIL_REFUND("경북여행 50% 환급", RegionTagType.GYEONGBUK_RAIL_REFUND, null);
 
     private final String badgeText;
     private final RegionTagType targetTag;
