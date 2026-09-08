@@ -95,11 +95,26 @@ class PopularityTest {
     }
 
     @Test
-    void 좌표가_없는_중심은_버린다() {
+    void 좌표가_없어도_이름이_같으면_순위를_준다() {
+        // 좌표가 없다고 통째로 빼면 이름 일치까지 막혀, 규칙이 조용히 "좌표 필수" 로 좁아진다.
         Popularity popularity = Popularity.of(List.of(hub("이름만있는곳", 1, null, null)));
 
-        assertTrue(popularity.isEmpty());
-        assertEquals(OptionalInt.empty(), popularity.rankOf("이름만있는곳", SEOUL_LAT, SEOUL_LNG));
+        assertFalse(popularity.isEmpty());
+        assertEquals(OptionalInt.of(1), popularity.rankOf("이름만있는곳", SEOUL_LAT, SEOUL_LNG));
+    }
+
+    @Test
+    void 좌표가_없으면_거리로는_안_걸린다() {
+        // 이름이 다르면 견줄 것이 없다. 좌표가 없는 항목이 근처의 아무 후보나 삼키면 안 된다.
+        Popularity popularity = Popularity.of(List.of(hub("이름만있는곳", 1, null, null)));
+
+        assertEquals(OptionalInt.empty(), popularity.rankOf("다른곳", SEOUL_LAT, SEOUL_LNG));
+    }
+
+    @Test
+    void 이름도_좌표도_없으면_버린다() {
+        // 어느 쪽으로도 견줄 수 없다. 남겨 두면 빈 이름끼리 묶일 자리만 만든다.
+        assertTrue(Popularity.of(List.of(hub("...", 1, null, null))).isEmpty());
     }
 
     @Test

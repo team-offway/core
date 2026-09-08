@@ -52,7 +52,16 @@ public final class Popularity {
     }
 
     /**
-     * 중심관광지 목록으로 만든다. 좌표가 없는 항목은 버린다 — 이름만으로는 동명이인을 못 가른다.
+     * 중심관광지 목록으로 만든다.
+     *
+     * <p><b>좌표가 없어도 버리지 않는다.</b> 규칙은 "이름이 같거나 가깝거나" 인데, 좌표가 없다고 통째로
+     * 빼면 <b>이름 일치까지 같이 막혀</b> 규칙이 조용히 "좌표 필수" 로 좁아진다. 좌표 없는 항목은 이름으로만
+     * 견주고, 거리 비교에서만 빠진다.
+     *
+     * <p>이름도 좌표도 없는 항목만 버린다 — 어느 쪽으로도 견줄 수가 없다.
+     *
+     * <p>지금 운영에는 좌표 없는 중심관광지가 <b>한 건도 없다</b>(2,669건 전수). 그래도 엔티티가 좌표를
+     * 강제하지 않고 적재도 거르지 않으므로, 언젠가 들어와도 규칙이 어긋나지 않게 둔다.
      */
     public static Popularity of(List<HubAttraction> hubs) {
         if (hubs == null || hubs.isEmpty()) {
@@ -60,13 +69,13 @@ public final class Popularity {
         }
         List<Entry> built = new ArrayList<>(hubs.size());
         for (HubAttraction hub : hubs) {
-            if (hub.getLat() == null || hub.getLng() == null) {
+            String name = normalize(hub.getName());
+            Coordinate at = hub.getLat() == null || hub.getLng() == null
+                    ? null : new Coordinate(hub.getLat(), hub.getLng());
+            if (name.isEmpty() && at == null) {
                 continue;
             }
-            built.add(new Entry(
-                    normalize(hub.getName()),
-                    new Coordinate(hub.getLat(), hub.getLng()),
-                    hub.getHubRank()));
+            built.add(new Entry(name, at, hub.getHubRank()));
         }
         return built.isEmpty() ? NONE : new Popularity(List.copyOf(built));
     }
@@ -102,6 +111,7 @@ public final class Popularity {
         return NOT_NAME.matcher(value.toLowerCase(Locale.KOREAN)).replaceAll("");
     }
 
+    /** @param coordinate 없을 수 있다 — 그때는 이름으로만 견준다. */
     private record Entry(String name, Coordinate coordinate, int rank) {
 
         boolean matches(String otherName, Coordinate other) {
@@ -109,7 +119,7 @@ public final class Popularity {
             if (!name.isEmpty() && name.equals(otherName)) {
                 return true;
             }
-            return coordinate.haversineKmTo(other) <= MATCH_KM;
+            return coordinate != null && coordinate.haversineKmTo(other) <= MATCH_KM;
         }
     }
 }
