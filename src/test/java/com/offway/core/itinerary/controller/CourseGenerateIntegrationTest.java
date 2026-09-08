@@ -507,7 +507,8 @@ class CourseGenerateIntegrationTest {
                 .andExpect(status().isOk())
                 // items[0] 은 도착 칸(역)이다(#415) — 첫 볼거리는 그 다음 칸이다
                 .andExpect(jsonPath("$.data.days[0].items[1].poiContentId").value(NEAR_STATION))
-                .andExpect(jsonPath("$.data.trainAccess.toStation").value(ARRIVAL_STATION));
+                // 마스터 이름 그대로가 아니라 종류가 붙어 나간다(#529) — "좌천" 은 좌천 어디인지 말하지 않는다.
+                .andExpect(jsonPath("$.data.trainAccess.toStation").value(ARRIVAL_STATION + "역"));
     }
 
     @Test
@@ -521,7 +522,7 @@ class CourseGenerateIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.days[0].items[0].kind").value("ARRIVAL"))
                 .andExpect(jsonPath("$.data.days[0].items[0].categoryLabel").value("도착"))
-                .andExpect(jsonPath("$.data.days[0].items[0].title").value(ARRIVAL_STATION))
+                .andExpect(jsonPath("$.data.days[0].items[0].title").value(ARRIVAL_STATION + "역"))
                 .andExpect(jsonPath("$.data.days[0].items[0].order").value(1))
                 .andExpect(jsonPath("$.data.days[0].items[0].travelMinutes").value(0))
                 // 역·터미널은 장소 풀이 아니다 — 상세로 이어지지 않으므로 키를 지어내지 않는다
@@ -533,7 +534,7 @@ class CourseGenerateIntegrationTest {
         List<Map<String, Object>> lastDay = JsonPath.read(body, "$.data.days[-1:].items[-1:]");
         Map<String, Object> tail = lastDay.getFirst();
         assertEquals("DEPARTURE", tail.get("kind"), "마지막 칸은 다시 타는 지점이어야 한다");
-        assertEquals(ARRIVAL_STATION, tail.get("title"));
+        assertEquals(ARRIVAL_STATION + "역", tail.get("title"));
         assertFalse(tail.containsKey("poiContentId"), "교통 거점 칸에는 장소 상세 키가 없다");
     }
 
