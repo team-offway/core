@@ -36,7 +36,8 @@ public enum PlaceKind {
     public SlotKind slotKind() {
         return switch (this) {
             case STAY -> SlotKind.STAY;
-            case FOOD, CAFE -> SlotKind.FOOD;
+            case FOOD -> SlotKind.FOOD;
+            case CAFE -> SlotKind.CAFE;
             case SIGHT -> SlotKind.SIGHT;
         };
     }

@@ -7,10 +7,18 @@ package com.offway.core.itinerary.domain;
  * @param foods 필요 맛집 수
  * @param stays 필요 숙박 수(박수)
  */
-public record CourseNeeds(int sights, int foods, int stays) {
+public record CourseNeeds(int sights, int foods, int cafes, int stays) {
 
     /** 하루 식사(점심·저녁) 수. */
     private static final int MEALS_PER_DAY = 2;
+
+    /**
+     * 하루 카페 수 — <b>점심 뒤 한 곳</b>(#522).
+     *
+     * <p>밥 다음은 보통 카페다. 두 곳을 넣으면 하루가 카페로 채워지고, 안 넣으면 예전처럼 카페가
+     * 끼니 자리를 차지하거나 코스에서 통째로 사라진다.
+     */
+    private static final int CAFES_PER_DAY = 1;
 
     public static CourseNeeds of(Density density, int travelDays) {
         if (density == null) {
@@ -22,6 +30,7 @@ public record CourseNeeds(int sights, int foods, int stays) {
         return new CourseNeeds(
                 density.sightsPerDay() * travelDays,
                 MEALS_PER_DAY * travelDays,
+                CAFES_PER_DAY * travelDays,
                 travelDays - 1);
     }
 }

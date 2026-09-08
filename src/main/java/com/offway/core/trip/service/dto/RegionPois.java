@@ -22,7 +22,8 @@ import lombok.Builder;
  * 모른다.
  */
 @Builder
-public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, List<PoiCandidate> stays) {
+public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods,
+        List<PoiCandidate> cafes, List<PoiCandidate> stays) {
 
     /**
      * 각 풀이 최소한 갖춰야 할 후보 수 — 가장 긴 코스(2박3일 빡빡)가 요구하는 양이다.
@@ -44,11 +45,12 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, Li
     public RegionPois {
         sights = List.copyOf(sights);
         foods = List.copyOf(foods);
+        cafes = cafes == null ? List.of() : List.copyOf(cafes);
         stays = List.copyOf(stays);
     }
 
     public static RegionPois empty() {
-        return RegionPois.builder().sights(List.of()).foods(List.of()).stays(List.of()).build();
+        return RegionPois.builder().sights(List.of()).foods(List.of()).cafes(List.of()).stays(List.of()).build();
     }
 
     /** 어느 풀이라도 가장 긴 코스를 못 채우는가. */
@@ -84,6 +86,7 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, Li
         return RegionPois.builder()
                 .sights(merge(sights, moreSights, MIN_SIGHTS))
                 .foods(merge(foods, moreFoods, MIN_FOODS))
+                .cafes(cafes)
                 .stays(merge(stays, moreStays, MIN_STAYS))
                 .build();
     }
@@ -106,7 +109,7 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods, Li
         if (extra.isEmpty()) {
             return this;
         }
-        return RegionPois.builder().sights(sights).foods(foods).stays(dedupe(stays, extra)).build();
+        return RegionPois.builder().sights(sights).foods(foods).cafes(cafes).stays(dedupe(stays, extra)).build();
     }
 
     private static List<PoiCandidate> merge(List<PoiCandidate> base, List<PoiCandidate> extra, int minimum) {
