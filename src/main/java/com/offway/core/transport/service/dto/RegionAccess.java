@@ -199,7 +199,15 @@ public record RegionAccess(
      * 코스에는 애초에 없는 정보다.
      */
     public RegionAccess withVia(String viaName, Integer totalMinutes) {
-        return toBuilder().viaName(viaName).durationMinutes(totalMinutes).status(Status.POINT_ONLY).build();
+        // **시간표를 비운다.** 여기 실려 있던 것은 <b>직통 구간</b>의 편들이다 — 그 구간은 안 다니는
+        // 것으로 판명돼 경유로 넘어온 참이라, 그대로 두면 "대전복합 경유" 라고 말하면서 서울→무주
+        // 직통 시각을 함께 보여주게 된다. 두 구간의 환승 대기를 맞출 수 없어 대신 채울 것도 없다.
+        return toBuilder()
+                .viaName(viaName)
+                .durationMinutes(totalMinutes)
+                .status(Status.POINT_ONLY)
+                .departures(List.of())
+                .build();
     }
 
     /** 그 구간에 노선이 없다고 답한다(#508) — 지점은 그대로 두고 상태만 바꾼다. */
