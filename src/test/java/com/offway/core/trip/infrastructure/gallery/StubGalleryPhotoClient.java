@@ -39,6 +39,15 @@ public class StubGalleryPhotoClient implements GalleryPhotoClient {
         this.searchBehavior = keyword -> GallerySearch.notAsked();
     }
 
+    /**
+     * 결과를 <b>그대로</b> 지정한다 — 물어본 것과 못 물어본 것이 섞이는 시나리오용(#535).
+     *
+     * <p>{@link #respondToSearch} 는 전부 "물어봤다" 로 감싸므로 부분 실패를 못 만든다.
+     */
+    public void respondToSearchWith(Function<String, GallerySearch> searchBehavior) {
+        this.searchBehavior = searchBehavior;
+    }
+
     @Override
     public List<GalleryPhotoItem> findPage(int pageNo, int rows) {
         return behavior.apply(pageNo, rows);

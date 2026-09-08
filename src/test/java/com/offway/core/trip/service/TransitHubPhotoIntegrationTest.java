@@ -1,13 +1,17 @@
 package com.offway.core.trip.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.trip.infrastructure.gallery.GalleryPhotoClient;
 import com.offway.core.trip.infrastructure.gallery.StubGalleryPhotoClient;
+import com.offway.core.trip.domain.TransitHubPhoto;
 import com.offway.core.trip.infrastructure.gallery.dto.GalleryPhotoItem;
+import com.offway.core.trip.infrastructure.gallery.dto.GallerySearch;
 import com.offway.core.trip.repository.TransitHubPhotoRepository;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -196,16 +200,26 @@ class TransitHubPhotoIntegrationTest {
      * 못 물어본 지점이 섞여도 <b>물어본 지점의 결과는 남는다</b>(#535).
      *
      * <p>한 지점이 실패했다고 나머지를 버리면 갤러리가 잠깐 흔들릴 때마다 전량이 비어 버린다.
+     *
+     * <p><b>앞선 판마다 못 물어보게 만든다.</b> 처음에는 빈 목록을 돌려주는 것으로 이 시나리오를
+     * 흉내 냈는데, 그건 "물어봤는데 없음" 이라 부분 실패가 아니었다 — 규칙을 되돌려도 그대로
+     * 통과하는 가짜였다.
+     *
+     * <p>판정은 <b>저장된 행에 사진이 다 붙어 있는가</b>다. 못 물어본 지점까지 적으면 그 행들의
+     * 주소가 비어 이 단언이 깨진다.
      */
     @Test
     void 일부만_못_물어봐도_나머지는_받아_둔다() {
-        galleryPhotoClient.respondToSearch(keyword ->
-                keyword.startsWith("강") ? List.of(photoFor(keyword)) : List.of());
+        AtomicInteger asks = new AtomicInteger();
+        galleryPhotoClient.respondToSearchWith(keyword -> asks.getAndIncrement() < 60
+                ? GallerySearch.notAsked()
+                : GallerySearch.asked(List.of(photoFor(keyword))));
 
         refreshService.refresh();
 
-        assertTrue(transitHubPhotoRepository.findAll().stream()
-                        .anyMatch(photo -> photo.getImageUrl() != null),
-                "받아 둔 사진이 하나도 없습니다");
+        List<TransitHubPhoto> stored = transitHubPhotoRepository.findAll();
+        assertFalse(stored.isEmpty(), "앞선 실패 때문에 전량이 비었습니다");
+        assertTrue(stored.stream().allMatch(photo -> photo.getImageUrl() != null),
+                "못 물어본 지점까지 적었습니다 — 그 행은 주소가 빕니다");
     }
 }
