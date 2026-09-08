@@ -270,6 +270,7 @@ public class RegionAccessService {
             others.add(TransitOption.builder()
                     .mode(TransitMode.TRAIN)
                     .toName(train.toName())
+                    .status(train.status())
                     .durationMinutes(trainMinutes(train))
                     // 열차 시간표는 이미 대표 계산에서 받아 둔 하루치에 있다 — 호출이 늘지 않는다.
                     .departures(train.departures())
@@ -283,27 +284,54 @@ public class RegionAccessService {
                 .forEach(terminal -> {
                     TransitMode mode = TransitMode.of(terminal.kind());
                     Optional<Terminal> only = Optional.of(terminal);
+                    // **대안에도 소요시간을 채운다**(#508). 필드는 있는데 열차만 채우고 있었다 — 그래서
+                    // 화면이 "무엇으로 갈 수 있다" 까지만 말하고 "얼마나 걸리나" 를 못 말했다. 사용자가
+                    // 수단을 고르려면 그 숫자가 있어야 한다. 저장값만 읽으므로 외부 호출은 안 는다.
+                    Optional<RegionArrival> from =
+                            departurePoint(mode, originLat, originLng, only, destPort);
                     others.add(TransitOption.builder()
                             .mode(mode)
                             .toName(terminal.name())
-                            .departures(departuresOf(
-                                    mode,
-                                    departurePoint(mode, originLat, originLng, only, destPort),
-                                    only, destPort, date, notBefore))
+                            .status(optionStatus(mode, from, only, destPort))
+                            .durationMinutes(durationOf(mode, from, only, destPort).orElse(null))
+                            .departures(departuresOf(mode, from, only, destPort, date, notBefore))
                             .build());
                 });
         destPort
                 .filter(port -> chosen.mode() != TransitMode.FERRY)
-                .ifPresent(port -> others.add(TransitOption.builder()
-                        .mode(TransitMode.FERRY)
-                        .toName(port.name())
-                        // 여객선은 터미널을 안 쓴다 — 출발은 항구, 도착 코드도 항구다.
-                        .departures(departuresOf(
-                                TransitMode.FERRY,
-                                departurePoint(TransitMode.FERRY, originLat, originLng, Optional.empty(), destPort),
-                                Optional.empty(), destPort, date, notBefore))
-                        .build()));
+                .ifPresent(port -> {
+                    // 여객선은 터미널을 안 쓴다 — 출발은 항구, 도착 코드도 항구다.
+                    Optional<RegionArrival> from = departurePoint(
+                            TransitMode.FERRY, originLat, originLng, Optional.empty(), destPort);
+                    others.add(TransitOption.builder()
+                            .mode(TransitMode.FERRY)
+                            .toName(port.name())
+                            .status(optionStatus(TransitMode.FERRY, from, Optional.empty(), destPort))
+                            .durationMinutes(
+                                    durationOf(TransitMode.FERRY, from, Optional.empty(), destPort).orElse(null))
+                            .departures(departuresOf(
+                                    TransitMode.FERRY, from, Optional.empty(), destPort, date, notBefore))
+                            .build());
+                });
         return List.copyOf(others);
+    }
+
+    /**
+     * 대안 한 줄의 상태(#508) — <b>소요시간이 비어 있는 이유</b>를 말한다.
+     *
+     * <p>같은 null 이라도 "아직 안 쟀다" 와 "노선이 없다" 는 화면이 할 말이 다르다. 전자는 비워 두면
+     * 되고 후자는 그렇게 적어야 한다. 이 구분이 없으면 사용자는 둘 다 "모름" 으로 본다.
+     */
+    private RegionAccess.Status optionStatus(
+            TransitMode mode, Optional<RegionArrival> departure,
+            Optional<Terminal> destTerminal, Optional<Port> destPort) {
+        Optional<String> depCode = departure.map(RegionArrival::code);
+        Optional<String> arrCode = arrivalCode(mode, destTerminal, destPort);
+        if (depCode.isPresent() && arrCode.isPresent()
+                && transitDurationService.knownUnroutable(mode, depCode.get(), arrCode.get())) {
+            return RegionAccess.Status.NO_ROUTE;
+        }
+        return RegionAccess.Status.POINT_ONLY;
     }
 
     private static Integer trainMinutes(RegionAccess train) {

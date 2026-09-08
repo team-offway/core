@@ -702,6 +702,11 @@ public record CourseResponse(
             @Schema(example = "FERRY") String mode,
             @Schema(example = "여객선") String modeLabel,
             @Schema(example = "울릉_도동") String toPlace,
+            @Schema(description = "이 수단의 상태 — AVAILABLE(편이 있음) · POINT_ONLY(지점만 앎) · "
+                    + "NO_ROUTE(이 두 지점을 잇는 노선이 없음) · NO_SERVICE_ON_DATE(그날 미운행) · "
+                    + "UNAVAILABLE(조회 실패). <b>durationMinutes 가 null 인 이유</b>를 여기서 읽는다 — "
+                    + "아직 안 잰 것과 노선이 없는 것은 화면이 할 말이 다르다",
+                    example = "POINT_ONLY") String status,
             @Schema(example = "140", nullable = true) Integer durationMinutes,
             List<DepartureResponse> departures) {
 
@@ -710,6 +715,7 @@ public record CourseResponse(
                     option.mode().name(),
                     option.mode().label(),
                     option.toName(),
+                    option.status().name(),
                     option.durationMinutes(),
                     option.departures().stream().map(DepartureResponse::from).toList());
         }
