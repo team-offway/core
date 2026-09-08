@@ -171,4 +171,55 @@ class TransferRoutingIntegrationTest {
         leg.measured(new MeasuredLeg(minutes, 20_000, "우등"), now);
         transitLegDurationRepository.save(leg);
     }
+
+    /**
+     * <b>있는 건 다 알려준다 — 대표는 그중 하나다.</b>
+     *
+     * <p>{@code TransitOption} 에 소요시간 필드가 있는데 열차만 채우고 있었다. 그래서 화면이 "무엇으로
+     * 갈 수 있다" 까지만 말하고 "얼마나 걸리나" 를 못 말했다 — 사용자가 수단을 고르려면 그 숫자가 있어야
+     * 하는데, 대표 하나의 상태가 화면 전체를 대표하게 됐다.
+     */
+    @Test
+    void 대안도_소요시간을_든다() {
+        LocalDateTime now = LocalDateTime.of(2026, 9, 8, 6, 0);
+        RegionAccess seed = accessToMuju();
+        BusTerminalKind other = kindOf(seed) == BusTerminalKind.EXPRESS
+                ? BusTerminalKind.INTERCITY : BusTerminalKind.EXPRESS;
+        TransitMode otherMode = TransitMode.of(other);
+        Terminal from = busTerminalResolver.nearestWithDuplicates(SEOUL_LAT, SEOUL_LNG, other).getFirst();
+        Terminal to = busTerminalResolver.nearestWithDuplicates(MUJU_LAT, MUJU_LNG, other).getFirst();
+        measure(otherMode, from.code(), to.code(), 195, now);
+
+        RegionAccess after = accessToMuju();
+
+        assertTrue(
+                after.alternatives().stream()
+                        .filter(option -> option.mode() == otherMode)
+                        .anyMatch(option -> Integer.valueOf(195).equals(option.durationMinutes())),
+                "대안에 소요시간이 안 실렸다 — 화면이 수단을 고를 근거를 못 준다: "
+                        + after.alternatives().stream()
+                                .map(o -> o.mode() + "=" + o.durationMinutes()).toList());
+    }
+
+    /** 소요시간이 비어 있는 <b>이유</b>를 말한다 — 안 잰 것과 노선이 없는 것은 화면이 할 말이 다르다. */
+    @Test
+    void 대안도_노선이_없으면_그렇게_적는다() {
+        LocalDateTime now = LocalDateTime.of(2026, 9, 8, 6, 0);
+        RegionAccess seed = accessToMuju();
+        BusTerminalKind other = kindOf(seed) == BusTerminalKind.EXPRESS
+                ? BusTerminalKind.INTERCITY : BusTerminalKind.EXPRESS;
+        TransitMode otherMode = TransitMode.of(other);
+        Terminal to = busTerminalResolver.nearestWithDuplicates(MUJU_LAT, MUJU_LNG, other).getFirst();
+        for (Terminal from : busTerminalResolver.candidatesNear(SEOUL_LAT, SEOUL_LNG, other, 8)) {
+            markNoService(otherMode, from.code(), to.code(), now);
+        }
+
+        RegionAccess after = accessToMuju();
+
+        assertTrue(
+                after.alternatives().stream()
+                        .filter(option -> option.mode() == otherMode)
+                        .anyMatch(option -> option.status() == RegionAccess.Status.NO_ROUTE),
+                "노선이 없는 대안이 '모름' 으로 보인다 — 같은 null 이라도 이유가 다르다");
+    }
 }
