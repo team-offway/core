@@ -18,6 +18,8 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,13 +53,20 @@ class TransferRoutingIntegrationTest {
     @Autowired
     private TransitLegDurationRepository transitLegDurationRepository;
 
-    /** 허브는 좌표로 두고 수단별로 그 자리의 터미널을 푼다 — 코드 공간이 갈려 있어서다(#507). */
-    @Test
-    void 허브_좌표가_두_수단_모두에서_터미널로_풀린다() {
+    /**
+     * 허브는 좌표로 두고 수단별로 그 자리의 터미널을 푼다 — 코드 공간이 갈려 있어서다(#507).
+     *
+     * <p><b>두 종류를 다 본다.</b> 고속만 확인하면 시외 경유 경로는 이 검사의 보호를 못 받는다 —
+     * 허브 좌표가 시외 터미널을 못 잡으면 시외로는 경유 후보가 통째로 사라지는데, 그건 조용히 일어난다.
+     */
+    @ParameterizedTest
+    @EnumSource(BusTerminalKind.class)
+    void 허브_좌표가_두_수단_모두에서_터미널로_풀린다(BusTerminalKind kind) {
         for (TransferHub hub : TransferHub.values()) {
-            List<Terminal> express = busTerminalResolver.nearestWithDuplicates(
-                    hub.coordinate().lat(), hub.coordinate().lng(), BusTerminalKind.EXPRESS);
-            assertTrue(!express.isEmpty(), hub.label() + " 자리에 고속 터미널이 안 잡힌다 — 좌표를 확인하라");
+            List<Terminal> found = busTerminalResolver.nearestWithDuplicates(
+                    hub.coordinate().lat(), hub.coordinate().lng(), kind);
+            assertTrue(!found.isEmpty(),
+                    hub.label() + " 자리에 " + kind + " 터미널이 안 잡힌다 — 그 수단으로는 경유가 사라진다");
         }
     }
 

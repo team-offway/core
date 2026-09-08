@@ -584,9 +584,12 @@ public record CourseResponse(
      *     옛 서버" 와 "서버가 답을 못 하는 코스" 를 구분할 수 없었다
      * @param fromPlace 출발 지점명(역·터미널·항구, 없으면 null)
      * @param toPlace 도착 지점명(없으면 null)
-     * @param viaPlace <b>갈아타는 지점명</b>(#508). 직통이 없어 허브를 한 번 거칠 때만 채워진다. null 이면
-     *     출발에서 도착까지 바로 간다는 뜻이다 — 화면은 이 값이 있을 때 "○○ 경유" 를 함께 보여준다.
-     *     이때 {@code durationMinutes} 는 두 구간의 합에 환승 대기를 더한 값이고 {@code departures} 는 비어 있다
+     * @param viaPlace <b>갈아타는 지점명</b>(#508). 직통이 없어 허브를 한 번 거칠 때만 채워진다 — 화면은
+     *     이 값이 있을 때 "○○ 경유" 를 함께 보여주고, {@code durationMinutes} 는 두 구간의 합에 환승
+     *     대기를 더한 값이며 {@code departures} 는 비어 있다.
+     *     <p><b>null 을 "직통" 으로 읽으면 안 된다.</b> {@code NO_ROUTE}·{@code NO_SERVICE_ON_DATE}·
+     *     {@code ORIGIN_UNKNOWN} 처럼 <b>갈 길을 못 찾은 경우에도</b> null 이다. 직통인지는 이 값이
+     *     아니라 {@code status} 로 판단한다 — 이 값은 "경유가 붙었는가" 만 말한다
      * @param vehicleType 운행 편의 등급(AVAILABLE 일 때만, 예: KTX)
      * @param durationMinutes 소요시간(분). 열차는 실제 편에서, 버스·여객선은 저장해 둔 구간 측정값에서 온다.
      *     <b>기다리는 시간은 안 들어 있다</b> — 버스·여객선은 시간표를 못 물어 다음 편까지의 대기를 모른다
