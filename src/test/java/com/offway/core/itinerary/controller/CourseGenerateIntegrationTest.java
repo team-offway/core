@@ -1344,4 +1344,50 @@ class CourseGenerateIntegrationTest {
                 .lat(place.getLat()).lng(place.getLng())
                 .build();
     }
+
+    /**
+     * <b>대중교통 코스도 순서를 다듬는다</b>(#531).
+     *
+     * <p>예전에는 다듬는 단계가 자차에만 있었다(TMAP 경유지 최적화). 대중교통은 그리디 최근접 그대로라,
+     * 마지막에 멀리 튀는 구간이 남았다. TMAP 은 일일 50회라 여기까지 태울 수도 없다.
+     *
+     * <p>한 줄 위에 볼거리를 늘어놓고 <b>가운데를 건너뛰게</b> 후보를 준다. 다듬기가 없으면 그 순서가
+     * 그대로 남고, 있으면 왼쪽에서 오른쪽으로 정리된다.
+     */
+    @Test
+    void 대중교통_코스도_들르는_순서를_다듬는다() throws Exception {
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            // 위도만 올라가는 한 줄. 최적 순서는 가까운 쪽부터 차례로다.
+            for (int i = 0; i < 6; i++) {
+                items.add(namedPoi("s" + i, 12, "지점" + i, 35.10 + i * 0.05, 129.03));
+            }
+            items.add(poi("f0", 39, 35.11, 129.04));
+            items.add(poi("f1", 39, 35.12, 129.05));
+            items.add(poi("st0", 32, 35.11, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        String body = """
+                { "regionId": 1, "travelDays": 1, "density": "PACKED", "transport": "TRANSIT",
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-05-01" }""";
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<Double> lats = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[0].items[?(@.kind == 'SIGHT')].lat");
+        assertTrue(lats.size() >= 3, "볼거리가 너무 적어 순서를 볼 수 없다: " + lats);
+
+        // 한 줄 위에서 다듬어진 순서는 단조롭다 — 갔다가 되돌아오는 구간이 없다.
+        double total = 0;
+        for (int i = 0; i + 1 < lats.size(); i++) {
+            total += Math.abs(lats.get(i + 1) - lats.get(i));
+        }
+        double span = lats.stream().mapToDouble(Double::doubleValue).max().orElseThrow()
+                - lats.stream().mapToDouble(Double::doubleValue).min().orElseThrow();
+        assertEquals(span, total, 1e-9,
+                "왔다 갔다 하는 구간이 남았다 — 순서를 안 다듬었다는 뜻이다: " + lats);
+    }
 }
