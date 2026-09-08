@@ -37,7 +37,7 @@ class RegionAccessViaTest {
 
         assertTrue(via.departures().isEmpty(),
                 "직통이 안 다녀서 경유로 넘어왔는데 그 구간 시각이 남으면 서로 다른 말을 하게 된다");
-        assertEquals("대전복합", via.viaName());
+        assertEquals("대전복합터미널", via.viaName());
         assertEquals(220, via.durationMinutes());
     }
 
