@@ -37,5 +37,15 @@ public record PoiCandidate(
          * <p>실측(89곳 전수)에서 카라반·글램핑 리조트가 대분류 {@code VE}(문화관광)로 왔다. 문화관광이
          * 볼거리인 것은 맞지만 <b>리조트는 잘 곳</b>이라, 중분류 {@code VE05}(복합관광시설)를 봐야 갈린다.
          */
-        String lclsSystm2) {
+        String lclsSystm2,
+        /**
+         * 음식 분류 코드 — 인허가는 {@code PlaceCategory} 이름({@code KOREAN}·{@code NOODLE}),
+         * TourAPI 는 {@code cat3}({@code A05020100}) 이다(#음식중복).
+         *
+         * <p><b>두 출처의 코드를 한 칸에 담는다.</b> 갈라 두면 쓰는 쪽이 매번 어느 출처인지 물어야 하는데,
+         * 판정은 {@link com.offway.core.trip.domain.FoodTaste} 한 곳이 소유하므로 거기서 둘 다 읽으면 된다.
+         *
+         * <p>없으면 null 이다 — 국가유산·축제처럼 음식이 아닌 출처가 그렇다.
+         */
+        String foodCategory) {
 }

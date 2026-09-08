@@ -532,7 +532,8 @@ class TourApiClientImpl implements TourApiClient {
                 doubleOrNull(node, "mapx"),
                 emptyToNull(text(node, "firstimage")),
                 emptyToNull(text(node, "tel")),
-                emptyToNull(text(node, "lclsSystm2")));
+                emptyToNull(text(node, "lclsSystm2")),
+                emptyToNull(text(node, "cat3")));
     }
 
     /** JSON 명시적 {@code null}·미존재는 문자열 {@code "null"}/{@code ""} 이 아니라 {@code null} 로 돌려준다(빈값 판정 오염 방지). */
