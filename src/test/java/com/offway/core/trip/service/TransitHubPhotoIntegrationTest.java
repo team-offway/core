@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,6 +12,8 @@ import com.offway.core.trip.infrastructure.gallery.dto.GalleryPhotoItem;
 import com.offway.core.trip.infrastructure.gallery.dto.GallerySearch;
 import com.offway.core.trip.repository.TransitHubPhotoRepository;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Map;
 import java.util.Set;
@@ -221,5 +224,55 @@ class TransitHubPhotoIntegrationTest {
         assertFalse(stored.isEmpty(), "앞선 실패 때문에 전량이 비었습니다");
         assertTrue(stored.stream().allMatch(photo -> photo.getImageUrl() != null),
                 "못 물어본 지점까지 적었습니다 — 그 행은 주소가 빕니다");
+    }
+
+    /**
+     * <b>종류가 붙은 이름으로도 사진을 찾는다</b>(#529 · #535).
+     *
+     * <p>사진은 마스터 이름(`강릉`)으로 받아 두는데, 코스 슬롯 제목은 종류가 붙은 이름(`강릉역`)이다.
+     * 받은 이름으로만 찾으면 <b>있는 사진을 못 찾는다</b> — 이름에 종류를 붙인 변경이 이 조회를
+     * 조용히 끊을 뻔했다.
+     */
+    @Test
+    void 역_터미널_이름으로_물어도_받아_둔_사진을_찾는다() {
+        galleryPhotoClient.respondToSearch(keyword -> List.of(photoFor(keyword)));
+        refreshService.refresh();
+
+        String stored = transitHubPhotoRepository.findAll().stream()
+                .filter(photo -> photo.getImageUrl() != null)
+                .map(TransitHubPhoto::getHubName)
+                .findFirst()
+                .orElseThrow();
+
+        // 원본 이름 · 역 · 터미널 · 여객선터미널 어느 모양으로 물어도 같은 사진이 나와야 한다.
+        for (String suffix : List.of("", "역", "터미널", "여객선터미널")) {
+            String asked = stored + suffix;
+            Map<String, String> urls = photoProvider.photoUrls(Set.of(asked));
+            assertEquals(1, urls.size(), asked + " 로 물었더니 못 찾았습니다");
+            assertTrue(urls.containsKey(asked), "키는 물어본 이름 그대로여야 합니다: " + urls.keySet());
+        }
+    }
+
+    /**
+     * 원본에 이미 종류가 든 이름은 <b>떼지 않고 그대로</b> 찾는다(#535).
+     *
+     * <p>{@code 동서울터미널}처럼 마스터 이름 자체에 종류가 든 지점이 있다. 무조건 떼면 `동서울` 을
+     * 찾게 되어 오히려 어긋난다.
+     */
+    @Test
+    void 원본에_종류가_든_이름은_그대로_찾는다() {
+        galleryPhotoClient.respondToSearch(keyword -> List.of(photoFor(keyword)));
+        refreshService.refresh();
+
+        String withKind = transitHubPhotoRepository.findAll().stream()
+                .filter(photo -> photo.getImageUrl() != null)
+                .map(TransitHubPhoto::getHubName)
+                .filter(name -> name.endsWith("터미널") || name.endsWith("역"))
+                .findFirst()
+                .orElse(null);
+        assumeTrue(withKind != null, "시드에 종류가 든 이름이 없어 이 시나리오를 못 만든다");
+
+        assertTrue(photoProvider.photoUrls(Set.of(withKind)).containsKey(withKind),
+                withKind + " 을 떼어 찾는 바람에 놓쳤습니다");
     }
 }

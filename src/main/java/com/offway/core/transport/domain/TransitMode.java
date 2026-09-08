@@ -1,5 +1,7 @@
 package com.offway.core.transport.domain;
 
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Optional;
 
 /**
@@ -237,6 +239,34 @@ public enum TransitMode {
             return rawName;
         }
         return rawName + placeSuffix;
+    }
+
+    /**
+     * 화면에 나가는 이름에서 <b>종류를 떼어</b> 원본으로 되돌린다(#535).
+     *
+     * <p>필요한 이유는 저장 키가 갈리기 때문이다. 교통 거점 사진은 마스터 이름(`강릉`)으로 받아 두는데
+     * 코스 슬롯 제목은 종류가 붙은 이름(`강릉역`)이다. 그대로 찾으면 <b>있는 사진을 못 찾는다.</b>
+     *
+     * <p><b>어느 수단인지 모르는 채로 떼야 한다</b> — 부르는 쪽이 가진 것은 이름뿐이다. 그래서 긴
+     * 접미사부터 본다({@code 여객선터미널} 이 {@code 터미널} 보다 먼저다). 뒤집히면 부산여객선터미널이
+     * `부산여객선` 으로 남는다.
+     *
+     * <p><b>이 값만 믿고 찾으면 안 된다.</b> {@code 동서울터미널}처럼 원본에 이미 종류가 든 이름은
+     * 떼면 오히려 어긋난다. 부르는 쪽이 <b>받은 이름과 이 값을 함께</b> 찾아야 한다.
+     */
+    public static String rawPlaceName(String displayName) {
+        if (displayName == null || displayName.isBlank()) {
+            return displayName;
+        }
+        return Arrays.stream(values())
+                .map(mode -> mode.placeSuffix)
+                .filter(suffix -> !suffix.isEmpty())
+                .distinct()
+                .sorted(Comparator.comparingInt(String::length).reversed())
+                .filter(suffix -> displayName.endsWith(suffix) && displayName.length() > suffix.length())
+                .findFirst()
+                .map(suffix -> displayName.substring(0, displayName.length() - suffix.length()))
+                .orElse(displayName);
     }
 
     /**
