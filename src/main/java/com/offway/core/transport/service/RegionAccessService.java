@@ -436,20 +436,10 @@ public class RegionAccessService {
 
     /** 허브 자리의 그 수단 터미널 — 코드가 여럿이면 전부 본다(#507). */
     private List<Terminal> hubTerminals(TransferHub hub, TransitMode mode) {
-        BusTerminalKind kind = kindOf(mode);
-        if (kind == null) {
-            return List.of();
-        }
-        return busTerminalResolver.nearestWithDuplicates(
-                hub.coordinate().lat(), hub.coordinate().lng(), kind);
-    }
-
-    private static BusTerminalKind kindOf(TransitMode mode) {
-        return switch (mode) {
-            case EXPRESS_BUS -> BusTerminalKind.EXPRESS;
-            case INTERCITY_BUS -> BusTerminalKind.INTERCITY;
-            case TRAIN, FERRY, CAR -> null;
-        };
+        return mode.terminalKind()
+                .map(kind -> busTerminalResolver.nearestWithDuplicates(
+                        hub.coordinate().lat(), hub.coordinate().lng(), kind))
+                .orElseGet(List::of);
     }
 
     /** 허브 하나를 거치는 길. */
