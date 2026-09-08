@@ -153,6 +153,22 @@ class GoCampingParsingTest {
     }
 
     /**
+     * <b>{@code totalCount} 가 없거나 0 이어도 던진다.</b>
+     *
+     * <p>{@code asInt(0)} 이 누락된 값을 0 으로 바꾸므로, `rows < totalCount` 만 보면 그 비교가 거짓이 돼
+     * <b>잘린 응답이 그대로 통과한다.</b> 그러면 갱신이 이번 회차를 온전한 것으로 보고 이번에 안 온
+     * 야영장을 지운다.
+     */
+    @Test
+    void 전체가_없거나_행보다_작으면_던진다() {
+        String missing = RESPONSE.replace("\"totalCount\": 2,", "");
+        String zero = RESPONSE.replace("\"totalCount\": 2", "\"totalCount\": 0");
+
+        assertThrows(Exception.class, () -> parse(missing), "totalCount 가 없는데 통과했다");
+        assertThrows(Exception.class, () -> parse(zero), "totalCount 가 0 인데 통과했다");
+    }
+
+    /**
      * <b>휴장이라 전부 빠지는 것은 던지지 않는다.</b> 이름은 읽혔으므로 필드명 문제가 아니다 — 그걸로
      * 던지면 휴장만 모인 응답에서 멀쩡한 적재가 멈춘다.
      */

@@ -196,9 +196,13 @@ class GoCampingClientImpl implements GoCampingClient {
         //
         // 던지면 refresh 가 이번 회차를 건너뛰어 기존 스냅샷이 그대로 남는다 — 바로 위 "이름을 하나도
         // 못 읽었다" 와 같은 판단이다.
-        if (rows < totalCount) {
+        //
+        // **두 방향을 다 본다.** 전에는 `rows < totalCount` 만 봤는데, 그러면 totalCount 가 없거나
+        // 숫자가 아닐 때 {@code asInt(0)} 이 0 을 주고 그 비교가 거짓이 돼 **잘린 응답이 그대로
+        // 통과했다.** 한 요청에 전량이 오는 구조라 둘은 같아야 하고, 다르면 어느 쪽이든 이상이다.
+        if (rows > 0 && rows != totalCount) {
             throw new IllegalStateException(
-                    "고캠핑이 말한 전체는 %d건인데 %d행만 받았습니다 — 한 요청 건수 상한(%d)을 다시 보세요"
+                    "고캠핑이 말한 전체(%d)와 받은 행(%d)이 다릅니다 — 잘렸으면 한 요청 건수 상한(%d)을, 전체가 더 작으면 응답 형식을 확인하세요"
                             .formatted(totalCount, rows, ROWS));
         }
         log.info("고캠핑 조회 받은행={} 전체={} 휴장={} 쓸수있음={}", rows, totalCount, closed, usable.size());
