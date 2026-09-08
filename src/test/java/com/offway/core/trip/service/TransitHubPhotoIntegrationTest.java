@@ -1,13 +1,20 @@
 package com.offway.core.trip.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.trip.infrastructure.gallery.GalleryPhotoClient;
 import com.offway.core.trip.infrastructure.gallery.StubGalleryPhotoClient;
+import com.offway.core.trip.domain.TransitHubPhoto;
 import com.offway.core.trip.infrastructure.gallery.dto.GalleryPhotoItem;
+import com.offway.core.trip.infrastructure.gallery.dto.GallerySearch;
 import com.offway.core.trip.repository.TransitHubPhotoRepository;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -153,5 +160,119 @@ class TransitHubPhotoIntegrationTest {
         Map<String, String> urls = photoProvider.photoUrls(Set.of("있을 리 없는 지점 이름"));
 
         assertTrue(urls.isEmpty());
+    }
+
+    /**
+     * <b>못 물어본 것을 "없음" 으로 적지 않는다</b>(#535).
+     *
+     * <p>운영에서 이 배치가 4주 동안 갤러리를 <b>한 번도 부르지 않았는데</b> 155곳 전부가 3일마다
+     * "물어봤는데 없음" 으로 다시 기록됐다. 조회 실패와 실제 미검색이 둘 다 빈 목록이라 갈리지
+     * 않았기 때문이다 — 묻지도 않고 없다고 적는 셈이었다.
+     *
+     * <p>행을 안 남겨야 다음 회차가 다시 묻는다. 없음으로 적으면 그 상태가 그대로 굳는다.
+     */
+    @Test
+    void 못_물어본_지점은_없음으로_적지_않는다() {
+        galleryPhotoClient.failSearch();
+
+        refreshService.refresh();
+
+        assertTrue(transitHubPhotoRepository.findAll().isEmpty(),
+                "묻지도 못했는데 결과를 적었다 — 그 상태가 그대로 굳는다");
+    }
+
+    /**
+     * <b>물어봤는데 없는 것은 적는다</b>(#535).
+     *
+     * <p>위와 갈라야 하는 이유가 이것이다. 이쪽은 남겨 둬야 매 회차가 같은 지점을 다시 묻지 않는다.
+     */
+    @Test
+    void 물어봤는데_없으면_결과를_남긴다() {
+        galleryPhotoClient.respondToSearch(keyword -> List.of());
+
+        refreshService.refresh();
+
+        assertTrue(transitHubPhotoRepository.findAll().size() >= 100,
+                "물어봤는데 없는 것까지 안 적으면 매 회차가 같은 지점을 다시 묻는다");
+        assertTrue(transitHubPhotoRepository.findAll().stream()
+                        .allMatch(photo -> photo.getImageUrl() == null),
+                "사진이 없다고 했는데 주소가 붙었다");
+    }
+
+    /**
+     * 못 물어본 지점이 섞여도 <b>물어본 지점의 결과는 남는다</b>(#535).
+     *
+     * <p>한 지점이 실패했다고 나머지를 버리면 갤러리가 잠깐 흔들릴 때마다 전량이 비어 버린다.
+     *
+     * <p><b>앞선 판마다 못 물어보게 만든다.</b> 처음에는 빈 목록을 돌려주는 것으로 이 시나리오를
+     * 흉내 냈는데, 그건 "물어봤는데 없음" 이라 부분 실패가 아니었다 — 규칙을 되돌려도 그대로
+     * 통과하는 가짜였다.
+     *
+     * <p>판정은 <b>저장된 행에 사진이 다 붙어 있는가</b>다. 못 물어본 지점까지 적으면 그 행들의
+     * 주소가 비어 이 단언이 깨진다.
+     */
+    @Test
+    void 일부만_못_물어봐도_나머지는_받아_둔다() {
+        AtomicInteger asks = new AtomicInteger();
+        galleryPhotoClient.respondToSearchWith(keyword -> asks.getAndIncrement() < 60
+                ? GallerySearch.notAsked()
+                : GallerySearch.asked(List.of(photoFor(keyword))));
+
+        refreshService.refresh();
+
+        List<TransitHubPhoto> stored = transitHubPhotoRepository.findAll();
+        assertFalse(stored.isEmpty(), "앞선 실패 때문에 전량이 비었습니다");
+        assertTrue(stored.stream().allMatch(photo -> photo.getImageUrl() != null),
+                "못 물어본 지점까지 적었습니다 — 그 행은 주소가 빕니다");
+    }
+
+    /**
+     * <b>종류가 붙은 이름으로도 사진을 찾는다</b>(#529 · #535).
+     *
+     * <p>사진은 마스터 이름(`강릉`)으로 받아 두는데, 코스 슬롯 제목은 종류가 붙은 이름(`강릉역`)이다.
+     * 받은 이름으로만 찾으면 <b>있는 사진을 못 찾는다</b> — 이름에 종류를 붙인 변경이 이 조회를
+     * 조용히 끊을 뻔했다.
+     */
+    @Test
+    void 역_터미널_이름으로_물어도_받아_둔_사진을_찾는다() {
+        galleryPhotoClient.respondToSearch(keyword -> List.of(photoFor(keyword)));
+        refreshService.refresh();
+
+        String stored = transitHubPhotoRepository.findAll().stream()
+                .filter(photo -> photo.getImageUrl() != null)
+                .map(TransitHubPhoto::getHubName)
+                .findFirst()
+                .orElseThrow();
+
+        // 원본 이름 · 역 · 터미널 · 여객선터미널 어느 모양으로 물어도 같은 사진이 나와야 한다.
+        for (String suffix : List.of("", "역", "터미널", "여객선터미널")) {
+            String asked = stored + suffix;
+            Map<String, String> urls = photoProvider.photoUrls(Set.of(asked));
+            assertEquals(1, urls.size(), asked + " 로 물었더니 못 찾았습니다");
+            assertTrue(urls.containsKey(asked), "키는 물어본 이름 그대로여야 합니다: " + urls.keySet());
+        }
+    }
+
+    /**
+     * 원본에 이미 종류가 든 이름은 <b>떼지 않고 그대로</b> 찾는다(#535).
+     *
+     * <p>{@code 동서울터미널}처럼 마스터 이름 자체에 종류가 든 지점이 있다. 무조건 떼면 `동서울` 을
+     * 찾게 되어 오히려 어긋난다.
+     */
+    @Test
+    void 원본에_종류가_든_이름은_그대로_찾는다() {
+        galleryPhotoClient.respondToSearch(keyword -> List.of(photoFor(keyword)));
+        refreshService.refresh();
+
+        String withKind = transitHubPhotoRepository.findAll().stream()
+                .filter(photo -> photo.getImageUrl() != null)
+                .map(TransitHubPhoto::getHubName)
+                .filter(name -> name.endsWith("터미널") || name.endsWith("역"))
+                .findFirst()
+                .orElse(null);
+        assumeTrue(withKind != null, "시드에 종류가 든 이름이 없어 이 시나리오를 못 만든다");
+
+        assertTrue(photoProvider.photoUrls(Set.of(withKind)).containsKey(withKind),
+                withKind + " 을 떼어 찾는 바람에 놓쳤습니다");
     }
 }
