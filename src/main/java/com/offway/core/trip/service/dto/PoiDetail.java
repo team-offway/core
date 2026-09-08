@@ -11,7 +11,9 @@ import com.offway.core.trip.domain.PoiIntro;
  * <p>외부 어댑터의 DTO 가 아니라 도메인 타입을 든다. 관광 API 응답 모양이 바뀌어도 이 계약은 흔들리지 않는다.
  */
 import java.util.List;
+import lombok.Builder;
 
+@Builder(toBuilder = true)
 public record PoiDetail(
         String contentId,
         Integer contentTypeId,
@@ -67,8 +69,9 @@ public record PoiDetail(
      * 그런 이유로 생긴 팩토리다.
      */
     public PoiDetail withIntro(PoiIntro intro, String catchphrase) {
-        return new PoiDetail(contentId, contentTypeId, typeLabel, title, address, tel, lat, lng,
-                imageUrl, overview, intro, mapSearchUrl, benefit, catchphrase, images);
+        // **위치 인자로 다시 짜지 않는다.** 열다섯 값 중에 같은 타입이 여럿이라(String 여덟·Double 둘),
+        // 필드 순서가 바뀌면 값이 뒤바뀌어도 컴파일이 통과한다 — 조용히 틀리는 종류다.
+        return toBuilder().intro(intro).catchphrase(catchphrase).build();
     }
 
     /** 관광 API 콘텐츠가 아닌 장소 — 보조정보가 없다. */

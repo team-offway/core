@@ -137,6 +137,22 @@ class GoCampingParsingTest {
     }
 
     /**
+     * <b>첫 페이지 밖이 잘렸으면 던진다.</b> 조용히 자르면 호출자가 이번 회차를 온전한 것으로 보고,
+     * 이번에 안 온 야영장을 지운다 — 첫 페이지 밖이 통째로 사라진 채 굳는다.
+     *
+     * <p>제공기관이 행 수를 줄였거나 데이터가 우리 상한을 넘긴 것이라 사람이 봐야 할 신호다.
+     * 던지면 갱신이 이번 회차를 건너뛰어 기존 스냅샷이 그대로 남는다.
+     */
+    @Test
+    void 전체보다_적게_받으면_던진다() {
+        String body = RESPONSE.replace("\"totalCount\": 2", "\"totalCount\": 5000");
+
+        Exception e = assertThrows(Exception.class, () -> parse(body));
+
+        assertTrue(rootMessage(e).contains("5000"), rootMessage(e));
+    }
+
+    /**
      * <b>휴장이라 전부 빠지는 것은 던지지 않는다.</b> 이름은 읽혔으므로 필드명 문제가 아니다 — 그걸로
      * 던지면 휴장만 모인 응답에서 멀쩡한 적재가 멈춘다.
      */

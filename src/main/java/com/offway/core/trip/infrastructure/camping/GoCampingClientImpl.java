@@ -190,10 +190,16 @@ class GoCampingClientImpl implements GoCampingClient {
                     "고캠핑 %d행을 받았지만 야영장명을 하나도 읽지 못했습니다 — 응답 필드명을 확인하세요 (기대한 이름: %s) 실제 키: %s"
                             .formatted(rows, F_NAME, fieldNamesOf(items)));
         }
+        // **불완전한 결과를 성공으로 돌려주지 않는다.** 호출자는 비어 있지 않은 결과를 정상 회차로 보고
+        // 이번에 안 온 야영장을 지운다 — 첫 페이지 밖이 통째로 사라진다. 제공기관이 행 수를 줄였거나
+        // 데이터가 ROWS 를 넘긴 것이라, 조용히 자르면 그날치 풀이 반토막 난 채 굳는다.
+        //
+        // 던지면 refresh 가 이번 회차를 건너뛰어 기존 스냅샷이 그대로 남는다 — 바로 위 "이름을 하나도
+        // 못 읽었다" 와 같은 판단이다.
         if (rows < totalCount) {
-            // 조용히 자르지 않는다. 한 번에 다 온다는 전제가 깨진 것이라 ROWS 를 다시 봐야 한다.
-            log.warn("고캠핑이 말한 전체는 {}건인데 {}행만 받았습니다 — 한 요청 건수 상한({})을 다시 보세요",
-                    totalCount, rows, ROWS);
+            throw new IllegalStateException(
+                    "고캠핑이 말한 전체는 %d건인데 %d행만 받았습니다 — 한 요청 건수 상한(%d)을 다시 보세요"
+                            .formatted(totalCount, rows, ROWS));
         }
         log.info("고캠핑 조회 받은행={} 전체={} 휴장={} 쓸수있음={}", rows, totalCount, closed, usable.size());
         return new GoCampsiteResult(usable, totalCount);
