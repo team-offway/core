@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.batch.domain.ManualBatch;
 import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
@@ -44,7 +45,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class FestivalPeriodRefreshService {
+public class FestivalPeriodRefreshService implements ManualBatch {
 
     private static final String SERVICE_ZONE_ID = "Asia/Seoul";
     private static final ZoneId SERVICE_ZONE = ZoneId.of(SERVICE_ZONE_ID);
@@ -228,5 +229,16 @@ public class FestivalPeriodRefreshService {
                 .title(festival.title())
                 .fetchedAt(fetchedAt)
                 .build();
+    }
+
+    @Override
+    public String batchName() {
+        return BATCH_NAME;
+    }
+
+    /** 손으로 돌린다(#537) — 배치 자신의 가드는 그대로 탄다. */
+    @Override
+    public void runNow() {
+        refreshIfStale();
     }
 }

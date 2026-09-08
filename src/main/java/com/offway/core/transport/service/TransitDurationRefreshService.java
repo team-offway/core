@@ -1,5 +1,6 @@
 package com.offway.core.transport.service;
 
+import com.offway.core.common.batch.domain.ManualBatch;
 import com.offway.core.transport.domain.MeasuredLeg;
 import com.offway.core.transport.domain.TransitLegDuration;
 import com.offway.core.transport.domain.TransitLegResult;
@@ -43,7 +44,10 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class TransitDurationRefreshService {
+public class TransitDurationRefreshService implements ManualBatch {
+
+    /** 관리자 화면이 마지막 실행 시각을 붙이는 키(#537). batch_run.name 과 같은 값이어야 한다. */
+    static final String BATCH_NAME = "transit-duration-refresh";
 
     /**
      * 회당 가져올 구간 수 — 호출 예산을 다 못 쓰고 남으면 다음 회차가 이어받는다.
@@ -167,4 +171,15 @@ public class TransitDurationRefreshService {
 
     /** 구간 하나를 잰 결과와 <b>그러느라 쓴 호출 수</b>. 뒤엣것이 있어야 회당 상한을 호출로 셀 수 있다. */
     private record Attempt(TransitLegResult result, int calls) {}
+
+    @Override
+    public String batchName() {
+        return BATCH_NAME;
+    }
+
+    /** 손으로 돌린다(#537) — 배치 자신의 가드는 그대로 탄다. */
+    @Override
+    public void runNow() {
+        measurePending();
+    }
 }

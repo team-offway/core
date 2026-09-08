@@ -1,5 +1,6 @@
 package com.offway.core.leave.service;
 
+import com.offway.core.common.batch.domain.ManualBatch;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
 import com.offway.core.leave.domain.HolidayException;
@@ -41,7 +42,10 @@ import org.springframework.stereotype.Service;
 @Service
 @Profile("local | prod")
 @RequiredArgsConstructor
-public class HolidayRefreshService {
+public class HolidayRefreshService implements ManualBatch {
+
+    /** 관리자 화면이 마지막 실행 시각을 붙이는 키(#537). batch_run.name 과 같은 값이어야 한다. */
+    static final String BATCH_NAME = "holiday-refresh";
 
     /** "오늘" 판정은 KST 기준 — 저장 시각도 같은 기준이라야 하루 한 번이 하루 한 번으로 동작한다. */
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
@@ -122,5 +126,16 @@ public class HolidayRefreshService {
         }
         log.info("공휴일 적재 완료 {}개월 공휴일={}건 (대상 {}개월 중 {}개월은 이미 최신)",
                 fetched.size(), holidayCount, targets.size(), targets.size() - due.size());
+    }
+
+    @Override
+    public String batchName() {
+        return BATCH_NAME;
+    }
+
+    /** 손으로 돌린다(#537) — 배치 자신의 가드는 그대로 탄다. */
+    @Override
+    public void runNow() {
+        refresh();
     }
 }

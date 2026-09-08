@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.batch.domain.ManualBatch;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiBatchPolicy;
 import com.offway.core.region.domain.Region;
@@ -36,7 +37,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class GalleryPhotoRefreshService {
+public class GalleryPhotoRefreshService implements ManualBatch {
 
     /** 부팅 후 첫 적재까지 지연 — 기동·헬스체크를 방해하지 않게. */
     private static final String INITIAL_DELAY = "PT45S";
@@ -216,5 +217,16 @@ public class GalleryPhotoRefreshService {
             Optional<Long> regionId = matcher.match(photo.getPhotographyLocation());
             regionId.ifPresent(photo::assignRegion);
         }
+    }
+
+    @Override
+    public String batchName() {
+        return BATCH_NAME;
+    }
+
+    /** 손으로 돌린다(#537) — 배치 자신의 가드는 그대로 탄다. */
+    @Override
+    public void runNow() {
+        refreshIfStale();
     }
 }

@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.batch.domain.ManualBatch;
 import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
@@ -38,7 +39,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class PoiIntroRefreshService {
+public class PoiIntroRefreshService implements ManualBatch {
 
     /** 부팅 후 첫 실행까지 지연 — 기동·헬스체크를 방해하지 않게. */
     private static final String INITIAL_DELAY = "PT90S";
@@ -186,5 +187,16 @@ public class PoiIntroRefreshService {
         // 부른 만큼이 예산 소비다. 빈 응답도 콜을 썼으므로 저장 건수가 아니라 대상 수를 돌려준다 —
         // saved 를 돌려주면 빈 응답이 많은 회차에 남은 예산을 실제보다 크게 본다.
         return missing.size();
+    }
+
+    @Override
+    public String batchName() {
+        return BATCH_NAME;
+    }
+
+    /** 손으로 돌린다(#537) — 배치 자신의 가드는 그대로 탄다. */
+    @Override
+    public void runNow() {
+        refreshIfStale();
     }
 }
