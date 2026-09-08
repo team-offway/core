@@ -22,6 +22,7 @@ import com.offway.core.transport.service.TrainRouteService;
 import com.offway.core.transport.service.UnroutableCoordinateService;
 import com.offway.core.trip.infrastructure.tour.StubTourApiClient;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
+import com.offway.core.trip.domain.FoodTaste;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import com.offway.core.weather.domain.DailyWeather;
@@ -117,6 +118,12 @@ class CourseGenerateIntegrationTest {
      * 이제 대분류가 기준이라 <b>타입 39(음식점)인데 대분류가 자연</b>인 후보가 볼거리로 들어간다 —
      * 실제 응답에는 없는 조합이다(전수 6,821건 확인, 어긋난 건 0건).
      */
+    /** 상호를 지정하는 후보 — 무슨 음식인지가 결과를 가르는 시나리오에 쓴다(#음식중복). */
+    private static TourPoi namedPoi(String id, int contentTypeId, String title, double lat, double lng) {
+        return new TourPoi(id, contentTypeId, lclsOf(contentTypeId), title, "부산 동구", lat, lng,
+                "http://img/" + id + ".jpg", null, null);
+    }
+
     private static TourPoi poi(String id, int contentTypeId, double lat, double lng) {
         return new TourPoi(id, contentTypeId, lclsOf(contentTypeId), "장소" + id, "부산 동구", lat, lng,
                 "http://img/" + id + ".jpg", null, null);
@@ -810,6 +817,46 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
                 // 출발 지점도 그 종류로 푼다 — 코드 공간이 갈려 있어 섞으면 조회 자체가 안 된다
                 .andExpect(jsonPath("$.data.transitAccess.fromPlace").isNotEmpty());
+    }
+
+    /**
+     * <b>점심과 저녁이 같은 음식이면 안 된다.</b>
+     *
+     * <p>지역 특산이 곧 음식점 풀이라 거리만 보고 고르면 같은 것이 반복된다 — 실측(2026-09-08)에서
+     * 태안 49건 중 꽃게가 9건, 평창 100건 중 메밀 11건, 횡성 23건 중 한우 4건이었고, 실제 코스에서
+     * 횡성이 점심·저녁 모두 한우로 나왔다.
+     *
+     * <p>가장 가까운 두 곳이 같은 음식이면 <b>조금 더 먼 다른 음식</b>을 끌어온다.
+     */
+    @Test
+    void 점심과_저녁에_같은_음식을_넣지_않는다() throws Exception {
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.01, 129.03 + i * 0.01));
+            }
+            // 가장 가까운 둘이 같은 음식(한우), 조금 더 먼 곳에 다른 음식이 있다.
+            items.add(namedPoi("f0", 39, "횡성한우마을", 35.100, 129.030));
+            items.add(namedPoi("f1", 39, "횡성순한우", 35.101, 129.031));
+            items.add(namedPoi("f2", 39, "용둔막국수", 35.200, 129.120));
+            items.add(poi("st0", 32, 35.11, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> foods = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'FOOD')].title");
+        assertTrue(foods.size() >= 2, "끼니가 두 개는 나와야 비교가 성립한다: " + foods);
+        // **포함 여부로는 안 갈린다.** 후보가 셋뿐이라 셋 다 뽑히면 무엇이 먼저인지가 유일한 차이다 —
+        // 처음 쓴 단언이 그래서 회피를 꺼도 통과했다. 연달아 오는 두 끼니를 직접 본다.
+        assertNotEquals(
+                FoodTaste.of(foods.get(0)), FoodTaste.of(foods.get(1)),
+                "점심과 저녁이 같은 음식이다: " + foods);
     }
 
     /**

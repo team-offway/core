@@ -29,6 +29,7 @@ import com.offway.core.transport.service.RegionAccessService;
 import com.offway.core.transport.service.UnroutableCoordinateService;
 import com.offway.core.transport.service.TravelTimeProvider;
 import com.offway.core.transport.service.dto.RegionAccess;
+import com.offway.core.trip.domain.FoodTaste;
 import com.offway.core.trip.domain.RegionVisitMetrics;
 import com.offway.core.trip.service.RegionVisitMetricsService;
 import com.offway.core.trip.service.RegionPoiService;
@@ -140,7 +141,7 @@ public class CourseGenerationService {
         // 연관 데이터가 없는 지역은 그대로 좌표 군집이다 — degrade 사유는 아래에서 남긴다.
         List<PoiCandidate> sights = selectSights(sightPool, command, needs.sights());
         Coordinate hub = GeoCluster.centroid(coords(sights));
-        List<PoiCandidate> foods = reorder(foodPool, GeoCluster.nearest(coords(foodPool), hub, needs.foods()));
+        List<PoiCandidate> foods = selectFoods(foodPool, hub, needs.foods());
         // **숙박은 거리만으로 고르지 않는다**(#510). 야영장이 후보에 들어오면서 그 규칙이 뒤집혔다 —
         // 야영장은 산·계곡·유적 근처라 볼거리 중심에 가까워, 사진 있는 호텔을 사진 없는 야영장이
         // 밀어냈다(실측: 사진 있는 숙소가 141 → 119 로 줄었다).
@@ -674,6 +675,60 @@ public class CourseGenerationService {
 
     private static boolean hasPhoto(PoiCandidate candidate) {
         return candidate.imageUrl() != null && !candidate.imageUrl().isBlank();
+    }
+
+    /**
+     * 끼니 후보 — 가까운 순으로 고르되 <b>같은 음식을 연달아 넣지 않는다</b>.
+     *
+     * <p><b>왜 필요했나.</b> 지역 특산이 곧 음식점 풀이라 어디서나 같은 것이 반복된다 — 실측(2026-09-08)
+     * 에서 태안 49건 중 꽃게가 9건, 평창 100건 중 메밀 11건, 횡성 23건 중 한우 4건이었다. 거리만 보고
+     * 고르면 점심도 한우, 저녁도 한우가 된다(실제 코스에서 그렇게 나왔다).
+     *
+     * <p><b>거리를 버리지 않는다.</b> 가까운 것부터 훑되, 직전에 고른 것과 같은 음식이면 <b>미뤄 뒀다가</b>
+     * 다른 음식을 못 찾았을 때 쓴다. 순서를 통째로 뒤집는 것이 아니라 한 칸씩 양보하는 것이라 동선이
+     * 크게 흔들리지 않는다.
+     *
+     * <p><b>모르면 다른 음식으로 본다</b>({@link FoodTaste}). 상호로 읽히는 것이 33% 뿐이라, 확신 없이
+     * 후보를 미루면 사진 있는 좋은 카드가 근거 없이 밀려난다 — 겹침을 덜 막는 쪽이 잘못 막는 쪽보다 낫다.
+     *
+     * <p><b>후보가 모자라면 겹쳐도 넣는다.</b> 군위·장수는 음식점이 두 곳뿐이라 미룰 곳이 없다.
+     * 빈 슬롯이 중복보다 나쁘다.
+     */
+    private static List<PoiCandidate> selectFoods(List<PoiCandidate> pool, Coordinate hub, int needed) {
+        if (pool.isEmpty() || needed <= 0) {
+            return List.of();
+        }
+        // 풀 전체를 거리순으로 훑는다 — 필요한 만큼만 뽑으면 양보할 후보가 애초에 없다.
+        List<PoiCandidate> byDistance = reorder(pool, GeoCluster.nearest(coords(pool), hub, pool.size()));
+        List<PoiCandidate> picked = new ArrayList<>();
+        List<PoiCandidate> deferred = new ArrayList<>();
+        for (PoiCandidate candidate : byDistance) {
+            if (picked.size() >= needed) {
+                break;
+            }
+            if (repeatsLast(picked, candidate)) {
+                deferred.add(candidate);
+                continue;
+            }
+            picked.add(candidate);
+        }
+        // 다른 음식으로 못 채웠으면 미뤄 둔 것을 도로 쓴다.
+        for (PoiCandidate candidate : deferred) {
+            if (picked.size() >= needed) {
+                break;
+            }
+            picked.add(candidate);
+        }
+        return List.copyOf(picked);
+    }
+
+    /** 직전에 고른 것과 같은 음식인가 — 하루 안이든 이튿날이든 <b>연달아</b> 나오는 것을 본다. */
+    private static boolean repeatsLast(List<PoiCandidate> picked, PoiCandidate candidate) {
+        if (picked.isEmpty()) {
+            return false;
+        }
+        PoiCandidate last = picked.getLast();
+        return FoodTaste.same(last.title(), last.foodCategory(), candidate.title(), candidate.foodCategory());
     }
 
     private static List<PoiCandidate> reorder(List<PoiCandidate> pois, List<Integer> order) {

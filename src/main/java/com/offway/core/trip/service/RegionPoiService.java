@@ -295,6 +295,8 @@ public class RegionPoiService {
                 .address(place.getAddress())
                 .tel(place.getTel()) // 49% 가 채워져 있다 — 있는 것을 버리지 않는다
                 // 대분류는 호출부가 kind 로 이미 갈랐다.
+                // 세부 분류는 같은 끼니를 두 번 넣지 않는 판정에 쓴다 — 이미 DB 에 있는 값이다.
+                .foodCategory(place.getCategory().taste().orElse(null))
                 .build();
     }
 
@@ -645,6 +647,7 @@ public class RegionPoiService {
                 .tel(poi.tel())
                 .lclsSystm1(poi.lclsSystm1())
                 .lclsSystm2(poi.lclsSystm2())
+                .foodCategory(poi.foodTaste().orElse(null))
                 .build();
     }
 }

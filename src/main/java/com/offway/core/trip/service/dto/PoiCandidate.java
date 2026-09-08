@@ -1,5 +1,7 @@
 package com.offway.core.trip.service.dto;
 
+import com.offway.core.trip.domain.FoodTaste;
+
 import lombok.Builder;
 
 /**
@@ -37,5 +39,15 @@ public record PoiCandidate(
          * <p>실측(89곳 전수)에서 카라반·글램핑 리조트가 대분류 {@code VE}(문화관광)로 왔다. 문화관광이
          * 볼거리인 것은 맞지만 <b>리조트는 잘 곳</b>이라, 중분류 {@code VE05}(복합관광시설)를 봐야 갈린다.
          */
-        String lclsSystm2) {
+        String lclsSystm2,
+        /**
+         * 분류가 말해 주는 음식(#520) — <b>이미 도메인 값으로 풀린 것</b>이다.
+         *
+         * <p>인허가는 {@code PlaceCategory}, TourAPI 는 {@code cat3} 로 코드 체계가 다른데, 그 해석은
+         * <b>각 출처가 소유한다</b>. 여기에 코드를 그대로 담으면 쓰는 쪽이 어느 출처인지 매번 물어야 하고,
+         * 도메인이 외부 API 세부에 묶인다.
+         *
+         * <p>없으면 null 이다 — 분류가 음식을 말해 주지 않거나(한식), 음식이 아닌 출처(국가유산·축제)다.
+         */
+        FoodTaste foodCategory) {
 }

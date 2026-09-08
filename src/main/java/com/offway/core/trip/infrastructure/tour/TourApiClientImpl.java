@@ -522,17 +522,21 @@ class TourApiClientImpl implements TourApiClient {
     }
 
     private TourPoi toPoi(JsonNode node) {
-        return new TourPoi(
-                emptyToNull(text(node, "contentid")),
-                intOrNull(node, "contenttypeid"),
-                emptyToNull(text(node, "lclsSystm1")),
-                emptyToNull(text(node, "title")),
-                emptyToNull(text(node, "addr1")),
-                doubleOrNull(node, "mapy"),
-                doubleOrNull(node, "mapx"),
-                emptyToNull(text(node, "firstimage")),
-                emptyToNull(text(node, "tel")),
-                emptyToNull(text(node, "lclsSystm2")));
+        // **빌더로 짠다.** 열한 칸을 위치로 넘기면 필드가 늘 때 순서가 어긋나도 컴파일이 통과한다 —
+        // 좌표 두 칸(mapy·mapx)이 서로 바뀌어도 그렇다.
+        return TourPoi.builder()
+                .contentId(emptyToNull(text(node, "contentid")))
+                .contentTypeId(intOrNull(node, "contenttypeid"))
+                .lclsSystm1(emptyToNull(text(node, "lclsSystm1")))
+                .title(emptyToNull(text(node, "title")))
+                .address(emptyToNull(text(node, "addr1")))
+                .lat(doubleOrNull(node, "mapy"))
+                .lng(doubleOrNull(node, "mapx"))
+                .firstImage(emptyToNull(text(node, "firstimage")))
+                .tel(emptyToNull(text(node, "tel")))
+                .lclsSystm2(emptyToNull(text(node, "lclsSystm2")))
+                .cat3(emptyToNull(text(node, "cat3")))
+                .build();
     }
 
     /** JSON 명시적 {@code null}·미존재는 문자열 {@code "null"}/{@code ""} 이 아니라 {@code null} 로 돌려준다(빈값 판정 오염 방지). */
