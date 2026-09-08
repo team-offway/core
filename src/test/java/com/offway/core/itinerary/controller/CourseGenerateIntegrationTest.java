@@ -29,8 +29,17 @@ import com.offway.core.weather.domain.DailyWeather;
 import com.offway.core.weather.domain.SkyState;
 import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
 import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
+import com.offway.core.trip.domain.HubAttraction;
+import com.offway.core.trip.domain.LicensedPlace;
+import com.offway.core.trip.domain.PlaceCategory;
+import com.offway.core.trip.domain.PlaceKind;
+import com.offway.core.trip.domain.RelatedAttraction;
+import com.offway.core.trip.repository.HubAttractionRepository;
+import com.offway.core.trip.repository.LicensedPlaceRepository;
+import com.offway.core.trip.repository.RelatedAttractionRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +55,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -53,6 +63,12 @@ import org.springframework.test.web.servlet.MockMvc;
 class CourseGenerateIntegrationTest {
 
     private static final String URL = "/api/v1/courses/generate";
+
+    /** 이 클래스가 쓰는 지역. 순위 데이터를 붙일 때도 같은 곳이어야 한다. */
+    private static final long REGION = 1L;
+
+    /** 순위 데이터의 기준월 — 값 자체는 판정에 안 쓰이고, 없는 달이라 실제 적재와 안 겹친다. */
+    private static final YearMonth RANK_BASE = YearMonth.of(2099, 1);
 
     @Autowired
     private MockMvc mockMvc;
@@ -74,6 +90,15 @@ class CourseGenerateIntegrationTest {
 
     @Autowired
     private UnroutableProbeJpaRepository unroutableProbeJpaRepository;
+
+    @Autowired
+    private RelatedAttractionRepository relatedAttractionRepository;
+
+    @Autowired
+    private HubAttractionRepository hubAttractionRepository;
+
+    @Autowired
+    private LicensedPlaceRepository licensedPlaceRepository;
 
     @TestConfiguration
     static class StubConfig {
@@ -1067,5 +1092,120 @@ class CourseGenerateIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.transitAccess.mode").value("FERRY"))
                 .andExpect(jsonPath("$.data.transitAccess.toPlace").isNotEmpty());
+    }
+
+    /**
+     * <b>카페는 가까운 곳이 아니라 사람들이 실제로 들르는 곳이다</b>(#527).
+     *
+     * <p>카페 후보의 대부분은 사진 없는 인허가 장소다 — 실측(2026-09-08)에서 지역당 TourAPI 카페가
+     * 0~10곳인데 인허가 카페는 상한인 100곳이 들어온다. 거리로 고르면 수로 밀려 그쪽이 이기는데,
+     * 그 100곳은 <b>이름 가나다순으로 잘린 것</b>이라 아무 근거가 없다.
+     *
+     * <p>연관 관광지의 {@code 음식} 분류에 카페가 들어 있다 — 89곳 중 85곳에 있고 지역당 평균 4곳이다.
+     * 그 순위를 거리보다 먼저 본다.
+     */
+    @Test
+    @Transactional
+    void 카페는_가까운_곳이_아니라_함께_가는_곳을_고른다() throws Exception {
+        // 볼거리 한복판에서 한참 떨어뜨린다 — 거리로 고르면 절대 안 뽑힐 자리에 둬야 판정이 선다.
+        String 이름 = "멀리있는함께가는카페";
+        licensedPlaceRepository.saveAll(List.of(LicensedPlace.builder()
+                .regionId(REGION).kind(PlaceKind.CAFE).category(PlaceCategory.COFFEE)
+                .name(이름).address("부산광역시 동구 어딘가 1")
+                .lat(35.40).lng(129.40)
+                .build()));
+        LicensedPlace 함께가는카페 = licensedPlaceRepository.findAllInRegion(REGION).stream()
+                .filter(place -> 이름.equals(place.getName()))
+                .findFirst().orElse(null);
+        assertNotNull(함께가는카페, "인허가 카페를 못 만들었다");
+
+        relatedAttractionRepository.replaceRegion(REGION, RANK_BASE, List.of(RelatedAttraction.builder()
+                .regionId(REGION).baseMonth(RANK_BASE)
+                .hubCode("HUB-1").hubName("어느 중심")
+                .relatedCode("RLT-" + 함께가는카페.getId()).relatedName(함께가는카페.getName())
+                .relatedRank(1).categoryLarge("음식")
+                .licensedPlaceId(함께가는카페.getId())
+                .lat(함께가는카페.getLat()).lng(함께가는카페.getLng())
+                .build()));
+
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.01, 129.03 + i * 0.01));
+            }
+            // 사진까지 있고 볼거리 한복판에 있는 카페 둘 — 거리로 고르면 반드시 이쪽이 이긴다.
+            items.add(cafePoi("c0", "코앞카페", 35.100, 129.030));
+            items.add(cafePoi("c1", "코앞카페2", 35.101, 129.031));
+            items.add(poi("f0", 39, 35.20, 129.12));
+            items.add(poi("f1", 39, 35.21, 129.13));
+            items.add(poi("st0", 32, 35.11, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> cafes = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'CAFE')].title");
+        assertFalse(cafes.isEmpty(), "카페가 한 칸도 안 들어갔다");
+        assertTrue(cafes.contains(함께가는카페.getName()),
+                "함께 가는 카페 대신 가까운 카페를 골랐다: " + cafes);
+    }
+
+    /**
+     * <b>볼거리는 좌표만 보지 않는다</b>(#527).
+     *
+     * <p>연관 관광지 순서는 인허가 볼거리({@code LIC-})에만 걸리는데, 인허가 볼거리는 후보가 18곳에
+     * 못 미칠 때만 보충된다. 실측에서 TourAPI 볼거리가 양양 71·보령 68·태안 63·완도 35 라 <b>보충이
+     * 안 돌고</b>, 그래서 연관 경로가 한 건도 안 걸려 기하학만 돌고 있었다.
+     *
+     * <p>중심관광지(지역당 30곳·89곳 전부)로 그 자리를 메운다. 여기서는 <b>가장 먼 볼거리</b>에 1·2위를
+     * 매겨, 거리로는 절대 안 뽑힐 곳이 뽑히는지를 본다.
+     */
+    @Test
+    @Transactional
+    void 볼거리는_거리보다_인기순을_먼저_본다() throws Exception {
+        // 후보를 필요분(빡빡 2일 = 12곳)보다 넉넉히 둔다. 후보가 얇으면 전부 뽑혀 규칙이 도는지 안 도는지
+        // 를 못 가른다 — #522 에서 실제로 그렇게 가짜 통과한 적이 있다.
+        int pool = 20;
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < pool; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.02, 129.03 + i * 0.02));
+            }
+            items.add(poi("f0", 39, 35.11, 129.04));
+            items.add(poi("f1", 39, 35.12, 129.05));
+            items.add(poi("st0", 32, 35.10, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        // 가장 먼 두 곳에 1·2위. 좌표는 일부러 엉뚱한 곳에 둬서 **이름으로만** 걸리게 한다.
+        hubAttractionRepository.replaceRegion(REGION, List.of(
+                중심("장소s" + (pool - 1), 1),
+                중심("장소s" + (pool - 2), 2)));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> sights = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'SIGHT')].title");
+        assertTrue(sights.contains("장소s" + (pool - 1)) && sights.contains("장소s" + (pool - 2)),
+                "인기 1·2위가 코스에 없다 — 거리로만 골랐다는 뜻이다: " + sights);
+    }
+
+    private static HubAttraction 중심(String name, int rank) {
+        return HubAttraction.builder()
+                .regionId(REGION).baseMonth(RANK_BASE)
+                .hubRank(rank).hubCode("HUB-" + rank)
+                .name(name).categoryLarge("관광지")
+                // 이름으로 걸리는지를 보려고 좌표는 멀리 둔다 — 300m 규칙이 대신 맞춰버리면 판정이 흐려진다.
+                .lat(33.5).lng(126.5)
+                .build();
     }
 }
