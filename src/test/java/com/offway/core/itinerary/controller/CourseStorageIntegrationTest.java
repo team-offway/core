@@ -678,12 +678,9 @@ class CourseStorageIntegrationTest {
         transitDurationRefreshService.measurePending();
 
         LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
-        // **날짜 집합으로 본다.** 재는 구간이 몇 개인지는 이 테스트의 관심사가 아니다 — 대안에도
-        // 소요시간을 채우면서(#508) 한 번의 조회로 여러 구간이 대기열에 들어가게 됐다. 확인하려는 것은
-        // "어느 날짜까지 묻는가" 다.
         assertIterableEquals(
                 List.of(today, today.plusDays(1), today.plusDays(2)), // 정선은 버스 — 조회창이 사흘이다
-                transitLegClient.askedDates().stream().distinct().sorted().toList());
+                transitLegClient.askedDates());
     }
 
     @Test

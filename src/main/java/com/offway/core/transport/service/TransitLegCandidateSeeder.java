@@ -5,7 +5,6 @@ import com.offway.core.region.service.RegionQuery;
 import com.offway.core.transport.domain.BusTerminal;
 import com.offway.core.transport.domain.BusTerminalKind;
 import com.offway.core.transport.domain.Terminal;
-import com.offway.core.transport.domain.TransferHub;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.repository.BusTerminalRepository;
 import java.time.Duration;
@@ -104,16 +103,12 @@ public class TransitLegCandidateSeeder {
                 continue;
             }
             TransitMode mode = TransitMode.of(kind);
-            // **허브도 도착지로 넣는다**(#508). 경유는 출발→허브·허브→도착 두 구간이 모두 잰 값일 때만
-            // 성립하는데, 앞 구간은 도착지가 지역이 아니라 허브라 여기 없으면 영영 안 재진다.
-            Set<String> destinations = new LinkedHashSet<>(arrivals);
-            destinations.addAll(hubCodes(kind));
             for (BusTerminal origin : terminals) {
                 // 정류소는 출발지로 두지 않는다 — 특정 노선만 서고, 구간 조회도 터미널 코드를 전제한다(#446).
                 if (origin.getKind() != kind || !origin.hasCoordinate() || !origin.isTerminal()) {
                     continue;
                 }
-                for (String arrival : destinations) {
+                for (String arrival : arrivals) {
                     if (!origin.getCode().equals(arrival)) {
                         candidates.add(new Candidate(mode, origin.getCode(), arrival));
                     }
@@ -133,19 +128,6 @@ public class TransitLegCandidateSeeder {
      * <p>근처의 <b>다른</b> 터미널까지 넣지는 않는다 — 도착 지점은 지역이 정하는 것이라 옆 동네로
      * 바꿔치면 안 된다. 늘리는 것은 "같은 곳을 가리키는 코드" 뿐이다.
      */
-    /** 경유 후보 자리의 그 종류 터미널 코드(#508). 코드가 여럿이면 전부 — 되는 쪽을 배치가 가린다. */
-    private Set<String> hubCodes(BusTerminalKind kind) {
-        Set<String> codes = new LinkedHashSet<>();
-        for (TransferHub hub : TransferHub.values()) {
-            busTerminalResolver
-                    .nearestWithDuplicates(hub.coordinate().lat(), hub.coordinate().lng(), kind).stream()
-                    .filter(Terminal::isTerminal)
-                    .map(Terminal::code)
-                    .forEach(codes::add);
-        }
-        return codes;
-    }
-
     private Set<String> arrivalCodes(List<Region> regions, BusTerminalKind kind) {
         Set<String> codes = new LinkedHashSet<>();
         for (Region region : regions) {

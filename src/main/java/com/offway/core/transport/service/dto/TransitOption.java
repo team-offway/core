@@ -20,20 +20,15 @@ import lombok.Builder;
  *
  * @param mode 수단
  * @param toName 도착 지점명(역·터미널·항구)
- * @param status 이 수단의 상태(#508). <b>모르는 것과 없는 것을 가른다</b> — 소요시간이 null 인 이유가
- *     "아직 안 쟀다"({@code POINT_ONLY})인지 "노선이 없다"({@code NO_ROUTE})인지에 따라 화면이 할 말이
- *     다르다. 전자는 비워 두면 되고 후자는 그렇게 적어야 한다
  * @param durationMinutes 소요시간(분, 모르면 null)
  * @param departures 그날 탈 수 있는 편들. 조회창 밖이거나 그날 운행이 없으면 <b>빈 목록</b>이다
  */
 @Builder
 public record TransitOption(
-        TransitMode mode, String toName, RegionAccess.Status status,
-        Integer durationMinutes, List<Departure> departures) {
+        TransitMode mode, String toName, Integer durationMinutes, List<Departure> departures) {
 
     public TransitOption {
         Objects.requireNonNull(mode, "수단은 null 일 수 없습니다.");
-        Objects.requireNonNull(status, "수단 상태는 null 일 수 없습니다.");
         Objects.requireNonNull(toName, "도착 지점명은 null 일 수 없습니다.");
         departures = departures == null ? List.of() : List.copyOf(departures);
     }
