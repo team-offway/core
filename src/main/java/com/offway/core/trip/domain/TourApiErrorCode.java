@@ -29,7 +29,11 @@ public enum TourApiErrorCode implements ErrorCode {
 
     /** 전국문화축제표준데이터 호출·파싱 실패(#433). 적재 배치만 타는 경로라 사용자가 직접 보는 일은 드물다. */
     FESTIVAL_STANDARD_LOOKUP_FAILED(
-            "TOUR-005", ErrorCategory.EXTERNAL_API, "축제 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+            "TOUR-005", ErrorCategory.EXTERNAL_API, "축제 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."),
+
+    /** 고캠핑 야영장 조회 실패(#510) — 월 1회 배치에서만 닿는다. */
+    CAMPING_LOOKUP_FAILED(
+            "TOUR-006", ErrorCategory.EXTERNAL_API, "야영장 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
 
     private final String code;
     private final ErrorCategory category;

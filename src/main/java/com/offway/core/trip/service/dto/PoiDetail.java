@@ -59,6 +59,18 @@ public record PoiDetail(
         images = images == null ? List.of() : List.copyOf(images);
     }
 
+    /**
+     * 보조정보와 한 줄 소개를 얹는다 — 우리 DB 출처 중 <b>야영장만</b> 이 값을 안다(#510).
+     *
+     * <p>{@link #withoutIntro} 에 인자를 더하지 않고 따로 둔다. 그 팩토리는 이미 열두 칸이고 그중
+     * 여섯이 {@code String} 이라, 칸을 더하면 호출부에서 자리를 밀려 써도 컴파일이 통과한다 — 실제로
+     * 그런 이유로 생긴 팩토리다.
+     */
+    public PoiDetail withIntro(PoiIntro intro, String catchphrase) {
+        return new PoiDetail(contentId, contentTypeId, typeLabel, title, address, tel, lat, lng,
+                imageUrl, overview, intro, mapSearchUrl, benefit, catchphrase, images);
+    }
+
     /** 관광 API 콘텐츠가 아닌 장소 — 보조정보가 없다. */
     public static PoiDetail withoutIntro(
             String contentId, Integer contentTypeId, String typeLabel, String title, String address, String tel,

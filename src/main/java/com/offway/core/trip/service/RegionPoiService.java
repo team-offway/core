@@ -11,6 +11,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.service.RegionQuery;
+import com.offway.core.trip.domain.CampingPlace;
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.PlaceKind;
@@ -23,6 +24,7 @@ import com.offway.core.trip.repository.FestivalPeriodRepository;
 import java.time.LocalDate;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.domain.FestivalPlace;
+import com.offway.core.trip.repository.CampingPlaceRepository;
 import com.offway.core.trip.repository.FestivalPlaceRepository;
 import com.offway.core.trip.repository.HeritagePlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
@@ -132,6 +134,18 @@ public class RegionPoiService {
      */
     private static final int OPEN_FESTIVAL_LIMIT = 5;
 
+    /**
+     * 숙박 후보로 올릴 야영장 수(#510).
+     *
+     * <p>후보 100건(볼거리)과 달리 작게 잡는다. 숙박은 가장 긴 코스(2박3일)가 두 자리를 쓸 뿐이라,
+     * 필요한 것은 <b>고를 여지</b>지 목록의 길이가 아니다. TourAPI 숙박이 지역당 평균 12건이니
+     * 스물이면 동선을 고를 폭이 세 배 가까이 된다.
+     *
+     * <p>상한이 필요한 이유는 지역 편차다 — 실측에서 최대 지역이 196건인데, 그 지역만 숙박 후보가
+     * 200건이 되면 코스 생성의 후보 정렬 비용이 거기서만 튄다.
+     */
+    private static final int CAMPING_ROWS = 20;
+
     private final RegionQuery regionQuery;
     private final TourApiClient tourApiClient;
     private final CatchphraseProvider catchphraseProvider;
@@ -139,6 +153,7 @@ public class RegionPoiService {
     private final HeritagePlaceRepository heritagePlaceRepository;
     private final FestivalPeriodRepository festivalPeriodRepository;
     private final FestivalPlaceRepository festivalPlaceRepository;
+    private final CampingPlaceRepository campingPlaceRepository;
 
     /**
      * 지역의 후보 POI 를 세 풀로 분류해 돌려준다. 좌표가 없는 POI 는 지도·동선에 못 쓰므로 제외한다.
@@ -181,7 +196,12 @@ public class RegionPoiService {
         // 실측이 그 대가를 보여준다 — 우리 DB 볼거리가 지역당 평균 82개인데, TourAPI 15개 + 축제
         // 4건이 19개로 "충분" 판정을 받으면 그 82개를 아예 안 쓴다. 축제 4건을 얻고 후보 풀을
         // 97개에서 19개로 줄이는 셈이라, 동선을 고를 여지가 그만큼 사라진다.
-        return withOpenFestivals(filled, regionId, travelDate);
+        //
+        // **야영장도 보충 판정 밖에서 붙인다**(#510). 이유는 축제와 다르다 — 축제는 볼거리 수를
+        // 부풀려 보충을 막는 것이 문제였고, 야영장은 그 반대로 **보충이 애초에 안 도는 것**이 문제다.
+        // MIN_STAYS 가 2 라 지역당 평균 12건인 숙박 풀에서는 needsMoreStays() 가 거의 참이 아니고,
+        // 인허가와 같은 자리에 넣으면 야영장이 한 건도 안 쓰인다.
+        return withOpenFestivals(withCampsites(filled, regionId), regionId, travelDate);
     }
 
     /**
@@ -394,6 +414,58 @@ public class RegionPoiService {
                 .sights(Stream.concat(added.stream(), pois.sights().stream()).toList())
                 .foods(pois.foods())
                 .stays(pois.stays())
+                .build();
+    }
+
+    /**
+     * 야영장을 숙박 풀에 더한다(#510) — <b>부족할 때만이 아니라 언제나</b>.
+     *
+     * <p>사진 있는 숙박 후보가 지역당 열두 곳 남짓이라 카드가 빈다. 인허가 숙박은 296곳이나 되지만
+     * <b>사진 컬럼이 없어</b> 회색 판이 된다. 야영장은 사진 75%·좌표 99.8% 를 들고 오므로 그 자리를
+     * 실제로 메운다 — 실측으로 사진 있는 숙박이 922 → 1,886건이 된다.
+     *
+     * <p>겹침은 {@code RegionPois} 가 이름·좌표로 걸러낸다. TourAPI 숙박에 이미 야영장이 섞여 있어
+     * (대분류 AC 977건 중 625건이 타입 28) 실측에서 375건이 겹쳤다.
+     */
+    private RegionPois withCampsites(RegionPois pois, long regionId) {
+        List<CampingPlace> campsites = campingPlaceRepository.findCandidates(regionId, CAMPING_ROWS);
+        if (campsites.isEmpty()) {
+            return pois;
+        }
+        RegionPois merged = pois.withMoreStays(campsites.stream()
+                .map(RegionPoiService::toCandidate)
+                .toList());
+        if (merged.stays().size() == pois.stays().size()) {
+            return pois; // 전부 이미 있던 곳이다
+        }
+        // 무엇이 늘었는지 남긴다 — 야영장이 코스에 들어간 이유를 나중에 설명할 수 있어야 한다.
+        log.info("야영장을 숙박 후보에 올렸습니다 regionId={} 야영장={}건 숙박={}→{}",
+                regionId, campsites.size(), pois.stays().size(), merged.stays().size());
+        return merged;
+    }
+
+    /**
+     * 야영장을 후보로 옮긴다.
+     *
+     * <p><b>사진이 온다</b>(75%) — 우리 DB 출처 중 인허가·축제에는 없고 국가유산에만 있던 것이다.
+     * 그게 이 소스를 들여온 이유라 반드시 함께 넘긴다.
+     *
+     * <p>한 줄 소개를 캐치프레이즈 자리에 넣는다. 국가유산 설명·축제 내용을 뺐던 것과 갈리는 지점은
+     * <b>길이가 정해져 있다</b>는 점이다 — 고캠핑은 카드 한 줄용 {@code lineIntro} 를 따로 준다(51%).
+     * 긴 소개글은 {@code intro} 로 따로 와 상세에서만 쓴다.
+     */
+    private static PoiCandidate toCandidate(CampingPlace campsite) {
+        return PoiCandidate.builder()
+                .contentId(campsite.publicId())
+                .contentTypeId(NON_TOUR_CONTENT_TYPE)
+                .title(campsite.getName())
+                .lat(campsite.getLat())
+                .lng(campsite.getLng())
+                .imageUrl(campsite.getImageUrl())
+                .address(campsite.getAddress())
+                .catchphrase(campsite.getLineIntro())
+                .tel(campsite.getTel())
+                // 대분류는 호출부가 숙박 풀로 이미 갈랐다 — TourAPI 분류체계 밖이라 값이 없다.
                 .build();
     }
 
