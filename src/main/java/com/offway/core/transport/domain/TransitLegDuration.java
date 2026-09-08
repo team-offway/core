@@ -124,6 +124,16 @@ public class TransitLegDuration {
         this.lastAskedAt = Objects.requireNonNull(now, "요청 시각은 null 일 수 없습니다.");
     }
 
+    /**
+     * <b>재봤더니 그 구간에 차가 없더라</b>(#507). 아직 안 잰 것과 갈라야 한다.
+     *
+     * <p>같은 터미널인데 코드가 여럿인 경우가 있고(동대구 7개·전주 5개·동서울 4개), <b>그중 한쪽으로만
+     * 조회된다.</b> 출발 코드를 고를 때 이미 "없다" 로 판명된 코드를 피하려면 이 구분이 필요하다.
+     */
+    public boolean noService() {
+        return measuredAt != null && minutes == null;
+    }
+
     /** 아직 안 쟀는가 — 배치가 채울 자리다. */
     public boolean unmeasured() {
         return measuredAt == null;
