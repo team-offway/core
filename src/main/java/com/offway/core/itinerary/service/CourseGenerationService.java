@@ -11,6 +11,7 @@ import com.offway.core.itinerary.domain.GeoCluster;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotDisplay;
+import com.offway.core.itinerary.domain.SightVariety;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.StayPreference;
 import com.offway.core.trip.domain.PlaceOrigin;
@@ -67,6 +68,9 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class CourseGenerationService {
+
+    /** 상한을 몇 단계까지 푸나 — 한 곳도 못 고를 때만 쓰는 안전판이다. */
+    private static final int VARIETY_MAX_RELAX = 3;
 
     private final RegionPoiService regionPoiService;
     private final TravelTimeProvider travelTimeProvider;
@@ -146,6 +150,10 @@ public class CourseGenerationService {
         // 야영장은 산·계곡·유적 근처라 볼거리 중심에 가까워, 사진 있는 호텔을 사진 없는 야영장이
         // 밀어냈다(실측: 사진 있는 숙소가 141 → 119 로 줄었다).
         List<PoiCandidate> stays = selectStays(stayPool, hub, needs.stays());
+        // 카페는 밥 다음 한 칸이라 끼니와 겹칠 일이 없다 — 거리로만 고른다(#522).
+        List<PoiCandidate> cafePool = usable(pois.cafes(), command, blocked);
+        List<PoiCandidate> cafes = cafePool.isEmpty() ? List.of()
+                : reorder(cafePool, GeoCluster.nearest(coords(cafePool), hub, needs.cafes()));
 
         // 지역은 날씨·열차 접근 양쪽이 쓴다 — 한 번만 읽는다(#129).
         Region region = regionQuery.byId(command.regionId()).orElse(null);
@@ -162,7 +170,7 @@ public class CourseGenerationService {
         // ⑥ 슬롯 배치 → ⑨ 조립. 첫날은 도착 시각 이후 남는 시간대만 쓴다.
         // 대중교통이면 첫 칸·끝 칸에 내린 지점(역·터미널·항구)을 세운다(#415).
         List<DaySchedule> days = buildDays(
-                command, firstDayStart(command, regionAccess), orderedSights, foods, stays,
+                command, firstDayStart(command, regionAccess), orderedSights, foods, cafes, stays,
                 transitHub(command, regionAccess));
         // 기간은 days.size() 가 아니라 **요청한 일수**다. 일정이 없는 날은 코스에서 빠지므로(#159) 둘이 갈린다 —
         // 첫날이 이동뿐이어도 그날은 여행 중이고, 연차도 그만큼 나간다(#164).
@@ -353,26 +361,31 @@ public class CourseGenerationService {
      * 후보는 사라지지 않고 그대로 이튿날 몫이 된다.
      */
     private List<DaySchedule> buildDays(GenerateCourse command, DayStart firstDayStart,
-            List<PoiCandidate> sights, List<PoiCandidate> foods, List<PoiCandidate> stays, TransitHub hub) {
+            List<PoiCandidate> sights, List<PoiCandidate> foods, List<PoiCandidate> cafes,
+            List<PoiCandidate> stays, TransitHub hub) {
         int perDaySights = command.density().sightsPerDay();
         List<DaySchedule> days = new ArrayList<>();
-        int si = 0;
+        // **상한은 날짜 배정에서 건다**(#522). 고를 때 걸면 그 뒤 동선 정렬이 순서를 바꿔 하루 단위가
+        // 어긋난다 — 실제로 그렇게 만들었더니 해수욕장이 통째로 이튿날로 밀렸다.
+        List<PoiCandidate> remaining = new ArrayList<>(sights);
         int fi = 0;
+        int ci = 0;
         int sti = 0;
         for (int day = 1; day <= command.travelDays(); day++) {
             DayStart start = day == 1 ? firstDayStart : DayStart.fullDay();
-            List<PoiCandidate> daySights = slice(sights, si, start.sightCapacity(perDaySights));
-            si += daySights.size();
+            List<PoiCandidate> daySights = takeVaried(remaining, start.sightCapacity(perDaySights));
             if (command.transport() == TransportMode.CAR) {
                 // 하루 볼거리 순서를 실도로 기준 최적화(자차). 대중교통은 #26·#27 전까지 근사 순서 유지.
                 daySights = reorder(daySights, routeOptimizer.optimalOrder(coords(daySights)));
             }
             List<PoiCandidate> dayFoods = slice(foods, fi, start.mealCapacity());
             fi += dayFoods.size();
+            // 카페는 점심 뒤 한 칸이라, 점심이 없는 날(늦게 시작한 첫날)에는 넣지 않는다.
+            PoiCandidate cafe = (!dayFoods.isEmpty() && ci < cafes.size()) ? cafes.get(ci++) : null;
             boolean lastDay = day == command.travelDays();
             PoiCandidate stay = (!lastDay && sti < stays.size()) ? stays.get(sti++) : null;
 
-            List<Slot> slots = arrangeDay(daySights, dayFoods, stay, command.transport(), start);
+            List<Slot> slots = arrangeDay(daySights, dayFoods, cafe, stay, command.transport(), start);
             if (!slots.isEmpty()) {
                 // 표시 번호는 1부터 연속(빈 날은 건너뛴다), 날짜 계산용 오프셋은 달력을 그대로 따른다.
                 // 둘을 겸하면 첫날이 빌 때 날짜와 날씨가 하루 앞당겨진다(#159).
@@ -503,8 +516,50 @@ public class CourseGenerationService {
      * <p>{@code start} 가 좁으면 이미 지난 시간대는 비운다 — 오전을 못 쓰면 볼거리가 전부 오후로 간다. <b>숙박은
      * 예외로 시간대 판정을 타지 않는다</b> — 밤늦게 닿아도 잘 곳은 필요하다.
      */
-    private List<Slot> arrangeDay(List<PoiCandidate> sights, List<PoiCandidate> foods, PoiCandidate stay,
-            TransportMode transport, DayStart start) {
+    /**
+     * 하루치 볼거리를 <b>같은 종류가 몰리지 않게</b> 집는다(#522).
+     *
+     * <p>앞에서 정한 순서(연관 관광지·동선)를 훑되 그날 상한에 걸린 것은 건너뛴다. 건너뛴 것은 목록에
+     * 남아 <b>이튿날 몫</b>이 된다 — 태안처럼 해수욕장이 몰린 지역에서 하루에 하나씩 나뉜다.
+     *
+     * <p><b>고르는 단계는 안 건드린다.</b> 후보를 더 넓게 집으면 재생성 씨앗이 무력해진다 — 요청 수가
+     * 풀 크기를 넘으면 {@code selectCompact} 가 씨앗과 무관하게 전부 돌려주기 때문이다. 실제로 그렇게
+     * 만들었더니 <b>재생성해도 같은 코스</b>가 나왔다. 여기서는 이미 고른 것을 날짜에 나눌 뿐이다.
+     *
+     * <p><b>못 채우면 그냥 적게 넣는다.</b> 상한을 풀어 채우면 남은 것이 한 종류뿐인 날이 그것으로
+     * 도배된다 — 실제로 마지막 날이 해수욕장 넷이 됐다. 여섯 칸을 같은 것으로 채우는 것보다 네 칸이라도
+     * 다른 것을 넣는 편이 낫다. 한 곳도 못 고를 때만 상한을 버린다(빈 날은 코스에서 통째로 빠진다).
+     */
+    private static List<PoiCandidate> takeVaried(List<PoiCandidate> remaining, int capacity) {
+        for (int step = 0; step <= VARIETY_MAX_RELAX; step++) {
+            List<PoiCandidate> picked = pickWithin(remaining, capacity, step);
+            if (!picked.isEmpty()) {
+                remaining.removeAll(picked);
+                return picked;
+            }
+        }
+        List<PoiCandidate> fallback = List.copyOf(remaining.subList(0, Math.min(capacity, remaining.size())));
+        remaining.removeAll(fallback);
+        return fallback;
+    }
+
+    private static List<PoiCandidate> pickWithin(List<PoiCandidate> remaining, int capacity, int step) {
+        SightVariety day = step == 0 ? SightVariety.strict() : SightVariety.relaxedBy(step);
+        List<PoiCandidate> picked = new ArrayList<>();
+        for (PoiCandidate candidate : remaining) {
+            if (picked.size() >= capacity) {
+                break;
+            }
+            if (day.accepts(candidate.sightKind())) {
+                day.add(candidate.sightKind());
+                picked.add(candidate);
+            }
+        }
+        return picked;
+    }
+
+    private List<Slot> arrangeDay(List<PoiCandidate> sights, List<PoiCandidate> foods, PoiCandidate cafe,
+            PoiCandidate stay, TransportMode transport, DayStart start) {
         List<Entry> entries = new ArrayList<>();
         int morning = start.morningShare(sights.size());
         for (int i = 0; i < sights.size(); i++) {
@@ -515,6 +570,10 @@ public class CourseGenerationService {
         int fi = 0;
         if (start.allows(TimeOfDay.LUNCH) && fi < foods.size()) {
             entries.add(morning, new Entry(SlotKind.FOOD, TimeOfDay.LUNCH, foods.get(fi++)));
+            // **밥 다음은 카페다**(#522). 점심 바로 뒤에 끼운다 — 오후 관광 앞이라 동선이 이어진다.
+            if (cafe != null) {
+                entries.add(morning + 1, new Entry(SlotKind.CAFE, TimeOfDay.AFTERNOON, cafe));
+            }
         }
         if (start.allows(TimeOfDay.DINNER) && fi < foods.size()) {
             entries.add(new Entry(SlotKind.FOOD, TimeOfDay.DINNER, foods.get(fi++)));

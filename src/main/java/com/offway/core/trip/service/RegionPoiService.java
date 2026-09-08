@@ -70,6 +70,9 @@ public class RegionPoiService {
 
     private static final String LCLS_FOOD = "FD";
 
+    /** 음식점 대분류 안의 카페 중분류 — 끼니와 갈라야 하는 자리다(#522). */
+    private static final String LCLS_CAFE = "FD05";
+
     /**
      * 중분류로만 갈리는 잘 곳 — <b>복합관광시설(리조트)</b>(#304).
      *
@@ -181,13 +184,21 @@ public class RegionPoiService {
         List<PoiCandidate> allTypes = byScope.getOrDefault(ALL_TYPES_SCOPE, List.of());
         List<PoiCandidate> sights =
                 withoutClosedFestivals(allTypes.stream().filter(c -> isSight(c)).toList(), travelDate);
-        List<PoiCandidate> foods = merge(allTypes.stream().filter(c -> LCLS_FOOD.equals(c.lclsSystm1())).toList(),
+        // **카페를 끼니에서 갈라낸다**(#522). 음식점 대분류(FD)에 카페(FD05)가 섞여 있어 그대로 두면
+        // 카페가 점심 자리에 뽑힌다 — 실제로 태안 1일차 점심이 카페였다.
+        List<PoiCandidate> allFood = merge(
+                allTypes.stream().filter(c -> LCLS_FOOD.equals(c.lclsSystm1())).toList(),
                 byScope.getOrDefault(FOOD_TYPE, List.of()));
+        List<PoiCandidate> foods = allFood.stream().filter(c -> !isCafe(c)).toList();
+        List<PoiCandidate> cafes = merge(
+                allFood.stream().filter(RegionPoiService::isCafe).toList(),
+                licensedCandidates(regionId, PlaceKind.CAFE));
         List<PoiCandidate> stays = merge(allTypes.stream().filter(RegionPoiService::isStay).toList(),
                 byScope.getOrDefault(STAY_TYPE, List.of()));
 
-        RegionPois pois = RegionPois.builder().sights(sights).foods(foods).stays(stays).build();
-        log.debug("코스 POI 수집 regionId={} 볼거리={} 맛집={} 숙박={}", regionId, sights.size(), foods.size(), stays.size());
+        RegionPois pois = RegionPois.builder().sights(sights).foods(foods).cafes(cafes).stays(stays).build();
+        log.debug("코스 POI 수집 regionId={} 볼거리={} 맛집={} 카페={} 숙박={}",
+                regionId, sights.size(), foods.size(), cafes.size(), stays.size());
         RegionPois filled = pois.needsSupplement() ? supplement(pois, regionId) : pois;
 
         // **축제는 보충 판정이 끝난 뒤에 붙인다**(#433). 앞에 붙이면 축제가 볼거리 수에 섞여
@@ -284,6 +295,15 @@ public class RegionPoiService {
      * 인허가 장소는 TourAPI 콘텐츠가 아니라 상세 조회 대상이 아니다. 식별자에 접두어를 붙여 두 출처를 구분할 수 있게 하고,
      * 콘텐츠 타입은 "TourAPI 아님" 을 뜻하는 0 으로 둔다.
      */
+    /**
+     * 카페인가 — 음식점 대분류 안의 <b>카페 중분류</b>({@code FD05})다(#522).
+     *
+     * <p>{@code contentTypeId} 로는 못 가른다. 카페도 음식점(39)이라 같은 값이 온다.
+     */
+    private static boolean isCafe(PoiCandidate candidate) {
+        return LCLS_CAFE.equals(candidate.lclsSystm2());
+    }
+
     private static PoiCandidate toCandidate(LicensedPlace place) {
         return PoiCandidate.builder()
                 .contentId(place.publicId())
@@ -648,6 +668,7 @@ public class RegionPoiService {
                 .lclsSystm1(poi.lclsSystm1())
                 .lclsSystm2(poi.lclsSystm2())
                 .foodCategory(poi.foodTaste().orElse(null))
+                .sightKind(poi.cat3())
                 .build();
     }
 }
