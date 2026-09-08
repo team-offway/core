@@ -112,14 +112,15 @@ public class RegionAccessService {
             // 대표가 어느 종류든 **그 종류의 터미널**로 채운다. 고정 요청이 고속을 세웠는데 시외 터미널로
             // 출발지·구간을 풀면 제공기관이 알 수 없는 코드로 읽는다(코드 공간이 겹치지 않는다).
             Optional<Terminal> chosenTerminal = terminalFor(chosen.mode(), destExpress, destIntercity);
+            // **출발 지점을 한 번만 푼다.** 셋이 각자 풀면 그 사이 배치가 한 코드를 미운행으로 적었을 때
+            // 출발지명은 A 터미널, 소요시간·시간표는 B 터미널인 응답이 나간다(#507 리뷰).
+            Optional<RegionArrival> departure =
+                    departurePoint(chosen.mode(), originLat, originLng, chosenTerminal, destPort);
             chosen = chosen
-                    .withFromName(departurePoint(chosen.mode(), originLat, originLng, chosenTerminal, destPort)
-                            .map(RegionArrival::name)
-                            .orElse(null))
-                    .withDuration(
-                            durationOf(chosen.mode(), originLat, originLng, chosenTerminal, destPort).orElse(null))
+                    .withFromName(departure.map(RegionArrival::name).orElse(null))
+                    .withDuration(durationOf(chosen.mode(), departure, chosenTerminal, destPort).orElse(null))
                     .withDepartures(departuresOf(
-                            chosen.mode(), originLat, originLng, chosenTerminal, destPort, date, notBefore));
+                            chosen.mode(), departure, chosenTerminal, destPort, date, notBefore));
         }
         return chosen.withDistanceKm(distanceKm(new Coordinate(originLat, originLng), chosen.arrivalPoint()))
                 .withAlternatives(alternativesTo(
@@ -269,11 +270,14 @@ public class RegionAccessService {
                 .filter(terminal -> TransitMode.of(terminal.kind()) != chosen.mode())
                 .forEach(terminal -> {
                     TransitMode mode = TransitMode.of(terminal.kind());
+                    Optional<Terminal> only = Optional.of(terminal);
                     others.add(TransitOption.builder()
                             .mode(mode)
                             .toName(terminal.name())
                             .departures(departuresOf(
-                                    mode, originLat, originLng, Optional.of(terminal), destPort, date, notBefore))
+                                    mode,
+                                    departurePoint(mode, originLat, originLng, only, destPort),
+                                    only, destPort, date, notBefore))
                             .build());
                 });
         destPort
@@ -283,7 +287,9 @@ public class RegionAccessService {
                         .toName(port.name())
                         // 여객선은 터미널을 안 쓴다 — 출발은 항구, 도착 코드도 항구다.
                         .departures(departuresOf(
-                                TransitMode.FERRY, originLat, originLng, Optional.empty(), destPort, date, notBefore))
+                                TransitMode.FERRY,
+                                departurePoint(TransitMode.FERRY, originLat, originLng, Optional.empty(), destPort),
+                                Optional.empty(), destPort, date, notBefore))
                         .build()));
         return List.copyOf(others);
     }
@@ -303,10 +309,10 @@ public class RegionAccessService {
      * 그 환승을 잇는 것은 이 함수의 일이 아니다.
      */
     private Optional<Integer> durationOf(
-            TransitMode mode, double originLat, double originLng,
+            TransitMode mode, Optional<RegionArrival> departure,
             Optional<Terminal> destTerminal, Optional<Port> destPort) {
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
-        return departurePoint(mode, originLat, originLng, destTerminal, destPort)
+        return departure
                 .flatMap(from -> arrivalCode(mode, destTerminal, destPort)
                         .flatMap(toCode -> transitDurationService.minutesFor(mode, from.code(), toCode, now)));
     }
@@ -393,10 +399,10 @@ public class RegionAccessService {
      * ({@code TrainAccessService} 가 이미 받아 둔 하루치에서 고른다).
      */
     private List<Departure> departuresOf(
-            TransitMode mode, double originLat, double originLng,
+            TransitMode mode, Optional<RegionArrival> departure,
             Optional<Terminal> destTerminal, Optional<Port> destPort, LocalDate date, LocalTime notBefore) {
         LocalDate today = LocalDate.now(SERVICE_ZONE);
-        List<Departure> all = departurePoint(mode, originLat, originLng, destTerminal, destPort)
+        List<Departure> all = departure
                 .flatMap(from -> arrivalCode(mode, destTerminal, destPort)
                         .map(toCode -> transitDepartureService.departures(
                                 mode, from.code(), toCode, date, today)))

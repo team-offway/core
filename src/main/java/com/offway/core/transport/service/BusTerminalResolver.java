@@ -32,9 +32,6 @@ public class BusTerminalResolver {
     /** 같은 자리로 볼 거리. TAGO 중복은 좌표가 그대로 같지만 소수점 흔들림을 감안한다. */
     private static final double SAME_SPOT_KM = 0.5;
 
-    /** 같은 자리 중복을 찾으려 훑는 범위. 중복이 이보다 많은 터미널은 없다(가장 많은 통합단말이 11개). */
-    private static final int SAME_SPOT_SCAN = 12;
-
     private final BusTerminalRepository terminalRepository;
     private volatile List<BusTerminal> cache;
 
@@ -88,7 +85,10 @@ public class BusTerminalResolver {
      * 그대로 같게 들어온다(동대구 7개·전주 5개·동서울 4개).
      */
     public List<Terminal> nearestWithDuplicates(double lat, double lng, BusTerminalKind kind) {
-        List<Terminal> ordered = candidatesNear(lat, lng, kind, SAME_SPOT_SCAN);
+        // **자르고 묶지 않는다.** 상한을 먼저 걸면 선두와 같은 자리인 코드가 그 밖으로 밀릴 수 있다 —
+        // 사이에 다른 터미널이 끼기 때문이다(서울 반경 안에는 서울경부·동서울·서울남부·김포공항이 함께
+        // 잡힌다). 밀려난 코드는 적재도 안 되고, 그러면 배치가 그 코드를 재볼 기회 자체가 없다.
+        List<Terminal> ordered = nearbyOrdered(new Coordinate(lat, lng), kind).toList();
         if (ordered.isEmpty()) {
             return List.of();
         }
