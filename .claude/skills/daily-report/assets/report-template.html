@@ -2,214 +2,250 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<title>offway 개발일지</title>
+<title>OffWay 개발 일지</title>
 <style>
-  :root {
-    --ink:#111214; --dim:#8a8f98; --mid:#4a4f57; --line:#e4e5e8;
-    --page:#f1f1f2; --card:#ffffff; --hot:#d9342b; --dark:#141517;
+  /* ── OffWay 토큰 (앱 목업에서 그대로) ─────────────────────────────── */
+  :root{
+    --ink:#17181c; --sub:#7a828d; --mute:#9aa1aa;
+    --line:#eef0f2; --wash:#f6f7f9; --edge:#e6e9ed;
+    --yellow:#ffe64d; --green:#12a25f; --red:#d9534f;
+    --shadow:0 2px 8px rgba(20,25,34,.04);
+    --shadow-lift:0 8px 24px rgba(20,25,34,.07);
   }
-  * { box-sizing:border-box; }
-  body {
-    margin:0; padding:34px 36px 26px; background:var(--page); color:var(--ink);
-    font-family:"Pretendard","Apple SD Gothic Neo","Segoe UI",system-ui,sans-serif;
-    line-height:1.6; -webkit-font-smoothing:antialiased; letter-spacing:-0.01em;
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:64px 44px 52px; background:#fff; color:var(--ink);
+    font-family:"Pretendard",-apple-system,"Apple SD Gothic Neo",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
   }
-  .wrap { max-width:1900px; margin:0 auto; }
+  .wrap{max-width:1000px;margin:0 auto}
 
-  /* 머리 */
-  .top { display:flex; align-items:flex-start; justify-content:space-between; }
-  .brand { font-size:26px; font-weight:800; letter-spacing:-0.03em; }
-  .brand span { font-size:13px; font-weight:500; color:var(--dim); margin-left:10px; letter-spacing:0; }
-  .day { text-align:right; }
-  .day b { display:block; font-size:40px; font-weight:800; line-height:1; letter-spacing:-0.03em; }
-  .day i { display:block; font-style:normal; font-size:12px; color:var(--dim); margin-top:6px; }
+  /* ── 타이포: 자간·행간은 크기마다 다르다 ─────────────────────────── */
+  .eyebrow{font-size:.78rem;font-weight:700;letter-spacing:.09em;color:var(--mute)}
+  h1{margin:.55rem 0 0;font-size:2.7rem;font-weight:800;letter-spacing:-.035em;line-height:1.06}
+  .hl{position:relative;white-space:nowrap;z-index:0}
+  .hl::after{content:"";position:absolute;left:-.06em;right:-.06em;bottom:.1em;height:.4em;
+             background:var(--yellow);border-radius:2px;z-index:-1}
+  .lede{margin:1rem 0 0;font-size:1.02rem;line-height:1.7;color:var(--sub);max-width:64ch}
+  .lede b{color:var(--ink);font-weight:700}
 
-  .lead { margin:18px 0 22px; font-size:17px; font-weight:600; line-height:1.65; max-width:1400px; }
-  .lead em { font-style:normal; color:var(--hot); font-weight:800; }
+  /* ── 오늘의 숫자 ─────────────────────────────────────────────────── */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:2rem}
+  .stat{border:1px solid var(--line);border-radius:16px;padding:16px 18px;background:var(--wash)}
+  .stat .k{font-size:.76rem;font-weight:700;letter-spacing:.03em;color:var(--sub)}
+  .stat .v{margin-top:.45rem;font-size:1.3rem;font-weight:800;letter-spacing:-.02em;line-height:1.15}
+  .stat .v s{color:var(--mute);font-weight:600;text-decoration-thickness:1.5px}
+  .stat .v b{color:var(--green)}
 
-  /* 지표 */
-  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:14px; }
-  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
-  .stat b { display:block; font-size:29px; font-weight:800; line-height:1.15; letter-spacing:-0.03em; }
-  .stat b s { text-decoration:none; font-size:16px; font-weight:700; margin-left:2px; }
-  .stat b u { text-decoration:none; color:var(--dim); font-weight:700; }
-  .stat span { display:block; font-size:12px; color:var(--dim); margin-top:8px; line-height:1.5; }
+  /* ── 작업 카드 ───────────────────────────────────────────────────── */
+  .item{margin-top:14px;border:1px solid var(--line);border-radius:18px;background:#fff;
+        box-shadow:var(--shadow);overflow:hidden}
+  .item-head{display:flex;align-items:center;gap:.65rem;padding:18px 20px 0}
+  .n{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;
+     padding:0 .5rem;border-radius:999px;background:var(--ink);color:#fff;font-size:.78rem;font-weight:700}
+  .item-head h2{margin:0;font-size:1.06rem;font-weight:700;letter-spacing:-.015em;line-height:1.4}
+  .tag{margin-left:auto;font-size:.72rem;font-weight:700;letter-spacing:.03em;color:var(--sub);
+       border:1px solid var(--edge);border-radius:999px;padding:.2rem .55rem;background:var(--wash)}
+  .item-body{display:grid;grid-template-columns:1fr 372px;gap:26px;padding:12px 20px 20px;align-items:start}
+  /* 비교 그림이 없는 항목은 한 칸으로 편다 */
+  .item-body.solo{grid-template-columns:1fr}
+  .desc{font-size:.94rem;line-height:1.75;color:#3d434c}
+  .desc b{font-weight:700;color:var(--ink)}
+  .desc .g{color:var(--green);font-weight:700}
+  .desc .r{color:var(--red);font-weight:700}
 
-  /* 본 카드 */
-  .cards { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
-  .card h3 { margin:0 0 10px; font-size:15px; font-weight:700; line-height:1.45; }
-  .tags { display:flex; gap:5px; margin-bottom:12px; flex-wrap:wrap; }
-  .tag { font-size:11px; color:var(--mid); background:#f0f0f1; border-radius:4px; padding:2px 7px; font-weight:600; }
-  .card ul { margin:0; padding:0; list-style:none; }
-  .card li { position:relative; padding-left:11px; font-size:13px; color:var(--mid); line-height:1.72; margin-bottom:9px; }
-  .card li:last-child { margin-bottom:0; }
-  .card li::before { content:""; position:absolute; left:0; top:9px; width:3px; height:3px; border-radius:50%; background:#c4c6ca; }
-  .card li b { color:var(--ink); font-weight:700; }
-  .card li em { font-style:normal; color:var(--hot); font-weight:700; }
+  /* ── 전 → 후 비교 ────────────────────────────────────────────────── */
+  .cmp{display:grid;grid-template-columns:1fr 20px 1fr;gap:8px;align-items:center}
+  .cmp .arw{color:var(--mute);font-size:1rem;text-align:center;font-weight:700}
+  .side{border:1px solid var(--edge);border-radius:14px;overflow:hidden;background:#fff}
+  .side.after{border-color:#cfe8da;box-shadow:0 4px 14px rgba(18,162,95,.08)}
+  .side .cap{font-size:.68rem;font-weight:700;letter-spacing:.05em;padding:.4rem .6rem;
+             color:var(--mute);background:var(--wash);border-bottom:1px solid var(--line)}
+  .side.after .cap{color:var(--green);background:#f2fbf6;border-bottom-color:#e2f3ea}
+  .side .in{padding:10px}
+  /* 비교가 아니라 한 장으로 보여줄 때 (막대·목록) */
+  .panel{border:1px solid var(--edge);border-radius:14px;overflow:hidden;background:#fff}
+  .panel .cap{font-size:.68rem;font-weight:700;letter-spacing:.05em;padding:.4rem .6rem;
+              color:var(--mute);background:var(--wash);border-bottom:1px solid var(--line)}
+  .panel .in{padding:10px}
 
-  /* 더 한 작업 */
-  .more-label { font-size:12px; color:var(--dim); margin:22px 0 10px; }
-  .more { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
-  .mini { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
-  .mini h4 { margin:0 0 8px; font-size:13px; font-weight:700; }
-  .mini p { margin:0; font-size:12.5px; color:var(--mid); line-height:1.7; }
-  .mini p em { font-style:normal; color:var(--hot); font-weight:700; }
-  .mini p b { color:var(--ink); font-weight:700; }
+  /* 앱의 카드를 축소한 모양 */
+  .tcard{font-size:.72rem;line-height:1.5}
+  .tcard .mode{display:inline-flex;align-items:center;gap:.25rem;border-radius:999px;
+               padding:.15rem .45rem;font-weight:700;font-size:.66rem;
+               background:var(--ink);color:#fff}
+  .tcard .mode.warn{background:#fdecec;color:var(--red)}
+  .tcard .mode.ok{background:#e9f9f0;color:var(--green)}
+  .tcard .route{margin-top:.45rem;font-weight:700;font-size:.8rem;letter-spacing:-.01em}
+  .tcard .route s{color:var(--mute);font-weight:600}
+  .tcard .meta{margin-top:.2rem;color:var(--sub)}
+  .tcard .bad{color:var(--red);font-weight:700}
+  .tcard .good{color:var(--green);font-weight:700}
 
-  /* 이번 주 */
-  .week { margin-top:16px; background:var(--dark); color:#fff; border-radius:10px; padding:22px 26px;
-          display:grid; grid-template-columns:180px 1fr 1fr; gap:28px; }
-  .week .when { font-size:11px; color:#8b9098; }
-  .week .when b { display:block; font-size:19px; font-weight:800; color:#fff; margin-top:6px; letter-spacing:-0.02em; }
-  .week h5 { margin:0 0 8px; font-size:14px; font-weight:700; }
-  .week p { margin:0; font-size:12.5px; color:#b9bec5; line-height:1.75; }
-  .week p b { color:#fff; font-weight:700; }
+  /* 타임라인(하루 일정) */
+  .tl{display:flex;flex-direction:column;gap:5px}
+  .tl .row{display:flex;align-items:center;gap:.4rem;font-size:.7rem}
+  .tl .dot{width:6px;height:6px;border-radius:999px;background:var(--edge);flex:none}
+  .tl .row.on .dot{background:var(--green)}
+  .tl .t{color:var(--mute);width:34px;flex:none;font-variant-numeric:tabular-nums}
+  .tl .lab{color:#3d434c}
+  .tl .row.on .lab{color:var(--ink);font-weight:600}
+  .tl .empty{color:var(--mute)}
 
-  /* 바닥 */
-  .foot { margin-top:16px; padding-top:12px; border-top:1px solid var(--line);
-          display:flex; justify-content:space-between; font-size:11px; color:var(--dim); }
+  /* 막대 */
+  .bars{display:flex;flex-direction:column;gap:7px}
+  .bar{display:flex;align-items:center;gap:.5rem;font-size:.72rem}
+  .bar .lab{width:52px;color:var(--sub);flex:none}
+  .bar .track{flex:1;height:9px;border-radius:999px;background:var(--line);overflow:hidden}
+  /* display:block 필수 — span 은 인라인이라 height/width 를 무시한다 */
+  .bar .fill{display:block;height:100%;border-radius:999px;background:var(--ink)}
+  .bar .fill.g{background:var(--green)}
+  .bar .fill.r{background:var(--red)}
+  .bar .val{width:52px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+
+  /* 칩 목록 */
+  .chips{display:flex;flex-wrap:wrap;gap:5px}
+  .chip{display:inline-block;border:1px solid var(--edge);border-radius:999px;padding:.22rem .55rem;
+        font-size:.7rem;font-weight:600;color:#3d434c;background:#fff}
+  .chip.dead{color:var(--mute);text-decoration:line-through;background:var(--wash)}
+  .chip.pick{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .chip.g{background:#e9f9f0;color:var(--green);border-color:#cfe8da}
+
+  /* 키-값 목록 (수치를 나란히 볼 때) */
+  .kv{display:flex;flex-direction:column;gap:6px;font-size:.72rem}
+  .kv .row{display:flex;justify-content:space-between;gap:.5rem}
+  .kv .row .k{color:var(--sub)}
+  .kv .row .v{font-weight:700;font-variant-numeric:tabular-nums}
+  .kv .row .v.g{color:var(--green)}
+  .kv .row .v.r{color:var(--red)}
+
+  /* ── 히어로: 글 + 실제 화면 ──────────────────────────────────────── */
+  .hero{display:grid;grid-template-columns:1fr 268px;gap:36px;align-items:start}
+  .phone{width:268px;border:1px solid var(--edge);border-radius:38px;padding:10px;background:#fff;
+         box-shadow:var(--shadow-lift)}
+  .screen{border-radius:29px;background:var(--wash);padding:14px 13px 16px;overflow:hidden}
+  .statusbar{display:flex;justify-content:space-between;font-size:.62rem;font-weight:700;color:var(--sub);
+       padding:0 .3rem .7rem}
+  .scr-t{font-size:1.02rem;font-weight:800;letter-spacing:-.025em;line-height:1.25}
+  .scr-s{margin-top:.2rem;font-size:.68rem;color:var(--sub)}
+  .modes{display:flex;gap:5px;margin-top:.7rem}
+  .mchip{display:inline-block;font-size:.66rem;font-weight:700;border-radius:999px;padding:.28rem .6rem;
+         border:1px solid var(--edge);background:#fff;color:#3d434c}
+  .mchip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .scard{margin-top:.6rem;background:#fff;border-radius:16px;padding:11px 12px;
+         box-shadow:0 1px 4px rgba(20,25,34,.05)}
+  .scard .leg{display:flex;align-items:center;gap:.35rem;font-size:.76rem;font-weight:700;letter-spacing:-.01em}
+  .scard .leg .to{color:var(--mute);font-weight:700}
+  .scard .sub{margin-top:.25rem;font-size:.66rem;color:var(--sub)}
+  .times{display:flex;gap:4px;margin-top:.55rem}
+  .times span{display:inline-block;font-size:.62rem;font-weight:700;color:#3d434c;background:var(--wash);
+              border-radius:7px;padding:.22rem .38rem;font-variant-numeric:tabular-nums}
+  .times span.first{background:var(--yellow);color:var(--ink)}
+  .day{margin-top:.75rem}
+  .day .h{font-size:.64rem;font-weight:800;letter-spacing:.04em;color:var(--mute);padding-left:.1rem}
+  .day .row{display:flex;align-items:center;gap:.35rem;background:#fff;border-radius:12px;
+            padding:.42rem .55rem;margin-top:4px;font-size:.68rem;
+            box-shadow:0 1px 3px rgba(20,25,34,.04)}
+  .day .row .t{color:var(--mute);font-variant-numeric:tabular-nums;width:32px;flex:none}
+
+  footer{margin-top:1.6rem;padding-top:1rem;border-top:1px solid var(--line);
+         font-size:.82rem;letter-spacing:.01em;color:var(--mute);display:flex;justify-content:space-between}
 </style>
 </head>
 <body>
-<!--
-  정본 템플릿. 아래는 2026-08-30 리포트를 그대로 둔 것이다 — 빈 자리표시 대신 실제 예시를 두는 이유는
-  "이 칸에 어느 정도 깊이의 문장이 들어가는가" 가 형식보다 지키기 어렵기 때문이다. 복제해서 내용만 갈아끼운다.
-
-  갈아끼우는 곳: .day(날짜·요일) · .lead · .stats(4) · .cards(4) · .more(3열) · .week · .foot
-  채울 것이 없으면 칸을 비우지 말고 카드 수를 줄인다.
--->
 <div class="wrap">
 
-  <div class="top">
-    <div class="brand">offway <span>개발일지 · core</span></div>
-    <div class="day"><b>08.30</b><i>일요일</i></div>
-  </div>
-
-  <p class="lead">
-    붙여 두고 <em>12일 동안 아무에게도 안 보이던</em> 푸시 알림을 잠금화면에 띄웠고, 그 알림이 <em>어느 여행 얘기인지</em>
-    말하게 했습니다. 외부 링크를 <em>배포 없이</em> 고칠 수 있는 백오피스 API 를 완성했습니다.
-  </p>
-
-  <div class="stats">
-    <div class="stat">
-      <b>4</b>
-      <span>PR — 전부 머지 (#353 #354 #358 #359)</span>
-    </div>
-    <div class="stat">
-      <b>12<s>일</s></b>
-      <span>푸시가 안 보인 채 지나간 기간 — 발송은 성공으로 집계되고 있었다</span>
-    </div>
-    <div class="stat">
-      <b>5<s>곳</s> <u>/ 89</u></b>
-      <span>접미사를 떼면 지명이 깨지는 자치구 — "동구" → "동"</span>
-    </div>
-    <div class="stat">
-      <b>2,027</b>
-      <span>테스트 (+47) · 코드 리뷰 지적 7건 처리</span>
-    </div>
-  </div>
-
-  <div class="cards">
-
-    <div class="card">
-      <h3>붙여 둔 푸시가 12일 동안 아무에게도 안 보였다</h3>
-      <div class="tags"><span class="tag">fix</span><span class="tag">#358</span><span class="tag">머지</span></div>
-      <ul>
-        <li><b>data 만 실은 메시지</b>는 iOS 가 silent push 로 취급합니다. 백그라운드·종료 상태에서 아무것도 안 그리고, 전달 자체가 버려지기도 합니다.</li>
-        <li>그런데 이 알림은 <em>전날 20시·다음 날 20시 배치</em>입니다 — 정확히 그 상태에서 필요합니다.</li>
-        <li>발송은 <b>SENT 로 성공</b>했고 CI 도 초록이었습니다. <em>보내는 내용 자체를 아무도 안 보고 있었습니다.</em></li>
-        <li>"문구를 서버가 들지 않는다"를 폐기한 게 아니라 범위를 바로잡았습니다 — 알림함은 30일 남아 굳고, 배너는 지나가면 끝입니다.</li>
-      </ul>
-    </div>
-
-    <div class="card">
-      <h3>알림이 어느 여행 얘기인지 말하지 못했다</h3>
-      <div class="tags"><span class="tag">feat</span><span class="tag">#359</span><span class="tag">머지</span></div>
-      <ul>
-        <li>코스를 여러 개 담아 둔 사람에게 <b>"여행, 다녀오셨나요?"</b> 는 어느 여행인지 알 수 없는 알림입니다.</li>
-        <li>특히 <em>연차를 기록해 달라</em>는 요청이라, 어느 여행인지 모르면 눌러 보기 전까지 판단이 안 됩니다.</li>
-        <li>앱이 코스를 직접 조회하면 <b>알림 5건에 요청 5번</b>이고, 지워진 코스는 404 라 그 줄만 빕니다. 서버가 한 페이지에 <b>조회 두 번</b>으로 채웁니다.</li>
-        <li>지역명은 문구가 아니라 데이터라, "문구는 앱이 소유한다"는 원칙은 그대로입니다.</li>
-      </ul>
-    </div>
-
-    <div class="card">
-      <h3>값 하나 고치려면 배포를 해야 했다</h3>
-      <div class="tags"><span class="tag">feat</span><span class="tag">#354</span><span class="tag">머지</span></div>
-      <ul>
-        <li>앱 네 화면에 뜨는 외부 링크를 <b>추가·수정·삭제</b>하는 API 를 붙였습니다. 어떤 화면에·언제부터 언제까지·지금 켤지를 그 자리에서 정합니다.</li>
-        <li>어드민은 <b>소셜 로그인 그대로</b> 쓰고 화이트리스트에 있으면 역할만 올립니다 — 별도 로그인은 지켜야 할 자리를 하나 더 만듭니다.</li>
-        <li><em>GET 도 막았습니다.</em> 어드민 목록에는 미공개 항목이 전부 있어, 읽기를 열면 팀 밖에 샙니다.</li>
-        <li>만들다 만 항목은 <b>기본이 "안 보임"</b> 입니다. 켜는 것이 명시적 행위여야 합니다.</li>
-      </ul>
-    </div>
-
-    <div class="card">
-      <h3>리뷰를 안 받아들이면 머지가 막혔다</h3>
-      <div class="tags"><span class="tag">docs</span><span class="tag">#353</span><span class="tag">머지</span></div>
-      <ul>
-        <li>규칙이 "reject 한 코멘트는 닫지 않는다" 였는데, 이 저장소는 <em>코멘트가 전부 닫혀야 머지</em>됩니다.</li>
-        <li>같은 문서의 다른 절은 이미 반대로 적고 있었습니다 — <b>셋 중 하나만 규칙이 달랐습니다.</b></li>
-        <li>검토 기회는 <b>답글이 이미 보존</b>합니다. 열어 둔 코멘트는 기록이 아니라 차단입니다.</li>
-        <li>대신 닫기 전에 <b>사람에게 선택을 받게</b> 했습니다 — reject 는 셋 중 유일하게 판단만 남는 갈래입니다.</li>
-      </ul>
-    </div>
-
-  </div>
-
-  <div class="more-label">더 한 작업들 — 고치다 만난 것</div>
-  <div class="more">
-
-    <div class="mini">
-      <h4>#354 · 배포가 어드민 데이터를 지울 참이었다</h4>
-      <p>큐레이션 seed 가 <b>전량 삭제 후 재적재</b>였습니다. 어드민이 붙은 지금 그대로 뒀다면 <em>배포 한 번이 넣고 고친 항목을 통째로</em> 지웠습니다. 앞선 PR 에 "그때 걷어내야 한다"고 적어 둔 자리입니다.</p>
-    </div>
-
-    <div class="mini">
-      <h4>#354 · 필드 하나를 빼면 요청 전체가 400 이었다</h4>
-      <p>Jackson 3 은 <b>선택 필드가 primitive 면</b> 그 필드가 없을 때 매핑을 깨뜨립니다. 어드민이 값 하나를 생략한 것이 <em>값 오류로 보고</em>되어 어디가 틀렸는지 알 수 없었습니다. 래퍼로 받고 기본값은 DTO 가 정합니다.</p>
-    </div>
-
-    <div class="mini">
-      <h4>#354 · 삭제가 두 문장이라 404 가 200 이 될 수 있었다</h4>
-      <p>있는지 확인하고 지우는 사이에 <b>다른 어드민이 같은 항목을 지우면</b> 404 여야 할 요청이 200 으로 나갑니다. 지운 행 수로 판정해 그 틈을 없앴습니다. 조회가 하나 주는 건 덤입니다.</p>
-    </div>
-
-    <div class="mini">
-      <h4>#358 · 우리가 무엇을 보내는지 보는 자리가 없었다</h4>
-      <p>FCM 메시지는 <b>내용을 읽을 수 있는 접근자가 없습니다.</b> 조립과 발송을 갈라, SDK 가 전송에 쓰는 직렬화기를 통과한 <em>실제 JSON</em> 으로 확인하게 했습니다. 같은 회귀가 조용히 다시 나가지 않습니다.</p>
-    </div>
-
-    <div class="mini">
-      <h4>#359 · 접미사를 떼면 "동구" 가 "동" 이 된다</h4>
-      <p>프론트가 "서버가 어려우면 앱에서 떼겠다"고 했는데, 89곳을 세어 보니 <b>다섯이 자치구</b>였습니다. 어느 이름이 자치구인지는 <em>이 표를 가진 쪽만</em> 압니다 — 서버가 다듬어 내려보냅니다.</p>
-    </div>
-
-    <div class="mini">
-      <h4>#359 · 코스 없는 알림 하나가 목록 전체를 500 으로 만들었다</h4>
-      <p>불변 맵은 <b>키가 null 이면 조회에서 예외</b>를 냅니다. 코스와 무관한 알림 하나가 목록 응답 전체를 무너뜨렸습니다. 테스트가 먼저 잡았습니다.</p>
-    </div>
-
-  </div>
-
-  <div class="week">
-    <div class="when">2026년 35주차<b>이번 주 중점</b></div>
+  <!--
+    ══ 머리 ══════════════════════════════════════════════════════════
+    h1 은 "무엇을 한 하루였나" 를 한 문장으로. .hl 은 그날의 핵심 한 조각에만 건다.
+    .phone 은 그날 실제로 바뀐 화면을 축소한 것 — 바뀐 화면이 없는 날은 통째로 지우고
+    .hero 의 grid-template-columns 를 1fr 로 바꾼다. 억지로 그리지 않는다.
+  -->
+  <header class="hero">
     <div>
-      <h5>붙여 놓고 안 보이던 것들을 잇는다</h5>
-      <p>기능은 있는데 사용자에게 닿지 않던 것이 이번 주에 셋 나왔습니다. 도로에 안 붙는 좌표가 이동시간을 조용히 직선거리로 떨어뜨리고(#351), 푸시는 발송 성공으로 집계되면서 화면에는 안 뜨고(#358), 알림은 어느 여행인지 말하지 못했습니다(#359). <b>공통점은 실패가 실패로 안 보였다</b>는 것입니다 — 셋 다 "무엇을 보내고 무엇을 계산했는지" 를 확인하는 자리를 함께 만들었습니다.</p>
+      <div class="eyebrow">OFFWAY 개발 일지</div>
+      <h1>{월}월 {일}일 — {무엇을 한 하루인가}<br><span class="hl">{핵심 한 조각}</span> {…}</h1>
+      <p class="lede">{두세 문장. 무엇이 문제였고 무엇을 했는지. 수치는 <b>굵게</b>.}</p>
     </div>
-    <div>
-      <h5>배포 없이 고칠 수 있게 — 절반이 끝났다</h5>
-      <p>외부 링크를 배포 없이 관리하는 <b>서버 기능이 완성</b>됐습니다(#354). 다만 지금은 API 뿐이라 curl 로만 쓸 수 있고, 그러면 결국 아무도 안 쓰고 SQL 로 돌아갑니다. 다음은 <b>관리 화면(#343)</b> 과 정책까지 옮기는 일(#344)입니다. 어드민 계정은 아직 비어 있어 <em>지금은 아무도 못 들어갑니다</em> — 로그인 한 번 뒤에 첫 계정을 넣습니다.</p>
+    <div class="phone"><div class="screen">
+      <div class="statusbar"><span>9:41</span><span>OffWay</span></div>
+      <div class="scr-t">{화면 제목}</div>
+      <div class="scr-s">{부제}</div>
+      <div class="modes"><span class="mchip on">{탭}</span><span class="mchip">{탭}</span></div>
+      <div class="scard">
+        <div class="leg">{출발} <span class="to">→</span> {도착}</div>
+        <div class="sub">{보조 정보}</div>
+        <div class="times"><span class="first">{강조}</span><span>{…}</span></div>
+      </div>
+      <div class="day">
+        <div class="h">DAY 1</div>
+        <div class="row"><span class="t">10:58</span><span>{일정}</span></div>
+      </div>
+    </div></div>
+  </header>
+
+  <!--
+    ══ 오늘의 숫자 ═══════════════════════════════════════════════════
+    넷. 전부 실측·집계된 값만. <s>전</s> → <b>후</b> 가 기본형이고,
+    전후가 없는 값(총계·건수)은 <b> 하나만 쓴다.
+  -->
+  <section class="stats">
+    <div class="stat"><div class="k">{무엇}</div><div class="v"><s>{전}</s> → <b>{후}</b></div></div>
+    <div class="stat"><div class="k">{무엇}</div><div class="v"><b>{값}</b></div></div>
+    <div class="stat"><div class="k">{무엇}</div><div class="v"><s>{전}</s> → <b>{후}</b></div></div>
+    <div class="stat"><div class="k">{무엇}</div><div class="v"><b>{값}</b></div></div>
+  </section>
+
+  <!--
+    ══ 작업 항목 ═════════════════════════════════════════════════════
+    번호는 그날의 무게 순. 제목은 **문제 서술**이라 `…었다/던 것` 으로 끝난다.
+    tag 는 결을 한 단어로 — 데이터 · 추천 규칙 · 콘텐츠 · 속도 · 내부 · 신규 · 인프라.
+
+    오른쪽 칸은 그 항목을 **한눈에 보이게** 하는 그림이다. 아래 다섯 중 맞는 것을 고른다.
+      ① 상태 카드(.tcard)  — 무엇이 뜨고 안 뜨는가
+      ② 타임라인(.tl)      — 하루 일정이 어떻게 달라졌나
+      ③ 막대(.bars)        — 수치 하나가 줄거나 늘었나
+      ④ 칩(.chips)         — 후보 중 무엇이 뽑히나
+      ⑤ 키-값(.kv)         — 여러 수치를 나란히
+    그릴 것이 없으면 .item-body 에 solo 를 붙여 한 칸으로 편다 — 빈 상자를 두지 않는다.
+  -->
+  <article class="item">
+    <div class="item-head"><span class="n">1</span><h2>{문제 서술 제목}</h2><span class="tag">{결}</span></div>
+    <div class="item-body">
+      <div class="desc">{무엇이 문제였고 왜 그랬는지. 숫자는 <b>굵게</b>, 나아진 것은 <span class="g">초록</span>.}</div>
+      <div class="cmp">
+        <div class="side"><div class="cap">전</div><div class="in tcard">
+          <span class="mode warn">{상태}</span>
+          <div class="meta bad">{수치}</div></div></div>
+        <div class="arw">→</div>
+        <div class="side after"><div class="cap">후</div><div class="in tcard">
+          <span class="mode ok">{상태}</span>
+          <div class="meta good">{수치}</div></div></div>
+      </div>
     </div>
-  </div>
+  </article>
 
-  <div class="foot">
-    <span>OffWay core · Spring Boot 4.1 · Java 25</span>
-    <span>2026-08-30 (KST) · 머지 #353 #354 #358 #359</span>
-  </div>
+  <!-- 막대로 보이는 항목 -->
+  <article class="item">
+    <div class="item-head"><span class="n">2</span><h2>{제목}</h2><span class="tag">{결}</span></div>
+    <div class="item-body">
+      <div class="desc">{설명}</div>
+      <div class="panel"><div class="cap">{무엇을 재는가}</div><div class="in bars">
+        <div class="bar"><span class="lab">전</span><span class="track"><i class="fill" style="width:100%"></i></span><span class="val">{값}</span></div>
+        <div class="bar"><span class="lab">후</span><span class="track"><i class="fill g" style="width:60%"></i></span><span class="val">{값}</span></div>
+      </div></div>
+    </div>
+  </article>
 
+  <!-- 그림이 없는 항목 -->
+  <article class="item">
+    <div class="item-head"><span class="n">3</span><h2>{제목}</h2><span class="tag">{결}</span></div>
+    <div class="item-body solo">
+      <div class="desc">{설명}</div>
+    </div>
+  </article>
+
+  <footer><span>OffWay · {YYYY-MM-DD} (KST)</span><span>머지된 작업 {N}건</span></footer>
 </div>
 </body>
 </html>
