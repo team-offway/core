@@ -154,4 +154,58 @@ class TransitHubPhotoIntegrationTest {
 
         assertTrue(urls.isEmpty());
     }
+
+    /**
+     * <b>못 물어본 것을 "없음" 으로 적지 않는다</b>(#535).
+     *
+     * <p>운영에서 이 배치가 4주 동안 갤러리를 <b>한 번도 부르지 않았는데</b> 155곳 전부가 3일마다
+     * "물어봤는데 없음" 으로 다시 기록됐다. 조회 실패와 실제 미검색이 둘 다 빈 목록이라 갈리지
+     * 않았기 때문이다 — 묻지도 않고 없다고 적는 셈이었다.
+     *
+     * <p>행을 안 남겨야 다음 회차가 다시 묻는다. 없음으로 적으면 그 상태가 그대로 굳는다.
+     */
+    @Test
+    void 못_물어본_지점은_없음으로_적지_않는다() {
+        galleryPhotoClient.failSearch();
+
+        refreshService.refresh();
+
+        assertTrue(transitHubPhotoRepository.findAll().isEmpty(),
+                "묻지도 못했는데 결과를 적었다 — 그 상태가 그대로 굳는다");
+    }
+
+    /**
+     * <b>물어봤는데 없는 것은 적는다</b>(#535).
+     *
+     * <p>위와 갈라야 하는 이유가 이것이다. 이쪽은 남겨 둬야 매 회차가 같은 지점을 다시 묻지 않는다.
+     */
+    @Test
+    void 물어봤는데_없으면_결과를_남긴다() {
+        galleryPhotoClient.respondToSearch(keyword -> List.of());
+
+        refreshService.refresh();
+
+        assertTrue(transitHubPhotoRepository.findAll().size() >= 100,
+                "물어봤는데 없는 것까지 안 적으면 매 회차가 같은 지점을 다시 묻는다");
+        assertTrue(transitHubPhotoRepository.findAll().stream()
+                        .allMatch(photo -> photo.getImageUrl() == null),
+                "사진이 없다고 했는데 주소가 붙었다");
+    }
+
+    /**
+     * 못 물어본 지점이 섞여도 <b>물어본 지점의 결과는 남는다</b>(#535).
+     *
+     * <p>한 지점이 실패했다고 나머지를 버리면 갤러리가 잠깐 흔들릴 때마다 전량이 비어 버린다.
+     */
+    @Test
+    void 일부만_못_물어봐도_나머지는_받아_둔다() {
+        galleryPhotoClient.respondToSearch(keyword ->
+                keyword.startsWith("강") ? List.of(photoFor(keyword)) : List.of());
+
+        refreshService.refresh();
+
+        assertTrue(transitHubPhotoRepository.findAll().stream()
+                        .anyMatch(photo -> photo.getImageUrl() != null),
+                "받아 둔 사진이 하나도 없습니다");
+    }
 }
