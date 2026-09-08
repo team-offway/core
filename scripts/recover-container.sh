@@ -49,7 +49,10 @@ start_and_wait() {
   # 무언가가 응답한다 — 우리 컨테이너는 없는데 "롤백 완료" 가 찍힌다.
   # 바인딩은 배포와 **같아야 한다**(#232). 여기만 `-p 8080:8080` 으로 남으면 복구가 도는 순간
   # 앱 포트가 다시 인터넷에 열린다 — 그것도 장애 대응 중이라 아무도 안 본다.
+  # 메모리 상한과 힙 비율도 같은 이유로 배포와 맞춘다(#526). 여기만 상한 없이 띄우면 복구가 도는
+  # 순간 상한이 사라지는데, 복구가 도는 때가 바로 서버가 힘든 때다.
   if ! docker run -d --name "$CONTAINER" --network offway-net --restart unless-stopped \
+    -m 800m -e JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=55 \
     --env-file "$APP/env.prod" -p 127.0.0.1:8080:8080 "$image" >&2; then
     echo "컨테이너를 띄우지 못했습니다 — 이미지=$image" >&2
     return 1
