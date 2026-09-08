@@ -423,10 +423,14 @@ public class CourseGenerationService {
         // **상한은 날짜 배정에서 건다**(#522). 고를 때 걸면 그 뒤 동선 정렬이 순서를 바꿔 하루 단위가
         // 어긋난다 — 실제로 그렇게 만들었더니 해수욕장이 통째로 이튿날로 밀렸다.
         List<PoiCandidate> remaining = new ArrayList<>(sights);
-        int fi = 0;
+        // **끼니·숙소도 그날 동선에 맞춘다**(#533). 예전에는 배열 순서대로 꽂아서, 2일차가 북쪽인데
+        // 남쪽 밥집을 받는 일이 생겼다 — 카페만 고쳐 두고 나머지는 그대로였다.
+        List<PoiCandidate> remainingFoods = new ArrayList<>(foods);
+        List<PoiCandidate> remainingStays = new ArrayList<>(stays);
         List<PoiCandidate> remainingByRank = new ArrayList<>(cafes.byRank());
         List<PoiCandidate> remainingRest = new ArrayList<>(cafes.rest());
-        int sti = 0;
+        // 직전 끼니 — 같은 음식을 연달아 넣지 않으려면 날이 바뀌어도 이어서 봐야 한다(#521).
+        PoiCandidate previousMeal = null;
         for (int day = 1; day <= command.travelDays(); day++) {
             DayStart start = day == 1 ? firstDayStart : DayStart.fullDay();
             List<PoiCandidate> daySights = takeVaried(remaining, start.sightCapacity(perDaySights));
@@ -437,14 +441,18 @@ public class CourseGenerationService {
             // 대중교통은 여기서 따로 안 다듬는다(#531). 전체 순서를 이미 2-opt 로 다듬어 뒀고, 하루만
             // 떼어 다시 맞추면 **다음 날로 넘어가는 구간을 못 본다** — 그날은 짧아져도 이튿날 첫 이동이
             // 늘어 전체가 나빠질 수 있다. 실측에서도 하루 단위 추가 이득은 중앙값 0.0㎞ 였다.
-            List<PoiCandidate> dayFoods = slice(foods, fi, start.mealCapacity());
-            fi += dayFoods.size();
+            List<PoiCandidate> dayFoods =
+                    takeNearestMeals(remainingFoods, daySights, start.mealCapacity(), previousMeal);
+            if (!dayFoods.isEmpty()) {
+                previousMeal = dayFoods.getLast();
+            }
             // 카페는 점심 뒤 한 칸이라, 점심이 없는 날(늦게 시작한 첫날)에는 넣지 않는다.
             // **그날 볼거리에 가장 가까운 것**을 준다 — 순서대로 꽂으면 그날 동선과 무관한 곳이 걸린다.
             PoiCandidate cafe = dayFoods.isEmpty()
                     ? null : takeNearestCafe(remainingByRank, remainingRest, daySights);
             boolean lastDay = day == command.travelDays();
-            PoiCandidate stay = (!lastDay && sti < stays.size()) ? stays.get(sti++) : null;
+            // 숙소는 **그날 마지막 볼거리**에 가까운 곳이다 — 하루를 끝낸 자리에서 자러 간다.
+            PoiCandidate stay = lastDay ? null : takeNearestStay(remainingStays, daySights);
 
             List<Slot> slots = arrangeDay(daySights, dayFoods, cafe, stay, command.transport(), start);
             if (!slots.isEmpty()) {
@@ -852,6 +860,82 @@ public class CourseGenerationService {
         return PlaceOrigin.of(candidate.contentId()) == PlaceOrigin.CAMPING;
     }
 
+    /**
+     * 그날 볼거리 가까이에서 끼니를 고른다(#533) — <b>같은 음식을 연달아 넣지 않으면서</b>.
+     *
+     * <p>예전에는 고른 순서대로 잘라 썼다. 그러면 2일차가 북쪽인데 남쪽 밥집을 받는다. 실측(85곳,
+     * 2박3일)에서 여섯 끼 합산 이동이 <b>26.2㎞ → 24.5㎞</b> 로 준다(중앙값 3.1% · 37곳이 1㎞ 이상).
+     *
+     * <p><b>직전 끼니를 날 너머로 이어 본다.</b> 1일차 저녁과 2일차 점심도 연달아 먹는 끼니다 —
+     * 하루 안에서만 견주면 그 경계에서 같은 음식이 붙는다. 예전 방식(고른 순서를 그대로 자르기)은
+     * 그 순서가 이미 그 규칙을 담고 있어 저절로 지켜졌는데, 자리를 바꾸는 순간 그 보증이 사라진다.
+     *
+     * <p>다른 음식이 하나도 없으면 <b>가까운 것을 그냥 쓴다.</b> 빈 끼니보다는 겹치는 끼니가 낫다.
+     */
+    private static List<PoiCandidate> takeNearestMeals(
+            List<PoiCandidate> remaining, List<PoiCandidate> daySights, int capacity,
+            PoiCandidate previousMeal) {
+        if (remaining.isEmpty() || capacity <= 0) {
+            return List.of();
+        }
+        Coordinate center = daySights.isEmpty() ? null : GeoCluster.centroid(coords(daySights));
+        List<PoiCandidate> picked = new ArrayList<>(capacity);
+        PoiCandidate previous = previousMeal;
+        while (picked.size() < capacity && !remaining.isEmpty()) {
+            PoiCandidate next = nearestMeal(remaining, center, previous);
+            remaining.remove(next);
+            picked.add(next);
+            previous = next;
+        }
+        return List.copyOf(picked);
+    }
+
+    /** 가까운 것부터 보되 직전과 같은 음식이면 미룬다. 다른 음식이 없으면 가장 가까운 것을 쓴다. */
+    private static PoiCandidate nearestMeal(
+            List<PoiCandidate> remaining, Coordinate center, PoiCandidate previous) {
+        return remaining.stream()
+                .filter(candidate -> !sameTaste(previous, candidate))
+                .min(byDistanceTo(center))
+                .orElseGet(() -> remaining.stream().min(byDistanceTo(center)).orElseThrow());
+    }
+
+    private static boolean sameTaste(PoiCandidate one, PoiCandidate other) {
+        return one != null && FoodTaste.same(
+                one.title(), one.foodCategory(), other.title(), other.foodCategory());
+    }
+
+    /**
+     * 그날 <b>마지막 볼거리</b>에 가장 가까운 숙소를 꺼내 쓴다(#533).
+     *
+     * <p>중심이 아니라 마지막인 이유는 자러 가는 시점이 하루의 끝이라서다. 실측(85곳)에서 두 밤 합산
+     * 이동이 8.2㎞ → 7.6㎞ 로 줄고, 어긋난 지역에서는 최대 82.8% 가 준다.
+     *
+     * <p>등급은 여기서 다시 안 본다 — 어느 숙소를 쓸지는 {@link StayPreference} 가 이미 골랐고,
+     * 고른 수와 밤 수가 같아 <b>거리가 등급을 밀어낼 자리가 없다.</b>
+     */
+    private static PoiCandidate takeNearestStay(
+            List<PoiCandidate> remaining, List<PoiCandidate> daySights) {
+        if (remaining.isEmpty()) {
+            return null;
+        }
+        if (daySights.isEmpty()) {
+            return remaining.removeFirst();
+        }
+        Coordinate end = coord(daySights.getLast());
+        PoiCandidate nearest = remaining.stream().min(byDistanceTo(end)).orElseThrow();
+        remaining.remove(nearest);
+        return nearest;
+    }
+
+    /** 기준점이 없으면(그날 볼거리가 없다) 견줄 것이 없으므로 순서를 그대로 둔다. */
+    private static Comparator<PoiCandidate> byDistanceTo(Coordinate point) {
+        if (point == null) {
+            return Comparator.comparingInt(candidate -> 0);
+        }
+        return Comparator.comparingDouble(
+                candidate -> point.haversineKmTo(new Coordinate(candidate.lat(), candidate.lng())));
+    }
+
     private static boolean hasPhoto(PoiCandidate candidate) {
         return candidate.imageUrl() != null && !candidate.imageUrl().isBlank();
     }
@@ -1038,13 +1122,6 @@ public class CourseGenerationService {
 
     private static List<PoiCandidate> reorder(List<PoiCandidate> pois, List<Integer> order) {
         return order.stream().map(pois::get).toList();
-    }
-
-    private static <T> List<T> slice(List<T> list, int from, int count) {
-        if (from >= list.size()) {
-            return List.of();
-        }
-        return list.subList(from, Math.min(list.size(), from + count));
     }
 
     /** 배치 항목 — 슬롯 종류·시간대·장소. */

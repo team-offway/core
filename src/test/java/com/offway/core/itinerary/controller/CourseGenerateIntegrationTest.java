@@ -1391,4 +1391,171 @@ class CourseGenerateIntegrationTest {
         assertEquals(span, total, 1e-9,
                 "왔다 갔다 하는 구간이 남았다 — 순서를 안 다듬었다는 뜻이다: " + lats);
     }
+
+    /**
+     * 남북으로 갈린 이틀 — 그날 것이 그날에 붙는지 보는 공통 픽스처(#533).
+     *
+     * <p>두 무리를 약 78㎞ 떼어 놓고 <b>무리끼리 붙여서</b> 넣는다. 번갈아 넣으면 하루에 섞이는데,
+     * 테스트에서는 구간 이동시간이 동률이라 동선 정렬이 입력 순서를 그대로 남기기 때문이다.
+     */
+    private static TourPoiResult 남북으로_갈린_이틀() {
+        List<TourPoi> items = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            items.add(poi("s" + i, 12, 35.10 + i * 0.002, 129.03));
+        }
+        for (int i = 0; i < 3; i++) {
+            items.add(poi("n" + i, 12, 35.80 + i * 0.002, 129.03));
+        }
+        // 이름에 위치를 담아 어느 쪽 것인지 단언에서 바로 읽히게 한다.
+        items.add(namedPoi("f_s0", 39, "남쪽밥집", 35.10, 129.04));
+        items.add(namedPoi("f_s1", 39, "남쪽밥집2", 35.11, 129.04));
+        items.add(namedPoi("f_n0", 39, "북쪽밥집", 35.80, 129.04));
+        items.add(namedPoi("f_n1", 39, "북쪽밥집2", 35.81, 129.04));
+        items.add(namedPoi("st_n", 32, "북쪽숙소", 35.81, 129.05));
+        items.add(namedPoi("st_s", 32, "남쪽숙소", 35.11, 129.05));
+        return new TourPoiResult(items, items.size());
+    }
+
+    /** 지역 근처에서 출발하는 널널 2일 — 서울에서 오면 첫날 도착이 늦어 이틀이 무리별로 안 갈린다. */
+    private static String 근처에서_출발하는_이틀() {
+        return """
+                { "regionId": 1, "travelDays": 2, "density": "RELAXED", "transport": "CAR",
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-05-01" }""";
+    }
+
+    /**
+     * <b>끼니가 그날 동선에 붙는다</b>(#533).
+     *
+     * <p>예전에는 고른 순서대로 잘라 썼다. 그러면 2일차가 북쪽인데 남쪽 밥집을 받는다. 실측(85곳,
+     * 2박3일)에서 여섯 끼 합산 이동이 26.2㎞ → 24.5㎞ 로 준다.
+     */
+    @Test
+    void 끼니는_그날_볼거리_쪽에서_고른다() throws Exception {
+        tourApiClient.respond(CourseGenerateIntegrationTest::남북으로_갈린_이틀);
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(근처에서_출발하는_이틀()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        int days = com.jayway.jsonpath.JsonPath.read(response, "$.data.days.length()");
+        int checked = 0;
+        for (int day = 0; day < days; day++) {
+            List<String> meals = com.jayway.jsonpath.JsonPath.read(
+                    response, "$.data.days[" + day + "].items[?(@.kind == 'FOOD')].title");
+            List<Double> lats = com.jayway.jsonpath.JsonPath.read(
+                    response, "$.data.days[" + day + "].items[?(@.kind == 'SIGHT')].lat");
+            if (meals.isEmpty() || lats.isEmpty()) {
+                continue;
+            }
+            // 어느 날이 어느 무리인지는 동선 정렬이 정하므로 가정하지 않는다 — 그날 기준으로만 본다.
+            double center = lats.stream().mapToDouble(Double::doubleValue).average().orElseThrow();
+            String side = Math.abs(center - 35.10) <= Math.abs(center - 35.80) ? "남쪽" : "북쪽";
+            assertTrue(meals.stream().allMatch(title -> title.startsWith(side)),
+                    "그날 볼거리와 반대쪽 밥집을 받았다 (day " + day + ", 중심 " + center + "): " + meals);
+            checked++;
+        }
+        assertEquals(2, checked, "이틀 모두 끼니가 있어야 이 시나리오가 성립한다");
+    }
+
+    /**
+     * <b>숙소는 그날 마지막 볼거리 쪽이다</b>(#533).
+     *
+     * <p>중심이 아니라 마지막인 이유는 자러 가는 시점이 하루의 끝이라서다.
+     *
+     * <p><b>2박이어야 판정이 선다.</b> 1박이면 고른 숙소가 하나뿐이라 어디에 놓든 같은 결과가 나온다 —
+     * 실제로 처음엔 2일로 썼다가 음성 대조에서 그냥 통과하는 것을 보고 알았다.
+     */
+    @Test
+    void 숙소는_그날_마지막_볼거리_쪽에서_고른다() throws Exception {
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            // 세 무리를 멀찍이 떼어 사흘로 갈리게 한다.
+            for (int i = 0; i < 3; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.002, 129.03));
+            }
+            for (int i = 0; i < 3; i++) {
+                items.add(poi("n" + i, 12, 35.80 + i * 0.002, 129.03));
+            }
+            for (int i = 0; i < 3; i++) {
+                items.add(poi("t" + i, 12, 36.50 + i * 0.002, 129.03));
+            }
+            for (int i = 0; i < 3; i++) {
+                items.add(namedPoi("f" + i, 39, "밥집" + i, 35.10 + i * 0.3, 129.04));
+                items.add(namedPoi("g" + i, 39, "국숫집" + i, 35.10 + i * 0.3, 129.05));
+            }
+            // 숙소는 정확히 둘 — 2박이라 둘 다 뽑히고, 남는 것은 "어느 날에 놓느냐" 뿐이다.
+            items.add(namedPoi("st_n", 32, "북쪽숙소", 35.80, 129.05));
+            items.add(namedPoi("st_s", 32, "남쪽숙소", 35.10, 129.05));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        String body = """
+                { "regionId": 1, "travelDays": 3, "density": "RELAXED", "transport": "CAR",
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-05-01" }""";
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        int days = com.jayway.jsonpath.JsonPath.read(response, "$.data.days.length()");
+        int checked = 0;
+        for (int day = 0; day < days; day++) {
+            List<String> stays = com.jayway.jsonpath.JsonPath.read(
+                    response, "$.data.days[" + day + "].items[?(@.kind == 'STAY')].title");
+            List<Double> lats = com.jayway.jsonpath.JsonPath.read(
+                    response, "$.data.days[" + day + "].items[?(@.kind == 'SIGHT')].lat");
+            if (stays.isEmpty() || lats.isEmpty()) {
+                continue;
+            }
+            double last = lats.getLast();
+            String side = Math.abs(last - 35.10) <= Math.abs(last - 35.80) ? "남쪽" : "북쪽";
+            assertEquals(side + "숙소", stays.getFirst(),
+                    "하루를 끝낸 자리와 반대쪽 숙소를 받았다 (day " + day + ", 마지막 볼거리 " + last + "): " + stays);
+            checked++;
+        }
+        assertEquals(2, checked, "두 밤 모두 숙소가 있어야 이 시나리오가 성립한다");
+    }
+
+    /**
+     * <b>날이 바뀌어도 같은 음식이 연달아 붙지 않는다</b>(#521 · #533).
+     *
+     * <p>1일차 저녁과 2일차 점심도 연달아 먹는 끼니다. 예전에는 고른 순서를 그대로 잘라 썼고 그 순서가
+     * 이미 이 규칙을 담고 있어 저절로 지켜졌는데, <b>자리를 거리로 바꾸는 순간 그 보증이 사라진다.</b>
+     */
+    @Test
+    void 날이_바뀌어도_같은_음식이_연달아_나오지_않는다() throws Exception {
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 3; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.002, 129.03));
+            }
+            for (int i = 0; i < 3; i++) {
+                items.add(poi("n" + i, 12, 35.80 + i * 0.002, 129.03));
+            }
+            // **날 경계에서 한우가 붙게 배치한다.** 남쪽은 칼국수가 더 가까워 점심이 되고 한우가
+            // 저녁이 된다. 북쪽은 한우가 가장 가까워, 하루 안에서만 견주면 이튿날 점심도 한우가 된다.
+            items.add(namedPoi("f_s1", 39, "남쪽칼국수", 35.10, 129.031));
+            items.add(namedPoi("f_s0", 39, "남쪽한우마을", 35.10, 129.05));
+            items.add(namedPoi("f_n0", 39, "북쪽한우촌", 35.80, 129.031));
+            items.add(namedPoi("f_n1", 39, "북쪽막국수", 35.80, 129.05));
+            items.add(namedPoi("st0", 32, "숙소", 35.11, 129.05));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(근처에서_출발하는_이틀()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> meals = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'FOOD')].title");
+        assertTrue(meals.size() >= 2, "끼니가 둘 이상이어야 연달아를 볼 수 있다: " + meals);
+        for (int i = 0; i + 1 < meals.size(); i++) {
+            boolean bothBeef = meals.get(i).contains("한우") && meals.get(i + 1).contains("한우");
+            assertFalse(bothBeef, "한우가 연달아 나왔다 (" + i + "번째): " + meals);
+        }
+    }
 }
