@@ -47,7 +47,18 @@ public enum PlaceCategory {
     THEME_PARK(PlaceKind.SIGHT, "테마파크", Fitness.PREFERRED),
     CABLE_CAR(PlaceKind.SIGHT, "케이블카·모노레일", Fitness.PREFERRED),
     RESORT(PlaceKind.SIGHT, "휴양시설", Fitness.NORMAL),
-    CAMPGROUND(PlaceKind.SIGHT, "야영장", Fitness.NORMAL),
+    /**
+     * 야영장 — <b>볼거리가 아니라 잘 곳이다</b>(#516).
+     *
+     * <p>예전에는 {@link PlaceKind#SIGHT} 였다. 그래서 중간 관광지 자리에 캠핑장이 떴다 — 인허가
+     * 볼거리 3,844건 중 <b>2,360건(61%)이 야영장</b>이라, 사찰·박물관 같은 PREFERRED 1,006건이
+     * 떨어지는 지역에서는 바로 야영장이 올라왔다.
+     *
+     * <p>빼도 볼거리가 얇아지지 않는다. 89곳 전수로 재면 지역당 평균이 116 → 90 으로 줄 뿐,
+     * <b>임계(18) 미만 지역은 1곳으로 그대로</b>다 — 그 한 곳(대구 서구)은 야영장을 넣어도 15건이라
+     * 어차피 미달이었다.
+     */
+    CAMPGROUND(PlaceKind.STAY, "야영장", Fitness.NORMAL),
     THEATER(PlaceKind.SIGHT, "공연장", Fitness.NORMAL),
     CULTURE_CENTER(PlaceKind.SIGHT, "문화원", Fitness.NORMAL),
     SKI(PlaceKind.SIGHT, "스키장", Fitness.NORMAL),

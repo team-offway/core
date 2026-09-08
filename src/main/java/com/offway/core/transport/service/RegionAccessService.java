@@ -4,6 +4,7 @@ import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.Port;
 import com.offway.core.transport.domain.RegionArrival;
 import com.offway.core.transport.domain.Terminal;
+import com.offway.core.transport.domain.TransferHub;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.transport.service.dto.RegionAccess;
@@ -13,6 +14,8 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import com.offway.core.transport.domain.BusTerminalKind;
 import com.offway.core.transport.domain.Departure;
@@ -48,6 +51,14 @@ public class RegionAccessService {
      * <p>서울처럼 터미널이 몰린 곳은 반경 30㎞ 안에 열 곳이 넘는다. 후보마다 DB 를 한 번 보므로 상한을
      * 둔다 — 같은 자리의 중복 코드를 가르는 것이 목적이라, 우선순위 위쪽 몇 개면 충분하다.
      */
+    /**
+     * 환승 대기로 얹는 시간(#508).
+     *
+     * <p>두 구간의 시간표를 이을 수 없어 실제 대기를 모른다. 합만 보여주면 실제보다 짧게 말하게 되는데,
+     * 코스는 그 숫자로 첫날 일정을 자른다 — <b>모자라게 말하면 지킬 수 없는 코스가 된다.</b>
+     */
+    private static final int TRANSFER_BUFFER_MINUTES = 40;
+
     private static final int MAX_DEPARTURE_CANDIDATES = 8;
 
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
@@ -121,6 +132,7 @@ public class RegionAccessService {
                     .withDuration(durationOf(chosen.mode(), departure, chosenTerminal, destPort).orElse(null))
                     .withDepartures(departuresOf(
                             chosen.mode(), departure, chosenTerminal, destPort, date, notBefore));
+            chosen = viaOrHonest(chosen, departure, chosenTerminal);
         }
         return chosen.withDistanceKm(distanceKm(new Coordinate(originLat, originLng), chosen.arrivalPoint()))
                 .withAlternatives(alternativesTo(
@@ -258,6 +270,7 @@ public class RegionAccessService {
             others.add(TransitOption.builder()
                     .mode(TransitMode.TRAIN)
                     .toName(train.toName())
+                    .status(train.status())
                     .durationMinutes(trainMinutes(train))
                     // 열차 시간표는 이미 대표 계산에서 받아 둔 하루치에 있다 — 호출이 늘지 않는다.
                     .departures(train.departures())
@@ -271,27 +284,54 @@ public class RegionAccessService {
                 .forEach(terminal -> {
                     TransitMode mode = TransitMode.of(terminal.kind());
                     Optional<Terminal> only = Optional.of(terminal);
+                    // **대안에도 소요시간을 채운다**(#508). 필드는 있는데 열차만 채우고 있었다 — 그래서
+                    // 화면이 "무엇으로 갈 수 있다" 까지만 말하고 "얼마나 걸리나" 를 못 말했다. 사용자가
+                    // 수단을 고르려면 그 숫자가 있어야 한다. 저장값만 읽으므로 외부 호출은 안 는다.
+                    Optional<RegionArrival> from =
+                            departurePoint(mode, originLat, originLng, only, destPort);
                     others.add(TransitOption.builder()
                             .mode(mode)
                             .toName(terminal.name())
-                            .departures(departuresOf(
-                                    mode,
-                                    departurePoint(mode, originLat, originLng, only, destPort),
-                                    only, destPort, date, notBefore))
+                            .status(optionStatus(mode, from, only, destPort))
+                            .durationMinutes(durationOf(mode, from, only, destPort).orElse(null))
+                            .departures(departuresOf(mode, from, only, destPort, date, notBefore))
                             .build());
                 });
         destPort
                 .filter(port -> chosen.mode() != TransitMode.FERRY)
-                .ifPresent(port -> others.add(TransitOption.builder()
-                        .mode(TransitMode.FERRY)
-                        .toName(port.name())
-                        // 여객선은 터미널을 안 쓴다 — 출발은 항구, 도착 코드도 항구다.
-                        .departures(departuresOf(
-                                TransitMode.FERRY,
-                                departurePoint(TransitMode.FERRY, originLat, originLng, Optional.empty(), destPort),
-                                Optional.empty(), destPort, date, notBefore))
-                        .build()));
+                .ifPresent(port -> {
+                    // 여객선은 터미널을 안 쓴다 — 출발은 항구, 도착 코드도 항구다.
+                    Optional<RegionArrival> from = departurePoint(
+                            TransitMode.FERRY, originLat, originLng, Optional.empty(), destPort);
+                    others.add(TransitOption.builder()
+                            .mode(TransitMode.FERRY)
+                            .toName(port.name())
+                            .status(optionStatus(TransitMode.FERRY, from, Optional.empty(), destPort))
+                            .durationMinutes(
+                                    durationOf(TransitMode.FERRY, from, Optional.empty(), destPort).orElse(null))
+                            .departures(departuresOf(
+                                    TransitMode.FERRY, from, Optional.empty(), destPort, date, notBefore))
+                            .build());
+                });
         return List.copyOf(others);
+    }
+
+    /**
+     * 대안 한 줄의 상태(#508) — <b>소요시간이 비어 있는 이유</b>를 말한다.
+     *
+     * <p>같은 null 이라도 "아직 안 쟀다" 와 "노선이 없다" 는 화면이 할 말이 다르다. 전자는 비워 두면
+     * 되고 후자는 그렇게 적어야 한다. 이 구분이 없으면 사용자는 둘 다 "모름" 으로 본다.
+     */
+    private RegionAccess.Status optionStatus(
+            TransitMode mode, Optional<RegionArrival> departure,
+            Optional<Terminal> destTerminal, Optional<Port> destPort) {
+        Optional<String> depCode = departure.map(RegionArrival::code);
+        Optional<String> arrCode = arrivalCode(mode, destTerminal, destPort);
+        if (depCode.isPresent() && arrCode.isPresent()
+                && transitDurationService.knownUnroutable(mode, depCode.get(), arrCode.get())) {
+            return RegionAccess.Status.NO_ROUTE;
+        }
+        return RegionAccess.Status.POINT_ONLY;
     }
 
     private static Integer trainMinutes(RegionAccess train) {
@@ -343,6 +383,67 @@ public class RegionAccessService {
             case TRAIN, CAR -> Optional.empty();
         };
     }
+
+    /**
+     * 직통이 없으면 <b>허브를 한 번 거치는 길</b>을 찾고, 그것도 없으면 없다고 말한다(#508).
+     *
+     * <p><b>없는 길을 안내하지 않는 것이 이 함수의 전부다.</b> 예전에는 그 구간에 차가 없어도 그냥
+     * 답했다 — 서울에서 봉화까지 고속버스로 가라는 안내가 나갔는데 봉화행 노선은 어디에도 없다.
+     *
+     * <p>손대는 것은 <b>없는 것이 확인된 구간뿐</b>이다. 아직 안 재본 구간은 그대로 둔다 — 모르는 것을
+     * 없다고 말하면 멀쩡한 길을 지우게 된다.
+     *
+     * <p><b>외부를 안 친다.</b> 두 구간 모두 이미 잰 값이 있을 때만 잇는다. 버스 시간표는 오늘~+2일만
+     * 답해서 다음 달 코스에는 애초에 실시간 조회가 무의미하고, 여기는 요청 경로다.
+     */
+    private RegionAccess viaOrHonest(
+            RegionAccess chosen, Optional<RegionArrival> departure, Optional<Terminal> destTerminal) {
+        Optional<String> depCode = departure.map(RegionArrival::code);
+        Optional<String> arrCode = destTerminal.map(Terminal::code);
+        if (depCode.isEmpty() || arrCode.isEmpty() || chosen.durationMinutes() != null) {
+            return chosen; // 탈 곳을 모르거나, 이미 직통 소요시간을 아는 경우다
+        }
+        if (!transitDurationService.knownUnroutable(chosen.mode(), depCode.get(), arrCode.get())) {
+            return chosen; // 아직 안 재봤다 — 없다고 단정하지 않는다
+        }
+        return transferVia(chosen.mode(), depCode.get(), arrCode.get())
+                .map(via -> chosen.withVia(via.hub().label(), via.totalMinutes()))
+                .orElseGet(chosen::withoutRoute);
+    }
+
+    /**
+     * 두 구간이 <b>모두 이미 잰 값</b>인 허브 중 가장 빠른 것.
+     *
+     * <p>환승 대기를 {@value #TRANSFER_BUFFER_MINUTES}분 더한다. 두 구간의 시간표를 이을 수 없어 실제
+     * 대기를 모르는데, 합만 보여주면 실제보다 짧게 말하게 된다 — <b>모자라게 말하는 쪽이 더 나쁘다.</b>
+     */
+    private Optional<Transfer> transferVia(TransitMode mode, String depCode, String arrCode) {
+        return Arrays.stream(TransferHub.values())
+                .flatMap(hub -> hubTerminals(hub, mode).stream()
+                        .flatMap(hubTerminal -> transferThrough(mode, depCode, arrCode, hub, hubTerminal).stream()))
+                .min(Comparator.comparingInt(Transfer::totalMinutes));
+    }
+
+    private Optional<Transfer> transferThrough(
+            TransitMode mode, String depCode, String arrCode, TransferHub hub, Terminal hubTerminal) {
+        if (hubTerminal.code().equals(depCode) || hubTerminal.code().equals(arrCode)) {
+            return Optional.empty(); // 출발·도착이 곧 허브면 경유가 아니다
+        }
+        return transitDurationService.measuredMinutes(mode, depCode, hubTerminal.code())
+                .flatMap(first -> transitDurationService.measuredMinutes(mode, hubTerminal.code(), arrCode)
+                        .map(second -> new Transfer(hub, first + second + TRANSFER_BUFFER_MINUTES)));
+    }
+
+    /** 허브 자리의 그 수단 터미널 — 코드가 여럿이면 전부 본다(#507). */
+    private List<Terminal> hubTerminals(TransferHub hub, TransitMode mode) {
+        return mode.terminalKind()
+                .map(kind -> busTerminalResolver.nearestWithDuplicates(
+                        hub.coordinate().lat(), hub.coordinate().lng(), kind))
+                .orElseGet(List::of);
+    }
+
+    /** 허브 하나를 거치는 길. */
+    private record Transfer(TransferHub hub, int totalMinutes) {}
 
     /**
      * 출발 터미널을 <b>실제로 노선이 있는 코드</b>로 고른다(#507).

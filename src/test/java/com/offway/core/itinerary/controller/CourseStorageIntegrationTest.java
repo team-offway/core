@@ -678,9 +678,12 @@ class CourseStorageIntegrationTest {
         transitDurationRefreshService.measurePending();
 
         LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        // **날짜 집합으로 본다.** 재는 구간이 몇 개인지는 이 테스트의 관심사가 아니다 — 대안에도
+        // 소요시간을 채우면서(#508) 한 번의 조회로 여러 구간이 대기열에 들어가게 됐다. 확인하려는 것은
+        // "어느 날짜까지 묻는가" 다.
         assertIterableEquals(
                 List.of(today, today.plusDays(1), today.plusDays(2)), // 정선은 버스 — 조회창이 사흘이다
-                transitLegClient.askedDates());
+                transitLegClient.askedDates().stream().distinct().sorted().toList());
     }
 
     @Test
@@ -989,7 +992,11 @@ class CourseStorageIntegrationTest {
         int afterPeriodBenefits = benefitCountOf(afterPeriod);
 
         assertTrue(inPeriodBenefits > 0, "기간 안 여행이면 혜택이 실려야 한다: " + inPeriod);
-        assertEquals(0, afterPeriodBenefits, "기간 밖 여행이면 혜택이 없어야 한다: " + afterPeriod);
+        // **0 이 아니라 "줄어든다" 로 본다.** 기간이 없는 정책은 상시라 언제 가도 붙는다(#498 로
+        // 디지털관광주민증이 그렇게 됐다). 여기서 보려는 것은 "여행일로 매칭하는가" 이지 "혜택이
+        // 하나도 없는 날이 있는가" 가 아니다.
+        assertTrue(afterPeriodBenefits < inPeriodBenefits,
+                "기간이 끝나면 그만큼 혜택이 줄어야 한다: " + inPeriod + " → " + afterPeriod);
     }
 
     /**
