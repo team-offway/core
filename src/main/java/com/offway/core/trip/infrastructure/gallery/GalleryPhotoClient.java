@@ -1,6 +1,7 @@
 package com.offway.core.trip.infrastructure.gallery;
 
 import com.offway.core.trip.infrastructure.gallery.dto.GalleryPhotoItem;
+import com.offway.core.trip.infrastructure.gallery.dto.GallerySearch;
 import java.util.List;
 
 /**
@@ -28,7 +29,9 @@ public interface GalleryPhotoClient {
      *
      * @param keyword 찾을 말 — 역·터미널 이름을 그대로 넘긴다
      * @param rows 최대 건수
-     * @return 못 찾으면 빈 목록. <b>예외가 아니다</b> — 사진이 없는 지점이 흔하다
+     * @return 물어봤는지와 받은 것을 함께. <b>예외를 던지지 않는다</b> — 사진이 없는 지점이 흔하고,
+     *     사진 한 장 때문에 배치 전체가 멈추면 안 된다. 다만 <b>못 물어본 것과 없는 것은 갈라</b>
+     *     돌려준다(#535) — 호출자가 "없음" 으로 적어도 되는지가 거기서 갈린다
      */
-    List<GalleryPhotoItem> searchByKeyword(String keyword, int rows);
+    GallerySearch searchByKeyword(String keyword, int rows);
 }
