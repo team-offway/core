@@ -124,6 +124,24 @@ class CourseGenerateIntegrationTest {
                 "http://img/" + id + ".jpg", null, null);
     }
 
+    /** 카페 후보 — 음식점 대분류 안의 카페 중분류({@code FD05})다(#522). */
+    private static TourPoi cafePoi(String id, String title, double lat, double lng) {
+        return TourPoi.builder()
+                .contentId(id).contentTypeId(39).lclsSystm1("FD").lclsSystm2("FD05").title(title)
+                .address("부산 동구").lat(lat).lng(lng).firstImage("http://img/" + id + ".jpg")
+                .cat3("A05020900")
+                .build();
+    }
+
+    /** 종류를 지정하는 볼거리 후보 — 하루에 같은 종류가 몰리는지 보는 시나리오에 쓴다(#522). */
+    private static TourPoi sightPoi(String id, String title, String cat3, double lat, double lng) {
+        return TourPoi.builder()
+                .contentId(id).contentTypeId(12).lclsSystm1(lclsOf(12)).title(title)
+                .address("부산 동구").lat(lat).lng(lng).firstImage("http://img/" + id + ".jpg")
+                .cat3(cat3)
+                .build();
+    }
+
     private static TourPoi poi(String id, int contentTypeId, double lat, double lng) {
         return new TourPoi(id, contentTypeId, lclsOf(contentTypeId), "장소" + id, "부산 동구", lat, lng,
                 "http://img/" + id + ".jpg", null, null);
@@ -817,6 +835,83 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.transitAccess.mode").value("EXPRESS_BUS"))
                 // 출발 지점도 그 종류로 푼다 — 코드 공간이 갈려 있어 섞으면 조회 자체가 안 된다
                 .andExpect(jsonPath("$.data.transitAccess.fromPlace").isNotEmpty());
+    }
+
+    /**
+     * <b>하루에 해수욕장 두 곳은 안 나온다</b>(#522).
+     *
+     * <p>실제 코스에서 태안 2일차가 해수욕장 3곳이었다. 후보 구성이 그렇다 — 태안 관광지 78건 중
+     * 해수욕장 30건·항구 21건이라 거리로만 고르면 상위가 바다로 채워진다.
+     *
+     * <p><b>후보를 전부 해수욕장으로 둔다.</b> 다른 종류를 섞으면 그것들이 먼저 뽑혀 규칙이 도는지
+     * 안 도는지를 못 가른다 — 처음 쓴 픽스처가 그래서 규칙을 꺼도 통과했다.
+     */
+    @Test
+    void 하루에_같은_종류_볼거리를_두_곳_넣지_않는다() throws Exception {
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            // 볼거리가 전부 해수욕장이다. 규칙이 없으면 하루가 통째로 해수욕장이 된다.
+            for (int i = 0; i < 8; i++) {
+                items.add(sightPoi("b" + i, "해수욕장" + i, "A01011200", 35.135 + i * 0.002, 129.055));
+            }
+            items.add(poi("f0", 39, 35.12, 129.04));
+            items.add(poi("f1", 39, 35.13, 129.05));
+            items.add(poi("st0", 32, 35.11, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // **모든 날을 본다.** 하루만 보면 그날에 안 걸렸을 뿐인지, 규칙이 도는지를 못 가른다.
+        int days = ((List<?>) com.jayway.jsonpath.JsonPath.read(response, "$.data.days")).size();
+        for (int day = 0; day < days; day++) {
+            List<String> titles = com.jayway.jsonpath.JsonPath.read(
+                    response, "$.data.days[" + day + "].items[?(@.kind == 'SIGHT')].title");
+            assertTrue(titles.size() <= 1,
+                    (day + 1) + "일차 볼거리가 " + titles.size() + "곳이다(전부 해수욕장): " + titles);
+        }
+    }
+
+    /**
+     * <b>카페는 끼니가 아니라 밥 다음이다</b>(#522).
+     *
+     * <p>TourAPI 음식점 대분류({@code FD})에 카페({@code FD05})가 섞여 있어 그대로 두면 카페가 점심
+     * 자리에 뽑힌다 — 실제로 태안 1일차 점심이 `밀리앤코카페` 였다.
+     */
+    @Test
+    void 카페는_끼니가_아니라_점심_뒤에_들어간다() throws Exception {
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.01, 129.03 + i * 0.01));
+            }
+            // 카페가 밥집보다 가깝다 — 규칙이 없으면 점심 자리를 카페가 차지한다.
+            items.add(cafePoi("c0", "가까운카페", 35.100, 129.030));
+            items.add(cafePoi("c1", "가까운카페2", 35.101, 129.031));
+            items.add(poi("f0", 39, 35.20, 129.12));
+            items.add(poi("f1", 39, 35.21, 129.13));
+            items.add(poi("st0", 32, 35.11, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> meals = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'FOOD')].title");
+        assertTrue(meals.stream().noneMatch(t -> t.contains("카페")),
+                "카페가 끼니 자리에 들어갔다: " + meals);
+
+        List<String> cafes = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'CAFE')].title");
+        assertTrue(!cafes.isEmpty(), "밥 다음 카페가 한 칸도 안 들어갔다");
     }
 
     /**
