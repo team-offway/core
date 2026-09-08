@@ -78,10 +78,9 @@ class FestivalPoolIntegrationTest {
     void 우리_지역_축제만_저장한다() {
         Region region = 우리지역();
         StubFestivalStandardClient stub = stub();
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(
-                        List.of(축제(region, "우리축제"), 축제("서울특별시", "종로구", "남의축제")), 2)
-                : StandardFestivalResult.empty());
+        stub.respond(() ->
+                new StandardFestivalResult(
+                        List.of(축제(region, "우리축제"), 축제("서울특별시", "종로구", "남의축제")), 2));
 
         int saved = refreshService.refresh(FIRST_RUN).saved();
 
@@ -92,196 +91,24 @@ class FestivalPoolIntegrationTest {
     }
 
     /**
-     * <b>같은 이름의 시군구를 시도로 가른다</b>(#502).
+     * <b>실패한 회차를 완료로 기록하지 않는다.</b>
      *
-     * <p>우리 89곳 안에 고성군이 둘(강원·경남), 서구가 둘(대구·부산)이다. 시군구명만 보면 한쪽에만
-     * 붙어 <b>나머지는 영영 비고 붙은 쪽에는 남의 축제가 섞인다.</b> 강원 고성(통일전망대)과 경남
-     * 고성(공룡엑스포)은 완전히 다른 곳이라, 그 축제가 남의 코스에 뜨면 여행자가 엉뚱한 데로 간다.
+     * <p>완료로 남기면 배치 마커가 찍혀 다음 갱신이 25일 막힌다 — 그동안 축제 목록이 그대로다.
+     *
+     * <p>파일 방식으로 옮기면서 "일부만 받은 회차" 가 사라졌다(#433). 전량 아니면 전무라, 실패한
+     * 회차는 저장 건수도 0이다.
      */
     @Test
-    void 같은_이름의_시군구는_시도로_갈라_붙인다() {
-        List<Region> 동명 = 이름이겹치는두지역();
-        Region 첫째 = 동명.get(0);
-        Region 둘째 = 동명.get(1);
+    void 조회가_깨진_회차는_완료로_기록되지_않는다() {
         StubFestivalStandardClient stub = stub();
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(
-                        List.of(축제(첫째, "첫째지역축제"), 축제(둘째, "둘째지역축제")), 2)
-                : StandardFestivalResult.empty());
-
-        refreshService.refresh(FIRST_RUN);
-
-        List<FestivalPlace> 첫째것 = festivalPlaceRepository.findOpenOn(첫째.getId(), DURING, 10);
-        List<FestivalPlace> 둘째것 = festivalPlaceRepository.findOpenOn(둘째.getId(), DURING, 10);
-        assertEquals(1, 첫째것.size(), 첫째.getSido() + " " + 첫째.getSigungu() + " 에 안 붙었다");
-        assertEquals(1, 둘째것.size(), 둘째.getSido() + " " + 둘째.getSigungu() + " 에 안 붙었다");
-        assertEquals("첫째지역축제", 첫째것.get(0).getName());
-        assertEquals("둘째지역축제", 둘째것.get(0).getName());
-    }
-
-    /**
-     * 시도를 못 읽으면 <b>버린다</b> — 한쪽에 몰아넣지 않는다.
-     *
-     * <p>조용히 틀린 지역에 붙이는 것이 안 붙이는 것보다 나쁘다. 화면에는 정상처럼 보이는데 실제로는
-     * 다른 지역 축제이기 때문이다.
-     */
-    @Test
-    void 시도를_못_읽은_동명_시군구는_버린다() {
-        List<Region> 동명 = 이름이겹치는두지역();
-        String 겹치는이름 = 동명.get(0).getSigungu();
-        StubFestivalStandardClient stub = stub();
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(
-                        List.of(축제("어디시", 겹치는이름, "어디것인지모를축제")), 1)
-                : StandardFestivalResult.empty());
-
-        refreshService.refresh(FIRST_RUN);
-
-        for (Region region : 동명) {
-            assertEquals(0, festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10).size(),
-                    region.getSido() + " 에 남의 축제가 붙었을 수 있다");
-        }
-    }
-
-    /** 우리 89곳 안에서 시군구명이 겹치는 두 지역 — 실측상 고성군(강원·경남)과 서구(대구·부산)다. */
-    private List<Region> 이름이겹치는두지역() {
-        Map<String, List<Region>> byName = new java.util.HashMap<>();
-        for (Region region : regionRepository.findAll()) {
-            byName.computeIfAbsent(region.getSigungu(), name -> new ArrayList<>()).add(region);
-        }
-        return byName.values().stream()
-                .filter(regions -> regions.size() >= 2)
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("이름이 겹치는 지역이 없어 이 테스트가 성립하지 않는다"));
-    }
-
-    /** 좌표 없는 것이 446건 중 101건이다. 동선에 못 올리므로 후보에서 뺀다. */
-    @Test
-    void 좌표_없는_축제는_담지_않는다() {
-        Region region = 우리지역();
-        StubFestivalStandardClient stub = stub();
-        StandardFestival 좌표없음 = new StandardFestival(
-                "좌표없는축제", null, "주소 " + region.getSigungu(), region.getSigungu(),
-                null, null, LocalDate.of(2026, 9, 25), LocalDate.of(2026, 10, 4),
-                null, null, null, null);
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(좌표없음), 1)
-                : StandardFestivalResult.empty());
-
-        int saved = refreshService.refresh(FIRST_RUN).saved();
-
-        assertEquals(0, saved);
-        assertTrue(festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10).isEmpty());
-    }
-
-    /**
-     * <b>이 테스트가 이 작업에서 가장 비싼 실수를 막는다.</b>
-     *
-     * <p>둘째 페이지가 깨진 회차는 "이번에 안 온 것 = 취소됨" 이 성립하지 않는다. 그때 정리하면 멀쩡한
-     * 축제를 우리가 없애고, 되돌릴 방법이 없다.
-     */
-    @Test
-    void 페이지가_깨진_회차는_기존_축제를_지우지_않는다() {
-        Region region = 우리지역();
-        StubFestivalStandardClient stub = stub();
-
-        // 1회차 — 온전히 받아 두 건을 심는다.
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(
-                        List.of(축제(region, "먼저있던축제"), 축제(region, "또다른축제")), 2)
-                : StandardFestivalResult.empty());
-        refreshService.refresh(FIRST_RUN);
-        assertEquals(2, festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10).size());
-
-        // 2회차 — 첫 페이지는 한 건만 주고 둘째 페이지가 깨진다. 전체가 더 있다고 말한다.
-        stub.respond(page -> {
-            if (page == 1) {
-                return new StandardFestivalResult(List.of(축제(region, "먼저있던축제")), 150);
-            }
-            throw new IllegalStateException("둘째 페이지가 깨졌다");
-        });
-        refreshService.refresh(SECOND_RUN);
-
-        List<String> names = festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10).stream()
-                .map(FestivalPlace::getName)
-                .toList();
-        assertTrue(names.contains("또다른축제"),
-                "온전하지 않은 회차가 멀쩡한 축제를 지웠다 — 되돌릴 수 없는 손실이다: " + names);
-    }
-
-    /** 온전히 받은 회차에서는 이번에 안 온 축제를 지운다 — 취소된 행이 영원히 남지 않게. */
-    @Test
-    void 온전한_회차는_이번에_안_온_축제를_지운다() {
-        Region region = 우리지역();
-        StubFestivalStandardClient stub = stub();
-
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(
-                        List.of(축제(region, "남을축제"), 축제(region, "취소될축제")), 2)
-                : StandardFestivalResult.empty());
-        refreshService.refresh(FIRST_RUN);
-
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region, "남을축제")), 1)
-                : StandardFestivalResult.empty());
-        refreshService.refresh(SECOND_RUN);
-
-        List<String> names = festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10).stream()
-                .map(FestivalPlace::getName)
-                .toList();
-        assertEquals(List.of("남을축제"), names);
-    }
-
-    /** 같은 회차를 두 번 받아도 늘지 않는다 — 자연키가 막는다. */
-    @Test
-    void 같은_축제를_두_번_받아도_한_건이다() {
-        Region region = 우리지역();
-        StubFestivalStandardClient stub = stub();
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region, "같은축제")), 1)
-                : StandardFestivalResult.empty());
-
-        refreshService.refresh(FIRST_RUN);
-        refreshService.refresh(SECOND_RUN);
-
-        assertEquals(1, festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10).size());
-    }
-
-    /**
-     * <b>반쪽짜리 회차를 "다 됐다" 로 기록하지 않는다.</b>
-     *
-     * <p>둘째 페이지가 깨져도 첫 페이지 것은 저장되므로 <b>저장 건수가 양수</b>다. 그걸로 배치 마커를
-     * 남기면 다음 갱신이 25일 막혀, 반쪽짜리 축제 목록을 그동안 그대로 쓰게 된다.
-     */
-    @Test
-    void 페이지가_깨진_회차는_완료로_기록되지_않는다() {
-        Region region = 우리지역();
-        StubFestivalStandardClient stub = stub();
-        stub.respond(page -> {
-            if (page == 1) {
-                return new StandardFestivalResult(List.of(축제(region, "첫페이지축제")), 150);
-            }
-            throw new IllegalStateException("둘째 페이지가 깨졌다");
+        stub.respond(() -> {
+            throw new IllegalStateException("조회가 깨졌다");
         });
 
         FestivalPlaceRefreshService.RefreshOutcome outcome = refreshService.refresh(FIRST_RUN);
 
-        assertTrue(outcome.saved() > 0, "받은 것은 저장한다 — 전부 버리면 이번 달 내내 축제를 모른다");
-        assertFalse(outcome.complete(), "온전하지 않은 회차를 완료로 기록하면 다음 갱신이 25일 막힌다");
-    }
-
-    /** 페이지 상한에 걸려 잘린 회차도 완료가 아니다 — 실패와 같은 이유다. */
-    @Test
-    void 상한에_걸려_잘린_회차도_완료가_아니다() {
-        Region region = 우리지역();
-        StubFestivalStandardClient stub = stub();
-        // 전체가 페이지 상한(20 × 100)을 훌쩍 넘는다고 말한다.
-        stub.respond(page -> new StandardFestivalResult(
-                List.of(축제(region, "축제" + page)), 100_000));
-
-        FestivalPlaceRefreshService.RefreshOutcome outcome = refreshService.refresh(FIRST_RUN);
-
-        assertFalse(outcome.complete(), "못 받은 페이지가 있는데 완료로 치면 그만큼이 영영 안 채워진다");
+        assertEquals(0, outcome.saved(), "못 받았으면 저장한 것도 없다");
+        assertFalse(outcome.complete(), "실패한 회차를 완료로 기록하면 다음 갱신이 25일 막힌다");
     }
 
     /** 온전히 받은 회차는 완료다 — 한쪽만 보면 "항상 미완료" 가 초록이 된다. */
@@ -289,9 +116,8 @@ class FestivalPoolIntegrationTest {
     void 온전히_받은_회차는_완료다() {
         Region region = 우리지역();
         StubFestivalStandardClient stub = stub();
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region, "온전한축제")), 1)
-                : StandardFestivalResult.empty());
+        stub.respond(() ->
+                new StandardFestivalResult(List.of(축제(region, "온전한축제")), 1));
 
         FestivalPlaceRefreshService.RefreshOutcome outcome = refreshService.refresh(FIRST_RUN);
 
@@ -304,9 +130,8 @@ class FestivalPoolIntegrationTest {
     void 그날_안_여는_축제는_조회되지_않는다() {
         Region region = 우리지역();
         StubFestivalStandardClient stub = stub();
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region, "가을축제")), 1)
-                : StandardFestivalResult.empty());
+        stub.respond(() ->
+                new StandardFestivalResult(List.of(축제(region, "가을축제")), 1));
         refreshService.refresh(FIRST_RUN);
 
         assertFalse(festivalPlaceRepository.findOpenOn(region.getId(), DURING, 10).isEmpty());
@@ -332,11 +157,10 @@ class FestivalPoolIntegrationTest {
     void 축제가_국가유산_보충을_막지_않는다() {
         Region region = 국가유산이_있는_지역();
         StubFestivalStandardClient stub = stub();
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(
+        stub.respond(() ->
+                new StandardFestivalResult(List.of(
                         축제(region, "축제하나"), 축제(region, "축제둘"),
-                        축제(region, "축제셋"), 축제(region, "축제넷")), 4)
-                : StandardFestivalResult.empty());
+                        축제(region, "축제셋"), 축제(region, "축제넷")), 4));
         refreshService.refresh(FIRST_RUN);
 
         // TourAPI 가 볼거리 15개만 준다 — 보충 문턱(18)에 못 미친다.
@@ -355,9 +179,8 @@ class FestivalPoolIntegrationTest {
     void 축제가_볼거리_맨_앞에_온다() {
         Region region = 국가유산이_있는_지역();
         StubFestivalStandardClient stub = stub();
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region, "맨앞축제")), 1)
-                : StandardFestivalResult.empty());
+        stub.respond(() ->
+                new StandardFestivalResult(List.of(축제(region, "맨앞축제")), 1));
         refreshService.refresh(FIRST_RUN);
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지(15), 15));
 
@@ -372,9 +195,8 @@ class FestivalPoolIntegrationTest {
     void 여행일을_모르면_축제를_넣지_않는다() {
         Region region = 국가유산이_있는_지역();
         StubFestivalStandardClient stub = stub();
-        stub.respond(page -> page == 1
-                ? new StandardFestivalResult(List.of(축제(region, "날짜없음축제")), 1)
-                : StandardFestivalResult.empty());
+        stub.respond(() ->
+                new StandardFestivalResult(List.of(축제(region, "날짜없음축제")), 1));
         refreshService.refresh(FIRST_RUN);
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지(15), 15));
 

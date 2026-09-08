@@ -80,20 +80,12 @@ public class FestivalPlaceRefreshService {
 
     private static final Caller CALLER = Caller.of("축제풀배치");
 
-    /** 한 페이지 건수. 전국 1,305건이라 100이면 14페이지다. */
-    private static final int ROWS_PER_PAGE = 100;
-
-    private static final int FIRST_PAGE = 1;
-
     /**
-     * 한 회차 페이지 상한 — 폭주 안전장치.
+     * 이 회차의 시간 상한.
      *
-     * <p>전국 1,305건 기준 14페이지다(실측: 포털 그리드 다운로드로 전량 확인, 2026-09-04). 20이면
-     * 원본이 절반 가까이 늘어도 견디고, 넘으면 무엇을 못 받았는지 로그로 남긴다.
+     * <p>전량이 한 번에 오므로(#433 을 파일 방식으로 옮겼다) 호출은 하나뿐이다. 페이지를 나눌 때는
+     * 호출별 timeout 이 페이지 수만큼 곱해지는 것을 막는 값이었는데, 이제는 그 한 번의 상한이다.
      */
-    private static final int MAX_PAGES = 20;
-
-    /** 집계 전체의 시간 상한. 호출 하나의 timeout 이 페이지 수만큼 곱해지는 것을 막는다. */
     private static final Duration TOTAL_DEADLINE = Duration.ofMinutes(3);
 
     private final FestivalStandardClient festivalStandardClient;
@@ -175,47 +167,19 @@ public class FestivalPlaceRefreshService {
         }
         RegionNameMatcher matcher = RegionNameMatcher.from(regions);
 
-        LocalDateTime deadline = LocalDateTime.now(SERVICE_ZONE).plus(TOTAL_DEADLINE);
-        StandardFestivalResult first;
+        StandardFestivalResult received;
         try {
-            first = festivalStandardClient.findAll(FIRST_PAGE, ROWS_PER_PAGE, TOTAL_DEADLINE);
+            received = festivalStandardClient.findAll(TOTAL_DEADLINE);
         } catch (RuntimeException e) {
-            // 첫 페이지가 깨지면 이번 회차는 없던 일이다. 기존 값을 덮지 않으므로 화면은 그대로다.
-            log.warn("축제 풀 첫 페이지 조회 실패 — 이번 회차를 건너뜁니다 cause={}", RootCause.label(e));
+            // 조회가 깨지면 이번 회차는 없던 일이다. 기존 값을 덮지 않으므로 화면은 그대로다.
+            log.warn("축제 풀 조회 실패 — 이번 회차를 건너뜁니다 cause={}", RootCause.label(e));
             return RefreshOutcome.nothing();
         }
 
-        int totalPages = first.totalPages(ROWS_PER_PAGE);
-        int pagesToRead = Math.min(totalPages, MAX_PAGES);
-        // **이 줄이 실측이다.** 첫 호출 하나로 전체 건수와 남은 호출 수가 확정된다.
-        log.info("축제 풀 조회 시작 전체={}건 전체페이지={} 읽을페이지={}",
-                first.totalCount(), totalPages, pagesToRead);
-        if (totalPages > MAX_PAGES) {
-            // 조용히 자르지 않는다. 무엇을 못 받았는지 남겨야 상한을 다시 정할 수 있다.
-            log.warn("축제가 상한보다 많습니다 — {}페이지 중 {}페이지만 받습니다(약 {}건 누락). 상한을 다시 보세요",
-                    totalPages, MAX_PAGES, (totalPages - MAX_PAGES) * ROWS_PER_PAGE);
-        }
+        // **이 줄이 실측이다.** 전량이 한 번에 오므로 호출 하나로 전체 건수가 확정된다.
+        log.info("축제 풀 조회 완료 받은건수={} 쓸수있음={}건", received.totalCount(), received.items().size());
 
-        List<StandardFestival> collected = new ArrayList<>(first.items());
-        int failedPages = 0;
-        for (int page = FIRST_PAGE + 1; page <= pagesToRead; page++) {
-            Duration remaining = Duration.between(LocalDateTime.now(SERVICE_ZONE), deadline);
-            if (remaining.isNegative() || remaining.isZero()) {
-                // 남은 페이지를 못 읽었으니 온전한 회차가 아니다 — 아래 정리를 건너뛰게 실패로 센다.
-                failedPages++;
-                log.warn("축제 풀 조회가 전체 상한({})을 넘겨 {}페이지에서 멈춥니다", TOTAL_DEADLINE, page);
-                break;
-            }
-            try {
-                collected.addAll(festivalStandardClient.findAll(page, ROWS_PER_PAGE, remaining).items());
-            } catch (RuntimeException e) {
-                // 한 페이지가 깨져도 받은 것은 저장한다 — 전부 버리면 이번 달 내내 축제를 모른다.
-                failedPages++;
-                log.warn("축제 풀 페이지 조회 실패 page={} cause={}", page, RootCause.label(e));
-            }
-        }
-
-        return save(collected, matcher, fetchedAt, totalPages, pagesToRead, failedPages);
+        return save(received.items(), matcher, fetchedAt);
     }
 
     /**
@@ -225,8 +189,10 @@ public class FestivalPlaceRefreshService {
      * 붙은 것이 0이면 지역명 매칭이 깨졌다는 신호다.
      */
     private RefreshOutcome save(List<StandardFestival> collected, RegionNameMatcher matcher,
-            LocalDateTime fetchedAt, int totalPages, int pagesToRead, int failedPages) {
-        boolean complete = totalPages <= pagesToRead && failedPages == 0;
+            LocalDateTime fetchedAt) {
+        // 전량을 한 번에 받으므로 여기 닿았다는 것이 곧 온전한 회차라는 뜻이다. 조회가 깨졌으면
+        // 호출자가 이미 돌아섰다.
+        boolean complete = true;
         List<FestivalPlace> ours = new ArrayList<>();
         int unusable = 0;
         int ambiguous = 0;
