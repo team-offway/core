@@ -3,6 +3,7 @@ package com.offway.core.trip.repository;
 import com.offway.core.trip.domain.LicensedPlace;
 import com.offway.core.trip.domain.PlaceCategory;
 import com.offway.core.trip.domain.PlaceKind;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -28,6 +29,17 @@ public interface LicensedPlaceRepository {
 
     /** 단건 조회 — 코스 응답에 나간 식별자로 상세를 되찾을 때 쓴다. */
     Optional<LicensedPlace> findById(long id);
+
+    /**
+     * 지정한 ID 들을 한 번에(#527) — 연관 관광지가 지목한 장소를 후보 풀에 실을 때 쓴다.
+     *
+     * <p>{@link #findCandidates} 는 적합도·이름순 상위 몇 건만 주므로, 그 컷 밖에 있는 연관 장소가
+     * 통째로 빠진다(카페 375곳 중 139곳이 그랬다). 이 조회는 <b>순위가 지목한 것을 이름으로 찾는</b>
+     * 것이라 컷과 무관하다.
+     *
+     * <p>반환 순서는 정하지 않는다 — 순서를 아는 것은 순위를 들고 있는 호출자다.
+     */
+    List<LicensedPlace> findAllByIds(Collection<Long> ids);
 
     /**
      * 그 지역의 인허가 장소 전부 — <b>이름으로 좌표를 이어 붙일 때</b> 쓴다(#186).

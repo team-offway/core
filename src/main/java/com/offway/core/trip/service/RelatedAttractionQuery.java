@@ -41,11 +41,32 @@ public class RelatedAttractionQuery {
      *     <b>빈 목록</b>이고, 호출자는 좌표 군집으로 되돌아간다
      */
     public List<String> sightPlaceIds(long regionId) {
-        return orderedPlaceIds(regionId, CATEGORY_SIGHT);
+        return orderedPlaceIds(regionId, CATEGORY_SIGHT).stream()
+                .map(LicensedPlace::publicId)
+                .toList();
     }
 
     /** 같은 규칙으로 끼니 자리 — "그 관광지 가는 사람이 실제로 들르는 식당" 이다. */
     public List<String> foodPlaceIds(long regionId) {
+        return orderedPlaceIds(regionId, CATEGORY_FOOD).stream()
+                .map(LicensedPlace::publicId)
+                .toList();
+    }
+
+    /**
+     * 끼니 자리의 연관 장소를 <b>내부 ID</b> 로(#527) — 후보 풀에 실을 때 쓴다.
+     *
+     * <p>공개 식별자가 아니라 내부 ID 인 이유는 이 값으로 인허가 장소를 다시 읽어야 해서다. 순서는
+     * {@link #foodPlaceIds} 와 같다.
+     *
+     * <p><b>왜 풀에 따로 실어야 하나</b> — 인허가 후보는 적합도·이름순 상위 100건만 올라오는데, 연관
+     * 카페 375곳 중 <b>139곳(37%)이 그 컷 밖</b>이다(실측 2026-09-08). 순서만 바꾸면 그 139곳은
+     * 영영 안 뽑힌다.
+     *
+     * <p>카페와 식당이 섞여 있다 — 원본 분류가 {@code 음식} 하나뿐이라 여기서는 못 가른다. 어느 쪽인지는
+     * 이 ID 로 읽은 장소의 {@code kind} 가 답한다.
+     */
+    public List<Long> foodPlaceRawIds(long regionId) {
         return orderedPlaceIds(regionId, CATEGORY_FOOD);
     }
 
@@ -56,7 +77,7 @@ public class RelatedAttractionQuery {
      * 중심 이름으로 갈라 <b>같은 입력이 같은 순서</b>를 내게 한다. 회차마다 순서가 바뀌면 같은 요청이
      * 다른 코스를 내고, 사용자는 그 목록을 못 믿는다.
      */
-    private List<String> orderedPlaceIds(long regionId, String categoryLarge) {
+    private List<Long> orderedPlaceIds(long regionId, String categoryLarge) {
         List<RelatedAttraction> rows = relatedAttractionRepository.findByRegion(regionId).stream()
                 .filter(row -> categoryLarge.equals(row.getCategoryLarge()))
                 .sorted(Comparator.comparingInt(RelatedAttraction::getRelatedRank)
@@ -67,10 +88,10 @@ public class RelatedAttractionQuery {
             return List.of();
         }
         // 같은 장소가 여러 중심에 걸릴 수 있다 — 가장 높은 순위 한 번만 남긴다.
-        Set<String> seen = new LinkedHashSet<>();
-        List<String> ids = new ArrayList<>();
+        Set<Long> seen = new LinkedHashSet<>();
+        List<Long> ids = new ArrayList<>();
         for (RelatedAttraction row : rows) {
-            String placeId = LicensedPlace.publicId(row.getLicensedPlaceId());
+            Long placeId = row.getLicensedPlaceId();
             if (seen.add(placeId)) {
                 ids.add(placeId);
             }

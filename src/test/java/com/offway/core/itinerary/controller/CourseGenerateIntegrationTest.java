@@ -29,8 +29,17 @@ import com.offway.core.weather.domain.DailyWeather;
 import com.offway.core.weather.domain.SkyState;
 import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
 import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
+import com.offway.core.trip.domain.HubAttraction;
+import com.offway.core.trip.domain.LicensedPlace;
+import com.offway.core.trip.domain.PlaceCategory;
+import com.offway.core.trip.domain.PlaceKind;
+import com.offway.core.trip.domain.RelatedAttraction;
+import com.offway.core.trip.repository.HubAttractionRepository;
+import com.offway.core.trip.repository.LicensedPlaceRepository;
+import com.offway.core.trip.repository.RelatedAttractionRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +55,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -53,6 +63,12 @@ import org.springframework.test.web.servlet.MockMvc;
 class CourseGenerateIntegrationTest {
 
     private static final String URL = "/api/v1/courses/generate";
+
+    /** 이 클래스가 쓰는 지역. 순위 데이터를 붙일 때도 같은 곳이어야 한다. */
+    private static final long REGION = 1L;
+
+    /** 순위 데이터의 기준월 — 값 자체는 판정에 안 쓰이고, 없는 달이라 실제 적재와 안 겹친다. */
+    private static final YearMonth RANK_BASE = YearMonth.of(2099, 1);
 
     @Autowired
     private MockMvc mockMvc;
@@ -74,6 +90,15 @@ class CourseGenerateIntegrationTest {
 
     @Autowired
     private UnroutableProbeJpaRepository unroutableProbeJpaRepository;
+
+    @Autowired
+    private RelatedAttractionRepository relatedAttractionRepository;
+
+    @Autowired
+    private HubAttractionRepository hubAttractionRepository;
+
+    @Autowired
+    private LicensedPlaceRepository licensedPlaceRepository;
 
     @TestConfiguration
     static class StubConfig {
@@ -1067,5 +1092,256 @@ class CourseGenerateIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.transitAccess.mode").value("FERRY"))
                 .andExpect(jsonPath("$.data.transitAccess.toPlace").isNotEmpty());
+    }
+
+    /**
+     * <b>카페는 가까운 곳이 아니라 사람들이 실제로 들르는 곳이다</b>(#527).
+     *
+     * <p>카페 후보의 대부분은 사진 없는 인허가 장소다 — 실측(2026-09-08)에서 지역당 TourAPI 카페가
+     * 0~10곳인데 인허가 카페는 상한인 100곳이 들어온다. 거리로 고르면 수로 밀려 그쪽이 이기는데,
+     * 그 100곳은 <b>이름 가나다순으로 잘린 것</b>이라 아무 근거가 없다.
+     *
+     * <p>연관 관광지의 {@code 음식} 분류에 카페가 들어 있다 — 89곳 중 85곳에 있고 지역당 평균 4곳이다.
+     * 그 순위를 거리보다 먼저 본다.
+     */
+    @Test
+    @Transactional
+    void 카페는_가까운_곳이_아니라_함께_가는_곳을_고른다() throws Exception {
+        // 볼거리 한복판에서 떨어뜨리되 **권역(30㎞) 안**에 둔다 — 밖에 두면 상한에 걸려
+        // 무엇이 판정했는지가 흐려진다. 약 17㎞ 로, 코앞 카페들에는 거리로 절대 못 이긴다.
+        String 이름 = "멀리있는함께가는카페";
+        licensedPlaceRepository.saveAll(List.of(LicensedPlace.builder()
+                .regionId(REGION).kind(PlaceKind.CAFE).category(PlaceCategory.COFFEE)
+                .name(이름).address("부산광역시 동구 어딘가 1")
+                .lat(35.25).lng(129.03)
+                .build()));
+        LicensedPlace 함께가는카페 = licensedPlaceRepository.findAllInRegion(REGION).stream()
+                .filter(place -> 이름.equals(place.getName()))
+                .findFirst().orElse(null);
+        assertNotNull(함께가는카페, "인허가 카페를 못 만들었다");
+
+        relatedAttractionRepository.replaceRegion(REGION, RANK_BASE, List.of(RelatedAttraction.builder()
+                .regionId(REGION).baseMonth(RANK_BASE)
+                .hubCode("HUB-1").hubName("어느 중심")
+                .relatedCode("RLT-" + 함께가는카페.getId()).relatedName(함께가는카페.getName())
+                .relatedRank(1).categoryLarge("음식")
+                .licensedPlaceId(함께가는카페.getId())
+                .lat(함께가는카페.getLat()).lng(함께가는카페.getLng())
+                .build()));
+
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.01, 129.03 + i * 0.01));
+            }
+            // 사진까지 있고 볼거리 한복판에 있는 카페 둘 — 거리로 고르면 반드시 이쪽이 이긴다.
+            items.add(cafePoi("c0", "코앞카페", 35.100, 129.030));
+            items.add(cafePoi("c1", "코앞카페2", 35.101, 129.031));
+            items.add(poi("f0", 39, 35.20, 129.12));
+            items.add(poi("f1", 39, 35.21, 129.13));
+            items.add(poi("st0", 32, 35.11, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> cafes = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'CAFE')].title");
+        assertFalse(cafes.isEmpty(), "카페가 한 칸도 안 들어갔다");
+        assertTrue(cafes.contains(함께가는카페.getName()),
+                "함께 가는 카페 대신 가까운 카페를 골랐다: " + cafes);
+    }
+
+    /**
+     * <b>볼거리는 좌표만 보지 않는다</b>(#527).
+     *
+     * <p>연관 관광지 순서는 인허가 볼거리({@code LIC-})에만 걸리는데, 인허가 볼거리는 후보가 18곳에
+     * 못 미칠 때만 보충된다. 실측에서 TourAPI 볼거리가 양양 71·보령 68·태안 63·완도 35 라 <b>보충이
+     * 안 돌고</b>, 그래서 연관 경로가 한 건도 안 걸려 기하학만 돌고 있었다.
+     *
+     * <p>중심관광지(지역당 30곳·89곳 전부)로 그 자리를 메운다. 여기서는 <b>가장 먼 볼거리</b>에 1·2위를
+     * 매겨, 거리로는 절대 안 뽑힐 곳이 뽑히는지를 본다.
+     */
+    @Test
+    @Transactional
+    void 볼거리는_거리보다_인기순을_먼저_본다() throws Exception {
+        // 후보를 필요분(빡빡 2일 = 12곳)보다 넉넉히 둔다. 후보가 얇으면 전부 뽑혀 규칙이 도는지 안 도는지
+        // 를 못 가른다 — #522 에서 실제로 그렇게 가짜 통과한 적이 있다.
+        int pool = 20;
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < pool; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.02, 129.03 + i * 0.02));
+            }
+            items.add(poi("f0", 39, 35.11, 129.04));
+            items.add(poi("f1", 39, 35.12, 129.05));
+            items.add(poi("st0", 32, 35.10, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        // 가장 먼 두 곳에 1·2위. 좌표는 일부러 엉뚱한 곳에 둬서 **이름으로만** 걸리게 한다.
+        hubAttractionRepository.replaceRegion(REGION, List.of(
+                중심("장소s" + (pool - 1), 1),
+                중심("장소s" + (pool - 2), 2)));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> sights = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'SIGHT')].title");
+        assertTrue(sights.contains("장소s" + (pool - 1)) && sights.contains("장소s" + (pool - 2)),
+                "인기 1·2위가 코스에 없다 — 거리로만 골랐다는 뜻이다: " + sights);
+    }
+
+    private static HubAttraction 중심(String name, int rank) {
+        return HubAttraction.builder()
+                .regionId(REGION).baseMonth(RANK_BASE)
+                .hubRank(rank).hubCode("HUB-" + rank)
+                .name(name).categoryLarge("관광지")
+                // 이름으로 걸리는지를 보려고 좌표는 멀리 둔다 — 300m 규칙이 대신 맞춰버리면 판정이 흐려진다.
+                .lat(33.5).lng(126.5)
+                .build();
+    }
+
+    /**
+     * <b>고른 카페를 그날 동선에 맞춰 놓는다</b>(#527) — "여기 들른 김에 저기도".
+     *
+     * <p>예전에는 배열 순서대로 꽂았다({@code cafes.get(ci++)}). 그러면 2일차가 북쪽인데 남쪽 카페를
+     * 받는 일이 생긴다 — 순위로 잘 골라 놔도 그날 동선과 무관하면 못 간다.
+     *
+     * <p>여기서는 <b>순위와 거리를 어긋나게</b> 둔다. 1순위 카페를 2일차 쪽에, 2순위를 1일차 쪽에 두고
+     * 각 날이 자기 쪽 카페를 받는지 본다. 순서대로 꽂으면 정확히 반대가 나온다.
+     */
+    @Test
+    @Transactional
+    void 카페는_그날_볼거리에_가까운_것을_받는다() throws Exception {
+        LicensedPlace 남쪽 = 인허가카페("남쪽카페", 35.10, 129.03);
+        LicensedPlace 북쪽 = 인허가카페("북쪽카페", 35.80, 129.03);
+        // 1순위는 북쪽, 2순위는 남쪽 — 순서대로 꽂으면 1일차가 북쪽 카페를 받는다.
+        relatedAttractionRepository.replaceRegion(REGION, RANK_BASE, List.of(
+                연관음식(북쪽, 1), 연관음식(남쪽, 2)));
+
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            // 두 무리를 약 78㎞ 떼어 놓고 **무리끼리 붙여서** 넣는다. 번갈아 넣으면 하루에 섞인다 —
+            // 테스트에서는 구간 이동시간이 동률이라 동선 정렬이 입력 순서를 그대로 남기기 때문이다.
+            for (int i = 0; i < 3; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.002, 129.03));
+            }
+            for (int i = 0; i < 3; i++) {
+                items.add(poi("n" + i, 12, 35.80 + i * 0.002, 129.03));
+            }
+            // 이틀 모두 점심이 있어야 카페 자리가 이틀치 생긴다.
+            items.add(poi("f0", 39, 35.10, 129.04));
+            items.add(poi("f1", 39, 35.11, 129.04));
+            items.add(poi("f2", 39, 35.80, 129.04));
+            items.add(poi("f3", 39, 35.81, 129.04));
+            items.add(poi("st0", 32, 35.10, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        // 널널(하루 3곳)이라 6곳이 이틀에 3+3 으로 갈린다 — 두 무리가 하루씩 맡는다.
+        // **출발지를 지역 근처에 둔다.** 서울에서 오면 첫날 도착이 늦어 볼거리가 한 곳만 들어가고,
+        // 그러면 이틀이 무리별로 안 갈려 무엇이 판정했는지가 흐려진다.
+        String body = """
+                { "regionId": 1, "travelDays": 2, "density": "RELAXED", "transport": "CAR",
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-05-01" }""";
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        int days = com.jayway.jsonpath.JsonPath.read(response, "$.data.days.length()");
+        int checked = 0;
+        for (int day = 0; day < days; day++) {
+            List<String> cafes = com.jayway.jsonpath.JsonPath.read(
+                    response, "$.data.days[" + day + "].items[?(@.kind == 'CAFE')].title");
+            List<Double> lats = com.jayway.jsonpath.JsonPath.read(
+                    response, "$.data.days[" + day + "].items[?(@.kind == 'SIGHT')].lat");
+            if (cafes.isEmpty() || lats.isEmpty()) {
+                continue;
+            }
+            // 어느 날이 어느 무리인지는 동선 정렬이 정하므로 가정하지 않는다. **규칙 그대로** 본다 —
+            // 그날 볼거리 중심에서 더 가까운 카페를 받았는가.
+            double center = lats.stream().mapToDouble(Double::doubleValue).average().orElseThrow();
+            assertEquals(Math.abs(center - 35.10) <= Math.abs(center - 35.80) ? "남쪽카페" : "북쪽카페",
+                    cafes.getFirst(),
+                    "그날 볼거리에서 먼 카페를 받았다 — 순서대로 꽂았다는 뜻이다 (day " + day
+                            + ", 중심 위도 " + center + "): " + cafes);
+            checked++;
+        }
+        assertEquals(2, checked, "이틀 모두 카페가 있어야 이 시나리오가 성립한다");
+    }
+
+    /**
+     * <b>순위를 따르되 권역 밖은 건너뛴다</b>(#527).
+     *
+     * <p>순위는 "그 관광지 가는 사람이 들르는 곳" 이지 "우리 코스에서 갈 만한 곳" 이 아니다. 섬이 흩어진
+     * 지역에서는 1순위가 볼거리 중심에서 수십 ㎞ 밖에 있다 — 실측에서 카페 3곳 합산 이동이 최대 226㎞ 였다.
+     *
+     * <p>상한(30㎞)의 근거는 {@link CafePreference} 가 소유한다. 여기서는 <b>상한 밖 1순위</b>를 두고
+     * 그것이 뽑히지 않는지만 본다.
+     */
+    @Test
+    @Transactional
+    void 순위가_높아도_권역_밖_카페는_건너뛴다() throws Exception {
+        // 볼거리는 35.10 언저리다. 위도 0.5도 = 약 55㎞ — 30㎞ 상한 밖이다.
+        LicensedPlace 너무먼카페 = 인허가카페("너무먼1순위카페", 35.62, 129.03);
+        relatedAttractionRepository.replaceRegion(REGION, RANK_BASE, List.of(연관음식(너무먼카페, 1)));
+
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.002, 129.03 + i * 0.002));
+            }
+            items.add(cafePoi("c0", "가까운사진카페", 35.101, 129.031));
+            items.add(poi("f0", 39, 35.11, 129.04));
+            items.add(poi("f1", 39, 35.12, 129.05));
+            items.add(poi("st0", 32, 35.11, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> cafes = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'CAFE')].title");
+        assertFalse(cafes.contains("너무먼1순위카페"),
+                "권역 밖 1순위가 뽑혔다 — 상한이 안 걸렸다: " + cafes);
+        assertTrue(cafes.contains("가까운사진카페"),
+                "권역 밖을 건너뛰었으면 사진 있는 카페가 와야 한다: " + cafes);
+    }
+
+    /** 그 지역 인허가 카페 하나 — 트랜잭션 롤백이라 이 테스트 밖으로 안 나간다. */
+    private LicensedPlace 인허가카페(String name, double lat, double lng) {
+        licensedPlaceRepository.saveAll(List.of(LicensedPlace.builder()
+                .regionId(REGION).kind(PlaceKind.CAFE).category(PlaceCategory.COFFEE)
+                .name(name).address("부산광역시 동구 어딘가 1")
+                .lat(lat).lng(lng)
+                .build()));
+        return licensedPlaceRepository.findAllInRegion(REGION).stream()
+                .filter(place -> name.equals(place.getName()))
+                .findFirst().orElseThrow();
+    }
+
+    private static RelatedAttraction 연관음식(LicensedPlace place, int rank) {
+        return RelatedAttraction.builder()
+                .regionId(REGION).baseMonth(RANK_BASE)
+                .hubCode("HUB-" + rank).hubName("어느 중심 " + rank)
+                .relatedCode("RLT-" + place.getId()).relatedName(place.getName())
+                .relatedRank(rank).categoryLarge("음식")
+                .licensedPlaceId(place.getId())
+                .lat(place.getLat()).lng(place.getLng())
+                .build();
     }
 }
