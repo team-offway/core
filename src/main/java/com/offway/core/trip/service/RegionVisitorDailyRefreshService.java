@@ -116,13 +116,25 @@ public class RegionVisitorDailyRefreshService implements ManualBatch {
     private final RegionRepository regionRepository;
     private final BatchRunRepository batchRunRepository;
 
+    /**
+     * <b>트리거가 둘이라 그날을 선점하고 들어간다</b>(#539 리뷰) — {@code RegionPoiRefreshService} 와 같은
+     * 모양이다(#314).
+     *
+     * <p>월간 cron 과 부팅 확인이 거의 같은 순간에 깰 수 있다. {@link #backfill} 은 {@code hasMonth} 로
+     * 이미 있는 달을 건너뛰지만, <b>그 판정을 둘이 함께 읽으면 둘 다 "없다" 를 본다</b> — 같은 달을 두 번
+     * 받아 방문자 한도(1,000)를 두 배로 태운다. 실제로 그 한도가 마른 적이 있다(#496).
+     *
+     * <p>선점은 곧 기록이라, 관리자 화면의 마지막 실행 시각도 여기서 함께 채워진다.
+     */
     @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void backfillIfMissing() {
-        // 손으로 돌리든 스케줄로 돌든 **여기서 실행을 남긴다**(#539 리뷰). 안 남기면 관리자 화면의
-        // 마지막 실행 시각이 영영 비어, 정작 "왜 안 돌지" 를 물어야 할 때 답할 것이 없다.
-        batchRunRepository.markStarted(BATCH_NAME, LocalDateTime.now(SERVICE_ZONE));
-        CallerContext.run(CALLER, () -> backfill(YearMonth.from(LocalDate.now(SERVICE_ZONE))));
+        LocalDate today = LocalDate.now(SERVICE_ZONE);
+        if (!batchRunRepository.tryStartOn(BATCH_NAME, today, LocalDateTime.now(SERVICE_ZONE))) {
+            log.info("지역 방문자 일별을 오늘 이미 확인해 건너뜁니다");
+            return;
+        }
+        CallerContext.run(CALLER, () -> backfill(YearMonth.from(today)));
     }
 
     /**
