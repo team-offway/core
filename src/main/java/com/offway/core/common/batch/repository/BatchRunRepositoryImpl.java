@@ -58,6 +58,29 @@ public class BatchRunRepositoryImpl implements BatchRunRepository {
         if (jpaRepository.findByName(name).isPresent()) {
             return false;
         }
+        return insertFirstRun(name, at);
+    }
+
+    /** 위와 같은 이유로 <b>트랜잭션으로 감싸지 않는다</b> — 날짜 대신 간격으로 선점할 뿐 모양은 같다. */
+    @Override
+    public boolean tryStartSince(String name, LocalDateTime notBefore, LocalDateTime at) {
+        if (jpaRepository.claimIfNotRunSince(name, at, notBefore) > 0) {
+            return true;
+        }
+        // tryStartOn 과 같은 갈래다 — 갱신 0건은 "이미 최근에 돌았다" 이거나 "행이 아직 없다" 이다.
+        if (jpaRepository.findByName(name).isPresent()) {
+            return false;
+        }
+        return insertFirstRun(name, at);
+    }
+
+    /**
+     * 행이 아직 없을 때의 첫 기록 — <b>선점 둘이 공유한다</b>({@code tryStartOn}·{@code tryStartSince}).
+     *
+     * <p>조건부 UPDATE 는 행이 없으면 0건이라 승패를 못 가른다. 그래서 여기까지 내려오고, 그 경합은
+     * {@code uk_batch_run_name} 이 갈라 준다.
+     */
+    private boolean insertFirstRun(String name, LocalDateTime at) {
         try {
             // saveAndFlush 가 아니라 save 다 — 바깥 트랜잭션이 없으므로 flush 를 부를 곳이 없고
             // ("No EntityManager with actual transaction available"), save 는 자기 트랜잭션 경계에서
@@ -70,7 +93,7 @@ public class BatchRunRepositoryImpl implements BatchRunRepository {
             // DataIntegrityViolationException 만 잡으면 그 경우에 예외가 배치까지 올라간다.
             //
             // 다른 원인의 실패까지 여기서 "졌다" 로 접히지만, 그 방향이 안전하다 — 이번 회차를 건너뛸 뿐
-            // 같은 날 외부 호출을 두 배로 쏘지는 않는다.
+            // 외부 호출을 두 배로 쏘지는 않는다.
             log.info("배치 실행 선점 경합에서 밀렸습니다 name={} cause={}",
                     name, lostTheRace.getClass().getSimpleName());
             return false;

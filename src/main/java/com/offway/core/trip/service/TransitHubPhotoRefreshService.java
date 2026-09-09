@@ -1,5 +1,7 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.batch.domain.ManualBatch;
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.service.RegionQuery;
 import com.offway.core.transport.domain.BusTerminalKind;
@@ -49,7 +51,10 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class TransitHubPhotoRefreshService {
+public class TransitHubPhotoRefreshService implements ManualBatch {
+
+    /** 관리자 화면이 마지막 실행 시각을 붙이는 키(#537). batch_run.name 과 같은 값이어야 한다. */
+    static final String BATCH_NAME = "transit-hub-photo-refresh";
 
     /** 매주 화요일 04:40 — 정각·다른 배치와 겹치지 않게 어긋냈다. */
     private static final String WEEKLY_AT_DAWN = "0 40 4 * * TUE";
@@ -94,10 +99,14 @@ public class TransitHubPhotoRefreshService {
     private final FerryPortResolver ferryPortResolver;
     private final GalleryPhotoClient galleryPhotoClient;
     private final TransitHubPhotoRepository transitHubPhotoRepository;
+    private final BatchRunRepository batchRunRepository;
 
     @Scheduled(cron = WEEKLY_AT_DAWN, zone = SERVICE_ZONE_ID)
     public void refresh() {
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+        // 손으로 돌리든 스케줄로 돌든 **여기서 실행을 남긴다**(#539 리뷰). 안 남기면 관리자 화면의
+        // 마지막 실행 시각이 영영 비어, 정작 "왜 안 돌지" 를 물어야 할 때 답할 것이 없다.
+        batchRunRepository.markStarted(BATCH_NAME, now);
         Map<String, String> regionByHub = destinationHubNames();
         Set<String> hubNames = regionByHub.keySet();
         if (hubNames.isEmpty()) {
@@ -274,5 +283,16 @@ public class TransitHubPhotoRefreshService {
         transitHubPhotoRepository.save(photo == null
                 ? TransitHubPhoto.missing(hubName, now)
                 : TransitHubPhoto.found(hubName, photo.imageUrl(), photo.photographer(), photo.title(), now));
+    }
+
+    @Override
+    public String batchName() {
+        return BATCH_NAME;
+    }
+
+    /** 손으로 돌린다(#537) — 배치 자신의 가드는 그대로 탄다. */
+    @Override
+    public void runNow() {
+        refresh();
     }
 }

@@ -1,10 +1,12 @@
 package com.offway.core.common.external;
 
 import com.offway.core.common.batch.repository.BatchRunRepository;
+import com.offway.core.common.batch.service.ManualBatchService;
 import com.offway.core.common.external.controller.dto.BatchSettingRequest;
 import com.offway.core.common.external.controller.dto.ExternalApiSettingRequest;
 import com.offway.core.user.service.AdminAccountService;
 import java.time.LocalDate;
+import java.util.Set;
 import java.time.ZoneId;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +48,7 @@ public class ExternalApiStatusService {
     private final BatchRunRepository batchRunRepository;
     private final ExternalApiSettings settings;
     private final AdminAccountService adminAccountService;
+    private final ManualBatchService manualBatchService;
 
     /**
      * {@code days} 일치 현황. 오늘을 포함해 거슬러 센다.
@@ -64,7 +67,8 @@ public class ExternalApiStatusService {
                 callRepository.callerCountsBetween(from, today),
                 batchRunRepository.all(),
                 settings.touched(),
-                settings.disabledBatches());
+                settings.disabledBatches(),
+                Set.copyOf(manualBatchService.names()));
     }
 
     /**
@@ -89,6 +93,17 @@ public class ExternalApiStatusService {
     @Transactional
     public ExternalApiSnapshot updateBatch(String name, BatchSettingRequest request, UUID adminUserId) {
         settings.updateBatch(name, request.enabledOrDefault(), labelOf(adminUserId));
+        return snapshot(null);
+    }
+
+    /**
+     * 배치를 손으로 돌리고 <b>바뀐 현황 전체</b>를 돌려준다(#537).
+     *
+     * <p>현황을 함께 주는 이유는 마지막 실행 시각이 그 자리에서 갱신돼야 하기 때문이다 — 돌리고 나서
+     * 목록을 다시 부르게 하면 그 사이가 비어 "돌긴 돈 건가" 가 된다. 켜기·끄기와 같은 모양이다.
+     */
+    public ExternalApiSnapshot runBatch(String name) {
+        manualBatchService.run(name);
         return snapshot(null);
     }
 

@@ -10,6 +10,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -57,5 +58,11 @@ public class AdminExternalApiController implements AdminExternalApiApi {
             @RequestBody BatchSettingRequest request) {
         return ApiResponseBody.ok(ExternalApiStatusResponse.from(
                 statusService.updateBatch(name, request, adminUserId)));
+    }
+
+    @Override
+    @PostMapping("/batches/{name}/run")
+    public ApiResponseBody<ExternalApiStatusResponse> runBatch(@PathVariable String name) {
+        return ApiResponseBody.ok(ExternalApiStatusResponse.from(statusService.runBatch(name)));
     }
 }

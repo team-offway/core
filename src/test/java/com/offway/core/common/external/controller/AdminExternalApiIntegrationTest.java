@@ -7,6 +7,7 @@ import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -35,6 +36,9 @@ class AdminExternalApiIntegrationTest {
 
     /** 멈췄다 되돌리는 대상. 실제 배치 이름이라 되돌리지 않으면 그 배치가 이 JVM 내내 멈춘다. */
     private static final String BATCH = "poi-intro-refresh";
+
+    /** 손으로 돌려도 외부를 안 부르는 배치 — 공휴일은 이미 받아 둔 해를 다시 안 묻는다. */
+    private static final String RUNNABLE = "holiday-refresh";
 
     @Autowired
     private MockMvc mockMvc;
@@ -247,5 +251,55 @@ class AdminExternalApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"enabled\": %s}".formatted(enabled)))
                 .andExpect(status().isOk());
+    }
+
+    // ── 배치를 손으로 돌린다(#537) ─────────────────────────────────────────
+
+    @Test
+    void 한_번도_안_돈_배치도_목록에_뜬다() throws Exception {
+        // 기록만 실으면 안 돈 배치가 화면에서 사라진다 — 정작 그때가 "왜 안 돌지" 를 물어야 하는 순간이다.
+        mockMvc.perform(get(URL).with(loginAsAdmin(UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.batches[?(@.name == '" + RUNNABLE + "')]").exists())
+                .andExpect(jsonPath("$.data.batches[?(@.name == '" + RUNNABLE + "')].runnable")
+                        .value(hasItem(true)));
+    }
+
+    @Test
+    void 어드민이_배치를_지금_돌린다() throws Exception {
+        mockMvc.perform(post(URL + "/batches/" + RUNNABLE + "/run")
+                        .with(loginAsAdmin(UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                // 돌린 뒤 현황을 함께 준다 — 다시 목록을 부르게 하면 그 사이가 빈다.
+                .andExpect(jsonPath("$.data.batches").isArray());
+    }
+
+    @Test
+    void 모르는_배치_이름은_400_이다() throws Exception {
+        mockMvc.perform(post(URL + "/batches/없는배치/run").with(loginAsAdmin(UUID.randomUUID())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BATCH-001"));
+    }
+
+    @Test
+    void 로그인하지_않으면_배치를_못_돌린다() throws Exception {
+        mockMvc.perform(post(URL + "/batches/" + RUNNABLE + "/run"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 일반_사용자는_배치를_못_돌린다() throws Exception {
+        mockMvc.perform(post(URL + "/batches/" + RUNNABLE + "/run").with(loginAs(UUID.randomUUID())))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 알림_배치는_손으로_돌릴_수_없다() throws Exception {
+        // 손으로 돌리면 진짜 푸시가 진짜 사용자에게 간다 — 되돌릴 수 없는 것을 버튼 뒤에 두지 않는다.
+        mockMvc.perform(post(URL + "/batches/trip-tomorrow-notify/run")
+                        .with(loginAsAdmin(UUID.randomUUID())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BATCH-001"));
     }
 }

@@ -46,6 +46,21 @@ public interface BatchRunRepository {
     boolean tryStartOn(String name, LocalDate date, LocalDateTime at);
 
     /**
+     * <b>기간</b> 기준으로 실행을 선점한다 — {@link #tryStartOn} 의 날짜 대신 간격을 쓴다(#539 리뷰).
+     *
+     * <p>{@link #hasRunSince} + {@link #markStarted} 조합은 확인과 기록이 두 문장이라 그 사이에 다른
+     * 실행이 끼어든다. 트리거가 하나였을 땐 안 만나던 창인데, <b>관리자가 손으로도 돌릴 수 있게 되면서</b>
+     * 스케줄러와 수동 실행이 그 창을 함께 밟을 수 있게 됐다.
+     *
+     * <p><b>이 메서드는 "시작에 기록하는" 배치에만 쓴다.</b> 선점이 곧 기록이라, 성공한 회차만 남기려는
+     * 배치({@code FestivalPeriodRefreshService} 등 — 회차가 싸서 다시 시도하는 편이 나은 것들)에 쓰면
+     * 첫 페이지가 깨진 날에도 다음 간격까지 건너뛴다. 그쪽은 지금 설계가 의도한 것이다.
+     *
+     * @return 이번 호출이 처음 선점했으면 {@code true}. 이미 누가 잡았으면 {@code false}
+     */
+    boolean tryStartSince(String name, LocalDateTime notBefore, LocalDateTime at);
+
+    /**
      * 기록이 있는 배치 전부 — <b>마지막으로 언제 돌았나</b>(#398).
      *
      * <p>한도를 태우는 쪽이 대부분 배치라, 사용량 그래프가 튄 날을 설명하려면 그날 무엇이 돌았는지를

@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.batch.domain.ManualBatch;
 import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.config.BatchBudgetProperties;
 import com.offway.core.common.external.Caller;
@@ -60,7 +61,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class RegionPoiRefreshService {
+public class RegionPoiRefreshService implements ManualBatch {
 
     /**
      * 매달 1일 새벽 4시에 확인한다.
@@ -328,4 +329,14 @@ public class RegionPoiRefreshService {
                 .build();
     }
 
+    @Override
+    public String batchName() {
+        return BATCH_NAME;
+    }
+
+    /** 손으로 돌린다(#537) — 배치 자신의 가드는 그대로 탄다. */
+    @Override
+    public void runNow() {
+        refreshIfStale();
+    }
 }

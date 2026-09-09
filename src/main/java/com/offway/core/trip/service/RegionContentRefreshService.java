@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.batch.domain.ManualBatch;
 import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
@@ -35,7 +36,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class RegionContentRefreshService {
+public class RegionContentRefreshService implements ManualBatch {
 
     /** 부팅 후 첫 적재까지 지연 — 기동·헬스체크를 방해하지 않게. */
     private static final String INITIAL_DELAY = "PT60S";
@@ -92,12 +93,11 @@ public class RegionContentRefreshService {
                 return;
             }
             LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
-            if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
+            // 확인과 기록을 한 문장으로 — 실패해도 남긴다(안 남기면 같은 주에 재부팅마다 130회를 다시 쏜다).
+            if (!batchRunRepository.tryStartSince(BATCH_NAME, now.minus(MIN_INTERVAL), now)) {
                 log.info("지역 콘텐츠를 최근 {}에 이미 갱신해 건너뜁니다", MIN_INTERVAL);
                 return;
             }
-            // 실패해도 남긴다 — 안 남기면 같은 주에 재부팅마다 130회를 다시 쏜다.
-            batchRunRepository.markStarted(BATCH_NAME, now);
             refresh();
         });
     }
@@ -168,5 +168,16 @@ public class RegionContentRefreshService {
             return;
         }
         log.info("지역 콘텐츠 적재 완료 지역={}/{}", rows.size(), regions.size());
+    }
+
+    @Override
+    public String batchName() {
+        return BATCH_NAME;
+    }
+
+    /** 손으로 돌린다(#537) — 배치 자신의 가드는 그대로 탄다. */
+    @Override
+    public void runNow() {
+        refreshIfStale();
     }
 }

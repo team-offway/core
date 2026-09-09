@@ -29,6 +29,7 @@ class ExternalApiSnapshotTest {
                 Map.of(),
                 List.of(),
                 Map.of(),
+                Set.of(),
                 Set.of());
     }
 

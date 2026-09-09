@@ -1,5 +1,7 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.common.batch.domain.ManualBatch;
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.logging.RootCause;
@@ -11,6 +13,7 @@ import com.offway.core.trip.infrastructure.datalab.dto.TourVisitorResult;
 import com.offway.core.trip.repository.RegionVisitorDailyRepository;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -44,7 +47,10 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class RegionVisitorDailyRefreshService {
+public class RegionVisitorDailyRefreshService implements ManualBatch {
+
+    /** 관리자 화면이 마지막 실행 시각을 붙이는 키(#537). batch_run.name 과 같은 값이어야 한다. */
+    static final String BATCH_NAME = "region-visitor-daily-refresh";
 
     private static final String SERVICE_ZONE_ID = "Asia/Seoul";
     private static final ZoneId SERVICE_ZONE = ZoneId.of(SERVICE_ZONE_ID);
@@ -108,11 +114,27 @@ public class RegionVisitorDailyRefreshService {
     private final TourDataLabClient tourDataLabClient;
     private final RegionVisitorDailyRepository dailyRepository;
     private final RegionRepository regionRepository;
+    private final BatchRunRepository batchRunRepository;
 
+    /**
+     * <b>트리거가 둘이라 그날을 선점하고 들어간다</b>(#539 리뷰) — {@code RegionPoiRefreshService} 와 같은
+     * 모양이다(#314).
+     *
+     * <p>월간 cron 과 부팅 확인이 거의 같은 순간에 깰 수 있다. {@link #backfill} 은 {@code hasMonth} 로
+     * 이미 있는 달을 건너뛰지만, <b>그 판정을 둘이 함께 읽으면 둘 다 "없다" 를 본다</b> — 같은 달을 두 번
+     * 받아 방문자 한도(1,000)를 두 배로 태운다. 실제로 그 한도가 마른 적이 있다(#496).
+     *
+     * <p>선점은 곧 기록이라, 관리자 화면의 마지막 실행 시각도 여기서 함께 채워진다.
+     */
     @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void backfillIfMissing() {
-        CallerContext.run(CALLER, () -> backfill(YearMonth.from(LocalDate.now(SERVICE_ZONE))));
+        LocalDate today = LocalDate.now(SERVICE_ZONE);
+        if (!batchRunRepository.tryStartOn(BATCH_NAME, today, LocalDateTime.now(SERVICE_ZONE))) {
+            log.info("지역 방문자 일별을 오늘 이미 확인해 건너뜁니다");
+            return;
+        }
+        CallerContext.run(CALLER, () -> backfill(YearMonth.from(today)));
     }
 
     /**
@@ -229,5 +251,16 @@ public class RegionVisitorDailyRefreshService {
                 .visitorType(visitor.type())
                 .visitorCount(visitor.count())
                 .build();
+    }
+
+    @Override
+    public String batchName() {
+        return BATCH_NAME;
+    }
+
+    /** 손으로 돌린다(#537) — 배치 자신의 가드는 그대로 탄다. */
+    @Override
+    public void runNow() {
+        backfillIfMissing();
     }
 }
