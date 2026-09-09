@@ -1,6 +1,7 @@
 package com.offway.core.leave.service;
 
 import com.offway.core.common.batch.domain.ManualBatch;
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
 import com.offway.core.leave.domain.HolidayException;
@@ -61,9 +62,13 @@ public class HolidayRefreshService implements ManualBatch {
 
     private final HolidayClient holidayClient;
     private final HolidayMonthRepository holidayMonthRepository;
+    private final BatchRunRepository batchRunRepository;
 
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = REFRESH_INTERVAL)
     public void refresh() {
+        // 손으로 돌리든 스케줄로 돌든 **여기서 실행을 남긴다**(#539 리뷰). 안 남기면 관리자 화면의
+        // 마지막 실행 시각이 영영 비어, 정작 "왜 안 돌지" 를 물어야 할 때 답할 것이 없다.
+        batchRunRepository.markStarted(BATCH_NAME, LocalDateTime.now(SERVICE_ZONE));
         CallerContext.run(CALLER, this::refreshDueMonths);
     }
 

@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.domain.ManualBatch;
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.logging.RootCause;
@@ -12,6 +13,7 @@ import com.offway.core.trip.infrastructure.datalab.dto.TourVisitorResult;
 import com.offway.core.trip.repository.RegionVisitorDailyRepository;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -112,10 +114,14 @@ public class RegionVisitorDailyRefreshService implements ManualBatch {
     private final TourDataLabClient tourDataLabClient;
     private final RegionVisitorDailyRepository dailyRepository;
     private final RegionRepository regionRepository;
+    private final BatchRunRepository batchRunRepository;
 
     @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void backfillIfMissing() {
+        // 손으로 돌리든 스케줄로 돌든 **여기서 실행을 남긴다**(#539 리뷰). 안 남기면 관리자 화면의
+        // 마지막 실행 시각이 영영 비어, 정작 "왜 안 돌지" 를 물어야 할 때 답할 것이 없다.
+        batchRunRepository.markStarted(BATCH_NAME, LocalDateTime.now(SERVICE_ZONE));
         CallerContext.run(CALLER, () -> backfill(YearMonth.from(LocalDate.now(SERVICE_ZONE))));
     }
 

@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.domain.ManualBatch;
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.service.RegionQuery;
 import com.offway.core.transport.domain.BusTerminalKind;
@@ -98,10 +99,14 @@ public class TransitHubPhotoRefreshService implements ManualBatch {
     private final FerryPortResolver ferryPortResolver;
     private final GalleryPhotoClient galleryPhotoClient;
     private final TransitHubPhotoRepository transitHubPhotoRepository;
+    private final BatchRunRepository batchRunRepository;
 
     @Scheduled(cron = WEEKLY_AT_DAWN, zone = SERVICE_ZONE_ID)
     public void refresh() {
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+        // 손으로 돌리든 스케줄로 돌든 **여기서 실행을 남긴다**(#539 리뷰). 안 남기면 관리자 화면의
+        // 마지막 실행 시각이 영영 비어, 정작 "왜 안 돌지" 를 물어야 할 때 답할 것이 없다.
+        batchRunRepository.markStarted(BATCH_NAME, now);
         Map<String, String> regionByHub = destinationHubNames();
         Set<String> hubNames = regionByHub.keySet();
         if (hubNames.isEmpty()) {

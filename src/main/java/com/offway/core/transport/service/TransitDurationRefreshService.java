@@ -1,6 +1,7 @@
 package com.offway.core.transport.service;
 
 import com.offway.core.common.batch.domain.ManualBatch;
+import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.transport.domain.MeasuredLeg;
 import com.offway.core.transport.domain.TransitLegDuration;
 import com.offway.core.transport.domain.TransitLegResult;
@@ -84,11 +85,15 @@ public class TransitDurationRefreshService implements ManualBatch {
 
     private final TransitDurationService transitDurationService;
     private final TransitLegClient transitLegClient;
+    private final BatchRunRepository batchRunRepository;
 
     /** 매시 17분 — 정각에 몰린 다른 배치와 겹치지 않게 어긋냈다. */
     @Scheduled(cron = "0 17 * * * *", zone = "Asia/Seoul")
     public void measurePending() {
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+        // 손으로 돌리든 스케줄로 돌든 **여기서 실행을 남긴다**(#539 리뷰). 안 남기면 관리자 화면의
+        // 마지막 실행 시각이 영영 비어, 정작 "왜 안 돌지" 를 물어야 할 때 답할 것이 없다.
+        batchRunRepository.markStarted(BATCH_NAME, now);
         List<TransitLegDuration> pending =
                 transitDurationService.pending(MAX_LEGS_PER_RUN, now.minus(REMEASURE_AFTER));
         if (pending.isEmpty()) {
