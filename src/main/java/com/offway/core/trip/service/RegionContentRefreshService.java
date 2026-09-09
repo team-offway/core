@@ -93,12 +93,11 @@ public class RegionContentRefreshService implements ManualBatch {
                 return;
             }
             LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
-            if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
+            // 확인과 기록을 한 문장으로 — 실패해도 남긴다(안 남기면 같은 주에 재부팅마다 130회를 다시 쏜다).
+            if (!batchRunRepository.tryStartSince(BATCH_NAME, now.minus(MIN_INTERVAL), now)) {
                 log.info("지역 콘텐츠를 최근 {}에 이미 갱신해 건너뜁니다", MIN_INTERVAL);
                 return;
             }
-            // 실패해도 남긴다 — 안 남기면 같은 주에 재부팅마다 130회를 다시 쏜다.
-            batchRunRepository.markStarted(BATCH_NAME, now);
             refresh();
         });
     }

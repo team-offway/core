@@ -42,4 +42,23 @@ public interface BatchRunJpaRepository extends JpaRepository<BatchRun, Long> {
             @Param("at") LocalDateTime at,
             @Param("dayStart") LocalDateTime dayStart,
             @Param("nextDayStart") LocalDateTime nextDayStart);
+
+    /**
+     * 마지막 실행이 {@code notBefore} 보다 앞일 때만 선점한다 — 위와 같은 모양의 <b>기간</b> 판이다.
+     *
+     * <p>날짜가 아니라 간격을 쓰는 배치용이다. 판정과 기록이 한 문장이라 그 사이에 다른 실행이 못 들어온다.
+     *
+     * @param notBefore 이 시각 이후에 돈 기록이 있으면 선점하지 않는다
+     * @return 갱신된 행 수. 1 이면 이번 호출이 선점했다
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update BatchRun b set b.lastRunAt = :at
+            where b.name = :name and b.lastRunAt < :notBefore
+            """)
+    int claimIfNotRunSince(
+            @Param("name") String name,
+            @Param("at") LocalDateTime at,
+            @Param("notBefore") LocalDateTime notBefore);
 }

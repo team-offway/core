@@ -103,12 +103,12 @@ public class PoiIntroRefreshService implements ManualBatch {
                 return;
             }
             LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
-            if (batchRunRepository.hasRunSince(BATCH_NAME, now.minus(MIN_INTERVAL))) {
+            // 확인과 기록을 한 문장으로 — 결과가 아니라 실행을 기록한다(전부 실패한 회차에 아무것도
+            // 안 써지면 재부팅마다 다시 쏜다).
+            if (!batchRunRepository.tryStartSince(BATCH_NAME, now.minus(MIN_INTERVAL), now)) {
                 log.info("장소 운영시간을 최근 {}에 이미 받아 건너뜁니다", MIN_INTERVAL);
                 return;
             }
-            // 결과가 아니라 실행을 기록한다 — 전부 실패한 회차에 아무것도 안 써지면 재부팅마다 다시 쏜다.
-            batchRunRepository.markStarted(BATCH_NAME, now);
             refresh();
         });
     }
