@@ -582,6 +582,19 @@ button:disabled {
     transform: none;
 }
 
+/* 배치 행의 버튼 둘 — '지금 돌리기' 와 켜기·멈추기. 좁은 칸이라 줄바꿈을 허용한다. */
+.batch-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+/* 도는 동안. disabled 가 이미 흐리게 하므로 여기서는 "기다리는 중" 이라는 신호만 더한다. */
+.is-running {
+    cursor: progress;
+}
+
 /* ---------------------------------------------------------------- 편집 */
 
 dialog {
