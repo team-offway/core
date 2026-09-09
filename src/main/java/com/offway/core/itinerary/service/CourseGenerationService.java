@@ -3,6 +3,7 @@ package com.offway.core.itinerary.service;
 import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.external.RequestUsage;
 import com.offway.core.itinerary.domain.Course;
+import com.offway.core.itinerary.domain.PhotoBand;
 import com.offway.core.itinerary.domain.CafePreference;
 import com.offway.core.itinerary.domain.CourseNeeds;
 import com.offway.core.itinerary.domain.CandidatePool;
@@ -76,6 +77,7 @@ public class CourseGenerationService {
 
     /** 상한을 몇 단계까지 푸나 — 한 곳도 못 고를 때만 쓰는 안전판이다. */
     private static final int VARIETY_MAX_RELAX = 3;
+
 
     private final RegionPoiService regionPoiService;
     private final TravelTimeProvider travelTimeProvider;
@@ -1088,7 +1090,8 @@ public class CourseGenerationService {
             return List.of();
         }
         // 풀 전체를 거리순으로 훑는다 — 필요한 만큼만 뽑으면 양보할 후보가 애초에 없다.
-        List<PoiCandidate> byDistance = reorder(pool, GeoCluster.nearest(coords(pool), hub, pool.size()));
+        List<PoiCandidate> byDistance = photoFirstWithinBand(
+                reorder(pool, GeoCluster.nearest(coords(pool), hub, pool.size())), hub);
         List<PoiCandidate> picked = new ArrayList<>();
         List<PoiCandidate> deferred = new ArrayList<>();
         for (PoiCandidate candidate : byDistance) {
@@ -1109,6 +1112,25 @@ public class CourseGenerationService {
             picked.add(candidate);
         }
         return List.copyOf(picked);
+    }
+
+    /**
+     * 사진 있는 후보를 밴드 안에서 앞으로 당긴다(#545) — 규칙과 그 근거는 {@link PhotoBand} 가 소유한다.
+     *
+     * <p>기준점이 없으면 그대로 둔다. 밴드는 거리 위에서만 뜻이 있다.
+     */
+    private static List<PoiCandidate> photoFirstWithinBand(List<PoiCandidate> byDistance, Coordinate hub) {
+        if (hub == null || byDistance.size() < 2) {
+            return byDistance;
+        }
+        double[] distances = byDistance.stream()
+                .mapToDouble(candidate -> hub.haversineKmTo(new Coordinate(candidate.lat(), candidate.lng())))
+                .toArray();
+        boolean[] photos = new boolean[byDistance.size()];
+        for (int i = 0; i < byDistance.size(); i++) {
+            photos[i] = hasPhoto(byDistance.get(i));
+        }
+        return reorder(byDistance, PhotoBand.reorder(distances, photos));
     }
 
     /** 직전에 고른 것과 같은 음식인가 — 하루 안이든 이튿날이든 <b>연달아</b> 나오는 것을 본다. */
