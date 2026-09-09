@@ -206,11 +206,18 @@
                 <label>
                     기간
                     <select id="filter-days">
+                        <option value="1">오늘 하루</option>
+                        <option value="3">최근 3일</option>
                         <option value="7">최근 7일</option>
                         <option value="14" selected>최근 14일</option>
                         <option value="30">최근 30일</option>
                         <option value="90">최근 90일</option>
+                        <option value="custom">직접 입력</option>
                     </select>
+                </label>
+                <label id="filter-days-custom-label" hidden>
+                    일수
+                    <input type="number" id="filter-days-custom" min="1" max="90" step="1" value="14">
                 </label>
                 <span class="spacer"></span>
                 <span class="count" id="external-count"></span>

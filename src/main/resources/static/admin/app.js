@@ -1067,10 +1067,38 @@ function setExternalMessage(text) {
     node.hidden = !text;
 }
 
+/** 서버가 인정하는 조회 기간 — {@code ExternalApiStatusService} 의 MIN_DAYS·MAX_DAYS 와 같은 값이다. */
+const MIN_DAYS = 1;
+const MAX_DAYS = 90;
+
+/** 서버의 기본 조회 기간과 같다 — 직접 입력 칸을 비웠을 때 여기로 떨어진다. */
+const DEFAULT_DAYS = 14;
+
+/**
+ * 고른 기간(일). "직접 입력" 이면 옆 칸의 값을 쓴다.
+ *
+ * <p><b>범위 밖은 거절하지 않고 자른다</b> — 서버가 그렇게 하고 있고(조회 화면의 잘못된 값은 클라이언트
+ * 실수지 계약 위반이 아니다), 화면만 400 을 띄우면 표가 통째로 빈다. 비었거나 숫자가 아니면 기본값이다.
+ */
+function selectedDays() {
+    const picked = $('filter-days').value;
+    if (picked !== 'custom') {
+        return picked;
+    }
+    const input = $('filter-days-custom');
+    const typed = Number(input.value);
+    const days = Number.isFinite(typed) && typed > 0
+        ? Math.max(MIN_DAYS, Math.min(MAX_DAYS, Math.floor(typed)))
+        : DEFAULT_DAYS;
+    // 잘린 값을 칸에도 되돌려 놓는다. 안 그러면 화면의 숫자와 표의 기간이 어긋난 채 남는다.
+    input.value = String(days);
+    return String(days);
+}
+
 async function reloadExternals() {
     setExternalMessage('불러오는 중…');
     try {
-        const days = $('filter-days').value;
+        const days = selectedDays();
         const body = await call(`/api/v1/admin/external-apis?days=${encodeURIComponent(days)}`);
         externals = body.data;
         renderExternals();
@@ -1302,14 +1330,74 @@ function renderBatches() {
         state.appendChild(badge);
         tr.appendChild(state);
 
-        const action = document.createElement('td');
-        const button = el('button', batch.enabled ? 'danger' : 'ghost', batch.enabled ? '멈추기' : '다시 돌리기');
-        button.type = 'button';
-        button.addEventListener('click', () => saveBatch(batch.name, !batch.enabled));
-        action.appendChild(button);
+        const action = el('td', 'batch-actions');
+        if (batch.runnable) {
+            action.appendChild(runButton(batch));
+        }
+        // "다시 돌리기" 가 아니라 "켜기" 다 — 지금 돌리는 것은 옆 버튼이고, 이건 스케줄을 되살린다.
+        const toggle = el('button', batch.enabled ? 'danger' : 'ghost', batch.enabled ? '멈추기' : '켜기');
+        toggle.type = 'button';
+        toggle.addEventListener('click', () => saveBatch(batch.name, !batch.enabled));
+        action.appendChild(toggle);
         tr.appendChild(action);
         rows.appendChild(tr);
     });
+}
+
+/**
+ * 지금 돌리기(#541).
+ *
+ * <p>서버가 <b>끝날 때까지 기다렸다</b> 응답하므로 수십 초가 걸릴 수 있다. 그동안 아무 표시가 없으면
+ * 사용자가 다시 누르고, 그러면 409 를 보게 된다. 그래서 누른 버튼 자신이 상태를 든다.
+ */
+function runButton(batch) {
+    const button = el('button', 'primary', '지금 돌리기');
+    button.type = 'button';
+    button.addEventListener('click', () => runBatch(batch.name, button));
+    return button;
+}
+
+/**
+ * 배치 하나를 손으로 돌린다.
+ *
+ * <p><b>아무 일도 안 일어나는 것이 정상일 수 있다</b> — 배치 자신의 가드("오늘 이미 돌았다", "최근에 받아
+ * 뒀다")가 먼저 걸리기 때문이다. 그걸 실패로 보이게 하면 "왜 안 되지" 가 되므로, 마지막 실행 시각이
+ * 갱신됐는지로 갈라 말해 준다.
+ */
+async function runBatch(name, button) {
+    const before = batchLastRunAt(name);
+    const label = button.textContent;
+    setBatchRunning(button, true, '도는 중…');
+    setExternalMessage(`${name} 을 돌리는 중입니다. 끝날 때까지 기다립니다.`);
+    try {
+        const result = await call(
+            `/api/v1/admin/external-apis/batches/${encodeURIComponent(name)}/run`,
+            {method: 'POST'});
+        externals = result.data;
+        renderExternals();
+        const after = batchLastRunAt(name);
+        setExternalMessage(after && after !== before
+            ? `${name} 을 돌렸습니다.`
+            : `${name} — 배치 자신의 가드에 걸려 이번엔 아무것도 하지 않았습니다.`);
+    } catch (error) {
+        // 화면이 거짓말하지 않게 서버 값으로 되돌린 뒤 사유를 세운다.
+        await reloadExternals();
+        setExternalMessage(error.message || DEFAULT_ERROR);
+    } finally {
+        // 성공하면 다시 그려져 이 버튼은 이미 사라졌다. 실패했을 때를 위해 되돌린다.
+        setBatchRunning(button, false, label);
+    }
+}
+
+function batchLastRunAt(name) {
+    const found = (externals && externals.batches || []).find((batch) => batch.name === name);
+    return found ? found.lastRunAt : null;
+}
+
+function setBatchRunning(button, running, label) {
+    button.disabled = running;
+    button.textContent = label;
+    button.classList.toggle('is-running', running);
 }
 
 /** 마지막 실행을 "언제였나" 로 읽히게. 날짜만 보면 오래된 것인지 한눈에 안 들어온다. */
@@ -1397,7 +1485,18 @@ function bind() {
 
     // 기간을 바꾸면 서버를 다시 부른다 — 목록 필터와 달리 브라우저에 없는 데이터라 걸러낼 수 없다.
     $('external-reload').addEventListener('click', reloadExternals);
-    $('filter-days').addEventListener('change', reloadExternals);
+    $('filter-days').addEventListener('change', () => {
+        // "직접 입력" 은 칸을 열어 주기만 하고 부르지 않는다 — 아직 아무 숫자도 안 받았다.
+        const custom = $('filter-days').value === 'custom';
+        $('filter-days-custom-label').hidden = !custom;
+        if (custom) {
+            $('filter-days-custom').focus();
+            return;
+        }
+        reloadExternals();
+    });
+    // change 라 타이핑 도중에는 안 부른다 — 세 자리를 치는 사이에 세 번 부르지 않게.
+    $('filter-days-custom').addEventListener('change', reloadExternals);
 
     $('copy-user-id').addEventListener('click', async () => {
         await navigator.clipboard.writeText($('my-user-id').textContent);
