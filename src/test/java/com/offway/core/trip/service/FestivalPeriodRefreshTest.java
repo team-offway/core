@@ -85,6 +85,12 @@ class FestivalPeriodRefreshTest {
                     }
 
                     @Override
+                    public boolean tryStartSince(
+                            String name, java.time.LocalDateTime notBefore, java.time.LocalDateTime at) {
+                        return true;
+                    }
+
+                    @Override
                     public java.util.List<com.offway.core.common.batch.domain.BatchRun> all() {
                         // 이 테스트는 정리 판정만 본다 — 실행 이력을 읽는 경로가 아니다.
                         return java.util.List.of();

@@ -17,7 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 /**
- * 그날 실행을 <b>한 번만</b> 선점하는가(#314).
+ * 한 회차를 <b>한 번만</b> 선점하는가 — 날짜 기준(#314)과 기간 기준(#539 리뷰) 둘 다.
  *
  * <p>{@code RegionPoiRefreshService} 는 cron 과 부팅 확인 두 트리거를 쓰고 스케줄러 풀이 2 라, 둘이 동시에
  * 깨어날 수 있다. "확인 → 267콜 → 기록" 이던 예전 구조에서는 둘 다 "아직 안 돌았다" 를 읽어 같은 날 콜을
@@ -30,6 +30,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 class BatchRunClaimIntegrationTest {
 
     private static final LocalDate TODAY = LocalDate.of(2026, 8, 24);
+    private static final LocalDateTime NOW = TODAY.atTime(4, 0);
+    private static final LocalDateTime WEEK_AGO = NOW.minusDays(7);
 
     @Autowired
     private BatchRunRepository batchRunRepository;
@@ -98,6 +100,78 @@ class BatchRunClaimIntegrationTest {
         return () -> {
             startTogether.await();
             return batchRunRepository.tryStartOn(name, TODAY, LocalDateTime.of(TODAY, java.time.LocalTime.of(4, 0)));
+        };
+    }
+
+    @Test
+    void 기간_선점도_처음이면_이긴다() {
+        String name = "since-first-" + System.nanoTime();
+
+        assertTrue(batchRunRepository.tryStartSince(name, WEEK_AGO, NOW));
+    }
+
+    /** 간격 안에 이미 돌았으면 진다 — 여기가 {@code hasRunSince} 를 대신하는 자리다. */
+    @Test
+    void 간격_안에_이미_돌았으면_진다() {
+        String name = "since-recent-" + System.nanoTime();
+        batchRunRepository.tryStartSince(name, WEEK_AGO, NOW.minusDays(1));
+
+        assertFalse(batchRunRepository.tryStartSince(name, WEEK_AGO, NOW));
+    }
+
+    /**
+     * 간격이 지나면 다시 선점한다 — <b>negative control</b> 이다.
+     *
+     * <p>이게 없으면 위 두 테스트는 "항상 false 를 주는 구현" 으로도 통과한다. 그러면 배치가 영영 멈춘다.
+     */
+    @Test
+    void 간격이_지나면_다시_선점한다() {
+        String name = "since-stale-" + System.nanoTime();
+        batchRunRepository.tryStartSince(name, WEEK_AGO, NOW.minusDays(30));
+
+        assertTrue(batchRunRepository.tryStartSince(name, WEEK_AGO, NOW));
+    }
+
+    /** 선점이 곧 기록이다 — 뒤따르는 작업이 실패해도 다음 간격까지 다시 쏘지 않는다. */
+    @Test
+    void 기간_선점하면_실행_기록이_남는다() {
+        String name = "since-marks-" + System.nanoTime();
+
+        batchRunRepository.tryStartSince(name, WEEK_AGO, NOW);
+
+        assertTrue(batchRunRepository.hasRunSince(name, WEEK_AGO));
+    }
+
+    /**
+     * <b>지적 ② 가 가리킨 창이다.</b> 스케줄러와 관리자 수동 실행이 같은 순간에 들어와도 한쪽만 이겨야 한다.
+     *
+     * <p>확인과 기록이 두 문장이던 구조에서는 여기서 2 가 나온다 — 둘 다 "아직 안 돌았다" 를 읽는다.
+     */
+    @Test
+    void 기간_선점도_동시에_깨어나면_한_쪽만_이긴다() throws Exception {
+        String name = "since-race-" + System.nanoTime();
+        int racers = 2;
+        CyclicBarrier startTogether = new CyclicBarrier(racers);
+        ExecutorService pool = Executors.newFixedThreadPool(racers);
+        try {
+            List<Callable<Boolean>> attempts = List.of(
+                    claimSince(name, startTogether), claimSince(name, startTogether));
+
+            long won = 0;
+            for (Future<Boolean> result : pool.invokeAll(attempts)) {
+                won += Boolean.TRUE.equals(result.get()) ? 1 : 0;
+            }
+
+            assertEquals(1, won, "동시에 둘이 선점하면 한 회차의 외부 호출이 두 배가 된다");
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private Callable<Boolean> claimSince(String name, CyclicBarrier startTogether) {
+        return () -> {
+            startTogether.await();
+            return batchRunRepository.tryStartSince(name, WEEK_AGO, NOW);
         };
     }
 }
