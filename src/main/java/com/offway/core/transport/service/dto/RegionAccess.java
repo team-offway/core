@@ -330,22 +330,29 @@ public record RegionAccess(
     /**
      * 이 결과와 다른 수단의 도착 지점 후보를 견줘 <b>지역에 더 가까운 쪽</b>으로 바꾼다(#97).
      *
-     * <p><b>운행 편을 찾았으면 바꾸지 않는다.</b> 실제 시각까지 아는 결과는 이것뿐이라, 조금 더 가까운 지점을
-     * 얻자고 도착 시각을 버리면 첫날 일정이 다시 "하루 전부" 로 돌아간다 — 얻는 것보다 잃는 것이 크다.
-     * 소요시간을 저장하면(#107) 그때는 같은 축에서 견줄 수 있다.
+     * <p><b>수단이 아니라 "그 지역에 닿는가" 를 먼저 본다</b>(#542). 예전에는 운행 편을 찾았으면
+     * ({@link Status#AVAILABLE}) 무조건 그것으로 끝냈다. 실제 시각을 아는 결과가 그것뿐이었기 때문인데,
+     * 그 규칙이 <b>읍내 터미널을 두고 20~78㎞ 밖 역으로 보냈다</b> — 태안이 37.7㎞ 밖 홍성역, 고성(강원)이
+     * 78.2㎞ 밖 강릉역이다. 코스는 내린 곳을 지역 안 동선의 기준점으로 쓰므로(#127), 기준점이 그만큼
+     * 밖이면 첫날 동선 전체가 틀어진다. 89곳 전수로 재니 그런 곳이 <b>20곳</b>이었다.
      *
-     * <p>바꾸는 경우는 둘이다. 열차역이 아예 없거나({@link Status#NO_STATION}), 역은 있는데 그날 운행이
-     * 없거나 조회가 실패했고 <b>그 역이 터미널·항구보다 먼</b> 경우다. 후자는 실제로 흔하다 — 양양·합천·태안·
-     * 진도·완도·함양처럼 최근접 역이 30~50㎞ 밖인 지역이 아홉 곳이고, 그런 곳의 시외버스 터미널은 읍내에 있다.
+     * <p>그래서 세 갈래다.
+     *
+     * <ul>
+     *   <li><b>내가 지역 안이면 그대로</b> — 직통이다. 공주역(13.0㎞)처럼 역이 지역 안인 곳은 안 바뀐다.
+     *   <li><b>내가 밖인데 상대가 안이면 넘긴다</b> — 도착 시각을 잃더라도 기준점이 맞는 쪽이 낫다.
+     *   <li><b>둘 다 밖이면 예전 규칙</b> — 운행 편을 찾았으면 지킨다. 산청(32.7㎞ 대 17.3㎞)·창녕처럼
+     *       어느 쪽도 지역에 못 닿는 곳에서 도착 시각까지 버릴 이유는 없다.
+     * </ul>
+     *
+     * <p>운행 편을 못 찾은 결과({@link Status#NO_STATION} 등)는 예전처럼 <b>더 가까운 쪽</b>이 이긴다.
+     * 잃을 도착 시각이 없으니 거리만 보면 된다.
      *
      * <p>이긴 후보가 원래 지점이면 <b>이 결과를 그대로</b> 돌려준다. {@code POINT_ONLY} 로 갈아치우면
      * "그날 열차 없음"·"조회 실패" 라는 사유가 사라져, 외부 장애가 화면에서 조용해진다.
      */
     public RegionAccess orNearer(Coordinate region, RegionArrival... others) {
         Objects.requireNonNull(region, "지역 좌표는 null 일 수 없습니다.");
-        if (status == Status.AVAILABLE) {
-            return this;
-        }
         Optional<RegionArrival> best = RegionArrival.nearestTo(region, others);
         if (best.isEmpty()) {
             return this;
@@ -355,7 +362,29 @@ public record RegionAccess(
         }
         double mineKm = region.haversineKmTo(toPoint);
         double bestKm = region.haversineKmTo(best.get().point());
+        if (status == Status.AVAILABLE) {
+            // 운행 편을 찾았어도 **내가 지역 밖이고 상대가 지역 안이면** 넘긴다(#542).
+            return reachesRegion(mineKm) || !reachesRegion(bestKm) ? this : pointOnly(best.get());
+        }
         return bestKm < mineKm ? pointOnly(best.get()) : this;
+    }
+
+    /**
+     * 이 거리면 <b>그 지역에 닿은 것</b>으로 본다 — 직통인가를 가르는 선이다(#542).
+     *
+     * <p>89곳 전수로 재 보면 숫자가 한쪽으로 뚜렷하게 갈린다. 읍내 터미널은 지역 중심에서 0.2~1.5㎞ 이고,
+     * 지역 밖 역은 20~78㎞ 다. 그 사이가 거의 비어 있어 어디를 잘라도 같은 20곳이 걸린다.
+     *
+     * <p><b>15 를 고른 이유</b>는 반대쪽이다 — 역이 지역 안인 곳을 건드리지 않아야 한다. 공주역이 공주시
+     * 중심에서 13.0㎞ 라 가장 아슬아슬하고, 그 위로 안전하게 남기는 값이다. 군 단위 반경이 대략 10~20㎞ 라
+     * 중심에서 15㎞ 면 대개 같은 시군이기도 하다.
+     *
+     * <p>경계 폴리곤이 아니라 중심 좌표를 쓰는 것은 우리가 가진 것이 그것뿐이기 때문이다.
+     */
+    private static final double REACHES_REGION_KM = 15.0;
+
+    private static boolean reachesRegion(double km) {
+        return km <= REACHES_REGION_KM;
     }
 
     public static RegionAccess pointOnly(RegionArrival arrival) {

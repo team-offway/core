@@ -33,12 +33,39 @@ class RegionAccessTest {
     }
 
     @Test
-    void 운행_편을_찾았으면_더_가까운_터미널이_있어도_열차를_지킨다() {
-        // 도착 시각을 아는 결과는 이것뿐이다. 지점 몇 ㎞ 를 얻자고 시각을 버리면 첫날이 통째로 "하루 전부" 가 된다.
+    void 운행_편을_찾았어도_역이_지역_밖이고_터미널이_안이면_터미널로_간다() {
+        // 이 테스트가 #542 의 이유다. 예전에는 운행 편을 찾으면 무조건 지켜서, 읍내 터미널을 두고
+        // 20~78㎞ 밖 역으로 보냈다 — 태안이 37.7㎞ 밖 홍성역, 고성(강원)이 78.2㎞ 밖 강릉역이다.
+        // 코스는 내린 곳을 지역 안 동선의 기준점으로 쓰므로 첫날 동선이 통째로 틀어진다.
         TrainLeg leg = TrainLeg.of("KTX", LocalDateTime.of(2026, 9, 1, 8, 0), LocalDateTime.of(2026, 9, 1, 11, 0));
         RegionAccess 열차 = RegionAccess.available("서울", "완도역", 먼_역, leg, List.of());
 
+        RegionAccess 결과 = 열차.orNearer(완도군청, 시외버스(읍내_터미널));
+
+        assertEquals(TransitMode.INTERCITY_BUS, 결과.mode());
+        assertEquals(읍내_터미널, 결과.arrivalPoint().orElseThrow());
+    }
+
+    @Test
+    void 운행_편을_찾았고_역도_지역_안이면_열차를_지킨다() {
+        // negative control — 위 테스트만 있으면 "항상 터미널로 넘기는" 구현도 통과한다. 그러면
+        // 공주역(공주시 중심에서 13.0㎞)처럼 멀쩡히 지역 안인 역까지 버려 도착 시각을 잃는다.
+        Coordinate 지역_안_역 = new Coordinate(34.3200, 126.7600);
+        TrainLeg leg = TrainLeg.of("KTX", LocalDateTime.of(2026, 9, 1, 8, 0), LocalDateTime.of(2026, 9, 1, 11, 0));
+        RegionAccess 열차 = RegionAccess.available("서울", "완도역", 지역_안_역, leg, List.of());
+
         assertSame(열차, 열차.orNearer(완도군청, 시외버스(읍내_터미널)));
+    }
+
+    @Test
+    void 둘_다_지역_밖이면_운행_편을_지킨다() {
+        // 산청(역 32.7㎞ 대 터미널 17.3㎞)·창녕(25.4 대 23.3)이 이 자리다. 어느 쪽도 지역에 못 닿는데
+        // 도착 시각까지 버리면 잃기만 한다.
+        Coordinate 조금_덜_먼_터미널 = new Coordinate(34.6000, 126.5000);
+        TrainLeg leg = TrainLeg.of("KTX", LocalDateTime.of(2026, 9, 1, 8, 0), LocalDateTime.of(2026, 9, 1, 11, 0));
+        RegionAccess 열차 = RegionAccess.available("서울", "완도역", 먼_역, leg, List.of());
+
+        assertSame(열차, 열차.orNearer(완도군청, 시외버스(조금_덜_먼_터미널)));
     }
 
     @Test
