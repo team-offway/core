@@ -66,7 +66,9 @@ public final class PhotoBand {
      * @param distances 기준점에서 각 후보까지의 거리(㎞). <b>오름차순이어야 한다</b> — 첫 번째로 찾은
      *     사진 후보가 곧 가장 가까운 것이라는 전제가 여기서 나온다
      * @param hasPhoto 같은 순서의 사진 보유 여부
-     * @return 재배치된 인덱스. 입력이 비었거나 길이가 다르면 원래 순서
+     * @return 재배치된 인덱스. 입력이 비었으면 빈 순서
+     * @throws IllegalArgumentException 두 배열의 길이가 다를 때 — 같은 후보를 가리킨다는 것이 이 계약의
+     *     전제라, 어긋나면 조용히 엉뚱한 후보를 당긴다
      */
     public static List<Integer> reorder(double[] distances, boolean[] hasPhoto) {
         Objects.requireNonNull(distances, "거리 배열은 null 일 수 없습니다.");
