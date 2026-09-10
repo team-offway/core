@@ -7,6 +7,7 @@ import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiBatchPolicy;
+import com.offway.core.common.geo.ServiceArea;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.domain.Category;
@@ -311,6 +312,16 @@ public class RegionPoiRefreshService implements ManualBatch {
     private static RegionPoi toRegionPoi(long regionId, TourPoi poi, YearMonth baseYm, LocalDateTime now) {
         Category category = Category.fromLclsSystm1(poi.lclsSystm1()).orElse(null);
         if (category == null || isBlank(poi.contentId()) || isBlank(poi.title())) {
+            return null;
+        }
+        // **우리 땅 밖의 좌표는 받지 않는다**(#547). 관광 API 가 남중국해 좌표를 준다 — 담양호가
+        // (19.69, 117.99) 로 와서 코스 이동시간이 2,918분(48.6시간)으로 나갔다.
+        //
+        // 조용히 넘기지 않는다. 원본이 바뀐 것인지 우리 파싱이 틀린 것인지는 이 로그로만 가려낼 수 있고,
+        // 아홉 건이 토씨 하나 안 틀리고 같은 좌표라 원본 쪽이 유력하다.
+        if (!ServiceArea.contains(poi.lat(), poi.lng())) {
+            log.warn("장소 좌표가 서비스 범위 밖이라 버립니다 regionId={} title={} lat={} lng={}",
+                    regionId, poi.title(), poi.lat(), poi.lng());
             return null;
         }
         return RegionPoi.builder()
