@@ -1,6 +1,7 @@
 package com.offway.core.trip.domain;
 
 import com.offway.core.common.geo.Coordinate;
+import java.util.Locale;
 
 /**
  * 두 후보가 같은 장소인가 — <b>상호에 거리를 함께 본다</b>(#548).
@@ -87,9 +88,16 @@ public final class SamePlace {
         return !left.isEmpty() && left.equals(normalize(b));
     }
 
-    /** 소스마다 띄어쓰기·대소문자가 달라 그대로 비교하면 같은 곳을 다른 곳으로 본다. */
+    /**
+     * 소스마다 띄어쓰기·대소문자가 달라 그대로 비교하면 같은 곳을 다른 곳으로 본다.
+     *
+     * <p><b>{@code Locale.ROOT} 를 명시한다.</b> 인자 없는 {@code toLowerCase()} 는 JVM 기본 로케일을
+     * 따르는데, 그건 우리가 고르는 값이 아니라 <b>서버가 어디서 뜨는지</b>에 달렸다. 터키어 로케일에서는
+     * {@code "I"} 가 점 없는 {@code "ı"} 로 내려가, 같은 이름이 환경에 따라 다르게 정규화된다. 장소 이름
+     * 비교는 로케일과 무관해야 한다.
+     */
     private static String normalize(String title) {
-        return title == null ? "" : title.replaceAll("\\s+", "").toLowerCase();
+        return title == null ? "" : title.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
     }
 
     /** 출처가 갈리면 넓게, 같으면 좁게 — 근거는 이 클래스 문서의 표. */

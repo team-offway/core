@@ -3,6 +3,7 @@ package com.offway.core.trip.domain;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Locale;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -71,6 +72,21 @@ class SamePlaceTest {
         assertTrue(SamePlace.is(
                 "Cafe Olle", LICENSED, 37.5000, 127.0000,
                 "cafeolle", TOUR, 37.5001, 127.0001));
+    }
+
+    @Test
+    void 터키어_로케일에서도_같은_이름을_같게_본다() {
+        // 인자 없는 toLowerCase() 는 JVM 기본 로케일을 따른다. 터키어에서는 "I" 가 점 없는 "ı" 로
+        // 내려가, 같은 이름이 서버가 어디서 뜨는지에 따라 다르게 정규화된다.
+        Locale original = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr"));
+            assertTrue(SamePlace.is(
+                    "ISTANBUL CAFE", LICENSED, 37.5000, 127.0000,
+                    "istanbul cafe", TOUR, 37.5001, 127.0001));
+        } finally {
+            Locale.setDefault(original);
+        }
     }
 
     @Test
