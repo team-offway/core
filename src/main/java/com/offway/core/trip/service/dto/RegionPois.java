@@ -1,9 +1,8 @@
 package com.offway.core.trip.service.dto;
 
+import com.offway.core.trip.domain.SamePlace;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import lombok.Builder;
 
 /**
@@ -35,18 +34,17 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods,
     private static final int MIN_STAYS = 2;
 
     /**
-     * 같은 장소로 볼 좌표 격자(도 단위, 약 100m).
+     * <b>담기는 순간 중복을 접는다</b>(#548).
      *
-     * <p>TourAPI 와 인허가 데이터는 같은 건물에도 좌표를 조금 다르게 적는다. 정확히 비교하면 중복이 그대로
-     * 남고, 너무 크게 뭉개면 이웃한 다른 가게가 한 곳으로 접힌다.
+     * <p>여기가 아니라 합치는 자리에서만 접으면 새어 나가는 길이 남는다 — 보충이 안 도는 지역, 한 소스가
+     * 같은 이름을 여러 번 주는 경우, 축제·야영장처럼 나중에 덧붙는 풀. 실제로 그 셋이 각각 코스에
+     * 나타났다. 풀을 만드는 자리를 하나로 모으면 어느 경로로 들어와도 같은 규칙을 지난다.
      */
-    private static final double GRID_DEGREES = 0.001;
-
     public RegionPois {
-        sights = List.copyOf(sights);
-        foods = List.copyOf(foods);
-        cafes = cafes == null ? List.of() : List.copyOf(cafes);
-        stays = List.copyOf(stays);
+        sights = List.copyOf(distinct(sights));
+        foods = List.copyOf(distinct(foods));
+        cafes = cafes == null ? List.of() : List.copyOf(distinct(cafes));
+        stays = List.copyOf(distinct(stays));
     }
 
     public static RegionPois empty() {
@@ -102,7 +100,7 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods,
      * 아니라 같은 급의 후보다. 다만 <b>뒤에 붙인다</b> — 기존 후보를 밀어내는 것이 아니라 선택지를
      * 넓히는 것이 목적이고, TourAPI 숙박은 사진 보유율이 더 높다(86%).
      *
-     * <p>같은 야영장이 두 소스에 다 있으면 코스에 두 번 뜨므로 {@link #identity} 로 걸러낸다 —
+     * <p>같은 야영장이 두 소스에 다 있으면 코스에 두 번 뜨므로 {@link SamePlace} 로 걸러낸다 —
      * 실측에서 375건이 겹쳤다.
      */
     public RegionPois withMoreStays(List<PoiCandidate> extra) {
@@ -119,15 +117,16 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods,
         return dedupe(base, extra);
     }
 
-    /** 뒤에 붙이되 <b>같은 장소는 한 번만</b>. 판정은 {@link #identity} 가 소유한다. */
+    /**
+     * 뒤에 붙이되 <b>같은 장소는 한 번만</b>. 판정은 {@link SamePlace} 가 소유한다.
+     *
+     * <p>합친 뒤가 아니라 <b>합치면서</b> 본다 — 앞의 것을 남기므로, 사진·소개가 붙은 1순위 소스가
+     * 이긴다.
+     */
     private static List<PoiCandidate> dedupe(List<PoiCandidate> base, List<PoiCandidate> extra) {
-        Set<String> seen = new HashSet<>();
-        for (PoiCandidate candidate : base) {
-            seen.add(identity(candidate));
-        }
-        List<PoiCandidate> merged = new ArrayList<>(base);
+        List<PoiCandidate> merged = distinct(base);
         for (PoiCandidate candidate : extra) {
-            if (seen.add(identity(candidate))) {
+            if (!containsSame(merged, candidate)) {
                 merged.add(candidate);
             }
         }
@@ -135,19 +134,31 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods,
     }
 
     /**
-     * 같은 장소인지 가르는 열쇠 — 상호에 <b>위치를 함께</b> 본다.
+     * 한 풀 안의 중복을 접는다 — <b>보충과 무관하게 돈다</b>(#548).
      *
-     * <p>상호만 보면 "○○식당" 본점과 2호점이 한 곳으로 접혀 풀이 덜 채워진다. 반대로 좌표만 보면 소스마다
-     * 소수점 정밀도가 달라 같은 곳을 다른 곳으로 센다. 좌표를 약 100m 격자로 뭉개 둘을 함께 쓴다.
+     * <p>예전에는 보충이 도는 지역에서만, 그것도 기존 풀과 보충 후보 <b>사이</b>만 봤다. 그래서 한 소스가
+     * 같은 이름을 여러 번 주는 경우가 그대로 새어 나갔다 — 인허가에만 이름이 겹치는 쌍이 2,864개 있고,
+     * 실제로 장수 코스에 같은 관광농원이 두 번 들어갔다.
      */
-    private static String identity(PoiCandidate candidate) {
-        return normalize(candidate.title())
-                + "@" + Math.round(candidate.lat() / GRID_DEGREES)
-                + "," + Math.round(candidate.lng() / GRID_DEGREES);
+    static List<PoiCandidate> distinct(List<PoiCandidate> pool) {
+        List<PoiCandidate> kept = new ArrayList<>(pool.size());
+        for (PoiCandidate candidate : pool) {
+            if (!containsSame(kept, candidate)) {
+                kept.add(candidate);
+            }
+        }
+        return kept;
     }
 
-    /** 소스마다 띄어쓰기·대소문자가 달라 그대로 비교하면 같은 곳을 다른 곳으로 본다. */
-    private static String normalize(String title) {
-        return title == null ? "" : title.replaceAll("\\s+", "").toLowerCase();
+    /**
+     * 이미 담은 것 중에 같은 장소가 있나.
+     *
+     * <p>거리를 재야 하므로 해시로 못 줄인다. 한 풀이 100건 남짓이라 제곱이어도 만 번이고, 요청 경로에서
+     * 도는 다른 계산(팬아웃·군집)에 비하면 무시할 수 있다.
+     */
+    private static boolean containsSame(List<PoiCandidate> kept, PoiCandidate candidate) {
+        return kept.stream().anyMatch(other -> SamePlace.is(
+                other.title(), other.contentId(), other.lat(), other.lng(),
+                candidate.title(), candidate.contentId(), candidate.lat(), candidate.lng()));
     }
 }

@@ -1,5 +1,6 @@
 package com.offway.core.trip.domain;
 
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -53,11 +54,13 @@ public record PlaceNameKey(String value) {
         if (rawName == null || rawName.isBlank()) {
             return java.util.Optional.empty();
         }
+        // 로케일을 명시한다 — 인자 없는 toLowerCase() 는 JVM 기본 로케일을 따르고, 터키어 로케일에서는
+        // "I" 가 점 없는 "ı" 로 내려가 같은 이름이 환경에 따라 다른 열쇠가 된다(#548 리뷰).
         String normalized = rawName
                 .replaceAll(SLASH_TAIL, "")
                 .replaceAll(BRACKETS, "")
                 .replaceAll(WHITESPACE, "")
-                .toLowerCase();
+                .toLowerCase(Locale.ROOT);
         return normalized.isBlank() ? java.util.Optional.empty() : java.util.Optional.of(new PlaceNameKey(normalized));
     }
 }
