@@ -18,14 +18,14 @@ jobs:
         env:
           KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
         run: |
-          python3 - <<'PY'
+          python3 -u - <<'PY'
           import glob, json, os, re, statistics, urllib.request
           KEY = os.environ["KEY"]; BASE = "https://apis.data.go.kr/B551011"
           COMMON = f"serviceKey={KEY}&MobileOS=ETC&MobileApp=offway&_type=json"
 
           def get(u):
               try:
-                  with urllib.request.urlopen(u, timeout=30) as r: return json.loads(r.read().decode())
+                  with urllib.request.urlopen(u, timeout=12) as r: return json.loads(r.read().decode())
               except Exception as e: print("  실패:", type(e).__name__); return None
           def items(d):
               if not d: return []
@@ -46,16 +46,19 @@ jobs:
 
           calls = 0
           vals, by_dow, by_region, empty = [], {}, {}, []
-          import datetime
-          for (sido, sg), lc in sorted(legal.items()):
-              rows, page, tot = [], 1, None
-              while page <= 4:
-                  d = get(f"{BASE}/TatsCnctrRateService/tatsCnctrRatedList?{COMMON}&areaCd={lc[:2]}&signguCd={lc}&numOfRows=1000&pageNo={page}")
-                  calls += 1
-                  if tot is None: tot = total(d)
-                  rows += items(d)
-                  if len(rows) >= tot: break
-                  page += 1
+          import datetime, time
+          started = time.time()
+          targets = sorted(legal.items())
+          for i, ((sido, sg), lc) in enumerate(targets, 1):
+              # **지역당 1페이지(1,000행)만 본다.** 경계값을 정하는 데는 표본이면 충분하고,
+              # 전량(89곳 × 최대 4페이지)은 호출 하나가 늦어질 때 배치가 통째로 늘어진다.
+              d = get(f"{BASE}/TatsCnctrRateService/tatsCnctrRatedList?{COMMON}&areaCd={lc[:2]}&signguCd={lc}&numOfRows=1000&pageNo=1")
+              calls += 1
+              tot = total(d)
+              rows = items(d)
+              # **한 지역 끝날 때마다 찍는다.** 끝에 몰아 찍으면 도중에 아무것도 안 보이고,
+              # 중간에 끊기면 그때까지 쓴 호출이 통째로 날아간다.
+              print(f"[{i:>2}/{len(targets)}] {sg:<8} {len(rows):>5}행 / {tot or 0:<5} · 누적호출 {calls:>3} · {time.time()-started:5.0f}초")
               if not rows:
                   empty.append(sg); continue
               rv = []
