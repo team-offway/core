@@ -236,7 +236,16 @@ class CourseGenerateIntegrationTest {
                 .andExpect(jsonPath("$.data.days[0].items[0].kind").exists())
                 .andExpect(jsonPath("$.data.days[0].items[0].lat").exists())
                 // 비수도권 인구감소지역 + 발급 기간 내 → 숙박세일페스타 혜택
-                .andExpect(jsonPath("$.data.benefits[0].text").value("숙박 할인"));
+                //
+                // **네 칸을 전부 단언한다**(#556). 홈·지역 상세·장소 상세와 같은 모양이어야 하는데,
+                // text 만 보면 분류 이름이 `type` 으로 나가거나 applyUrl 이 빠져도 초록이다 — 실제로
+                // 그 상태로 오래 있었고, 앱이 링크를 얻으려고 정책 상세를 한 번 더 불러 메웠다.
+                .andExpect(jsonPath("$.data.benefits[0].text").value("숙박 할인"))
+                .andExpect(jsonPath("$.data.benefits[0].policyType").value("STAY_FESTA"))
+                .andExpect(jsonPath("$.data.benefits[0].policyId").exists())
+                .andExpect(jsonPath("$.data.benefits[0].applyUrl").exists())
+                // 옛 이름이 남아 있으면 앱이 두 파서를 든다.
+                .andExpect(jsonPath("$.data.benefits[0].type").doesNotExist());
     }
 
     @Test

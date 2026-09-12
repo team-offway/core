@@ -18,6 +18,7 @@ import com.offway.core.leave.service.MyLeaveService;
 import com.offway.core.policy.service.PolicyService;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.service.RegionQuery;
+import com.offway.core.trip.service.dto.RegionBenefit;
 import com.offway.core.trip.domain.RegionVisitMetrics;
 import com.offway.core.trip.service.RegionVisitMetricsService;
 import com.offway.core.trip.service.RegionImageProvider;
@@ -532,9 +533,10 @@ public class CourseStorageService {
         // 여기만 오늘을 넘기고 있어 생성 응답과 상세 조회의 혜택이 어긋났다 — 저장하는 순간부터 갈리고
         // 여행이 멀수록 벌어졌다. 날짜 없이 저장된 코스는 알 수 없어 오늘로 물러선다.
         LocalDate benefitDate = course.travelDateOr(LocalDate.now(SERVICE_ZONE));
-        List<GeneratedCourse.Benefit> benefits = policyService.matchForRegion(course.getRegionId(), benefitDate)
+        List<RegionBenefit> benefits = policyService.matchForRegion(course.getRegionId(), benefitDate)
                 .stream()
-                .map(policy -> new GeneratedCourse.Benefit(policy.getId(), policy.getType(), policy.badgeText()))
+                // 생성 경로와 같은 모양이어야 한다(#556) — 한쪽만 채우면 저장한 코스를 다시 열 때 값이 사라진다.
+                .map(RegionBenefit::from)
                 .toList();
         // 저장 코스에도 날씨를 붙인다(#169) — 생성 응답에만 실리고 상세 조회에는 없어 화면이 비어 있었다.
         // 날짜를 안 넣고 저장한 코스는 물어볼 기준이 없어 그대로 빈다.

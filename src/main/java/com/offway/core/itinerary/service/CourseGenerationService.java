@@ -41,6 +41,7 @@ import com.offway.core.trip.service.RegionPoiService;
 import com.offway.core.trip.service.HubAttractionQuery;
 import com.offway.core.trip.service.RelatedAttractionQuery;
 import com.offway.core.trip.service.dto.PoiCandidate;
+import com.offway.core.trip.service.dto.RegionBenefit;
 import com.offway.core.trip.service.dto.RegionPois;
 import com.offway.core.weather.domain.DailyWeather;
 import com.offway.core.trip.service.TransitHubPhotoProvider;
@@ -187,9 +188,11 @@ public class CourseGenerationService {
                 command.travelDays(), command.startDayLeave());
 
         // ⑧ 혜택 (policy)
-        List<GeneratedCourse.Benefit> benefits = policyService.matchForRegion(command.regionId(), command.travelDate())
+        List<RegionBenefit> benefits = policyService.matchForRegion(command.regionId(), command.travelDate())
                 .stream()
-                .map(policy -> new GeneratedCourse.Benefit(policy.getId(), policy.getType(), policy.badgeText()))
+                // **정책을 그대로 옮긴다**(#556). 세 칸만 꺼내 쓰던 때는 applyUrl 이 여기서 버려져,
+                // 앱이 링크를 얻으려고 policyId 로 정책 상세를 한 번 더 불러야 했다.
+                .map(RegionBenefit::from)
                 .toList();
 
         // 코스 지역 날씨를 Day 마다 따로 — 2박3일이면 날마다 다르다. 첫날 것으로 코스 전체를 대표하면 이튿날이 틀린다(#141).

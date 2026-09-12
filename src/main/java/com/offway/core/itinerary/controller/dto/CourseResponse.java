@@ -7,6 +7,7 @@ import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
+import com.offway.core.trip.controller.dto.BenefitResponse;
 import com.offway.core.trip.controller.dto.RegionVisitMetricsResponse;
 import com.offway.core.trip.domain.MapSearchLink;
 import com.offway.core.trip.domain.PlaceOrigin;
@@ -15,7 +16,6 @@ import com.offway.core.itinerary.service.dto.OwnedCourse;
 import lombok.Builder;
 import com.offway.core.itinerary.service.dto.SlotHours;
 import com.offway.core.trip.domain.FestivalPeriod;
-import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.domain.Departure;
 import com.offway.core.transport.service.dto.RegionAccess;
@@ -80,7 +80,7 @@ public record CourseResponse(
                         example = "CAR")
                 String transport,
         List<Day> days,
-        List<Benefit> benefits,
+        List<BenefitResponse> benefits,
         @Schema(
                         description = "대중교통 코스의 출발지→지역 열차 접근 (자차·저장 코스는 null). "
                                 + "**deprecated — transitAccess 로 옮겨간다(#97)**. "
@@ -218,7 +218,7 @@ public record CourseResponse(
                                 generated.festivalPeriodByContentId(),
                                 slotBenefits(generated)))
                         .toList())
-                .benefits(generated.benefits().stream().map(Benefit::from).toList())
+                .benefits(generated.benefits().stream().map(BenefitResponse::from).toList())
                 .trainAccess(TrainAccessResponse.from(generated.regionAccess()))
                 .transitAccess(TransitAccessResponse.from(generated.regionAccess()))
                 .shareToken(generated.shareToken())
@@ -481,18 +481,6 @@ public record CourseResponse(
          */
         private static String periodTextOf(FestivalPeriod festival) {
             return festival == null ? null : festival.getEventStart() + " ~ " + festival.getEventEnd();
-        }
-    }
-
-    /**
-     * @param policyId 정책 ID
-     * @param type 정책 분류
-     * @param text 뱃지 문구
-     */
-    public record Benefit(long policyId, PolicyType type, String text) {
-
-        static Benefit from(GeneratedCourse.Benefit benefit) {
-            return new Benefit(benefit.policyId(), benefit.type(), benefit.text());
         }
     }
 
