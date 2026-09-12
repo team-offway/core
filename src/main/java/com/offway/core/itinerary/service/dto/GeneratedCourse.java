@@ -1,10 +1,10 @@
 package com.offway.core.itinerary.service.dto;
 
 import com.offway.core.itinerary.domain.Course;
-import com.offway.core.policy.domain.PolicyType;
 import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.trip.domain.RegionVisitMetrics;
+import com.offway.core.trip.service.dto.RegionBenefit;
 import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
 import com.offway.core.trip.domain.FestivalPeriod;
@@ -35,7 +35,7 @@ import lombok.Builder;
 @Builder(toBuilder = true)
 public record GeneratedCourse(
         Course course,
-        List<Benefit> benefits,
+        List<RegionBenefit> benefits,
         Map<Integer, DailyWeather> weatherByDay,
         RegionAccess regionAccess,
         String regionName,
@@ -63,7 +63,7 @@ public record GeneratedCourse(
     }
 
     /** 날씨·지역 접근 없이(목록 조회 등). 지역명은 슬롯 표시에 쓰이므로 저장 코스도 채운다. */
-    public static GeneratedCourse of(Course course, List<Benefit> benefits, String regionName) {
+    public static GeneratedCourse of(Course course, List<RegionBenefit> benefits, String regionName) {
         return GeneratedCourse.builder()
                 .course(course)
                 .benefits(benefits)
@@ -97,11 +97,4 @@ public record GeneratedCourse(
         FILLABLE
     }
 
-    /**
-     * @param policyId 정책 ID
-     * @param type 정책 분류
-     * @param text 뱃지 문구
-     */
-    public record Benefit(long policyId, PolicyType type, String text) {
-    }
 }
