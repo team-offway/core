@@ -1027,7 +1027,10 @@ class CourseStorageIntegrationTest {
         // **수만 같고 모양이 다르면 앱이 화면마다 다른 파서를 든다**(#556). 실제로 코스만 옛 모양이라
         // (`type` 이고 applyUrl 이 없었다) 앱이 링크를 얻으려고 정책 상세를 한 번 더 불렀다.
         if (onDetail > 0) {
-            for (String field : List.of("text", "policyType", "policyId")) {
+            // applyUrl 을 뺐다가 리뷰에서 지적받았다 — 저장 경로에서 그 값을 버려도 저장·상세가 **함께**
+            // null 이 되어 일치 검증을 통과한다. 이 PR 이 채운 것이 바로 그 값이라 여기서 빠지면
+            // 잠그려던 계약이 안 잠긴다.
+            for (String field : List.of("text", "policyType", "policyId", "applyUrl")) {
                 // JsonPath.read 는 제네릭이라 그대로 넘기면 assertEquals 오버로드가 갈린다 — Object 로 받는다.
                 Object onSaveValue = JsonPath.read(saved, "$.data.benefits[0]." + field);
                 Object onDetailValue = JsonPath.read(detail, "$.data.benefits[0]." + field);
