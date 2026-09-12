@@ -72,6 +72,7 @@ jobs:
                       by_dow.setdefault(dow, []).append(v)
               if rv: by_region[sg] = statistics.median(rv)
 
+          names = "월화수목금토일"
           print(f"\n=== 집중률 분포 (지역 {len(by_region)}곳 · 값 {len(vals):,}개 · 호출 {calls}회) ===")
           vs = sorted(vals)
           def pct(p): return vs[int(len(vs)*p)]
@@ -79,16 +80,29 @@ jobs:
               print(f"  p{int(p*100):<3} {pct(p):6.1f}")
           print(f"  최소 {min(vs):.1f} · 최대 {max(vs):.1f} · 평균 {statistics.mean(vs):.1f}")
 
-          names = "월화수목금토일"
           print("\n=== 요일별 중앙값 ===")
           for d in range(7):
               g = by_dow.get(d, [])
               if g: print(f"  {names[d]}  중앙값 {statistics.median(g):5.1f}  (n={len(g):,})")
 
-          print("\n=== 경계 후보별로 칩이 어떻게 갈리나 ===")
+          print("\n=== 경계 후보 (전체) ===")
           for cut in (55, 60, 65, 70, 75, 80):
               busy = sum(1 for v in vs if v >= cut)
-              print(f"  {cut} 이상을 붐빔 → 붐빔 {busy/len(vs)*100:5.1f}% · 한산 {100-busy/len(vs)*100:5.1f}%")
+              print(f"  {cut} 이상 붐빔 → {busy/len(vs)*100:5.1f}%")
+
+          # **요일별로 갈라 본다.** 경계를 하나 두면 칩이 사실상 "주말인가" 만 말할 수 있다 —
+          # 그건 사용자가 이미 아는 정보라 칩으로 붙일 값어치가 없다.
+          print("\n=== 요일 × 경계 — 칩이 붙는 비율 ===")
+          print(f"  {'요일':<4} {'붐빔≥70':>8} {'붐빔≥75':>8} {'한산≤25':>8} {'칩없음(25~70)':>14}")
+          for d in range(7):
+              g = by_dow.get(d, [])
+              if not g: continue
+              n = len(g)
+              b70 = sum(1 for v in g if v >= 70)/n*100
+              b75 = sum(1 for v in g if v >= 75)/n*100
+              c25 = sum(1 for v in g if v <= 25)/n*100
+              mid = 100 - b70 - c25
+              print(f"  {names[d]:<4} {b70:7.1f}% {b75:7.1f}% {c25:7.1f}% {mid:13.1f}%")
 
           print(f"\n데이터 없는 지역 {len(empty)}곳: {', '.join(empty[:12])}{' …' if len(empty)>12 else ''}")
           rm = sorted(by_region.items(), key=lambda kv: kv[1])
