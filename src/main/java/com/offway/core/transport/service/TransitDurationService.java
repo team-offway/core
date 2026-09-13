@@ -41,6 +41,16 @@ public class TransitDurationService {
             // 걸러내지 않으면 아무도 안 읽는 행이 쌓이고, 배치가 그것을 재려고 외부 한도를 태운다.
             return Optional.empty();
         }
+        // **출발과 도착이 같으면 자리도 만들지 않는다**(#559). 물어봐야 답이 없는 구간인데, 위 주석의
+        // 그 대가를 똑같이 치른다 — 아무도 안 읽는 행이 쌓이고 배치가 그것을 재려고 한도를 태운다.
+        //
+        // 시더는 후보를 만들 때 이미 거른다(`!origin.getCode().equals(arrival)`). 같은 불변식인데
+        // 조회 경로에만 없어서, 출발지가 그 지역 터미널과 같아지는 요청이 들어오면 여기서 샜다.
+        // 호출부(`RegionAccessService.durationOf`)가 아니라 여기서 막는 이유는, 그 표를 소유한 쪽이
+        // 불변식을 지켜야 다음에 같은 값을 넘기는 호출부가 생겨도 안 새기 때문이다.
+        if (depCode != null && depCode.equals(arrCode)) {
+            return Optional.empty();
+        }
         Optional<TransitLegDuration> found = transitLegDurationRepository.find(mode, depCode, arrCode);
         if (found.isPresent()) {
             TransitLegDuration leg = found.get();
