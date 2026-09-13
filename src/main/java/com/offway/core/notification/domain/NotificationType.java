@@ -38,7 +38,12 @@ public enum NotificationType {
      * <p>서버가 여행 날짜를 들고 있어 판단에 외부가 필요 없고, 알림을 받는 시점(전날)이 사용자가 할 일
      * (짐 싸기)과 맞는다.
      */
-    TRIP_TOMORROW("내일은 여행을 떠나는 날이에요. 짐은 다 챙기셨나요?"),
+    TRIP_TOMORROW("내일은 여행을 떠나는 날이에요. 짐은 다 챙기셨나요?") {
+        @Override
+        public String bannerTitle(String destination) {
+            return GENERIC_TITLE;
+        }
+    },
 
     /**
      * 여행이 끝났다 — 연차를 기록해 달라(#302).
@@ -50,19 +55,30 @@ public enum NotificationType {
      * <p>추가 기준을 둘 다 만족한다 — 서버가 여행 날짜를 들고 있고({@code Course}), 같은 판단을 하는 코드가
      * 이미 있다({@code TripOutcomeService.pending()}).
      */
-    TRIP_AFTER("여행, 다녀오셨나요? 연차를 사용했다면 기록해 주세요.");
+    TRIP_AFTER("연차를 사용했다면 기록해주세요") {
+        @Override
+        public String bannerTitle(String destination) {
+            if (destination == null || destination.isBlank()) {
+                return DESTINATIONLESS_TRIP_AFTER_TITLE;
+            }
+            return destination + " " + DESTINATIONLESS_TRIP_AFTER_TITLE;
+        }
+    };
 
     /**
-     * 잠금화면·알림센터에 뜨는 제목 — <b>종류와 무관하게 하나다.</b>
+     * 여행지를 못 붙일 때 쓰는 제목 — 여행지가 붙을 때도 <b>같은 문장이 뒤에 온다.</b>
      *
-     * <p>제목 칸이 말하는 것은 "무슨 알림인지" 가 아니라 <b>"어디서 온 알림인지"</b> 다. 무엇에 관한
-     * 알림인지는 본문이 말하고, 앱도 알림함에서 같은 말을 쓴다 — 배너와 목록이 다르게 말하면 사용자는
-     * 두 개의 알림으로 읽는다.
-     *
-     * <p>그래서 종류마다 받지 않고 여기 한 번만 적는다. 나중에 제목이 달라야 하는 종류가 생기면 그때
-     * 생성자로 내린다 — 지금 미리 열어 두면 값이 전부 같은 칸을 종류마다 반복해 적게 된다.
+     * <p>두 벌로 적어 두면 한쪽만 고쳐도 컴파일이 통과해, 여행지가 없는 사용자만 옛 문구를 받는다.
      */
-    private static final String BANNER_TITLE = "알림";
+    private static final String DESTINATIONLESS_TRIP_AFTER_TITLE = "여행 다녀오셨나요?";
+
+    /**
+     * 여행지를 말하지 않는 종류가 쓰는 제목.
+     *
+     * <p>제목 칸이 말하는 것은 "무슨 알림인지" 가 아니라 "어디서 온 알림인지" 다 — 무엇에 관한 알림인지는
+     * 본문이 말한다. 그 기준이 아직 맞는 종류는 이 값을 쓴다.
+     */
+    private static final String GENERIC_TITLE = "알림";
 
     private final String bannerBody;
 
@@ -70,10 +86,18 @@ public enum NotificationType {
         this.bannerBody = bannerBody;
     }
 
-    /** 잠금화면·알림센터에 뜨는 제목. */
-    public String bannerTitle() {
-        return BANNER_TITLE;
-    }
+    /**
+     * 잠금화면·알림센터에 뜨는 제목 — <b>종류마다 다르고, 여행지를 받을 수 있다.</b>
+     *
+     * <p>예전에는 종류와 무관하게 "알림" 하나였다. 배너와 알림함이 다르게 말하면 사용자가 두 개의 알림으로
+     * 읽는다는 이유였고, 그 판단 자체는 지금도 맞다. 바뀐 것은 <b>제목에 쓸 말이 생겼다</b>는 점이다 —
+     * 여행이 끝난 뒤 묻는 알림은 어느 여행인지가 곧 그 알림의 정체라, 제목에 여행지를 두면 잠금화면에서
+     * 본문을 펼치지 않고도 무엇을 기록하라는 것인지 읽힌다.
+     *
+     * @param destination 여행지 이름(짧은 형태, 예: "정선"). 코스가 지워졌거나 지역을 못 찾으면 {@code null}
+     *                    이고, 그때는 여행지 없는 제목으로 내려간다 — 제목이 빈칸으로 시작하면 안 된다.
+     */
+    public abstract String bannerTitle(String destination);
 
     /**
      * 배너 본문. <b>개행을 넣지 않는다</b> — 앱은 두 줄로 그리지만 배너는 폭이 좁아 어차피 한 줄로 줄어들고,

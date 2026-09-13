@@ -5,10 +5,14 @@ import com.offway.core.notification.domain.Notification;
 import com.offway.core.notification.domain.NotificationType;
 import com.offway.core.notification.repository.NotificationRepository;
 import com.offway.core.notification.service.dto.PushTarget;
+import com.offway.core.region.domain.Region;
+import com.offway.core.region.service.RegionQuery;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -34,6 +38,7 @@ public class CourseNotificationWriter {
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
     private final NotificationRepository notificationRepository;
+    private final RegionQuery regionQuery;
 
     /**
      * 코스마다 알림 하나를 만든다.
@@ -58,6 +63,7 @@ public class CourseNotificationWriter {
         }
 
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+        Map<Long, String> destinations = destinationsOf(courses);
         List<PushTarget> created = new ArrayList<>();
         int failed = 0;
         for (Course course : courses) {
@@ -75,6 +81,7 @@ public class CourseNotificationWriter {
                                 .type(type)
                                 .courseId(course.getId())
                                 .notificationId(notificationId)
+                                .destination(destinations.get(course.getRegionId()))
                                 .build()));
             } catch (DataIntegrityViolationException e) {
                 // 조회와 삽입 사이에 다른 실행이 같은 것을 넣었다. 유니크 키가 막아 준 것이고 결과는
@@ -92,5 +99,32 @@ public class CourseNotificationWriter {
         log.info("{} 생성 대상={}건 새로 만듦={}건 이미 있음={}건 실패={}건",
                 label, courses.size(), created.size(), courses.size() - created.size() - failed, failed);
         return created;
+    }
+
+    /**
+     * 배너 제목에 넣을 여행지 이름을 <b>배치마다 한 번만</b> 모은다 — 지역 id 로 찾아 쓴다.
+     *
+     * <p>코스마다 조회하면 대상 수만큼 질의가 돌지만 값은 89개 지역 중 하나로 겹친다. 짧은 이름을 쓰는
+     * 것은 알림함이 이미 그렇게 내리고 있기 때문이다(#356) — 배너와 목록이 같은 여행을 다르게 부르면
+     * 사용자는 두 개의 여행으로 읽는다.
+     *
+     * <p><b>못 찾은 것은 지도에 넣지 않는다.</b> 그 코스는 여행지 없는 제목으로 나가고, 알림 자체는 나간다.
+     *
+     * <p><b>여기서 예외가 올라가면 그날 알림이 통째로 안 나간다.</b> 제목의 여행지는 곁가지라, 조회가
+     * 실패하면 전부 여행지 없는 제목으로 내려보내고 왜 그랬는지만 남긴다.
+     */
+    private Map<Long, String> destinationsOf(List<Course> courses) {
+        List<Long> regionIds = courses.stream().map(Course::getRegionId).distinct().toList();
+        if (regionIds.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            return regionQuery.byIds(regionIds).stream()
+                    .collect(Collectors.toMap(Region::getId, Region::shortName));
+        } catch (RuntimeException e) {
+            log.warn("여행지 이름을 못 찾아 배너 제목에서 뺍니다 지역={}곳 cause={}",
+                    regionIds.size(), e.getClass().getSimpleName());
+            return Map.of();
+        }
     }
 }

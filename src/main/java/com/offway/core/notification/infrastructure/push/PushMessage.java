@@ -16,16 +16,20 @@ import lombok.Builder;
  * {@code builder()} 로만 한다.
  *
  * <p>문구는 여기 없다. 배너에 뭐라고 뜨는지는 {@link NotificationType} 이 알고 있고 어댑터가 거기서
- * 읽는다(#355) — 호출부가 문구를 들고 다니면 같은 말이 여러 곳에 생긴다.
+ * 읽는다(#355) — 호출부가 문구를 들고 다니면 같은 말이 여러 곳에 생긴다. {@code destination} 은 문구가
+ * 아니라 <b>문구에 들어갈 값</b>이라 예외다.
  *
  * @param type 알림 종류 — 앱이 이동할 곳을 정하는 키이자 배너 문구의 출처
  * @param courseId 누르면 이동할 코스. 없는 알림도 있어 null 을 허용한다
  * @param notificationId 배너를 눌러 들어온 앱이 읽음 처리할 대상
+ * @param destination 배너 제목에 넣을 여행지 이름. <b>모르면 null</b> 이고, 그때는 종류가 여행지 없는
+ *     제목으로 내려간다
  * @param badge 앱 아이콘에 그릴 안 읽은 개수. <b>모르면 null</b> 이고, 그때는 싣지 않아 앱이 직전 값을
  *     그대로 둔다 — 세는 데 실패했다고 0 을 보내면 안 읽은 알림이 있는데 배지가 지워진다
  */
 @Builder
-public record PushMessage(NotificationType type, Long courseId, Long notificationId, Integer badge) {
+public record PushMessage(
+        NotificationType type, Long courseId, Long notificationId, String destination, Integer badge) {
 
     public PushMessage {
         Objects.requireNonNull(type, "알림 종류는 null 일 수 없습니다.");

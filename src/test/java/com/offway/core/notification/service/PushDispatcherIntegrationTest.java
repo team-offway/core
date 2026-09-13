@@ -209,6 +209,28 @@ class PushDispatcherIntegrationTest {
         return userId.toString();
     }
 
+    /**
+     * 여행지 이름이 <b>기기까지 따라가는지</b>. 알림을 만드는 자리에서 붙여 두어도 여기서 안 실으면
+     * 배너 제목은 여행지 없는 문장으로 나간다 — 조립도 저장도 멀쩡해 실기기에서만 드러난다.
+     */
+    @Test
+    void 대상에_실린_여행지를_그대로_기기로_보낸다() {
+        UUID owner = UUID.randomUUID();
+        String token = "token-570-destination-" + owner;
+        registerToken(deviceOwner(owner), token);
+        pushSender.respondWith(sentTo -> PushResult.SENT);
+
+        pushDispatcher.dispatch(List.of(PushTarget.builder()
+                .userId(owner)
+                .type(NotificationType.TRIP_AFTER)
+                .courseId(70L)
+                .notificationId(70L)
+                .destination("정선")
+                .build()));
+
+        assertEquals("정선", pushSender.messageTo(token).destination());
+    }
+
     /** 발송 대상 하나 — 알림 id 는 저장 없이도 되는 시나리오라 코스 id 에서 만든다. */
     private PushTarget target(UUID owner, Long courseId) {
         return target(owner, courseId, courseId);
