@@ -14,6 +14,7 @@ import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.domain.CampingPlace;
 import com.offway.core.trip.domain.HeritagePlace;
 import com.offway.core.trip.domain.LicensedPlace;
+import com.offway.core.trip.domain.PlaceCategory;
 import com.offway.core.trip.domain.PlaceKind;
 import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
@@ -80,6 +81,14 @@ public class RegionPoiService {
      * 남는데, 사용자가 거기서 잔다. 사진 보유율 100% 라 숙박 풀이 얇은 지역에서 특히 값어치가 있다.
      */
     private static final String LCLS_RESORT = "VE05";
+
+    /**
+     * 중분류로 가려지는 <b>야영장</b>(#519) — 관광 API 가 숙박으로 분류해 갖고 있는 캠핑장이다.
+     *
+     * <p>대분류는 {@code AC}(숙박)라 잘 곳으로는 이미 제대로 갈린다. 여기서 더 보는 이유는
+     * <b>숙소 안에서의 순서</b>다 — 사진 있는 호텔을 야영장이 밀어내지 않게 등급을 가른다.
+     */
+    private static final String LCLS_CAMPING = "AC05";
     private static final int FOOD_TYPE = 39;
     private static final int STAY_TYPE = 32;
 
@@ -340,6 +349,9 @@ public class RegionPoiService {
                 // 대분류는 호출부가 kind 로 이미 갈랐다.
                 // 세부 분류는 같은 끼니를 두 번 넣지 않는 판정에 쓴다 — 이미 DB 에 있는 값이다.
                 .foodCategory(place.getCategory().taste().orElse(null))
+                // 분류가 야영장을 안다(#519). 이 값을 안 싣던 때는 인허가 야영장 2,360건이
+                // 일반 숙소 등급에 앉아, 사진 있는 숙소 앞자리를 가져갔다.
+                .camping(place.getCategory() == PlaceCategory.CAMPGROUND)
                 .build();
     }
 
@@ -501,6 +513,8 @@ public class RegionPoiService {
      */
     private static PoiCandidate toCandidate(CampingPlace campsite) {
         return PoiCandidate.builder()
+                // 이 출처는 그 자체가 야영장이다(#519).
+                .camping(true)
                 .contentId(campsite.publicId())
                 .contentTypeId(NON_TOUR_CONTENT_TYPE)
                 .title(campsite.getName())
@@ -690,6 +704,9 @@ public class RegionPoiService {
                 .tel(poi.tel())
                 .lclsSystm1(poi.lclsSystm1())
                 .lclsSystm2(poi.lclsSystm2())
+                // **중분류가 야영장을 안다**(#519). 대분류는 AC(숙박)라 잘 곳으로는 이미 갈리는데,
+                // 숙소 안에서의 순서를 가르려면 이 값이 필요하다 — 실측 375건이 여기 해당한다.
+                .camping(LCLS_CAMPING.equals(poi.lclsSystm2()))
                 .foodCategory(poi.foodTaste().orElse(null))
                 .sightKind(poi.cat3())
                 .build();

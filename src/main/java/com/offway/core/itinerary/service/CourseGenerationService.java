@@ -17,7 +17,6 @@ import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SightVariety;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.itinerary.domain.StayPreference;
-import com.offway.core.trip.domain.PlaceOrigin;
 import com.offway.core.trip.domain.Popularity;
 import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
@@ -856,13 +855,17 @@ public class CourseGenerationService {
     }
 
     /**
-     * 야영장인가 — <b>식별자의 출처가 답한다</b>.
+     * 야영장인가 — <b>후보가 스스로 안다</b>(#519).
      *
-     * <p>{@code PlaceOrigin} 이 접두어 파싱을 이미 소유하므로 여기서 {@code CMP-} 를 다시 적지 않는다.
-     * 한쪽만 바뀌면 조용히 틀린 등급으로 떨어진다.
+     * <p>예전에는 여기서 식별자 접두어({@code CMP-})로 판정했다. 그러면 <b>고캠핑에서 온 것만</b>
+     * 야영장으로 보인다 — 관광 API 가 숙박으로 분류해 갖고 있던 야영장(375건)과 인허가 야영장
+     * (2,360건)은 접두어가 다르거나 없어 일반 숙소 등급에 앉았다.
+     *
+     * <p>판정을 출처가 아니라 <b>종류</b>로 옮겼다. 관광 API 는 중분류 {@code AC05}, 인허가는
+     * {@code CAMPGROUND} 분류가 답하는데, 그 지식은 후보를 만드는 쪽에 있다 — 여기서 다시 묻지 않는다.
      */
     private static boolean isCamping(PoiCandidate candidate) {
-        return PlaceOrigin.of(candidate.contentId()) == PlaceOrigin.CAMPING;
+        return candidate.camping();
     }
 
     /**
