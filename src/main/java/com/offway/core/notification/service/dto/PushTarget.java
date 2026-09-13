@@ -17,9 +17,12 @@ import lombok.Builder;
  * @param notificationId <b>어느 알림인가</b>(#357). 배너를 눌러 들어온 앱이 그 자리에서 읽음 처리하려면
  *     이 값이 있어야 한다. {@code courseId} 로는 대신할 수 없다 — 한 코스에 여러 종류의 알림이 달려
  *     어느 것을 읽음 처리할지 정할 수 없다
+ * @param destination 배너 제목에 넣을 여행지 이름(짧은 형태, 예: "정선"). <b>지역을 못 찾으면 null</b> 이고,
+ *     그때는 여행지 없는 제목으로 내려간다 — 알림을 통째로 버리지 않는다
  */
 @Builder
-public record PushTarget(UUID userId, NotificationType type, Long courseId, Long notificationId) {
+public record PushTarget(
+        UUID userId, NotificationType type, Long courseId, Long notificationId, String destination) {
 
     public PushTarget {
         Objects.requireNonNull(userId, "받는 사람은 null 일 수 없습니다.");

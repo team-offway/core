@@ -117,6 +117,7 @@ public class PushDispatcher {
                     .type(target.type())
                     .courseId(target.courseId())
                     .notificationId(target.notificationId())
+                    .destination(target.destination())
                     .badge(badges.get(target.userId()))
                     .build();
             return new Delivered(delivery.token(), pushSender.send(delivery.token(), message));
