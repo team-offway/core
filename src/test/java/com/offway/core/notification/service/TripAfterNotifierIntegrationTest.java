@@ -1,6 +1,7 @@
 package com.offway.core.notification.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.batch.repository.BatchRunRepository;
@@ -20,6 +21,8 @@ import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.notification.domain.Notification;
 import com.offway.core.notification.domain.NotificationType;
 import com.offway.core.notification.repository.NotificationRepository;
+import com.offway.core.notification.service.dto.PushTarget;
+import com.offway.core.region.service.RegionQuery;
 import com.offway.core.transport.domain.TransportMode;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -63,6 +66,12 @@ class TripAfterNotifierIntegrationTest {
 
     @Autowired
     private BatchRunRepository batchRunRepository;
+
+    @Autowired
+    private CourseNotificationWriter writer;
+
+    @Autowired
+    private RegionQuery regionQuery;
 
     @Test
     void 어제_끝난_여행의_주인에게_알림을_만든다() {
@@ -268,13 +277,54 @@ class TripAfterNotifierIntegrationTest {
                 "배치가 돌았는데 실행 기록이 없다 — 안 돈 날과 구분되지 않는다");
     }
 
+    /**
+     * 배너 제목에 세울 여행지가 <b>알림을 만드는 자리에서</b> 붙는지.
+     *
+     * <p>발송은 트랜잭션 밖이라 그때 코스는 준영속이고, 지역을 그 자리에서 다시 찾으면 기기 수만큼 질의가
+     * 돈다. 그래서 코스를 들고 있는 여기서 붙인다 — 안 붙이면 조립은 멀쩡한 채 모두가 여행지 없는 제목을
+     * 받는데, 그건 실기기에서만 드러난다.
+     */
+    @Test
+    void 알림을_만들_때_여행지_이름을_함께_싣는다() {
+        UUID owner = UUID.randomUUID();
+        Course course = saveCourse(owner, LocalDate.of(2099, 12, 1), 1);
+
+        List<PushTarget> created = writer.create(List.of(course), NotificationType.TRIP_AFTER, "여행 후 알림");
+
+        String expected = regionQuery.byId(course.getRegionId()).orElseThrow().shortName();
+        assertEquals(1, created.size());
+        assertEquals(expected, created.get(0).destination());
+    }
+
+    /**
+     * <b>지역을 못 찾아도 알림은 나간다.</b> 여행지는 제목의 곁가지라, 없다고 알림을 버리면 연차를 기록하라는
+     * 말 자체가 사라진다. 없는 지역 id 를 가진 코스로 그 자리를 잠근다.
+     */
+    @Test
+    void 지역을_못_찾으면_여행지_없이_알림을_만든다() {
+        UUID owner = UUID.randomUUID();
+        Course course = saveCourse(owner, LocalDate.of(2099, 12, 2), 1, UNKNOWN_REGION_ID);
+
+        List<PushTarget> created = writer.create(List.of(course), NotificationType.TRIP_AFTER, "여행 후 알림");
+
+        assertEquals(1, created.size(), "여행지를 못 찾았다고 알림을 버렸다");
+        assertNull(created.get(0).destination());
+    }
+
+    /** 89곳 어디에도 없는 지역 id — 코스가 가리키던 지역이 사라진 상태를 흉내 낸다. */
+    private static final long UNKNOWN_REGION_ID = 999_999L;
+
     /** 코스는 하루 이상이어야 성립하므로 최소 형태(하루 1슬롯)로 만든다. 이 테스트가 보는 것은 날짜뿐이다. */
     private Course saveCourse(UUID owner, LocalDate travelDate, int travelDays) {
+        return saveCourse(owner, travelDate, travelDays, 1L);
+    }
+
+    private Course saveCourse(UUID owner, LocalDate travelDate, int travelDays, long regionId) {
         List<DaySchedule> days = IntStream.rangeClosed(1, travelDays)
                 .mapToObj(day -> DaySchedule.of(day, List.of(slot(day))))
                 .toList();
         return courseRepository.save(Course.ownedBy(
-                owner, 1L, Density.RELAXED, TransportMode.CAR, days,
+                owner, regionId, Density.RELAXED, TransportMode.CAR, days,
                 travelDate, travelDays, null, StartDayLeave.DEFAULT, null));
     }
 

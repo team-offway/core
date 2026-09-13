@@ -19,8 +19,23 @@ class NotificationTypeTest {
     @ParameterizedTest
     @EnumSource(NotificationType.class)
     void 모든_종류가_배너_문구를_갖는다(NotificationType type) {
-        assertFalse(type.bannerTitle().isBlank(), type + " 의 배너 제목이 비었습니다");
+        assertFalse(type.bannerTitle("정선").isBlank(), type + " 의 배너 제목이 비었습니다");
         assertFalse(type.bannerBody().isBlank(), type + " 의 배너 본문이 비었습니다");
+    }
+
+    /**
+     * 여행지를 못 찾는 코스가 있다 — 지워졌거나 지역 조회가 실패한 경우다. 그때 제목이 빈칸이나
+     * {@code null} 로 시작하면 잠금화면에 그대로 보인다.
+     */
+    @ParameterizedTest
+    @EnumSource(NotificationType.class)
+    void 여행지가_없어도_제목이_멀쩡하다(NotificationType type) {
+        for (String destination : new String[] {null, "", "   "}) {
+            String title = type.bannerTitle(destination);
+            assertFalse(title.isBlank(), type + " 의 제목이 비었습니다 여행지=" + destination);
+            assertFalse(title.contains("null"), type + " 의 제목에 null 이 들어갔습니다: " + title);
+            assertEquals(title.strip(), title, type + " 의 제목 앞뒤에 공백이 남았습니다: [" + title + "]");
+        }
     }
 
     /**
@@ -40,7 +55,27 @@ class NotificationTypeTest {
     @Test
     void 앱이_알림함에_쓰는_문구와_같다() {
         assertEquals("내일은 여행을 떠나는 날이에요. 짐은 다 챙기셨나요?", NotificationType.TRIP_TOMORROW.bannerBody());
-        assertEquals("여행, 다녀오셨나요? 연차를 사용했다면 기록해 주세요.", NotificationType.TRIP_AFTER.bannerBody());
+        assertEquals("연차를 사용했다면 기록해주세요", NotificationType.TRIP_AFTER.bannerBody());
+    }
+
+    /**
+     * 여행이 끝난 뒤 묻는 알림은 <b>어느 여행인지가 곧 그 알림의 정체</b>라, 제목에 여행지를 세운다.
+     * 짧은 이름을 쓰는 것은 알림함이 그렇게 내리고 있기 때문이다(#356).
+     */
+    @Test
+    void 여행_후_알림은_제목에_여행지를_세운다() {
+        assertEquals("정선 여행 다녀오셨나요?", NotificationType.TRIP_AFTER.bannerTitle("정선"));
+        assertEquals("여행 다녀오셨나요?", NotificationType.TRIP_AFTER.bannerTitle(null));
+    }
+
+    /**
+     * 여행지를 말할 자리가 없는 종류는 여행지를 받아도 쓰지 않는다 — 전날 알림의 제목에 여행지를 끼우면
+     * 앱이 알림함에 쓰는 문장과 어긋난다.
+     */
+    @Test
+    void 여행지를_쓰지_않는_종류는_받아도_무시한다() {
+        assertEquals(NotificationType.TRIP_TOMORROW.bannerTitle(null),
+                NotificationType.TRIP_TOMORROW.bannerTitle("정선"));
     }
 
     /** 상수 이름은 앱과 맞춘 계약이다 — 바꾸면 앱이 아이콘·이동 경로를 못 고른다. */

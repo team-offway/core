@@ -105,7 +105,7 @@ public class FcmPushSender implements PushSender {
         Message.Builder message = Message.builder()
                 .setToken(token)
                 .putAllData(payload(push))
-                .setNotification(banner(push.type()));
+                .setNotification(banner(push));
         badge(push).ifPresent(message::setApnsConfig);
         return message.build();
     }
@@ -114,10 +114,10 @@ public class FcmPushSender implements PushSender {
      * 잠금화면에 그려질 알림. 문구는 {@link NotificationType} 이 소유한다 — 여기서 조립하면 같은 말이
      * 어댑터와 도메인 두 곳에 생긴다.
      */
-    private static Notification banner(NotificationType type) {
+    private static Notification banner(PushMessage push) {
         return Notification.builder()
-                .setTitle(type.bannerTitle())
-                .setBody(type.bannerBody())
+                .setTitle(push.type().bannerTitle(push.destination()))
+                .setBody(push.type().bannerBody())
                 .build();
     }
 

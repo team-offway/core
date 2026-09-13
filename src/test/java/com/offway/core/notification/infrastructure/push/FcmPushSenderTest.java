@@ -100,8 +100,26 @@ class FcmPushSenderTest {
 
         String payload = FcmMessages.transportJsonOf(message);
 
-        assertTrue(payload.contains(type.bannerTitle()), payload);
+        assertTrue(payload.contains(type.bannerTitle(null)), payload);
         assertTrue(payload.contains(type.bannerBody()), payload);
+    }
+
+    /**
+     * 여행지가 <b>실제로 배너까지 내려가는지</b>를 본다. 제목 조립은 종류가 하지만, 값을 어댑터가 안 넘기면
+     * 조립은 멀쩡한 채 모두가 여행지 없는 제목을 받는다 — 그건 실기기에서만 드러난다.
+     */
+    @Test
+    void 여행지를_받으면_배너_제목에_실린다() {
+        PushMessage push = PushMessage.builder()
+                .type(NotificationType.TRIP_AFTER)
+                .courseId(COURSE_ID)
+                .notificationId(NOTIFICATION_ID)
+                .destination("정선")
+                .build();
+
+        String payload = FcmMessages.transportJsonOf(senderWithoutKey().message(TOKEN, push));
+
+        assertTrue(payload.contains("정선 여행 다녀오셨나요?"), payload);
     }
 
     /**
