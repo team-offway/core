@@ -9,6 +9,7 @@ import com.offway.core.transport.repository.TransitLegDurationRepository;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -120,5 +121,32 @@ class TransitLegDemandPriorityIntegrationTest {
             }
         }
         return -1;
+    }
+    /**
+     * <b>출발과 도착이 같으면 자리도 만들지 않는다</b>(#559).
+     *
+     * <p>물어봐야 답이 없는 구간이다. 자리를 만들면 이 클래스가 다루는 그 순번 경쟁에 끼어들어,
+     * 배치가 <b>답이 없을 구간을 재려고 외부 한도를 태운다</b> — 시간당 50구간뿐인 자원이다.
+     *
+     * <p>시더는 후보를 만들 때 이미 걸렀다(`!origin.getCode().equals(arrival)`). 같은 불변식이
+     * 조회 경로에만 없어서, 출발지가 그 지역 터미널과 같아지는 요청에서 샜다.
+     *
+     * <p>이것이 {@code TransitLegCandidateSeedIntegrationTest > 자기_자신으로_가는_구간은_없다} 가
+     * 간헐적으로 빨개진 원인이다 — 그 테스트는 DB 전체를 보고 클래스에 트랜잭션이 없어서, 코스를
+     * 만드는 다른 테스트가 커밋한 self-loop 을 실행 순서에 따라 봤다.
+     */
+    @Test
+    void 출발과_도착이_같으면_자리를_만들지_않는다() {
+        LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+        int before = transitLegDurationRepository.findAll().size();
+
+        Optional<Integer> minutes =
+                transitDurationService.minutesFor(TransitMode.INTERCITY_BUS, "SAMECODE", "SAMECODE", now);
+
+        assertTrue(minutes.isEmpty(), "물어봐야 답이 없는 구간이다");
+        assertEquals(before, transitLegDurationRepository.findAll().size(),
+                "자리를 만들었다 — 배치가 답 없을 구간을 재려고 한도를 태운다");
+        assertTrue(transitLegDurationRepository.find(TransitMode.INTERCITY_BUS, "SAMECODE", "SAMECODE").isEmpty(),
+                "그 구간이 표에 들어갔다");
     }
 }
