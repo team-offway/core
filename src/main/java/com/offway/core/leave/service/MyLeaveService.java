@@ -64,9 +64,13 @@ public class MyLeaveService {
      * Hibernate 세션이 못 쓸 상태가 돼 커밋 시점에 {@code UnexpectedRollbackException} 으로 끝날 수 있다.
      * 각 시도를 {@link MyLeavePersistenceService} 의 <b>독립 트랜잭션</b>으로 두면 실패한 삽입은 깔끔히
      * 롤백되고 재시도는 새 트랜잭션에서 돈다.
+     *
+     * <p><b>상한은 여기서 잰다</b>(#558). 상한이 걸리는 대상이 잔여라 사용 합을 알아야 하는데, 요청 DTO
+     * 경계는 그걸 모른다. 판정 자체는 {@link LeaveSummary#exceedsRemainingCap()} 이 소유한다.
      */
     public MyLeave changeTotalDays(UUID userId, double totalDays) {
         UUID owner = requireOwner(userId);
+        requireRemainingWithinCap(owner, totalDays);
         if (!persistenceService.updateTotalIfPresent(owner, totalDays)) {
             try {
                 persistenceService.create(owner, totalDays);
@@ -268,6 +272,22 @@ public class MyLeaveService {
         found.get().moveTo(usedOn, days);
         log.info("코스 연차 차감 재계산 courseId={} usedOn={} days={}", courseId, usedOn, days);
         return true;
+    }
+
+    /**
+     * 바꾼 뒤의 남은 연차가 상한을 넘지 않는지 본다(#558) — 요청 DTO 경계가 볼 수 없는 검사다.
+     *
+     * <p><b>{@link #summaryOf} 대신 {@link LeaveSummary#of} 를 직접 부른다.</b> 그쪽을 거치면 음수 원장
+     * 경고가 함께 나가는데, {@link #changeTotalDays} 는 끝에서 {@link #myLeave} 로 조회를 한 번 더 타므로
+     * 같은 요청에 같은 경고가 두 줄 쌓인다 — "자르는 곳이 하나면 알리는 곳도 하나" 는 그 조회가 이미 지킨다.
+     */
+    private void requireRemainingWithinCap(UUID owner, double totalDays) {
+        LeaveSummary after = LeaveSummary.of(totalDays, usageRepository.sumDaysByUserId(owner));
+        if (after.exceedsRemainingCap()) {
+            // 소유자 식별자는 개인 식별값이라 싣지 않는다. 연차 일수는 사용 내역 로그와 같은 수준으로 남긴다.
+            log.info("총 연차 변경 거절 — 남은 연차가 상한을 넘습니다 요청총량={} 남은={}", totalDays, after.remainingDays());
+            throw LeaveException.remainingLeaveDaysExceeded();
+        }
     }
 
     private LeaveSummary summaryOf(UUID userId) {

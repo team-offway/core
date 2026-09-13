@@ -43,11 +43,16 @@ public interface LeaveApi {
 
     @Operation(
             summary = "내 연차 수정",
-            description = "총 연차를 고쳐 쓴다(와이어프레임 +/- 스테퍼). 0.25 단위로 반차·반반차 조합도 넣을 수 있다.")
+            description =
+                    """
+                    총 연차를 고쳐 쓴다(와이어프레임 +/- 스테퍼). 0.25 단위로 반차·반반차 조합도 넣을 수 있다.
+
+                    상한 99일은 총이 아니라 남은 연차(총 - 사용분)에 걸린다 — 사용분이 72일이면 총 171일까지 받는다.
+                    화면이 입력받는 값이 잔여라, 총에 걸면 사용분만큼 입력 범위가 줄어든다.""")
     @ApiResponse(responseCode = "200", description = "수정 성공")
     @ApiResponse(
             responseCode = "400",
-            description = "totalDays 누락 · 0.25 단위가 아니거나 0~99 범위 밖")
+            description = "totalDays 누락 · 음수거나 0.25 단위가 아님(LEAVE-009) · 남은 연차가 99일을 넘음(LEAVE-016)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<MyLeaveResponse> updateMyLeave(UUID userId, UpdateMyLeaveRequest request);

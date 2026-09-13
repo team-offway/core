@@ -55,8 +55,11 @@ public class LeaveBalance {
     }
 
     /**
-     * 불변식 — 여기 닿는 위반은 버그다. 계약 검증(0.25 단위·상한)은 요청 DTO 경계가 이미 400 으로 걸러야 한다.
+     * 불변식 — 여기 닿는 위반은 버그다. 계약 검증(음수·0.25 단위)은 요청 DTO 경계가 이미 400 으로 걸러야 한다.
      * 그래도 두는 이유는 누가 만들든 스스로 유효함을 보장하는 최후의 보루이기 때문이다.
+     *
+     * <p><b>상한은 재지 않는다</b>(#558). 상한은 잔여에 걸리고 이 엔티티는 사용 내역을 모른다 — 총 연차만
+     * 들고 있는 것이 이 설계의 전제다. 그 검사는 {@code LeaveSummary} 가 소유한다.
      */
     private static double requireTotal(double totalDays) {
         if (!LeaveDays.isValidTotal(totalDays)) {

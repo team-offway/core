@@ -40,15 +40,23 @@ public final class LeaveDays {
     public static final double NONE = 0;
 
     /**
-     * 총 연차 상한 — <b>화면이 사용자에게 약속한 값과 같다</b>(#142).
+     * 연차 일수 상한 — <b>화면이 사용자에게 약속한 값과 같다</b>(#142).
      *
      * <p>온보딩 화면이 "최대 99일까지 입력할 수 있어요" 라고 안내한다. 서버가 그보다 넉넉하면 화면을 거치지
      * 않은 요청만 다른 규칙을 따르게 되고, 그건 계약이 두 개인 것과 같다.
      *
      * <p>예전 값은 365 였는데 "법정 연차 25일 안팎에 이월을 감안해도 넘을 이유가 없다" 는 설명과 어긋났다 —
      * 365 는 1년 전체라 넉넉함이 아니라 사실상 상한이 없는 것에 가깝다.
+     *
+     * <p><b>이름이 {@code MAX_TOTAL} 이던 시절엔 총 연차에 걸렸다. 지금은 잔여에 걸린다</b>(#558). 화면이
+     * 받는 값이 총이 아니라 <b>잔여</b>이기 때문이다 — 앱은 "총 연차일수 수정하기" 에서 잔여를 입력받아
+     * {@code 입력값 + 사용분} 을 보낸다. 그래서 총에 이 상한을 걸면 <b>사용분만큼 입력 가능 범위가 줄었다</b>:
+     * 72일 쓴 사용자는 잔여를 27일까지만 넣을 수 있었고, 실제로 잔여 13일인 계정이 65일을 저장하지 못했다.
+     * 화면이 약속한 값을 지키려면 검사 대상이 잔여여야 한다.
+     *
+     * @see #isValidRemaining(double)
      */
-    public static final double MAX_TOTAL = 99.0;
+    public static final double MAX_DAYS = 99.0;
 
     private LeaveDays() {
     }
@@ -65,9 +73,29 @@ public final class LeaveDays {
         return Double.isFinite(days) && units == Math.rint(units);
     }
 
-    /** 총 연차로 쓸 수 있는 값인가 — 음수 불가, 상한 이하, 0.25 단위. <b>0 과 상한은 허용</b>한다. */
+    /**
+     * 총 연차로 쓸 수 있는 값인가 — 음수 불가, 0.25 단위. <b>0 은 허용</b>한다.
+     *
+     * <p><b>상한을 여기서 보지 않는다</b>(#558). 상한은 잔여의 성질이라 사용분을 알아야 판정할 수 있는데,
+     * 이 함수가 쓰이는 자리(요청 DTO 경계·엔티티 불변식)는 사용분을 모른다. {@link #isValidRemaining} 이
+     * 그 몫을 맡고, 그 검사가 총에도 실질 상한을 준다 — {@code 총 ≤ 상한 + 사용분} 이기 때문이다.
+     */
     public static boolean isValidTotal(double days) {
-        return isValidUnit(days) && days >= 0 && days <= MAX_TOTAL;
+        return isValidUnit(days) && days >= 0;
+    }
+
+    /**
+     * 남은 연차로 있을 수 있는 값인가 — <b>상한 이하</b>(#558). 화면이 약속한 입력 범위가 여기 걸린다.
+     *
+     * <p><b>아래쪽은 보지 않는다.</b> 잔여는 음수가 될 수 있다 — 남은 연차가 부족해도 서버가 사용 등록을
+     * 막지 않기 때문이다(결정 #38). 초과 사용은 사용자가 확인하고 만든 <b>사실</b>이라, 위쪽을 막고
+     * 아래쪽을 여는 비대칭이 {@link LeaveSummary#remainingDays()} 와 같은 이유로 정당하다.
+     *
+     * <p>0.25 단위도 보지 않는다. 잔여는 입력값이 아니라 <b>총에서 사용 합을 뺀 파생값</b>이고, 양쪽이
+     * 이미 같은 격자를 지나 들어오므로 차도 그 격자 위에 있다.
+     */
+    public static boolean isValidRemaining(double remainingDays) {
+        return remainingDays <= MAX_DAYS;
     }
 
     /**
@@ -85,7 +113,7 @@ public final class LeaveDays {
      * @see #isReversal(double)
      */
     public static boolean isValidUsage(double days) {
-        return isValidUnit(days) && days > NONE && days <= MAX_TOTAL;
+        return isValidUnit(days) && days > NONE && days <= MAX_DAYS;
     }
 
     /**
@@ -111,6 +139,6 @@ public final class LeaveDays {
      * <p>음수는 받지 않는다. 코스 차감의 취소는 음수 누적이 아니라 <b>행 삭제</b>다(#113).
      */
     public static boolean isValidCourseDeduction(double days) {
-        return isValidUnit(days) && days >= 0 && days <= MAX_TOTAL;
+        return isValidUnit(days) && days >= 0 && days <= MAX_DAYS;
     }
 }

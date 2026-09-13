@@ -41,14 +41,18 @@ public enum LeaveErrorCode implements ErrorCode {
     BASE_DATE_REQUIRED("LEAVE-008", ErrorCategory.BAD_REQUEST, "기준 날짜를 함께 보내주세요."),
 
     /**
-     * 총 연차가 음수·상한 초과·0.25 단위가 아님.
+     * 총 연차가 음수거나 0.25 단위가 아님.
      *
-     * <p>문구의 상한을 99 로 함께 고쳤다. #142 가 상한을 365 → 99 로 좁히면서 이 문구를 놓쳐, 서버는
-     * 99 에서 막는데 사용자에게는 "365일 이하" 라고 답하고 있었다 — 안내가 규칙과 어긋나면 사용자는
-     * 자기 입력이 왜 거절됐는지 알 수 없다.
+     * <p><b>문구에서 상한을 뺐다</b>(#558). 상한은 이제 총이 아니라 잔여에 걸려 {@link #REMAINING_LEAVE_DAYS_EXCEEDED}
+     * 가 맡는다 — 여기 남겨두면 서버는 사용분만큼 넉넉한 총을 받는데 사용자에게는 "99일 이하" 라고 답하는
+     * 어긋남이 생긴다.
+     *
+     * <p>그 어긋남은 이 문구가 이미 한 번 겪은 것이다. #142 가 상한을 365 → 99 로 좁히면서 문구를 놓쳐,
+     * 서버는 99 에서 막는데 안내는 "365일 이하" 였다 — 안내가 규칙과 어긋나면 사용자는 자기 입력이 왜
+     * 거절됐는지 알 수 없다.
      */
     INVALID_TOTAL_LEAVE_DAYS(
-            "LEAVE-009", ErrorCategory.BAD_REQUEST, "연차 일수는 0.25일 단위로, 0일 이상 99일 이하여야 합니다."),
+            "LEAVE-009", ErrorCategory.BAD_REQUEST, "연차 일수는 0.25일 단위의 0일 이상 값이어야 합니다."),
 
     /** 사용 내역 증감이 0 이거나 0.25 단위가 아님. 0 은 아무것도 바꾸지 않아 기록할 이유가 없다. */
     INVALID_LEAVE_USAGE_DAYS(
@@ -87,7 +91,18 @@ public enum LeaveErrorCode implements ErrorCode {
      * <p>빈 목록으로 답하지 않는 이유: 앱이 "공휴일이 없는 해" 로 읽어 연차를 과다 계산한다.
      */
     HOLIDAY_YEAR_OUT_OF_RANGE(
-            "LEAVE-015", ErrorCategory.BAD_REQUEST, "공휴일은 지난해부터 내년까지만 조회할 수 있습니다.");
+            "LEAVE-015", ErrorCategory.BAD_REQUEST, "공휴일은 지난해부터 내년까지만 조회할 수 있습니다."),
+
+    /**
+     * 바꾼 뒤의 남은 연차가 상한(99일)을 넘음(#558).
+     *
+     * <p><b>{@link #INVALID_TOTAL_LEAVE_DAYS} 와 갈라 두는 이유</b>는 사용자가 할 일이 다르기 때문이다.
+     * 그쪽은 "0.25 단위로 넣어주세요" 이고 이쪽은 "99일까지만 됩니다" 다. 같은 코드로 뭉뚱그리면 화면이
+     * 둘 중 어느 안내를 띄울지 고를 수 없다 — {@link #LEAVE_USAGE_REVERSAL_NOT_ALLOWED} 를 단위 위반과
+     * 가른 것과 같은 결이다.
+     */
+    REMAINING_LEAVE_DAYS_EXCEEDED(
+            "LEAVE-016", ErrorCategory.BAD_REQUEST, "남은 연차는 99일까지 설정할 수 있습니다.");
 
     private final String code;
     private final ErrorCategory category;
