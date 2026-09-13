@@ -50,9 +50,14 @@ public final class LeaveException extends BaseException {
         return new LeaveException(LeaveErrorCode.BASE_DATE_REQUIRED);
     }
 
-    /** 총 연차가 음수·상한 초과·0.25 단위가 아님. */
+    /** 총 연차가 음수거나 0.25 단위가 아님. 상한 초과는 {@link #remainingLeaveDaysExceeded()} 가 맡는다(#558). */
     public static LeaveException invalidTotalLeaveDays() {
         return new LeaveException(LeaveErrorCode.INVALID_TOTAL_LEAVE_DAYS);
+    }
+
+    /** 바꾼 뒤의 남은 연차가 상한(99일)을 넘음(#558). */
+    public static LeaveException remainingLeaveDaysExceeded() {
+        return new LeaveException(LeaveErrorCode.REMAINING_LEAVE_DAYS_EXCEEDED);
     }
 
     /** 사용 내역 증감이 0 이거나 0.25 단위가 아님. */

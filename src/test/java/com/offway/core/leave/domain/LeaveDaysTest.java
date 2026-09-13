@@ -17,22 +17,47 @@ class LeaveDaysTest {
 
     @ParameterizedTest
     @ValueSource(doubles = {0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 15.25, 98.75, 99})
-    void 총_연차는_0에서_99_사이의_0점25_단위다(double days) {
+    void 총_연차는_0_이상의_0점25_단위다(double days) {
         assertTrue(LeaveDays.isValidTotal(days));
     }
 
     @ParameterizedTest
-    @ValueSource(doubles = {-0.25, -0.5, -1, 0.3, 0.1, 1.1, 1.3, 99.25, 365, 1000})
-    void 총_연차가_음수거나_상한_밖이거나_0점25_단위가_아니면_거부한다(double days) {
+    @ValueSource(doubles = {-0.25, -0.5, -1, 0.3, 0.1, 1.1, 1.3})
+    void 총_연차가_음수거나_0점25_단위가_아니면_거부한다(double days) {
         // 0.1·0.3·1.3 은 0.25 격자 밖이다. 격자를 넓힌다고 아무 소수나 받는 것은 아니다 — 화면 칩이
         // 내주는 값(0.25·0.5·1)과 직접 입력이 같은 규칙을 따라야 잔여 계산이 맞는다.
         assertFalse(LeaveDays.isValidTotal(days));
     }
 
     @ParameterizedTest
+    @ValueSource(doubles = {99.25, 171, 365, 1000})
+    void 상한_위의_총_연차도_값_자체로는_받는다(double days) {
+        // **이 테스트가 #558 의 핵심이다.** 예전엔 여기서 막았는데, 화면이 입력받는 값은 총이 아니라
+        // 잔여다 — 앱이 `잔여 + 사용분` 을 보내므로 사용분이 쌓인 만큼 총은 99 를 넘는다. 사용 72일인
+        // 계정은 총 171 을 보내고 잔여는 99 다. 그걸 총에서 막으면 잔여를 27일까지만 넣을 수 있었다.
+        assertTrue(LeaveDays.isValidTotal(days));
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = {99, 98.75, 0, -0.5, -99})
+    void 남은_연차는_상한_이하면_받고_음수도_받는다(double remainingDays) {
+        // 아래쪽을 여는 이유: 남은 연차가 부족해도 서버가 사용 등록을 막지 않는다(결정 #38).
+        // 초과 사용은 사용자가 확인하고 만든 사실이라, 그 상태를 "있을 수 없는 값" 으로 취급하면
+        // 그 계정은 총 연차를 영영 못 고친다.
+        assertTrue(LeaveDays.isValidRemaining(remainingDays));
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = {99.25, 100, 171, 1000})
+    void 남은_연차가_상한을_넘으면_거부한다(double remainingDays) {
+        // 99.25 는 상한 바로 바깥 — 이게 없으면 상한이 365 로 되돌아가도 1000 만 걸려 통과한다.
+        assertFalse(LeaveDays.isValidRemaining(remainingDays));
+    }
+
+    @ParameterizedTest
     @ValueSource(doubles = {0.25, 0.5, 0.75, 1, 3.25, 99})
     void 사용_일수는_0점25_단위_양수다(double days) {
-        // 99 를 함께 둔 이유: 사용 일수도 MAX_TOTAL 을 쓰는데, 경계가 없으면 상한이 예전 365 로
+        // 99 를 함께 둔 이유: 사용 일수도 MAX_DAYS 를 쓰는데, 경계가 없으면 상한이 예전 365 로
         // 남아 있어도 이 테스트가 통과한다(#142 가 99 로 좁힌 계약을 못 지킨다).
         assertTrue(LeaveDays.isValidUsage(days));
     }
