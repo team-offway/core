@@ -8,7 +8,9 @@ import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.trip.controller.dto.BenefitResponse;
+import com.offway.core.trip.controller.dto.PetAccompanyResponse;
 import com.offway.core.trip.controller.dto.RegionVisitMetricsResponse;
+import com.offway.core.trip.service.dto.PetAccompany;
 import com.offway.core.trip.domain.MapSearchLink;
 import com.offway.core.trip.domain.PlaceOrigin;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
@@ -216,6 +218,7 @@ public record CourseResponse(
                                 generated.hoursByContentId(),
                                 generated.hubPhotoUrlByName(),
                                 generated.festivalPeriodByContentId(),
+                                generated.petAccompanyByContentId(),
                                 slotBenefits(generated)))
                         .toList())
                 .benefits(generated.benefits().stream().map(BenefitResponse::from).toList())
@@ -327,6 +330,7 @@ public record CourseResponse(
                 Integer distanceFromPrevDayMeters, Map<String, SlotHours> hoursByContentId,
                 Map<String, String> hubPhotoUrlByName,
                 Map<String, FestivalPeriod> festivalPeriodByContentId,
+                Map<String, PetAccompany> petAccompanyByContentId,
                 Map<SlotKind, String> slotBenefits) {
             // 표시 번호가 아니라 달력 오프셋으로 센다 — 첫날이 빠진 코스에서 하루 앞당겨지지 않게(#159).
             LocalDate date = travelDate == null ? null : travelDate.plusDays(schedule.getDayOffset());
@@ -338,7 +342,8 @@ public record CourseResponse(
                             lookup(hoursByContentId, slots.get(i)),
                             lookup(festivalPeriodByContentId, slots.get(i)),
                             benefitFor(slots.get(i), slotBenefits),
-                            hubPhotoUrlByName))
+                            hubPhotoUrlByName,
+                            lookup(petAccompanyByContentId, slots.get(i))))
                     .toList();
             return new Day(
                     schedule.getDayNumber(),
@@ -377,6 +382,7 @@ public record CourseResponse(
      * 전역으로 걸면 그 약속이 깨진다.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @Builder
     public record Item(
             int order,
             String timeOfDay,
@@ -427,11 +433,21 @@ public record CourseResponse(
                     그날 안 하는 축제는 후보에서 이미 빠졌으므로, 여기 실리는 것은 여행일에 열리는
                     축제다. 값이 필요한 이유는 **며칠까지 하는가** 다 — 1박 2일로 갔는데 축제가 첫날로
                     끝나면 둘째 날 일정이 헛돈다.""",
-                    example = "2026-09-12 ~ 2026-09-14", nullable = true) String festivalPeriod) {
+                    example = "2026-09-12 ~ 2026-09-14", nullable = true) String festivalPeriod,
+            @Schema(description = """
+                    반려동반 정보(#566). **반려동반 가능한 장소에만** 실린다.
+
+                    이 값이 있으면 "반려동물 동반" 칩을 띄운다. 없으면 띄우지 않는다 — 반려동반이
+                    아닌 곳과 판정할 수 없는 곳(인허가·국가유산·고캠핑 출처)이 함께 여기 해당하고,
+                    **"반려동물 안 됨" 을 말하는 것이 아니다.**
+
+                    칩을 눌렀을 때 열 내용이 함께 실려 있어 추가 왕복이 없다. 칩 문구는 `wholeArea` 로
+                    가른다 — 실측에서 절반이 "일부구역" 이었다.""",
+                    nullable = true) PetAccompanyResponse petAccompany) {
 
         static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName,
                 SlotHours hours, FestivalPeriod festival, String benefit,
-                Map<String, String> hubPhotoUrlByName) {
+                Map<String, String> hubPhotoUrlByName, PetAccompany petAccompany) {
             // 한 번만 푼다 — 지도 링크 판단도 같은 값을 봐야 한다. 슬롯의 원본만 보면 교통 거점 칸이
             // 사진과 지도 링크를 함께 내려보낸다(사진이 있으면 링크는 군더더기다).
             String imageUrl = imageUrlOf(slot, hubPhotoUrlByName);
@@ -456,7 +472,8 @@ public record CourseResponse(
                     slot.getTravelMinutesFromPrev(),
                     distanceFromPrevMeters,
                     regionName,
-                    periodTextOf(festival));
+                    periodTextOf(festival),
+                    PetAccompanyResponse.from(petAccompany));
         }
 
         /**

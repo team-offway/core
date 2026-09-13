@@ -69,6 +69,7 @@ public class CourseStorageService {
     private final OpeningHoursProvider openingHoursProvider;
     private final TransitHubPhotoProvider transitHubPhotoProvider;
     private final FestivalPeriodProvider festivalPeriodProvider;
+    private final PetAccompanyProvider petAccompanyProvider;
     private final CoursePersistenceService coursePersistenceService;
     private final CourseLeaveDeductionService courseLeaveDeductionService;
     private final MyLeaveService myLeaveService;
@@ -558,6 +559,9 @@ public class CourseStorageService {
                 .hoursByContentId(openingHoursProvider.forCourse(course))
                 .hubPhotoUrlByName(transitHubPhotoProvider.photoUrls(transitHubNames(course)))
                 .festivalPeriodByContentId(festivalPeriodProvider.forCourse(course))
+                // 반려동반 표식(#566) — 생성 응답에만 붙고 상세 조회에는 없으면 저장한 코스에서 칩이
+                // 사라진다(#169 와 같은 실수).
+                .petAccompanyByContentId(petAccompanyProvider.forCourse(course))
                 .build();
     }
 
