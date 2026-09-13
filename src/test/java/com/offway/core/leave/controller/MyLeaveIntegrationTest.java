@@ -518,9 +518,10 @@ class MyLeaveIntegrationTest {
 
     @Test
     @WithLoginUser
-    void 총_연차가_상한을_넘으면_400_LEAVE_009() throws Exception {
+    void 남은_연차가_상한을_넘으면_400_LEAVE_016() throws Exception {
         // 화면이 "최대 99일까지" 라고 안내한다 — 서버가 더 넉넉하면 화면을 안 거친 요청만 다른 규칙을 탄다(#142).
-        setTotalDays(100).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("LEAVE-009"));
+        // 쓴 적이 없으면 총이 곧 잔여라 100 은 그대로 상한 바깥이다.
+        setTotalDays(100).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("LEAVE-016"));
     }
 
     @Test
@@ -530,6 +531,34 @@ class MyLeaveIntegrationTest {
         setTotalDays(0).andExpect(status().isOk()).andExpect(jsonPath("$.data.totalDays").value(0.0));
 
         setTotalDays(99).andExpect(status().isOk()).andExpect(jsonPath("$.data.totalDays").value(99.0));
+    }
+
+    @Test
+    @WithLoginUser
+    void 사용분이_쌓이면_총_연차가_상한을_넘어도_받는다() throws Exception {
+        // **이 테스트가 #558 의 핵심이다.** 화면은 잔여를 입력받는데 API 는 총을 받으므로, 앱이
+        // `입력값 + 사용분` 을 보낸다. 사용 72일(운영 실측 최대)인 계정이 잔여 99일을 넣으면 총이 171 이다.
+        // 상한을 총에 걸면 이 사람의 입력 범위가 27일까지로 줄어, 실제로 잔여 65일을 저장하지 못했다.
+        addUsage("{\"usedOn\": \"2026-05-08\", \"days\": 72}").andExpect(status().isCreated());
+
+        setTotalDays(171)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalDays").value(171.0))
+                .andExpect(jsonPath("$.data.remainingDays").value(99.0))
+                .andExpect(jsonPath("$.code").value("OK"));
+    }
+
+    @Test
+    @WithLoginUser
+    void 사용분을_더해도_남은_연차가_상한을_넘으면_400_LEAVE_016() throws Exception {
+        // 사용분만큼 총을 넉넉히 받는 것이지 상한이 사라진 게 아니다 — 잔여 기준 경계 바로 바깥이다.
+        addUsage("{\"usedOn\": \"2026-05-08\", \"days\": 72}").andExpect(status().isCreated());
+
+        setTotalDays(171.25)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("LEAVE-016"))
+                .andExpect(jsonPath("$.detail").value("남은 연차는 99일까지 설정할 수 있습니다."))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test

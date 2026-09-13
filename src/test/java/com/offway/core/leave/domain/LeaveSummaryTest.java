@@ -83,6 +83,43 @@ class LeaveSummaryTest {
         assertFalse(LeaveSummary.of(15.0, ledger).isLedgerNegative());
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "99, 0",     // 아무것도 안 쓴 사람의 상한 — 잔여 99
+        "171, 72",   // 사용 72일(운영 최대 실측) + 잔여 99
+        "100, 1",    // 사용 1일이면 총 100 까지
+        "0, 0"       // 미설정
+    })
+    void 남은_연차가_상한_이하면_통과한다(double total, double ledger) {
+        assertFalse(LeaveSummary.of(total, ledger).exceedsRemainingCap());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "99.25, 0",   // 상한 바로 바깥
+        "171.25, 72", // 사용 72일 계정의 경계 바깥
+        "1000, 0"
+    })
+    void 남은_연차가_상한을_넘으면_드러낸다(double total, double ledger) {
+        assertTrue(LeaveSummary.of(total, ledger).exceedsRemainingCap());
+    }
+
+    @Test
+    void 사용_72일_계정도_잔여_99를_설정할_수_있다() {
+        // #558 의 실제 사례 — 사용 72일(운영 실측 최대)인 계정이 잔여 65일을 저장하지 못했다.
+        // 총에 상한을 걸면 이 사람의 입력 범위가 27일까지로 줄어든다.
+        LeaveSummary requested = LeaveSummary.of(72 + 65, 72);
+
+        assertEquals(65.0, requested.remainingDays());
+        assertFalse(requested.exceedsRemainingCap(), "잔여 65일은 화면이 약속한 범위 안이다");
+    }
+
+    @Test
+    void 초과_사용한_계정도_총_연차를_고칠_수_있다() {
+        // 잔여가 음수인 상태를 막으면 그 계정은 장부를 정리할 방법이 없어진다 — 아래쪽을 여는 이유다.
+        assertFalse(LeaveSummary.of(3.0, 5.0).exceedsRemainingCap());
+    }
+
     @Test
     void 쓴_연차가_음수인_현황은_만들_수_없다() {
         // 팩토리가 이미 자르므로 여기 닿는 값은 버그다 — 계약 예외가 아니라 불변식이다.
