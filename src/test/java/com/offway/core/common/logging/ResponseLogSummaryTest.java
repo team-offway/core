@@ -40,8 +40,19 @@ class ResponseLogSummaryTest {
     /** {@code regionId=16} 만으로는 로그를 훑을 때 어디 코스인지 알 수 없다 — 사람이 아는 이름이 필요하다. */
     @Test
     void 코스는_지역명과_규모를_낸다() {
-        CourseResponse.Item item = new CourseResponse.Item(
-                1, "MORNING", "SIGHT", "관광", "c1", "장소1", null, null, null, null, null, null, null, null, null, 37.5, 128.6, 0, null, "정선군", null);
+        // 빌더로 만든다 — 위치 생성자로 세면 필드가 늘 때마다 null 을 덧붙여야 하고, 실제로 세 번
+        // 깨졌다(#317 · #519 · #566). 이 테스트가 보는 것은 지역명·칸 수뿐이다.
+        CourseResponse.Item item = CourseResponse.Item.builder()
+                .order(1)
+                .timeOfDay("MORNING")
+                .kind("SIGHT")
+                .categoryLabel("관광")
+                .poiContentId("c1")
+                .title("장소1")
+                .lat(37.5)
+                .lng(128.6)
+                .regionName("정선군")
+                .build();
         CourseResponse.Day day = new CourseResponse.Day(1, null, null, null, null, null, List.of(item));
         // 빌더로 만든다 — 필드가 하나 늘 때마다 위치를 세어 null 을 덧붙이던 자리다(#317 에서 실제로 깨졌다).
         CourseResponse response = CourseResponse.builder()
