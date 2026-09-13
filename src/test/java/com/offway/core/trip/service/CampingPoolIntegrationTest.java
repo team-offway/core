@@ -17,6 +17,8 @@ import com.offway.core.region.domain.Region;
 import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.region.repository.RegionRepository;
 import com.offway.core.trip.domain.CampingPlace;
+import com.offway.core.trip.domain.PlaceCategory;
+import com.offway.core.trip.domain.PlaceKind;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.camping.GoCampingClient;
 import com.offway.core.trip.infrastructure.camping.StubGoCampingClient;
@@ -27,6 +29,7 @@ import com.offway.core.trip.infrastructure.tour.TourApiClient;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import com.offway.core.trip.repository.CampingPlaceRepository;
+import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.service.dto.PoiCandidate;
 import com.offway.core.trip.service.dto.PoiDetail;
 import com.offway.core.trip.service.dto.RegionPois;
@@ -85,6 +88,9 @@ class CampingPoolIntegrationTest {
 
     @Autowired
     private RegionRepository regionRepository;
+
+    @Autowired
+    private LicensedPlaceRepository licensedPlaceRepository;
 
     @Autowired
     private GoCampingClient goCampingClient;
@@ -357,6 +363,78 @@ class CampingPoolIntegrationTest {
                 "잘 곳이 야영장뿐인데 슬롯이 비었다");
     }
 
+    /**
+     * <b>관광 API 가 숙박으로 분류해 갖고 있던 야영장도 야영장으로 본다</b>(#519).
+     *
+     * <p>판정이 식별자 접두어({@code CMP-})에만 기대던 때는 이 375건이 <b>일반 숙소 등급</b>에 앉았다.
+     * 사진이 있어 1순위였고, 야영장이 볼거리 중심에 가까운 탓에 사진 있는 호텔을 밀어냈다 —
+     * #510 이 고친 그 문제가 다른 출처로 남아 있었다.
+     *
+     * <p>이 픽스처가 정확히 그 상황이다. 야영장을 hub 에 <b>더 가깝게</b> 두고 호텔을 멀리 둔다 —
+     * 거리만 보거나 등급을 못 가르면 야영장이 뽑힌다.
+     */
+    @Test
+    void 관광API_야영장은_사진_있는_숙소보다_뒤에_뽑힌다() {
+        Region region = 우리지역();
+        stub().respond(GoCampsiteResult::empty);
+        // 볼거리 15곳은 36.5 근처 → hub 도 그 근처다. 야영장을 거기 붙이고 호텔을 멀리 둔다.
+        List<TourPoi> pois = new ArrayList<>(관광지와숙박(15, 0));
+        pois.add(new TourPoi("C-CAMP", 32, "AC", "관광API야영장", "주소",
+                36.50, 128.70, "http://img/camp.jpg", null, "AC05", null));
+        pois.add(new TourPoi("C-HOTEL", 32, "AC", "관광API호텔", "주소",
+                36.40, 128.60, "http://img/hotel.jpg", null, "AC01", null));
+        ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(pois, pois.size()));
+
+        List<PoiCandidate> stayPool = regionPoiService.collect(region.getId(), TRAVEL_DATE).stays();
+
+        assertEquals(2, stayPool.size(), "둘 다 잘 곳이라 대분류 AC 로는 이미 갈린다");
+        PoiCandidate camping = stayPool.stream().filter(c -> "C-CAMP".equals(c.contentId())).findFirst().orElseThrow();
+        PoiCandidate hotel = stayPool.stream().filter(c -> "C-HOTEL".equals(c.contentId())).findFirst().orElseThrow();
+        assertTrue(camping.camping(), "중분류 AC05 가 야영장인데 못 알아봤다");
+        assertFalse(hotel.camping(), "호텔을 야영장으로 봤다");
+
+        // **1박으로 좁힌다.** 2박이면 잘 곳이 둘 필요해 야영장까지 쓰이고(사진 있는 숙소가 하나뿐이라
+        // 맞는 동작이다) 등급 순서를 못 가른다. 한 자리만 두면 누가 먼저인지가 드러난다.
+        List<Slot> stays = courseGenerationService.generate(하룻밤_코스요청(region)).course().getDays().stream()
+                .flatMap(day -> day.getSlots().stream())
+                .filter(slot -> slot.getKind() == SlotKind.STAY)
+                .toList();
+
+        assertEquals(1, stays.size(), "1박이면 잘 곳은 한 자리다");
+        assertEquals("C-HOTEL", stays.getFirst().getPoiContentId(),
+                "야영장이 더 가까운데도 사진 있는 숙소가 먼저여야 한다 — 뽑힌 것: " + stays.getFirst().getTitle());
+    }
+
+    /**
+     * <b>인허가 야영장도 야영장으로 본다</b>(#519).
+     *
+     * <p>#518 이 야영장을 볼거리에서 숙박으로 옮기면서 <b>2,360건</b>이 이 등급에 들어왔다. 사진이 없어
+     * 3순위(사진 없는 숙소)로 앉았는데, 4순위(사진 없는 야영장)여야 한다.
+     *
+     * <p>인허가 후보는 숙박이 임계(2) 미만일 때만 온다 — 그래서 관광 API 숙박을 하나만 준다.
+     */
+    @Test
+    void 인허가_야영장도_야영장_등급으로_본다() {
+        Region region = 야영장이_있는_인허가_지역();
+        stub().respond(GoCampsiteResult::empty);
+        ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지와숙박(15, 1), 16));
+
+        List<PoiCandidate> stays = regionPoiService.collect(region.getId(), TRAVEL_DATE).stays();
+
+        assertTrue(stays.size() > 1, "이 시나리오는 인허가 보충이 돌아야 성립한다");
+        assertTrue(stays.stream().anyMatch(c -> c.contentId().startsWith("LIC-") && c.camping()),
+                "인허가 야영장을 일반 숙소로 봤다 — 사진 없는 숙소 앞자리를 가져간다");
+    }
+
+    /** 인허가 숙박에 야영장이 있는 지역 — #518 이 CAMPGROUND 를 숙박으로 옮겼다. */
+    private Region 야영장이_있는_인허가_지역() {
+        return regionRepository.findAll().stream()
+                .filter(r -> licensedPlaceRepository.findCandidates(r.getId(), PlaceKind.STAY, 100).stream()
+                        .anyMatch(p -> p.getCategory() == PlaceCategory.CAMPGROUND))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("인허가 야영장이 있는 지역이 없어 이 테스트가 성립하지 않는다"));
+    }
+
     @Test
     void 없는_야영장을_물으면_404() {
         assertThrows(TourApiException.class, () -> poiDetailService.detail("CMP-99999999"));
@@ -477,6 +555,11 @@ class CampingPoolIntegrationTest {
                     36.4 + i * 0.001, 128.6 + i * 0.001, "http://img/a" + i + ".jpg", null, null));
         }
         return pois;
+    }
+
+    /** 1박2일 — 잘 곳이 한 자리뿐이라 등급 순서가 드러난다(#519). */
+    private static GenerateCourse 하룻밤_코스요청(Region region) {
+        return 코스요청(region).toBuilder().travelDays(2).build();
     }
 
     /** 2박3일 자차 코스 — 숙박 슬롯이 생기는 가장 단순한 요청이다. */
