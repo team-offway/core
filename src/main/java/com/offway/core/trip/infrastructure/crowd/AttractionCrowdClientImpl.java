@@ -3,6 +3,7 @@ package com.offway.core.trip.infrastructure.crowd;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.external.DataGoKrError;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
 import com.offway.core.common.logging.RootCause;
@@ -202,24 +203,9 @@ class AttractionCrowdClientImpl implements AttractionCrowdClient {
         if (!SUCCESS_CODES.contains(resultCode)) {
             throw new IllegalStateException(
                     "집중률 응답이 성공이 아닙니다: resultCode=%s%s"
-                            .formatted(resultCode.isEmpty() ? "없음" : resultCode, serviceErrorOf(root)));
+                            .formatted(resultCode.isEmpty() ? "없음" : resultCode, DataGoKrError.of(root)));
         }
         return response.path("body");
-    }
-
-    /**
-     * data.go.kr 게이트웨이가 내는 사유 — 붙일 것이 없으면 빈 문자열.
-     *
-     * <p>키·한도 문제는 여기에만 적힌다. 안 실으면 로그에 "resultCode=없음" 만 남아 무엇이 막혔는지
-     * 모른다. <b>인증키는 이 envelope 에 들어 있지 않아</b> 그대로 실어도 된다.
-     */
-    private static String serviceErrorOf(JsonNode root) {
-        JsonNode header = root.path("OpenAPI_ServiceResponse").path("cmmMsgHeader");
-        if (header.isMissingNode()) {
-            return "";
-        }
-        return " errMsg=%s reasonCode=%s"
-                .formatted(header.path("errMsg").asText("?"), header.path("returnReasonCode").asText("?"));
     }
 
     /**
