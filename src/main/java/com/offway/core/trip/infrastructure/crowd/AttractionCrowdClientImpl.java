@@ -127,9 +127,22 @@ class AttractionCrowdClientImpl implements AttractionCrowdClient {
 
     private List<AttractionCrowd> parse(String body) throws Exception {
         JsonNode bodyNode = successBodyOf(body);
-        int totalCount = bodyNode.path("totalCount").asInt(0);
+        JsonNode totalNode = bodyNode.path("totalCount");
+        if (!totalNode.isNumber()) {
+            // 성공 코드는 왔는데 전체 건수가 없다 — 우리가 아는 모양이 아니다. 0 으로 읽으면 그 지역이
+            // "예보 없음" 으로 처리돼 장애가 조용히 묻힌다.
+            throw new IllegalStateException("집중률 응답에 totalCount 가 없습니다 — 응답 형식을 확인하세요");
+        }
+        int totalCount = totalNode.asInt();
         JsonNode items = itemsOf(bodyNode);
         if (items == null) {
+            // **예보가 없는 지역은 이렇게 온다** — 실측(강진·고흥): resultCode 0000 · items "" · totalCount 0.
+            // 전체 건수가 0 이 아닌데 목록이 없으면 그건 빈 지역이 아니라 깨진 응답이다.
+            if (totalCount != 0) {
+                throw new IllegalStateException(
+                        "집중률이 전체 %d건이라면서 목록을 주지 않았습니다 — 응답 형식을 확인하세요"
+                                .formatted(totalCount));
+            }
             return List.of();
         }
 
@@ -167,13 +180,46 @@ class AttractionCrowdClientImpl implements AttractionCrowdClient {
         return parsed;
     }
 
+    /**
+     * 성공을 <b>확인하고</b> 본문을 꺼낸다 — 성공 코드가 없으면 성공이 아니다.
+     *
+     * <p>예전에는 코드가 비어 있으면 통과시켰다. 그런데 <b>인증키가 막히면 envelope 자체가 다르다</b> —
+     * 실측:
+     *
+     * <pre>{@code {"OpenAPI_ServiceResponse":{"cmmMsgHeader":{"errMsg":"SERVICE_KEY_IS_NOT_REGISTERED_ERROR",...}}}}</pre>
+     *
+     * <p>{@code response} 키가 아예 없어 코드가 빈 문자열로 읽히고, 그대로 통과하면 {@code body} 도
+     * 비어 89곳 전부가 <b>"예보 없는 지역"</b> 이 된다. 한도 소진도 같은 모양이라, 가장 흔한 장애가
+     * 정확히 이 경로로 조용히 묻힌다.
+     *
+     * <p>정상 응답은 0건인 지역도 {@code resultCode=0000} 을 준다(실측 19곳 + 빈 지역 2곳). 코드를
+     * 요구해도 멀쩡한 회차가 실패로 뒤집히지 않는다.
+     */
     private JsonNode successBodyOf(String body) throws Exception {
-        JsonNode response = objectMapper.readTree(body).path("response");
+        JsonNode root = objectMapper.readTree(body);
+        JsonNode response = root.path("response");
         String resultCode = response.path("header").path("resultCode").asText();
-        if (!resultCode.isEmpty() && !SUCCESS_CODES.contains(resultCode)) {
-            throw new IllegalStateException("집중률 응답이 성공이 아닙니다: resultCode=" + resultCode);
+        if (!SUCCESS_CODES.contains(resultCode)) {
+            throw new IllegalStateException(
+                    "집중률 응답이 성공이 아닙니다: resultCode=%s%s"
+                            .formatted(resultCode.isEmpty() ? "없음" : resultCode, serviceErrorOf(root)));
         }
         return response.path("body");
+    }
+
+    /**
+     * data.go.kr 게이트웨이가 내는 사유 — 붙일 것이 없으면 빈 문자열.
+     *
+     * <p>키·한도 문제는 여기에만 적힌다. 안 실으면 로그에 "resultCode=없음" 만 남아 무엇이 막혔는지
+     * 모른다. <b>인증키는 이 envelope 에 들어 있지 않아</b> 그대로 실어도 된다.
+     */
+    private static String serviceErrorOf(JsonNode root) {
+        JsonNode header = root.path("OpenAPI_ServiceResponse").path("cmmMsgHeader");
+        if (header.isMissingNode()) {
+            return "";
+        }
+        return " errMsg=%s reasonCode=%s"
+                .formatted(header.path("errMsg").asText("?"), header.path("returnReasonCode").asText("?"));
     }
 
     /**
@@ -209,12 +255,20 @@ class AttractionCrowdClientImpl implements AttractionCrowdClient {
         }
     }
 
+    /**
+     * 집중률을 읽는다 — <b>유한한 수만</b>. 아니면 그 행을 버린다.
+     *
+     * <p>{@code Double.valueOf} 는 {@code "NaN"}·{@code "Infinity"} 를 그대로 파싱한다. 이건 어떤 범위
+     * 비교에도 안 걸려 0~100 불변식을 빠져나가고, 엔티티까지 올라가면 <b>그 지역이 통째로 실패</b>한다.
+     * 값 하나가 깨졌다고 지역을 버리지 않는다 — 이름은 읽혔으니 필드명 문제가 아니다.
+     */
     private static Double rateOf(String value) {
         if (value == null) {
             return null;
         }
         try {
-            return Double.valueOf(value);
+            double rate = Double.parseDouble(value);
+            return Double.isFinite(rate) ? rate : null;
         } catch (NumberFormatException e) {
             return null;
         }

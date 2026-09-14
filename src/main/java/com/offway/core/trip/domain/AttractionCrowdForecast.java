@@ -95,11 +95,19 @@ public class AttractionCrowdForecast {
         return value.trim();
     }
 
+    /**
+     * 0~100 인지 본다 — <b>유한값 검사를 먼저 한다</b>.
+     *
+     * <p>{@code NaN} 은 어떤 비교에도 거짓이라 범위 검사만으로는 빠져나간다. 외부가 {@code "NaN"} 을
+     * 보내면 {@code Double.valueOf} 가 그대로 파싱하고, 그 값이 DB 까지 간다 — MySQL 이 {@code DOUBLE}
+     * 에 {@code NaN} 을 보존한다는 보장이 없어 저장 시점에 바뀌거나 거절된다. 저장 결과에 기대지 말고
+     * 여기서 막는다.
+     */
     private static double requireRate(double value) {
-        if (value < MIN_RATE || value > MAX_RATE) {
+        if (!Double.isFinite(value) || value < MIN_RATE || value > MAX_RATE) {
             // 범위 밖이면 필드를 잘못 읽은 것이다 — 그대로 저장하면 문턱 판정이 조용히 틀린다.
             throw new IllegalArgumentException(
-                    "집중률은 %.0f~%.0f 여야 합니다: %s".formatted(MIN_RATE, MAX_RATE, value));
+                    "집중률은 %.0f~%.0f 사이의 유한값이어야 합니다: %s".formatted(MIN_RATE, MAX_RATE, value));
         }
         return value;
     }

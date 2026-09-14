@@ -8,6 +8,7 @@ import com.offway.core.trip.service.dto.CourseCrowd;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -28,8 +29,9 @@ import org.springframework.stereotype.Service;
  * 일치가 느슨 일치와 같았다 — 같은 공사 데이터라 표기가 어긋나지 않는다. 정규화를 넣으면 다른 장소를
  * 같은 것으로 볼 위험만 는다.
  *
- * <p><b>맞는 이름이 없으면 폴백으로 내려간다.</b> 볼거리 기준 매칭률이 53% 라(실측 9곳 348개 중 186개),
- * 절반쯤은 이 경로를 탄다.
+ * <p><b>맞는 이름이 없을 때만 폴백으로 내려간다.</b> 볼거리 기준 매칭률이 53% 라(실측 9곳 348개 중
+ * 186개), 절반쯤은 이 경로를 탄다. 예보가 <b>있는데 값이 문턱 사이</b>인 자리는 폴백을 타지 않는다 —
+ * 재어 놓고도 더 거친 지역 값으로 덮으면 그 장소에 대해 조용히 틀린 말을 하게 된다.
  *
  * <p>외부를 부르지 않는다 — 배치가 받아 둔 것만 읽는다(#157).
  */
@@ -54,9 +56,15 @@ public class AttractionCrowdService {
             return CourseCrowd.empty();
         }
         Map<CourseCrowd.Key, CrowdChip> byPlace = new HashMap<>();
+        // 예보를 가진 자리를 따로 센다. byPlace 에는 문턱을 넘은 것만 들어가므로, 그것만으로는
+        // "값이 보통이라 칩이 없다" 와 "예보 자체가 없다" 를 구분할 수 없다 — 앞은 폴백을 막아야 하고
+        // 뒤는 폴백을 써야 한다.
+        Set<CourseCrowd.Key> measured = new HashSet<>();
         for (AttractionCrowdForecast forecast : forecastRepository.findByRegionAndDates(regionId, dates)) {
-            CrowdChip.ofForecast(forecast.getRate()).ifPresent(chip -> byPlace.put(
-                    new CourseCrowd.Key(forecast.getAttractionName(), forecast.getBaseDate()), chip));
+            CourseCrowd.Key key =
+                    new CourseCrowd.Key(forecast.getAttractionName(), forecast.getBaseDate());
+            measured.add(key);
+            CrowdChip.ofForecast(forecast.getRate()).ifPresent(chip -> byPlace.put(key, chip));
         }
 
         // 폴백은 지역 단위라 날짜별로 한 번씩만 구하면 된다.
@@ -65,6 +73,6 @@ public class AttractionCrowdService {
         for (LocalDate date : Set.copyOf(dates)) {
             metrics.crowdOn(date).ifPresent(chip -> byRegionDate.put(date, chip));
         }
-        return new CourseCrowd(Map.copyOf(byPlace), Map.copyOf(byRegionDate));
+        return new CourseCrowd(Map.copyOf(byPlace), Set.copyOf(measured), Map.copyOf(byRegionDate));
     }
 }
