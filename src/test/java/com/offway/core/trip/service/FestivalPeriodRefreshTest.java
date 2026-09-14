@@ -62,6 +62,9 @@ class FestivalPeriodRefreshTest {
                         return page(totalCount);
                     }
                 },
+                // 겹침 표식(#540). 이 테스트는 한 번만 부르므로 진짜를 그대로 쓴다 — 표식을 흉내 내면
+                // "지나긴 하나" 를 확인하지 못한다.
+                new com.offway.core.common.batch.service.RunningBatches(),
                 repository,
                 new com.offway.core.common.batch.repository.BatchRunRepository() {
                     @Override
