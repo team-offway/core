@@ -5,6 +5,7 @@ import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.trip.domain.RegionVisitMetrics;
 import com.offway.core.trip.service.dto.CourseCrowd;
+import com.offway.core.trip.service.dto.PetAccompany;
 import com.offway.core.trip.service.dto.RegionBenefit;
 import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
@@ -49,6 +50,13 @@ public record GeneratedCourse(
          * 1박 2일로 갔는데 축제가 첫날로 끝나는 경우를 사용자가 미리 알게 한다.
          */
         Map<String, FestivalPeriod> festivalPeriodByContentId,
+        /**
+         * 반려동반 가능 장소의 동반 조건(#566) — <b>반려동반인 슬롯만</b> 키가 있다.
+         *
+         * <p>칩을 눌렀을 때 열 내용을 미리 실어 왕복을 없앤다. 판정할 수 없는 출처(인허가·국가유산·
+         * 고캠핑)는 키가 없다 — 칩을 안 띄우는 것과 "반려동물 안 됨" 을 말하는 것은 다르다.
+         */
+        Map<String, PetAccompany> petAccompanyByContentId,
         String shareToken,
         FirstDayChange firstDayChange,
         RegionVisitMetrics visitMetrics,
@@ -68,6 +76,9 @@ public record GeneratedCourse(
         hubPhotoUrlByName = hubPhotoUrlByName == null ? Map.of() : Map.copyOf(hubPhotoUrlByName);
         festivalPeriodByContentId =
                 festivalPeriodByContentId == null ? Map.of() : Map.copyOf(festivalPeriodByContentId);
+        // 반려동반(#566) — 대부분의 슬롯이 해당 없음이라 null 을 빈 맵으로 접는다.
+        petAccompanyByContentId =
+                petAccompanyByContentId == null ? Map.of() : Map.copyOf(petAccompanyByContentId);
         // 목록 조회처럼 칩이 필요 없는 경로는 안 채운다 — 그때 null 이면 응답 조립에서 NPE 다.
         courseCrowd = courseCrowd == null ? CourseCrowd.empty() : courseCrowd;
     }

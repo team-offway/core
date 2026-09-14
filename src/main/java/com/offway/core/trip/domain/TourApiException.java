@@ -44,6 +44,11 @@ public final class TourApiException extends BaseException {
         return new TourApiException(TourApiErrorCode.CAMPING_LOOKUP_FAILED, cause);
     }
 
+    /** 반려동반 가능 장소 호출·파싱 실패(#566). */
+    public static TourApiException petTourLookupFailed(Throwable cause) {
+        return new TourApiException(TourApiErrorCode.PET_TOUR_LOOKUP_FAILED, cause);
+    }
+
     /** 관광지 집중률 예측 호출·파싱 실패(#565). */
     public static TourApiException crowdRateLookupFailed(Throwable cause) {
         return new TourApiException(TourApiErrorCode.CROWD_RATE_LOOKUP_FAILED, cause);
