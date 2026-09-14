@@ -228,6 +228,56 @@ class GoCampingParsingTest {
         assertEquals(null, parse(body).items().get(0).tel());
     }
 
+    /**
+     * <b>인증키가 막히면 envelope 자체가 다르다</b>(#569) — 실측한 그 응답을 그대로 넣는다.
+     *
+     * <p>{@code response} 키가 없어 {@code resultCode} 가 빈 문자열로 읽힌다. 예전에는 비어 있으면
+     * 통과시켜서, 야영장이 0건인 회차와 <b>키가 막힌 회차가 로그에서 같아 보였다</b>. 한도 소진도
+     * 같은 모양으로 온다.
+     */
+    @Test
+    void 인증키_장애_응답을_빈_결과로_넘기지_않는다() {
+        String body = """
+                {
+                  "OpenAPI_ServiceResponse": {
+                    "cmmMsgHeader": {
+                      "errMsg": "SERVICE_KEY_IS_NOT_REGISTERED_ERROR",
+                      "returnAuthMsg": "등록되지 않은 서비스키",
+                      "returnReasonCode": "30"
+                    }
+                  }
+                }""";
+
+        Exception e = assertThrows(Exception.class, () -> parse(body));
+
+        // 사유가 메시지에 실려야 무엇이 막혔는지 로그가 답한다 — 키 만료인지 한도인지 구분된다.
+        assertTrue(rootMessage(e).contains("SERVICE_KEY_IS_NOT_REGISTERED_ERROR"), rootMessage(e));
+    }
+
+    /** 성공 코드가 아예 없는 응답도 성공이 아니다 — 우리가 아는 모양이 아니다. */
+    @Test
+    void 성공_코드가_없으면_던진다() {
+        assertThrows(Exception.class, () -> parse("{}"));
+    }
+
+    /**
+     * <b>범위 밖 페이지는 정상이다.</b> 실측에서 {@code items:""} 인데 {@code totalCount} 는 3,117 로 온다.
+     *
+     * <p>목록이 없다고 던지면 안 되는 경우가 여기다 — 우리는 {@code pageNo=1} 만 쓰지만, 응답 계약은
+     * 그것과 별개로 이 모양을 허용한다.
+     */
+    @Test
+    void 범위_밖_페이지는_빈_결과로_받는다() throws Exception {
+        String body = """
+                {"response":{"header":{"resultCode":"0000","resultMsg":"OK"},
+                "body":{"items":"","numOfRows":0,"pageNo":99999,"totalCount":3117}}}""";
+
+        GoCampsiteResult result = parse(body);
+
+        assertTrue(result.items().isEmpty());
+        assertEquals(3117, result.totalCount());
+    }
+
     private static String rootMessage(Throwable e) {
         Throwable cause = e;
         while (cause.getCause() != null) {
