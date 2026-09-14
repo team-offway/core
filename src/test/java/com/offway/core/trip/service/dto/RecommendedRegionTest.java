@@ -20,10 +20,10 @@ import org.junit.jupiter.api.Test;
 class RecommendedRegionTest {
 
     private static final RegionVisitMetrics RISING =
-            new RegionVisitMetrics(null, new PopularityTrend(40, true));
+            new RegionVisitMetrics(null, new PopularityTrend(40, true), null);
 
     private static final RegionVisitMetrics NOT_RISING =
-            new RegionVisitMetrics(null, new PopularityTrend(2, false));
+            new RegionVisitMetrics(null, new PopularityTrend(2, false), null);
 
     private static RecommendedRegion region(long id, Category... categories) {
         return region(id, List.of(), RegionVisitMetrics.none(), categories);

@@ -20,6 +20,8 @@ import com.offway.core.region.domain.Region;
 import com.offway.core.region.service.RegionQuery;
 import com.offway.core.trip.service.dto.RegionBenefit;
 import com.offway.core.trip.domain.RegionVisitMetrics;
+import com.offway.core.trip.service.AttractionCrowdService;
+import com.offway.core.trip.service.dto.CourseCrowd;
 import com.offway.core.trip.service.RegionVisitMetricsService;
 import com.offway.core.trip.service.RegionImageProvider;
 import com.offway.core.transport.service.dto.RegionAccess;
@@ -77,6 +79,7 @@ public class CourseStorageService {
     private final TravelTimeProvider travelTimeProvider;
     private final RegionImageProvider regionImageProvider;
     private final RegionVisitMetricsService regionVisitMetricsService;
+    private final AttractionCrowdService attractionCrowdService;
 
     /** 이미 조립된 사용자 코스를 저장하고, 혜택을 붙여 돌려준다. 구성 검증·계약 예외 번역은 입력 경계(요청 DTO)가 소유한다. */
     public GeneratedCourse save(Course course) {
@@ -555,6 +558,8 @@ public class CourseStorageService {
                 .visitMetrics(region == null
                         ? RegionVisitMetrics.none()
                         : regionVisitMetricsService.of(region.getLegalCode()))
+                // 혼잡 칩(#565) — 생성에만 붙이면 저장한 코스를 다시 열었을 때 칩이 사라진다.
+                .courseCrowd(crowdOf(course, region))
                 // 받아 둔 것만 읽는다 — 요청 경로에서 외부를 부르지 않는다(#157). 아직 없으면 그 줄이 빈다.
                 .hoursByContentId(openingHoursProvider.forCourse(course))
                 .hubPhotoUrlByName(transitHubPhotoProvider.photoUrls(transitHubNames(course)))
@@ -563,6 +568,27 @@ public class CourseStorageService {
                 // 사라진다(#169 와 같은 실수).
                 .petAccompanyByContentId(petAccompanyProvider.forCourse(course))
                 .build();
+    }
+
+    /**
+     * 이 코스가 쓸 혼잡 칩(#565) — 지역과 날짜를 모르면 빈 값이다.
+     *
+     * <p>날짜 없이 저장된 코스가 있다. 그때는 "그 날 붐비나" 에 답할 수 없고, 지어내지 않는 것이 맞다.
+     */
+    private CourseCrowd crowdOf(Course course, Region region) {
+        if (region == null || course.getTravelDate() == null) {
+            return CourseCrowd.empty();
+        }
+        return attractionCrowdService.forCourse(region.getId(), region.getLegalCode(), courseDates(course));
+    }
+
+    /** 코스가 걸친 날짜들 — 표시 번호가 아니라 달력 오프셋으로 센다(#159 와 같은 이유). */
+    private static List<LocalDate> courseDates(Course course) {
+        LocalDate travelDate = course.getTravelDate();
+        return course.getDays().stream()
+                .map(day -> travelDate.plusDays(day.getDayOffset()))
+                .distinct()
+                .toList();
     }
 
     /**

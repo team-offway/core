@@ -211,14 +211,15 @@ public class RegionVisitMetricsService {
         }
 
         private RegionVisitMetrics toMetrics() {
-            QuietestDay quietest = WeeklyVisitPattern.of(patternDays)
-                    .flatMap(WeeklyVisitPattern::quietest)
-                    .orElse(null);
+            // 패턴을 꺼내 쓰고 버리지 않는다 — 혼잡 칩의 폴백이 요일계수를 쓴다(#565). quietest() 는
+            // 격차가 의미 있을 때만 값이 되므로, 그것만 들고 있으면 계수를 쓸 수 없다.
+            WeeklyVisitPattern pattern = WeeklyVisitPattern.of(patternDays).orElse(null);
+            QuietestDay quietest = pattern == null ? null : pattern.quietest().orElse(null);
             PopularityTrend trend = PopularityTrend.of(
                             new VisitWindow(recentSum, recentDays),
                             new VisitWindow(baselineSum, baselineDays))
                     .orElse(null);
-            return new RegionVisitMetrics(quietest, trend);
+            return new RegionVisitMetrics(quietest, trend, pattern);
         }
     }
 

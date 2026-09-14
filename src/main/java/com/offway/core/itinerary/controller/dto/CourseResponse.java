@@ -10,9 +10,11 @@ import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.trip.controller.dto.BenefitResponse;
 import com.offway.core.trip.controller.dto.PetAccompanyResponse;
 import com.offway.core.trip.controller.dto.RegionVisitMetricsResponse;
+import com.offway.core.trip.domain.CrowdChip;
 import com.offway.core.trip.service.dto.PetAccompany;
 import com.offway.core.trip.domain.MapSearchLink;
 import com.offway.core.trip.domain.PlaceOrigin;
+import com.offway.core.trip.service.dto.CourseCrowd;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.itinerary.service.dto.OwnedCourse;
 import lombok.Builder;
@@ -219,7 +221,8 @@ public record CourseResponse(
                                 generated.hubPhotoUrlByName(),
                                 generated.festivalPeriodByContentId(),
                                 generated.petAccompanyByContentId(),
-                                slotBenefits(generated)))
+                                slotBenefits(generated),
+                                generated.courseCrowd()))
                         .toList())
                 .benefits(generated.benefits().stream().map(BenefitResponse::from).toList())
                 .trainAccess(TrainAccessResponse.from(generated.regionAccess()))
@@ -331,7 +334,7 @@ public record CourseResponse(
                 Map<String, String> hubPhotoUrlByName,
                 Map<String, FestivalPeriod> festivalPeriodByContentId,
                 Map<String, PetAccompany> petAccompanyByContentId,
-                Map<SlotKind, String> slotBenefits) {
+                Map<SlotKind, String> slotBenefits, CourseCrowd crowd) {
             // 표시 번호가 아니라 달력 오프셋으로 센다 — 첫날이 빠진 코스에서 하루 앞당겨지지 않게(#159).
             LocalDate date = travelDate == null ? null : travelDate.plusDays(schedule.getDayOffset());
             List<Slot> slots = schedule.getSlots();
@@ -343,7 +346,9 @@ public record CourseResponse(
                             lookup(festivalPeriodByContentId, slots.get(i)),
                             benefitFor(slots.get(i), slotBenefits),
                             hubPhotoUrlByName,
-                            lookup(petAccompanyByContentId, slots.get(i))))
+                            lookup(petAccompanyByContentId, slots.get(i)),
+                            // 장소 이름과 그날 날짜로 찾는다 — 집중률이 콘텐츠 ID 를 안 줘서다(#565).
+                            crowd.of(slots.get(i).getTitle(), date).orElse(null)))
                     .toList();
             return new Day(
                     schedule.getDayNumber(),
@@ -443,11 +448,19 @@ public record CourseResponse(
 
                     칩을 눌렀을 때 열 내용이 함께 실려 있어 추가 왕복이 없다. 칩 문구는 `wholeArea` 로
                     가른다 — 실측에서 절반이 "일부구역" 이었다.""",
-                    nullable = true) PetAccompanyResponse petAccompany) {
+                    nullable = true) PetAccompanyResponse petAccompany,
+            @Schema(description = """
+                    그 칸이 **여행 가는 그 날짜**에 붐비는가(#565). 판정할 수 없으면 이 블록이 없다.
+
+                    근거가 둘이고 `basis` 가 그것을 가른다. `ATTRACTION_FORECAST` 는 그 장소·그 날짜의
+                    집중률 예측이라 장소마다 갈리고, `REGION_WEEKDAY` 는 그 지역의 요일 패턴이라
+                    **같은 코스의 장소에 같은 값이 붙는다** — 화면이 장소 속성처럼 그리지 않게 문구도
+                    갈라 둔다.""",
+                    nullable = true) CrowdResponse crowd) {
 
         static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName,
                 SlotHours hours, FestivalPeriod festival, String benefit,
-                Map<String, String> hubPhotoUrlByName, PetAccompany petAccompany) {
+                Map<String, String> hubPhotoUrlByName, PetAccompany petAccompany, CrowdChip crowd) {
             // 한 번만 푼다 — 지도 링크 판단도 같은 값을 봐야 한다. 슬롯의 원본만 보면 교통 거점 칸이
             // 사진과 지도 링크를 함께 내려보낸다(사진이 있으면 링크는 군더더기다).
             String imageUrl = imageUrlOf(slot, hubPhotoUrlByName);
@@ -473,7 +486,8 @@ public record CourseResponse(
                     distanceFromPrevMeters,
                     regionName,
                     periodTextOf(festival),
-                    PetAccompanyResponse.from(petAccompany));
+                    PetAccompanyResponse.from(petAccompany),
+                    CrowdResponse.from(crowd));
         }
 
         /**
