@@ -90,6 +90,7 @@ public class CourseGenerationService {
     private final OpeningHoursProvider openingHoursProvider;
     private final TransitHubPhotoProvider transitHubPhotoProvider;
     private final FestivalPeriodProvider festivalPeriodProvider;
+    private final PetAccompanyProvider petAccompanyProvider;
     private final RegionQuery regionQuery;
     private final RegionAccessService regionAccessService;
     private final UnroutableCoordinateService unroutableCoordinateService;
@@ -217,6 +218,9 @@ public class CourseGenerationService {
                 .hoursByContentId(openingHoursProvider.forCourse(course))
                 .hubPhotoUrlByName(transitHubPhotoProvider.photoUrls(transitHubNames(course)))
                 .festivalPeriodByContentId(festivalPeriodProvider.forCourse(course))
+                // 반려동반 표식(#566) — 적재해 둔 것만 읽는다. 생성·저장 양쪽에서 채워야 저장한 코스를
+                // 다시 열었을 때 칩이 사라지지 않는다(#169 와 같은 실수).
+                .petAccompanyByContentId(petAccompanyProvider.forCourse(course))
                 .build();
     }
 

@@ -44,6 +44,11 @@ public final class TourApiException extends BaseException {
         return new TourApiException(TourApiErrorCode.CAMPING_LOOKUP_FAILED, cause);
     }
 
+    /** 반려동반 가능 장소 호출·파싱 실패(#566). */
+    public static TourApiException petTourLookupFailed(Throwable cause) {
+        return new TourApiException(TourApiErrorCode.PET_TOUR_LOOKUP_FAILED, cause);
+    }
+
     /** 요청한 장소(POI)가 관광정보에 없음 — 404. */
     public static TourApiException poiNotFound() {
         return new TourApiException(TourApiErrorCode.POI_NOT_FOUND, null);
