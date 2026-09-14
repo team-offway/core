@@ -3,6 +3,7 @@ package com.offway.core.trip.infrastructure.camping;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.external.DataGoKrError;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
 import com.offway.core.common.logging.RootCause;
@@ -144,15 +145,27 @@ class GoCampingClientImpl implements GoCampingClient {
     }
 
     private GoCampsiteResult parse(String body) throws Exception {
-        JsonNode response = objectMapper.readTree(body).path("response");
+        JsonNode root = objectMapper.readTree(body);
+        JsonNode response = root.path("response");
 
+        // **성공 코드가 없으면 성공이 아니다**(#569). 예전에는 비어 있으면 통과시켰는데, 인증키가
+        // 막히면 envelope 자체가 달라 코드가 빈 문자열로 읽힌다 — 그대로 통과하면 body 도 비어
+        // 야영장이 0건이 되고, 호출자는 그것을 "받아 왔는데 없더라" 로 읽는다.
         String resultCode = response.path("header").path("resultCode").asText();
-        if (!resultCode.isEmpty() && !SUCCESS_CODES.contains(resultCode)) {
-            throw new IllegalStateException("고캠핑 응답이 성공이 아닙니다: resultCode=" + resultCode);
+        if (!SUCCESS_CODES.contains(resultCode)) {
+            throw new IllegalStateException(
+                    "고캠핑 응답이 성공이 아닙니다: resultCode=%s%s"
+                            .formatted(resultCode.isEmpty() ? "없음" : resultCode, DataGoKrError.of(root)));
         }
 
         JsonNode bodyNode = response.path("body");
-        int totalCount = bodyNode.path("totalCount").asInt(0);
+        JsonNode totalNode = bodyNode.path("totalCount");
+        if (!totalNode.isNumber()) {
+            // 성공 코드는 왔는데 전체 건수가 없다 — 우리가 아는 모양이 아니다. 0 으로 읽으면 그 회차가
+            // "야영장이 없더라" 로 처리돼 장애가 조용히 묻힌다.
+            throw new IllegalStateException("고캠핑 응답에 totalCount 가 없습니다 — 응답 형식을 확인하세요");
+        }
+        int totalCount = totalNode.asInt();
 
         // data.go.kr 계열은 결과가 없으면 items 가 빈 문자열로 오고, 한 건이면 item 이 단일 객체다.
         JsonNode items = bodyNode.path("items");

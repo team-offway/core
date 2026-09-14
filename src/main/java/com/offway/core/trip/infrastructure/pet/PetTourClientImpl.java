@@ -3,6 +3,7 @@ package com.offway.core.trip.infrastructure.pet;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.external.DataGoKrError;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
 import com.offway.core.common.logging.RootCause;
@@ -269,11 +270,25 @@ class PetTourClientImpl implements PetTourClient {
         return Optional.empty();
     }
 
+    /**
+     * 성공을 <b>확인하고</b> 본문을 꺼낸다 — 성공 코드가 없으면 성공이 아니다(#569).
+     *
+     * <p>예전에는 코드가 비어 있으면 통과시켰다. 그런데 인증키가 막히면 {@code response} 키가 없는
+     * 다른 envelope 이 와서 코드가 빈 문자열로 읽힌다 — 그대로 통과하면 목록이 0건이 되고, 호출자는
+     * 그것을 "받아 왔는데 없더라" 로 읽어 회차를 건너뛴다. <b>한도가 마른 회차와 정말로 0건인 회차가
+     * 로그에서 같아 보인다.</b>
+     *
+     * <p>정상 0건도 {@code resultCode=0000} 을 준다(실측: 없는 지역코드·범위 밖 페이지 모두). 코드를
+     * 요구해도 멀쩡한 회차가 실패로 뒤집히지 않는다.
+     */
     private JsonNode successBodyOf(String body) throws Exception {
-        JsonNode response = objectMapper.readTree(body).path("response");
+        JsonNode root = objectMapper.readTree(body);
+        JsonNode response = root.path("response");
         String resultCode = response.path("header").path("resultCode").asText();
-        if (!resultCode.isEmpty() && !SUCCESS_CODES.contains(resultCode)) {
-            throw new IllegalStateException("반려동반 응답이 성공이 아닙니다: resultCode=" + resultCode);
+        if (!SUCCESS_CODES.contains(resultCode)) {
+            throw new IllegalStateException(
+                    "반려동반 응답이 성공이 아닙니다: resultCode=%s%s"
+                            .formatted(resultCode.isEmpty() ? "없음" : resultCode, DataGoKrError.of(root)));
         }
         return response.path("body");
     }
