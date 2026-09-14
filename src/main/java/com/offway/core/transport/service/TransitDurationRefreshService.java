@@ -1,6 +1,7 @@
 package com.offway.core.transport.service;
 
 import com.offway.core.common.batch.domain.ManualBatch;
+import com.offway.core.common.batch.service.RunningBatches;
 import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.transport.domain.MeasuredLeg;
 import com.offway.core.transport.domain.TransitLegDuration;
@@ -84,11 +85,18 @@ public class TransitDurationRefreshService implements ManualBatch {
     private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 
     private final TransitDurationService transitDurationService;
+    private final RunningBatches runningBatches;
     private final TransitLegClient transitLegClient;
     private final BatchRunRepository batchRunRepository;
 
     /** 매시 17분 — 정각에 몰린 다른 배치와 겹치지 않게 어긋냈다. */
     @Scheduled(cron = "0 17 * * * *", zone = "Asia/Seoul")
+    public void scheduled() {
+        // **수동 실행과 같은 선점을 지난다**(#540). 예전에는 여기서 아래를 곧장 불러,
+        // 스케줄러가 도는 중에 관리자가 누르면 둘이 함께 돌았다.
+        runNow();
+    }
+
     public void measurePending() {
         LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
         // 손으로 돌리든 스케줄로 돌든 **여기서 실행을 남긴다**(#539 리뷰). 안 남기면 관리자 화면의
@@ -184,7 +192,8 @@ public class TransitDurationRefreshService implements ManualBatch {
 
     /** 손으로 돌린다(#537) — 배치 자신의 가드는 그대로 탄다. */
     @Override
-    public void runNow() {
-        measurePending();
+    public boolean runNow() {
+        // 스케줄러도 이 메서드를 지난다 — 두 경로가 같은 표식을 잡아야 겹치지 않는다(#540).
+        return runningBatches.runExclusively(BATCH_NAME, this::measurePending);
     }
 }

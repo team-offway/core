@@ -35,9 +35,6 @@ public class ManualBatchService {
 
     private final Map<String, ManualBatch> batches;
 
-    /** 지금 도는 배치 — 이름만 담는다. 값은 시작 시각이라 로그에 "얼마나 돌고 있나" 를 적을 수 있다. */
-    private final Map<String, Instant> running = new java.util.concurrent.ConcurrentHashMap<>();
-
     /**
      * 등록된 배치를 이름으로 모은다.
      *
@@ -72,22 +69,24 @@ public class ManualBatchService {
         if (batch == null) {
             throw BatchException.unknownBatch();
         }
-        if (running.putIfAbsent(name, Instant.now()) != null) {
-            throw BatchException.alreadyRunning();
-        }
         Instant startedAt = Instant.now();
         try {
             log.info("배치를 손으로 돌립니다 name={}", name);
-            batch.runNow();
+            // **표식은 배치가 잡는다**(#540). 여기서 따로 잡으면 스케줄러와 다른 표식이 되어, 지금까지처럼
+            // 수동끼리만 막힌다. 배치의 진입점 하나를 두 경로가 함께 지나야 겹침이 막힌다.
+            if (!batch.runNow()) {
+                throw BatchException.alreadyRunning();
+            }
             Duration took = Duration.between(startedAt, Instant.now());
             log.info("배치 수동 실행 완료 name={} 걸린시간={}초", name, took.toSeconds());
             return took;
+        } catch (BatchException e) {
+            // 겹침(409)은 우리가 방금 만든 계약이다 — 아래 일반 실패(500)로 덮으면 그 뜻이 사라진다.
+            throw e;
         } catch (RuntimeException e) {
             // 배치 안에서 난 예외를 삼키지 않는다 — 손으로 부른 이유가 "무엇이 잘못됐나" 이기 때문이다.
             log.warn("배치 수동 실행 실패 name={} cause={}", name, e.getClass().getSimpleName(), e);
             throw BatchException.runFailed();
-        } finally {
-            running.remove(name);
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.domain.ManualBatch;
+import com.offway.core.common.batch.service.RunningBatches;
 import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
@@ -93,6 +94,7 @@ public class AttractionCrowdRefreshService implements ManualBatch {
     private static final Duration MIN_CALL_BUDGET = Duration.ofSeconds(2);
 
     private final AttractionCrowdClient attractionCrowdClient;
+    private final RunningBatches runningBatches;
     private final AttractionCrowdForecastRepository forecastRepository;
     private final RegionQuery regionQuery;
     private final BatchRunRepository batchRunRepository;
@@ -106,12 +108,19 @@ public class AttractionCrowdRefreshService implements ManualBatch {
     }
 
     @Override
-    public void runNow() {
-        refreshIfStale();
+    public boolean runNow() {
+        // 스케줄러도 이 메서드를 지난다 — 두 경로가 같은 표식을 잡아야 겹치지 않는다(#540).
+        return runningBatches.runExclusively(BATCH_NAME, this::refreshIfStale);
     }
 
     @Scheduled(cron = DAILY_AT_DAWN, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
+    public void scheduled() {
+        // **수동 실행과 같은 선점을 지난다**(#540). 예전에는 여기서 아래를 곧장 불러,
+        // 스케줄러가 도는 중에 관리자가 누르면 둘이 함께 돌았다.
+        runNow();
+    }
+
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
             if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TATS_CROWD_RATE)) {
