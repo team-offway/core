@@ -33,7 +33,16 @@ public enum TourApiErrorCode implements ErrorCode {
 
     /** 고캠핑 야영장 조회 실패(#510) — 월 1회 배치에서만 닿는다. */
     CAMPING_LOOKUP_FAILED(
-            "TOUR-006", ErrorCategory.EXTERNAL_API, "야영장 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+            "TOUR-006", ErrorCategory.EXTERNAL_API, "야영장 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."),
+
+    /**
+     * 관광지 집중률 예측 조회 실패(#565) — 일 1회 배치에서만 닿는다.
+     *
+     * <p>번호가 007 을 건너뛴 것은 결번이 아니라 <b>#566 이 먼저 가져갔기</b> 때문이다. 번호는
+     * append-only 라 두 브랜치가 같은 번호를 쓰면 머지 순서에 따라 계약이 바뀐다.
+     */
+    CROWD_RATE_LOOKUP_FAILED(
+            "TOUR-008", ErrorCategory.EXTERNAL_API, "혼잡도 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
 
     private final String code;
     private final ErrorCategory category;

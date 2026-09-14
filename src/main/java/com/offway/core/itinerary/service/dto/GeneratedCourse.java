@@ -4,6 +4,7 @@ import com.offway.core.itinerary.domain.Course;
 import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.trip.domain.OpeningHours;
 import com.offway.core.trip.domain.RegionVisitMetrics;
+import com.offway.core.trip.service.dto.CourseCrowd;
 import com.offway.core.trip.service.dto.RegionBenefit;
 import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
@@ -50,7 +51,14 @@ public record GeneratedCourse(
         Map<String, FestivalPeriod> festivalPeriodByContentId,
         String shareToken,
         FirstDayChange firstDayChange,
-        RegionVisitMetrics visitMetrics) {
+        RegionVisitMetrics visitMetrics,
+        /**
+         * 그 칸이 그 날짜에 붐비는가(#565) — 코스 한 건이 쓸 만큼 미리 뽑아 둔 것.
+         *
+         * <p>슬롯마다 조회하면 코스 하나에 질의가 슬롯 수만큼 나간다. 지역과 날짜가 코스 단위로
+         * 정해지므로 한 번 읽어 이름으로 꺼내 쓴다.
+         */
+        CourseCrowd courseCrowd) {
 
     public GeneratedCourse {
         benefits = List.copyOf(benefits);
@@ -60,6 +68,8 @@ public record GeneratedCourse(
         hubPhotoUrlByName = hubPhotoUrlByName == null ? Map.of() : Map.copyOf(hubPhotoUrlByName);
         festivalPeriodByContentId =
                 festivalPeriodByContentId == null ? Map.of() : Map.copyOf(festivalPeriodByContentId);
+        // 목록 조회처럼 칩이 필요 없는 경로는 안 채운다 — 그때 null 이면 응답 조립에서 NPE 다.
+        courseCrowd = courseCrowd == null ? CourseCrowd.empty() : courseCrowd;
     }
 
     /** 날씨·지역 접근 없이(목록 조회 등). 지역명은 슬롯 표시에 쓰이므로 저장 코스도 채운다. */

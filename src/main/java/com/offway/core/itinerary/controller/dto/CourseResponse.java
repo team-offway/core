@@ -9,8 +9,10 @@ import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotKind;
 import com.offway.core.trip.controller.dto.BenefitResponse;
 import com.offway.core.trip.controller.dto.RegionVisitMetricsResponse;
+import com.offway.core.trip.domain.CrowdChip;
 import com.offway.core.trip.domain.MapSearchLink;
 import com.offway.core.trip.domain.PlaceOrigin;
+import com.offway.core.trip.service.dto.CourseCrowd;
 import com.offway.core.itinerary.service.dto.GeneratedCourse;
 import com.offway.core.itinerary.service.dto.OwnedCourse;
 import lombok.Builder;
@@ -216,7 +218,8 @@ public record CourseResponse(
                                 generated.hoursByContentId(),
                                 generated.hubPhotoUrlByName(),
                                 generated.festivalPeriodByContentId(),
-                                slotBenefits(generated)))
+                                slotBenefits(generated),
+                                generated.courseCrowd()))
                         .toList())
                 .benefits(generated.benefits().stream().map(BenefitResponse::from).toList())
                 .trainAccess(TrainAccessResponse.from(generated.regionAccess()))
@@ -327,7 +330,7 @@ public record CourseResponse(
                 Integer distanceFromPrevDayMeters, Map<String, SlotHours> hoursByContentId,
                 Map<String, String> hubPhotoUrlByName,
                 Map<String, FestivalPeriod> festivalPeriodByContentId,
-                Map<SlotKind, String> slotBenefits) {
+                Map<SlotKind, String> slotBenefits, CourseCrowd crowd) {
             // 표시 번호가 아니라 달력 오프셋으로 센다 — 첫날이 빠진 코스에서 하루 앞당겨지지 않게(#159).
             LocalDate date = travelDate == null ? null : travelDate.plusDays(schedule.getDayOffset());
             List<Slot> slots = schedule.getSlots();
@@ -338,7 +341,9 @@ public record CourseResponse(
                             lookup(hoursByContentId, slots.get(i)),
                             lookup(festivalPeriodByContentId, slots.get(i)),
                             benefitFor(slots.get(i), slotBenefits),
-                            hubPhotoUrlByName))
+                            hubPhotoUrlByName,
+                            // 장소 이름과 그날 날짜로 찾는다 — 집중률이 콘텐츠 ID 를 안 줘서다(#565).
+                            crowd.of(slots.get(i).getTitle(), date).orElse(null)))
                     .toList();
             return new Day(
                     schedule.getDayNumber(),
@@ -427,11 +432,19 @@ public record CourseResponse(
                     그날 안 하는 축제는 후보에서 이미 빠졌으므로, 여기 실리는 것은 여행일에 열리는
                     축제다. 값이 필요한 이유는 **며칠까지 하는가** 다 — 1박 2일로 갔는데 축제가 첫날로
                     끝나면 둘째 날 일정이 헛돈다.""",
-                    example = "2026-09-12 ~ 2026-09-14", nullable = true) String festivalPeriod) {
+                    example = "2026-09-12 ~ 2026-09-14", nullable = true) String festivalPeriod,
+            @Schema(description = """
+                    그 칸이 **여행 가는 그 날짜**에 붐비는가(#565). 판정할 수 없으면 이 블록이 없다.
+
+                    근거가 둘이고 `basis` 가 그것을 가른다. `ATTRACTION_FORECAST` 는 그 장소·그 날짜의
+                    집중률 예측이라 장소마다 갈리고, `REGION_WEEKDAY` 는 그 지역의 요일 패턴이라
+                    **같은 코스의 장소에 같은 값이 붙는다** — 화면이 장소 속성처럼 그리지 않게 문구도
+                    갈라 둔다.""",
+                    nullable = true) CrowdResponse crowd) {
 
         static Item from(Slot slot, Integer distanceFromPrevMeters, String regionName,
                 SlotHours hours, FestivalPeriod festival, String benefit,
-                Map<String, String> hubPhotoUrlByName) {
+                Map<String, String> hubPhotoUrlByName, CrowdChip crowd) {
             // 한 번만 푼다 — 지도 링크 판단도 같은 값을 봐야 한다. 슬롯의 원본만 보면 교통 거점 칸이
             // 사진과 지도 링크를 함께 내려보낸다(사진이 있으면 링크는 군더더기다).
             String imageUrl = imageUrlOf(slot, hubPhotoUrlByName);
@@ -456,7 +469,8 @@ public record CourseResponse(
                     slot.getTravelMinutesFromPrev(),
                     distanceFromPrevMeters,
                     regionName,
-                    periodTextOf(festival));
+                    periodTextOf(festival),
+                    CrowdResponse.from(crowd));
         }
 
         /**
