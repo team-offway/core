@@ -202,6 +202,32 @@ class AttractionCrowdIntegrationTest {
     }
 
     /**
+     * <b>재어 본 장소는 지역 폴백을 타지 않는다</b> — 적재부터 이어서 확인한다.
+     *
+     * <p>집중률 50 인 장소가 문턱 사이라 칩이 없는데, 그 날 지역 요일계수가 1.4 를 넘으면 "토요일엔
+     * 붐비는 지역" 이 붙어 버린다. 우리가 재어 놓고도 더 거친 말로 덮는 셈이다.
+     *
+     * <p>지역 패턴은 적재된 방문자 데이터에 달려 있어 이 테스트에서 강제할 수 없다. 그래서 폴백이
+     * 있든 없든 <b>성립하는 형태</b>로 단언한다 — 보통인 곳은 칩이 없거나, 있더라도 지역 근거가
+     * 아니어야 한다. 폴백 유무를 직접 만드는 분기는 {@code CourseCrowdTest} 가 잠근다.
+     */
+    @Test
+    void 재어_본_장소는_보통이어도_지역_폴백을_타지_않는다() {
+        Region region = 지역(0);
+        LocalDate travelDate = TODAY.plusDays(3);
+        stub().respond(legalCode -> region.getLegalCode().equals(legalCode)
+                ? List.of(예보("보통인곳", travelDate, 50.0))
+                : List.of());
+        refreshService.refresh(TODAY);
+
+        CourseCrowd crowd =
+                crowdService.forCourse(region.getId(), region.getLegalCode(), List.of(travelDate));
+
+        assertTrue(crowd.of("보통인곳", travelDate).isEmpty(),
+                "재어 보고 보통이었는데 지역 값으로 덮으면 그 장소에 대해 틀린 말을 한다");
+    }
+
+    /**
      * <b>다른 날짜의 예보를 끌어 쓰지 않는다.</b> 칩이 답하는 질문이 "내가 갈 그 날" 이라, 옆 날짜 값을
      * 쓰면 그 자리에서 조용히 틀린다.
      */

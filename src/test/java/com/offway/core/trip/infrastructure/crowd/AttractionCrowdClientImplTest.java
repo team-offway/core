@@ -133,6 +133,76 @@ class AttractionCrowdClientImplTest {
     }
 
     /**
+     * <b>인증키가 막히면 envelope 자체가 다르다</b> — 실측한 그 응답을 그대로 넣는다.
+     *
+     * <p>{@code response} 키가 없어 코드가 빈 문자열로 읽힌다. 이걸 통과시키면 {@code body} 도 비어
+     * 89곳 전부가 "예보 없는 지역" 이 되고, <b>가장 흔한 장애가 조용히 묻힌다</b>. 한도 소진도 같은
+     * 모양으로 온다.
+     */
+    @Test
+    void 인증키_장애_응답을_빈_결과로_넘기지_않는다() {
+        String body = """
+                {
+                  "OpenAPI_ServiceResponse": {
+                    "cmmMsgHeader": {
+                      "errMsg": "SERVICE_KEY_IS_NOT_REGISTERED_ERROR",
+                      "returnAuthMsg": "등록되지 않은 서비스키",
+                      "returnReasonCode": "30"
+                    }
+                  }
+                }""";
+
+        assertThrows(TourApiException.class, () -> client(body).findByRegion(TAEAN, WAIT));
+    }
+
+    /** 성공 코드가 아예 없는 응답도 성공이 아니다 — 우리가 아는 모양이 아니다. */
+    @Test
+    void 성공_코드가_없으면_던진다() {
+        assertThrows(TourApiException.class, () -> client("{}").findByRegion(TAEAN, WAIT));
+    }
+
+    /**
+     * 성공 코드는 왔는데 전체 건수가 없으면 던진다.
+     *
+     * <p>0 으로 읽으면 그 지역이 "예보 없음" 이 되어, 정상 0건 지역과 구분되지 않는다.
+     */
+    @Test
+    void 전체_건수가_없으면_던진다() {
+        String body = """
+                {"response":{"header":{"resultCode":"0000","resultMsg":"OK"},
+                "body":{"items":"","numOfRows":0}}}""";
+
+        assertThrows(TourApiException.class, () -> client(body).findByRegion(TAEAN, WAIT));
+    }
+
+    /** 전체 건수가 0 이 아닌데 목록이 없으면 빈 지역이 아니라 깨진 응답이다. */
+    @Test
+    void 건수는_있는데_목록이_없으면_던진다() {
+        String body = """
+                {"response":{"header":{"resultCode":"0000","resultMsg":"OK"},
+                "body":{"items":"","numOfRows":0,"pageNo":1,"totalCount":1650}}}""";
+
+        assertThrows(TourApiException.class, () -> client(body).findByRegion(TAEAN, WAIT));
+    }
+
+    /** {@code NaN}·{@code Infinity} 는 어떤 범위 비교에도 안 걸린다 — 파싱 단계에서 버린다. */
+    @Test
+    void 유한하지_않은_값은_버린다() {
+        String body = """
+                {"response":{"header":{"resultCode":"0000","resultMsg":"OK"},
+                "body":{"items":{"item":[
+                  {"baseYmd":"20260910","tAtsNm":"정상","cnctrRate":"45.17"},
+                  {"baseYmd":"20260910","tAtsNm":"NaN곳","cnctrRate":"NaN"},
+                  {"baseYmd":"20260910","tAtsNm":"무한대곳","cnctrRate":"Infinity"}
+                ]},"numOfRows":3,"pageNo":1,"totalCount":3}}}""";
+
+        List<AttractionCrowd> items = client(body).findByRegion(TAEAN, WAIT);
+
+        assertEquals(1, items.size());
+        assertEquals("정상", items.getFirst().attractionName());
+    }
+
+    /**
      * 날짜나 집중률을 못 읽은 행은 <b>그 행만</b> 버린다.
      *
      * <p>이름은 읽혔으므로 필드명이 틀린 것은 아니다. 값 하나가 깨졌다고 그 지역을 통째로 버리면
