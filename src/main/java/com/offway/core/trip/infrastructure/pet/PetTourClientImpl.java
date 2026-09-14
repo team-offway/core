@@ -6,6 +6,7 @@ import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
 import com.offway.core.common.logging.RootCause;
+import com.offway.core.common.logging.SensitiveParams;
 import com.offway.core.trip.domain.TourApiException;
 import com.offway.core.trip.infrastructure.pet.dto.PetTourDetail;
 import com.offway.core.trip.infrastructure.pet.dto.PetTourPlace;
@@ -160,12 +161,13 @@ class PetTourClientImpl implements PetTourClient {
                     .bodyToMono(String.class)
                     .timeout(wait)
                     .block();
-            return parseDetail(body);
+            return parseDetail(body, contentId);
         } catch (Exception e) {
             // **던지지 않는다.** 상세 하나가 실패해도 그 장소는 "조건을 모르는 반려동반 장소" 로 남으면
             // 되고, 442건을 도는 회차가 한 건 때문에 통째로 실패하면 아무 표식도 못 남긴다.
             // 호출자가 실패 수를 세어 로그로 드러낸다.
-            log.warn("반려동반 상세 조회 실패 contentId={} cause={}", contentId, RootCause.label(e));
+            log.warn("반려동반 상세 조회 실패 contentId={} cause={}",
+                    SensitiveParams.forLog(contentId), RootCause.label(e));
             return Optional.empty();
         }
     }
@@ -235,7 +237,14 @@ class PetTourClientImpl implements PetTourClient {
         return new PetTourResult(matchable, totalCount);
     }
 
-    private Optional<PetTourDetail> parseDetail(String body) throws Exception {
+    /**
+     * 상세 응답에서 <b>물어본 그 장소</b>의 조건을 꺼낸다 — 응답 순서를 믿지 않고 id 로 고른다.
+     *
+     * <p>첫 항목을 그대로 쓰면 다른 장소의 항목이 앞에 왔을 때 그 조건이 이 장소에 붙는다. 여기서
+     * 틀리면 "일부구역 동반가능 · 5kg 제한" 같은 조건이 엉뚱한 곳에 뜨고, 사용자는 그걸 믿고 갔다가
+     * 못 들어간다. 목록에서 행 수와 전체 수를 대조하는 것과 같은 이유다 — 조용히 틀리게 두지 않는다.
+     */
+    private Optional<PetTourDetail> parseDetail(String body, String requestedId) throws Exception {
         JsonNode bodyNode = successBodyOf(body);
         JsonNode items = itemsOf(bodyNode);
         if (items == null) {
@@ -243,7 +252,7 @@ class PetTourClientImpl implements PetTourClient {
         }
         for (JsonNode node : arrayOf(items)) {
             String contentId = text(node, F_DETAIL_ID);
-            if (contentId == null) {
+            if (contentId == null || !contentId.equals(requestedId)) {
                 continue;
             }
             return Optional.of(new PetTourDetail(

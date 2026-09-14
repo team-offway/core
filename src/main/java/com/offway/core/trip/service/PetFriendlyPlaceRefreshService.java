@@ -159,7 +159,8 @@ public class PetFriendlyPlaceRefreshService implements ManualBatch {
      *
      * @param saved 저장한 건수
      * @param detailsMissing 상세를 못 받은 건수 — 칩은 뜨지만 열 내용이 없다
-     * @param complete 목록 조회가 온전했나 — 거짓이면 사라진 것 정리를 건너뛴다
+     * @param complete 목록과 상세가 모두 온전했나 — 거짓이면 사라진 것 정리를 건너뛴다. 둘 중 하나만
+     *     깨져도 "이번에 안 온 것 = 그만둔 장소" 가 성립하지 않는다
      */
     public record RefreshOutcome(int saved, int detailsMissing, boolean complete) {
 
@@ -280,7 +281,8 @@ public class PetFriendlyPlaceRefreshService implements ManualBatch {
             return RefreshOutcome.nothing();
         } catch (Exception e) {
             // 전체 상한에 걸렸거나 예상 밖 실패다. **목록은 온전하므로 받은 것까지는 저장한다** —
-            // 상세가 빈 장소는 칩만 뜨고, 그쪽이 표식을 통째로 잃는 것보다 낫다.
+            // 상세가 빈 장소는 칩만 뜨고, 그쪽이 표식을 통째로 잃는 것보다 낫다. 다만 정리는 못 한다
+            // (아래 complete).
             log.warn("반려동반 상세 팬아웃이 상한에 걸렸습니다 받은={}건 cause={}",
                     collected.size(), RootCause.label(e));
         }
@@ -292,11 +294,22 @@ public class PetFriendlyPlaceRefreshService implements ManualBatch {
         }
 
         int saved = petFriendlyPlaceRepository.upsertAll(places);
-        // 목록이 온전했으므로 이번에 안 온 것은 반려동반을 그만둔 장소다.
-        int removed = petFriendlyPlaceRepository.deleteFetchedBefore(fetchedAt);
+
+        // **저장과 정리의 조건이 다르다.** 저장은 받은 만큼만 덮으니 부분이어도 해가 없지만, 정리는
+        // "이번에 안 온 것 = 그만둔 장소" 라는 전제 위에 선다. 팬아웃이 상한에 걸리면 끝나지 못한
+        // 작업이 collected 에 아무것도 못 넣으므로, 그 전제가 깨진 채 **멀쩡한 표식을 우리가 지운다**.
+        // 목록이 깨진 회차에 정리를 건너뛰는 것과 같은 판단을 상세 쪽에도 둔다.
+        //
+        // 판정은 건수로 한다 — 각 작업이 마지막에 한 건씩만 넣으므로, 수가 같다는 것이 곧 전부
+        // 끝났다는 뜻이다(상세 조회가 실패한 것도 unknown 으로 한 건을 넣는다).
+        boolean complete = places.size() == ours.size();
+        int removed = complete ? petFriendlyPlaceRepository.deleteFetchedBefore(fetchedAt) : 0;
+        if (!complete) {
+            log.warn("반려동반 풀 — 상세 {}건 중 {}건만 끝나 정리를 건너뜁니다", ours.size(), places.size());
+        }
         log.info("반려동반 풀 갱신 저장={}건 상세없음={}건 정리={}건 지역={}곳",
                 saved, missing.get(), removed, distinctRegions(places));
-        return new RefreshOutcome(saved, missing.get(), true);
+        return new RefreshOutcome(saved, missing.get(), complete);
     }
 
     /** 상세를 못 받았다 — 칩은 뜨고 열 내용만 빈다. 세어서 로그로 드러낸다. */
