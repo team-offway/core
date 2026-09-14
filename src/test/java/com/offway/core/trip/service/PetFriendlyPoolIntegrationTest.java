@@ -219,6 +219,39 @@ class PetFriendlyPoolIntegrationTest {
         assertEquals("계속되는곳", remaining.get(0).getName());
     }
 
+    /**
+     * <b>상세가 다 끝나지 못한 회차도 정리를 건너뛴다.</b>
+     *
+     * <p>목록이 온전해도 상세 팬아웃이 상한에 걸리면 끝나지 못한 장소가 저장 대상에서 빠진다. 그
+     * 상태로 정리를 돌리면 "이번에 안 온 것" 에 <b>아직 처리 중이던 멀쩡한 장소</b>가 섞여 표식을
+     * 우리 손으로 지운다 — 목록이 깨졌을 때와 결과가 같다.
+     *
+     * <p>상세 조회가 {@code Optional.empty()} 로 실패하는 것과는 다르다. 그건 unknown 으로 한 건이
+     * 채워져 회차가 온전하고(칩은 뜨고 열 내용만 빈다), 여기는 채워지지 않는 쪽이다.
+     */
+    @Test
+    void 상세가_다_끝나지_못하면_정리를_건너뛴다() {
+        Region region = 우리지역();
+        stub().respondDetail(id -> Optional.of(전구역(id)));
+        stub().respondList(() -> new PetTourResult(
+                List.of(장소(region, "1", "먼저끝난곳"), 장소(region, "2", "못끝낸곳")), 2));
+        refreshService.refresh(FIRST_RUN);
+        assertEquals(2, petFriendlyPlaceRepository.findByRegionId(region.getId()).size());
+
+        // 2번만 조립을 못 끝낸다 — 예외로 끝난 작업은 collected 에 아무것도 넣지 못한다.
+        stub().respondDetail(id -> {
+            if ("2".equals(id)) {
+                throw new IllegalStateException("상세 조립이 끝나지 못했다");
+            }
+            return Optional.of(전구역(id));
+        });
+        PetFriendlyPlaceRefreshService.RefreshOutcome outcome = refreshService.refresh(SECOND_RUN);
+
+        assertFalse(outcome.complete(), "부분만 끝난 회차를 완료로 보면 정리가 돈다");
+        assertEquals(2, petFriendlyPlaceRepository.findByRegionId(region.getId()).size(),
+                "못 끝낸 장소의 표식이 남아 있어야 한다");
+    }
+
     /** 같은 장소가 두 번 들어오지 않는다 — 자연키가 콘텐츠 ID 다. */
     @Test
     void 같은_장소를_두_번_저장하지_않는다() {
