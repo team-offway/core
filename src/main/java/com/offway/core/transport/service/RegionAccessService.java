@@ -3,6 +3,7 @@ package com.offway.core.transport.service;
 import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.Port;
 import com.offway.core.transport.domain.RegionArrival;
+import com.offway.core.transport.domain.SameArrivalPoint;
 import com.offway.core.transport.domain.Terminal;
 import com.offway.core.transport.domain.TransferHub;
 import com.offway.core.transport.domain.TransitMode;
@@ -107,7 +108,12 @@ public class RegionAccessService {
         Optional<Terminal> destExpress = busTerminalResolver.nearest(destLat, destLng, BusTerminalKind.EXPRESS);
         Optional<Terminal> destIntercity = busTerminalResolver.nearest(destLat, destLng, BusTerminalKind.INTERCITY);
         // 대표 후보는 지금까지처럼 종류를 안 가린 최근접이다 — 뽑는 규칙은 안 건드린다(#463).
-        Optional<Terminal> destTerminal = busTerminalResolver.nearest(destLat, destLng);
+        // **다만 같은 곳에 내리는 둘 중에서는 도착 시각을 아는 쪽을 고른다**(#551). 종합터미널은
+        // 고속·시외가 같은 자리라 어느 쪽이 최근접으로 뽑히는지가 우연인데, 한쪽만 소요시간을 알면
+        // 그 우연이 코스의 첫날 판단(#127)을 좌우한다. 내리는 곳이 같아 동선은 그대로다.
+        Optional<Terminal> destTerminal = SameArrivalPoint.timeAware(
+                busTerminalResolver.nearest(destLat, destLng), destExpress, destIntercity,
+                terminal -> knowsArrivalTime(terminal, originLat, originLng));
         Optional<Port> destPort = ferryPortResolver.nearest(destLat, destLng);
 
         RegionAccess chosen = forcedTo(preferred, train, destExpress, destIntercity, destPort)
@@ -205,6 +211,25 @@ public class RegionAccessService {
     }
 
     /** 이 수단이 쓰는 도착 터미널. 버스가 아니면 빈 값이다. */
+    /**
+     * 이 터미널로 가면 <b>도착 시각을 알 수 있나</b>(#551) — 대표를 정하기 <b>전에</b> 묻는다.
+     *
+     * <p>순서가 얽힌 자리다. 소요시간을 알려면 출발 지점이 먼저 풀려야 하는데, 지금 흐름은 대표가
+     * 정해진 뒤에 한 번만 푼다(#507 리뷰가 "한 자리로 모은다" 고 못박았다). 그 구조를 깨지 않으려고
+     * <b>여기서는 판정만</b> 하고, 실제로 쓰는 값은 대표가 정해진 뒤 원래 자리에서 다시 푼다.
+     *
+     * <p><b>외부를 안 친다.</b> 출발 터미널 해석도 소요시간도 전부 우리 DB 다. 늘어나는 것은 지역당
+     * 최대 두 번의 조회이고, 같은 지점이 아닌 지역에서는 {@link SameArrivalPoint} 가 먼저 걸러 한 번도
+     * 안 묻는다.
+     */
+    private boolean knowsArrivalTime(Terminal terminal, double originLat, double originLng) {
+        TransitMode mode = TransitMode.of(terminal.kind());
+        Optional<Terminal> only = Optional.of(terminal);
+        return departurePoint(mode, originLat, originLng, only, Optional.empty())
+                .flatMap(departure -> durationOf(mode, Optional.of(departure), only, Optional.empty()))
+                .isPresent();
+    }
+
     private static Optional<Terminal> terminalFor(
             TransitMode mode, Optional<Terminal> destExpress, Optional<Terminal> destIntercity) {
         return switch (mode) {
