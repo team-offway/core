@@ -20,15 +20,27 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
   exit 1
 fi
 
+# **비밀번호를 argv 로 넘기지 않는다.** 컨테이너 안에서 확장되므로 호스트 `ps` 에는 안 뜨지만,
+# 같은 컨테이너의 다른 프로세스가 `/proc/<pid>/cmdline` 을 읽으면 보인다. `MYSQL_PWD` 로 넘기면
+# argv 에 안 남고, 그 값은 이미 컨테이너 환경변수로 있어 새로 노출되는 자리가 없다.
+#
+# **기본 DB 를 지정하지 않는다.** 복원 전 새 서버에는 `offway` 가 아직 없어, 지정하면 접속 자체가
+# 실패한다. 대신 아래 두 질의가 DB 를 <b>문장 안에서 수식</b>한다.
 mysql_in() {
-  docker exec -i "$CONTAINER" sh -c 'exec mysql -N -B --default-character-set=utf8mb4 -uroot -p"$MYSQL_ROOT_PASSWORD"'
+  docker exec -i "$CONTAINER" sh -c \
+    'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -N -B --default-character-set=utf8mb4 -uroot'
 }
 
 # 한 번에 만들고 한 번에 실행한다. 표마다 docker exec 를 부르면 왕복이 표 수만큼 곱해진다.
 #
 # 표가 하나도 없으면 UNION 문장이 빈 문자열이 되어 mysql 이 문법 오류를 낸다 — 그건 "빈 DB" 라는
 # 정상 상태이므로 먼저 가른다(복원 전 새 서버가 그렇다).
-COUNT_SQL=$(printf "SELECT CONCAT('SELECT ''', table_name, ''' AS t, COUNT(*) AS c FROM \`', table_name, '\` UNION ALL ') FROM information_schema.tables WHERE table_schema = '%s' AND table_type = 'BASE TABLE' ORDER BY table_name;\n" "$DATABASE" \
+#
+# **`FROM` 을 DB 로 수식한다.** 예전에는 `FROM \`table\`` 만 생성해, 기본 DB 없이 접속하는 이
+# 스크립트에서 두 번째 질의가 `No database selected` 로 통째로 실패했다 — 행 수 대조가 이 워크플로의
+# 핵심 안전장치인데 한 번도 동작하지 않았다. 접속에 DB 를 붙이는 대신 문장을 수식하는 이유는
+# `mysql_in` 주석에 적었다(복원 전에는 그 DB 가 없다).
+COUNT_SQL=$(printf "SELECT CONCAT('SELECT ''', table_name, ''' AS t, COUNT(*) AS c FROM \`%s\`.\`', table_name, '\` UNION ALL ') FROM information_schema.tables WHERE table_schema = '%s' AND table_type = 'BASE TABLE' ORDER BY table_name;\n" "$DATABASE" "$DATABASE" \
   | mysql_in 2>/dev/null | tr -d '\r')
 
 if [ -z "$COUNT_SQL" ]; then
