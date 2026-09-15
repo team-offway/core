@@ -30,8 +30,12 @@ public class LiveActivityDispatcher {
      * <p>순차로 돌면 지연이 카드 수만큼 곱해지고, 무제한이면 APNs 쪽 속도 제한을 스스로 부른다.
      * 기존 FCM 발송과 같은 값을 쓴다 — <b>같은 팬아웃인데 경로마다 다르게 두면</b> 어느 쪽이 느린지
      * 비교할 수 없다.
+     *
+     * <p>package-private 인 이유는 <b>속도 제한 중단의 상한이 이 값이기 때문</b>이다. 플래그가 서기
+     * 전에 이미 들어와 있던 만큼은 마저 나가므로, 테스트가 "몇 건까지는 정상" 을 말하려면 같은 숫자를
+     * 봐야 한다. 테스트에 다시 적으면 여기를 고칠 때 조용히 어긋난다.
      */
-    private static final int MAX_CONCURRENT_SENDS = 16;
+    static final int MAX_CONCURRENT_SENDS = 16;
 
     private final LiveActivitySender liveActivitySender;
     private final LiveActivityTokenRepository liveActivityTokenRepository;
@@ -104,13 +108,24 @@ public class LiveActivityDispatcher {
         return sent;
     }
 
-    /** 세마포어로 동시 발송 수를 묶는다 — 가상 스레드는 값싸지만 상대(APNs)는 그렇지 않다. */
+    /**
+     * 세마포어로 동시 발송 수를 묶는다 — 가상 스레드는 값싸지만 상대(APNs)는 그렇지 않다.
+     *
+     * <p><b>비켜설지는 permit 을 얻은 뒤에 본다.</b> {@code newVirtualThreadPerTaskExecutor} 는 제출된
+     * 일을 곧바로 각자의 스레드에서 시작하므로, {@code dispatch} 가 전체를 한 번에 제출하는 순간 거의
+     * 모두가 이 검사를 이미 지나 {@code acquire} 에서 기다리게 된다. 들어오기 전에만 보면 그 뒤에 선
+     * 대기자들은 플래그를 다시 보지 않고 순서대로 permit 을 받아 <b>전부 계속 쏜다</b> — 물러나려던
+     * 것이 앞 16건 이후로는 아무 일도 하지 않는다(#577 리뷰).
+     */
     private Sent send(LiveActivityTarget target, Semaphore inFlight, AtomicBoolean throttled) {
         if (throttled.get()) {
             return new Sent(target, ApnsResult.THROTTLED);
         }
         inFlight.acquireUninterruptibly();
         try {
+            if (throttled.get()) {
+                return new Sent(target, ApnsResult.THROTTLED);
+            }
             ApnsResult result = liveActivitySender.send(target.token(), target.toPush());
             if (result == ApnsResult.THROTTLED) {
                 throttled.set(true);

@@ -17,10 +17,12 @@ import com.offway.core.itinerary.domain.TimeOfDay;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.liveactivity.domain.LiveActivityToken;
+import com.offway.core.liveactivity.domain.TripProgress;
 import com.offway.core.liveactivity.infrastructure.apns.ApnsResult;
 import com.offway.core.liveactivity.infrastructure.apns.LiveActivityPush;
 import com.offway.core.liveactivity.infrastructure.apns.LiveActivitySender;
 import com.offway.core.liveactivity.repository.LiveActivityTokenRepository;
+import com.offway.core.liveactivity.service.dto.LiveActivityTarget;
 import com.offway.core.transport.domain.TransportMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -29,6 +31,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,6 +70,9 @@ class LiveActivityRefreshIntegrationTest {
 
     @Autowired
     private LiveActivityRefresher refresher;
+
+    @Autowired
+    private LiveActivityDispatcher dispatcher;
 
     @Autowired
     private LiveActivityTokenRepository liveActivityTokenRepository;
@@ -197,6 +208,87 @@ class LiveActivityRefreshIntegrationTest {
         assertNotNull(sender.sentTo(second));
         assertFalse(rowExists(first));
         assertTrue(rowExists(second));
+    }
+
+    /**
+     * 속도 제한을 만나면 <b>남은 것은 비켜선다</b>(#577 리뷰).
+     *
+     * <p>처음에는 발송을 시작하기 전에만 플래그를 봤는데, 가상 스레드 풀은 제출된 일을 곧바로 각자의
+     * 스레드에서 시작하므로 거의 전부가 그 검사를 이미 지나 세마포어에서 기다리고 있었다. 그래서 어느
+     * 한 건이 {@code 429} 를 받아도 대기자들은 순서대로 permit 을 받아 <b>전부 계속 쏘았다</b> —
+     * 물러나려던 것이 앞 16건 이후로는 아무 일도 하지 않았다.
+     *
+     * <p>이미 들어와 있던 만큼(동시 상한)은 마저 나가는 것이 정상이다. 그 위로 넘어가면 비켜서는
+     * 장치가 없는 것이다.
+     */
+    @Test
+    void 속도_제한을_만나면_남은_카드는_비켜선다() {
+        AtomicInteger calls = new AtomicInteger();
+        CountDownLatch inFlight = new CountDownLatch(LiveActivityDispatcher.MAX_CONCURRENT_SENDS);
+        CountDownLatch release = new CountDownLatch(1);
+        sender.respondWith(token -> {
+            calls.incrementAndGet();
+            inFlight.countDown();
+            // 상한만큼이 모두 안에 들어올 때까지 붙잡아 둔다 — 그래야 나머지가 "기다리는 중" 이 되고,
+            // 이 테스트가 보려는 상황(대기자들이 플래그를 다시 보는가)이 실제로 만들어진다.
+            await(release);
+            return ApnsResult.THROTTLED;
+        });
+        int cards = LiveActivityDispatcher.MAX_CONCURRENT_SENDS * 4;
+        List<LiveActivityTarget> targets = new ArrayList<>();
+        for (int i = 0; i < cards; i++) {
+            targets.add(LiveActivityTarget.builder()
+                    .rowId(-(i + 1L)) // 없는 행 — 이 시나리오는 삭제를 보지 않는다
+                    .token("throttle-" + i)
+                    .courseId(1L)
+                    .progress(TripProgress.of(LocalDate.of(2098, 7, 1), 2, LocalDate.of(2098, 6, 29)))
+                    .regionName("정선군")
+                    .startDate(LocalDate.of(2098, 7, 1))
+                    .endDate(LocalDate.of(2098, 7, 2))
+                    .build());
+        }
+
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<Integer> dispatching = pool.submit(() -> dispatcher.dispatch(targets));
+            assertTrue(awaitLatch(inFlight), "동시 상한만큼이 발송에 들어오지 못했다");
+            release.countDown();
+
+            assertEquals(0, get(dispatching), "속도 제한을 받았는데 보낸 것으로 셌다");
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertTrue(calls.get() <= LiveActivityDispatcher.MAX_CONCURRENT_SENDS,
+                "제한을 받은 뒤에도 계속 쏘았다 — 보낸 호출=" + calls.get() + "건, 카드=" + cards + "건");
+    }
+
+    private static boolean awaitLatch(CountDownLatch latch) {
+        try {
+            return latch.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static int get(Future<Integer> future) {
+        try {
+            return future.get(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private String register(UUID owner, LocalDate travelDate, int travelDays) {
