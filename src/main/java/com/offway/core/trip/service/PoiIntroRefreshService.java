@@ -1,6 +1,7 @@
 package com.offway.core.trip.service;
 
 import com.offway.core.common.batch.domain.ManualBatch;
+import com.offway.core.common.batch.service.RunningBatches;
 import com.offway.core.common.batch.repository.BatchRunRepository;
 import com.offway.core.common.external.Caller;
 import com.offway.core.common.external.CallerContext;
@@ -81,6 +82,7 @@ public class PoiIntroRefreshService implements ManualBatch {
     private static final int CARDS_PER_CATEGORY = 2;
 
     private final TourApiClient tourApiClient;
+    private final RunningBatches runningBatches;
     private final PoiIntroRepository poiIntroRepository;
     private final BatchRunRepository batchRunRepository;
     private final BatchBudgetProperties batchBudget;
@@ -95,6 +97,12 @@ public class PoiIntroRefreshService implements ManualBatch {
      * 그것만 믿으면 배포가 잦은 날 예산을 여러 번 쓴다(#226·#231 에서 겪었다).
      */
     @Scheduled(initialDelayString = INITIAL_DELAY, fixedDelayString = REFRESH_INTERVAL)
+    public void scheduled() {
+        // **수동 실행과 같은 선점을 지난다**(#540). 예전에는 여기서 아래를 곧장 불러,
+        // 스케줄러가 도는 중에 관리자가 누르면 둘이 함께 돌았다.
+        runNow();
+    }
+
     public void refreshIfStale() {
         CallerContext.run(CALLER, () -> {
             if (!batchPolicy.batchMayCall(BATCH_NAME, ExternalApi.TOUR_API)) {
@@ -196,7 +204,8 @@ public class PoiIntroRefreshService implements ManualBatch {
 
     /** 손으로 돌린다(#537) — 배치 자신의 가드는 그대로 탄다. */
     @Override
-    public void runNow() {
-        refreshIfStale();
+    public boolean runNow() {
+        // 스케줄러도 이 메서드를 지난다 — 두 경로가 같은 표식을 잡아야 겹치지 않는다(#540).
+        return runningBatches.runExclusively(BATCH_NAME, this::refreshIfStale);
     }
 }
