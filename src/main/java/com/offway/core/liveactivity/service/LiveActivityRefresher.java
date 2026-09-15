@@ -80,13 +80,21 @@ public class LiveActivityRefresher {
     private final LiveActivityDispatcher dispatcher;
     private final BatchRunRepository batchRunRepository;
 
-    /** 매일 자정, 잠금화면에 떠 있는 카드를 오늘 값으로 고친다. */
+    /**
+     * 매일 자정, 잠금화면에 떠 있는 카드를 오늘 값으로 고친다.
+     *
+     * <p><b>시각을 먼저 붙잡는다.</b> {@code markStarted} 의 계약은 <i>시작</i> 시각인데, {@code finally}
+     * 에서 그때의 현재 시각을 읽으면 <b>끝난 시각</b>이 기록된다 — 오래 도는 회차일수록 어긋나고,
+     * 관리자 화면의 "마지막 실행" 이 실제보다 늦게 보인다(#577 리뷰). 기록 자체를 {@code finally} 에
+     * 두는 것은 그대로다: 중간에 터져도 돌았다는 사실은 남아야 "안 돌았다" 와 "0건이었다" 를 가른다.
+     */
     @Scheduled(cron = DAILY_AT_MIDNIGHT, zone = SERVICE_ZONE_ID)
     public void refreshDaily() {
+        LocalDateTime startedAt = LocalDateTime.now(SERVICE_ZONE);
         try {
             refresh(LocalDate.now(SERVICE_ZONE));
         } finally {
-            batchRunRepository.markStarted(BATCH_NAME, LocalDateTime.now(SERVICE_ZONE));
+            batchRunRepository.markStarted(BATCH_NAME, startedAt);
         }
     }
 
