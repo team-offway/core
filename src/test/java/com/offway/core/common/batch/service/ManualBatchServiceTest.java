@@ -9,6 +9,9 @@ import com.offway.core.common.batch.domain.BatchException;
 import com.offway.core.common.batch.domain.ManualBatch;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -84,18 +87,24 @@ class ManualBatchServiceTest {
             await(release);
         });
         ManualBatchService service = new ManualBatchService(List.of(batch));
+        ExecutorService pool = Executors.newSingleThreadExecutor();
 
-        Thread scheduler = new Thread(batch::scheduled);
-        scheduler.start();
-        assertTrue(entered.await(5, TimeUnit.SECONDS), "스케줄 실행이 진입하지 못했다");
+        try {
+            // **Future 로 받는다.** 원시 Thread 의 미처리 예외는 이 테스트를 실패시키지 않아,
+            // 스케줄 실행이 안에서 터져도 아래 단언이 통과한다.
+            Future<?> scheduler = pool.submit(batch::scheduled);
+            assertTrue(entered.await(5, TimeUnit.SECONDS), "스케줄 실행이 진입하지 못했다");
 
-        BatchException e = assertThrows(BatchException.class, () -> service.run(NAME));
+            BatchException e = assertThrows(BatchException.class, () -> service.run(NAME));
 
-        release.countDown();
-        scheduler.join(5_000);
+            release.countDown();
+            scheduler.get(5, TimeUnit.SECONDS);
 
-        assertEquals(BatchErrorCode.ALREADY_RUNNING.code(), e.errorCode().code());
-        assertEquals(1, ran.get(), "겹쳐 돌았다 — 외부 호출이 두 배로 나가고 데이터를 서로 밟는다");
+            assertEquals(BatchErrorCode.ALREADY_RUNNING.code(), e.errorCode().code());
+            assertEquals(1, ran.get(), "겹쳐 돌았다 — 외부 호출이 두 배로 나가고 데이터를 서로 밟는다");
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     /**
@@ -115,17 +124,23 @@ class ManualBatchServiceTest {
             await(release);
         });
         ManualBatchService service = new ManualBatchService(List.of(batch));
+        ExecutorService pool = Executors.newSingleThreadExecutor();
 
-        Thread manual = new Thread(() -> service.run(NAME));
-        manual.start();
-        assertTrue(entered.await(5, TimeUnit.SECONDS));
+        try {
+            Future<?> manual = pool.submit(() -> service.run(NAME));
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
 
-        batch.scheduled(); // 스케줄러가 깼다 — 던지지 않고 그냥 건너뛴다
+            batch.scheduled(); // 스케줄러가 깼다 — 던지지 않고 그냥 건너뛴다
 
-        release.countDown();
-        manual.join(5_000);
+            release.countDown();
+            // 수동 실행이 409 를 맞았다면 여기서 ExecutionException 으로 드러난다 — 이 테스트가
+            // 보려는 것은 그 반대(스케줄러가 조용히 비켜 준다)다.
+            manual.get(5, TimeUnit.SECONDS);
 
-        assertEquals(1, ran.get());
+            assertEquals(1, ran.get());
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     /** 없는 이름은 404 다 — 겹침(409)과 뜻이 다르다. */

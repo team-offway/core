@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -41,22 +44,28 @@ class RunningBatchesTest {
         AtomicInteger ran = new AtomicInteger();
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
 
-        Thread first = new Thread(() -> batches.runExclusively(NAME, () -> {
-            ran.incrementAndGet();
-            entered.countDown();
-            await(release);
-        }));
-        first.start();
-        assertTrue(entered.await(5, TimeUnit.SECONDS), "첫 실행이 진입하지 못했다");
+        try {
+            // **Future 로 받는다.** 원시 Thread 의 미처리 예외는 이 테스트를 실패시키지 않아,
+            // 붙잡아 둔 실행이 안에서 터져도 아래 단언이 통과한다.
+            Future<Boolean> first = pool.submit(() -> batches.runExclusively(NAME, () -> {
+                ran.incrementAndGet();
+                entered.countDown();
+                await(release);
+            }));
+            assertTrue(entered.await(5, TimeUnit.SECONDS), "첫 실행이 진입하지 못했다");
 
-        boolean second = batches.runExclusively(NAME, ran::incrementAndGet);
+            boolean second = batches.runExclusively(NAME, ran::incrementAndGet);
 
-        release.countDown();
-        first.join(5_000);
+            release.countDown();
+            assertTrue(first.get(5, TimeUnit.SECONDS), "첫 실행이 정상으로 끝나지 않았다");
 
-        assertFalse(second, "겹쳐 들어왔는데 진입했다 — 외부 호출이 두 배로 나간다");
-        assertEquals(1, ran.get(), "두 번째가 실제로 돌았다 — 교체 중인 데이터를 서로 밟는다");
+            assertFalse(second, "겹쳐 들어왔는데 진입했다 — 외부 호출이 두 배로 나간다");
+            assertEquals(1, ran.get(), "두 번째가 실제로 돌았다 — 교체 중인 데이터를 서로 밟는다");
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     /** 끝나면 표식이 풀린다 — 안 풀리면 그 배치가 영영 안 돈다. */
@@ -105,20 +114,24 @@ class RunningBatchesTest {
         RunningBatches batches = new RunningBatches();
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
 
-        Thread first = new Thread(() -> batches.runExclusively(NAME, () -> {
-            entered.countDown();
-            await(release);
-        }));
-        first.start();
-        assertTrue(entered.await(5, TimeUnit.SECONDS));
+        try {
+            Future<Boolean> first = pool.submit(() -> batches.runExclusively(NAME, () -> {
+                entered.countDown();
+                await(release);
+            }));
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
 
-        boolean other = batches.runExclusively("another-batch", () -> { });
+            boolean other = batches.runExclusively("another-batch", () -> { });
 
-        release.countDown();
-        first.join(5_000);
+            release.countDown();
+            assertTrue(first.get(5, TimeUnit.SECONDS), "붙잡아 둔 실행이 정상으로 끝나지 않았다");
 
-        assertTrue(other);
+            assertTrue(other);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     private static void await(CountDownLatch latch) {
