@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.transport.domain.BusTerminalKind;
 import com.offway.core.transport.domain.MeasuredLeg;
+import com.offway.core.transport.domain.SameArrivalPoint;
 import com.offway.core.transport.domain.Terminal;
 import com.offway.core.transport.domain.TransferHub;
 import com.offway.core.transport.domain.TransitLegDuration;
@@ -144,6 +145,44 @@ class TransferRoutingIntegrationTest {
         assertNull(access.viaName(), "안 재본 구간에 경유를 붙이면 근거 없는 안내가 된다");
     }
 
+    /**
+     * <b>같은 곳에 내리는데 시각을 아는 쪽을 대표로 세운다</b>(#551) — 실제 경로에서 도는지 본다.
+     *
+     * <p>무주는 고속·시외가 같은 자리다. 어느 쪽이 최근접으로 뽑히는지는 우연인데, 한쪽만 소요시간을
+     * 알면 그 우연이 코스의 첫날 판단(#127)을 좌우한다. 내리는 곳이 같아 <b>동선은 그대로</b>다.
+     *
+     * <p>단위 테스트({@code SameArrivalPointTest})가 규칙 자체를 망라하고, 여기서는 그 규칙이
+     * {@code RegionAccessService} 를 타고 실제 대표까지 바뀌는지를 잇는다.
+     */
+    @Test
+    void 같은_곳에_내리면_시각을_아는_수단이_대표가_된다() {
+        LocalDateTime now = LocalDateTime.of(2026, 9, 8, 6, 0);
+        RegionAccess before = accessToMuju();
+        BusTerminalKind other = kindOf(before) == BusTerminalKind.EXPRESS
+                ? BusTerminalKind.INTERCITY : BusTerminalKind.EXPRESS;
+        TransitMode otherMode = TransitMode.of(other);
+        Terminal to = busTerminalResolver.nearestWithDuplicates(MUJU_LAT, MUJU_LNG, other).getFirst();
+        Terminal seedTo = busTerminalResolver
+                .nearestWithDuplicates(MUJU_LAT, MUJU_LNG, kindOf(before)).getFirst();
+        // 규칙이 보는 축(좌표)으로 전제를 건다 — 이름은 "무주"·"무주공용터미널" 처럼 갈릴 수 있다.
+        assertTrue(SameArrivalPoint.is(to, seedTo),
+                "두 종류가 같은 곳에 안 내리면 이 테스트가 성립하지 않는다");
+
+        measure(otherMode,
+                busTerminalResolver.nearestWithDuplicates(SEOUL_LAT, SEOUL_LNG, other).getFirst().code(),
+                to.code(), 195, now);
+
+        RegionAccess after = accessToMuju();
+
+        assertEquals(otherMode, after.mode(), "시각을 아는 쪽이 대표가 되어야 한다");
+        assertEquals(Integer.valueOf(195), after.durationMinutes(), "그 시각이 실제로 실려야 한다");
+        // **동선이 안 바뀌는 것이 이 규칙의 전제다.** 바뀐 것은 수단과 시각뿐이어야 한다.
+        assertTrue(before.arrivalPoint().orElseThrow()
+                        .haversineKmTo(after.arrivalPoint().orElseThrow()) <= 0.3,
+                "내리는 곳이 옮겨졌다 — 같은 지점일 때만 바꾸기로 한 규칙이 깨졌다: "
+                        + before.toName() + " → " + after.toName());
+    }
+
     private RegionAccess accessToMuju() {
         return regionAccessService.accessTo(
                 SEOUL_LAT, SEOUL_LNG, MUJU_LAT, MUJU_LNG,
@@ -193,12 +232,20 @@ class TransferRoutingIntegrationTest {
     void 대안도_소요시간을_든다() {
         LocalDateTime now = LocalDateTime.of(2026, 9, 8, 6, 0);
         RegionAccess seed = accessToMuju();
-        BusTerminalKind other = kindOf(seed) == BusTerminalKind.EXPRESS
+        BusTerminalKind seedKind = kindOf(seed);
+        BusTerminalKind other = seedKind == BusTerminalKind.EXPRESS
                 ? BusTerminalKind.INTERCITY : BusTerminalKind.EXPRESS;
         TransitMode otherMode = TransitMode.of(other);
         Terminal from = busTerminalResolver.nearestWithDuplicates(SEOUL_LAT, SEOUL_LNG, other).getFirst();
         Terminal to = busTerminalResolver.nearestWithDuplicates(MUJU_LAT, MUJU_LNG, other).getFirst();
         measure(otherMode, from.code(), to.code(), 195, now);
+        // **대표 쪽도 재어 둔다**(#551). 무주는 고속·시외가 같은 자리라, 한쪽만 시각을 알면 그쪽이
+        // 대표로 올라가 대안 목록에서 빠진다 — 그건 그 규칙이 일한 것이지 이 테스트가 볼 것이 아니다.
+        // 여기서 보려는 것은 **대표가 아닌 수단도 자기 소요시간을 싣는가** 다.
+        measure(TransitMode.of(seedKind),
+                busTerminalResolver.nearestWithDuplicates(SEOUL_LAT, SEOUL_LNG, seedKind).getFirst().code(),
+                busTerminalResolver.nearestWithDuplicates(MUJU_LAT, MUJU_LNG, seedKind).getFirst().code(),
+                210, now);
 
         RegionAccess after = accessToMuju();
 
