@@ -8,10 +8,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -49,21 +45,6 @@ public class ApnsLiveActivitySender implements LiveActivitySender {
     private static final String PUSH_TYPE = "liveactivity";
 
     /**
-     * 갱신의 우선순위 — 5(전력 절약).
-     *
-     * <p>자정에 도는 하루치 갱신이라 즉시 깨울 이유가 없다. 10 으로 올리면 기기를 깨워 배터리를 쓰는데,
-     * 사용자가 그 차이로 얻는 것이 없다.
-     */
-    private static final String PRIORITY_UPDATE = "5";
-
-    /**
-     * 종료의 우선순위 — 10.
-     *
-     * <p>이쪽은 <b>지금 치워야</b> 한다. 늦어지면 끝난 여행이 잠금화면에 남아 있는 시간이 그만큼 길어진다.
-     */
-    private static final String PRIORITY_END = "10";
-
-    /**
      * 기기가 꺼져 있을 때 APNs 가 들고 있어 줄 시간.
      *
      * <p><b>24시간을 주지 않는다.</b> 이 값은 <b>오늘의</b> D-day 라, 자정 발송 기준으로 하루를 주면
@@ -91,9 +72,19 @@ public class ApnsLiveActivitySender implements LiveActivitySender {
     /** 앱이 지워졌다 — 죽은 토큰이다. */
     private static final String REASON_UNREGISTERED = "Unregistered";
 
+    /**
+     * 우리 JWT 가 낡았다 — <b>다시 보낼 만한 유일한 거절</b>이다.
+     *
+     * <p>새 JWT 로 곧바로 풀린다. {@code InvalidProviderToken}(키·팀 식별자가 틀림)은 같은 403 이지만
+     * 설정을 고쳐야 하는 일이라 다시 보내도 같은 답이 온다.
+     */
+    private static final String REASON_EXPIRED_PROVIDER_TOKEN = "ExpiredProviderToken";
+
     private static final int STATUS_OK = 200;
 
     private static final int STATUS_BAD_REQUEST = 400;
+
+    private static final int STATUS_FORBIDDEN = 403;
 
     private static final int STATUS_TOO_MANY_REQUESTS = 429;
 
@@ -104,10 +95,11 @@ public class ApnsLiveActivitySender implements LiveActivitySender {
     private final ApnsProperties properties;
 
     /**
-     * 이 어댑터만 쓰는 매퍼.
+     * 오류 본문의 사유를 읽는 데만 쓰는 매퍼.
      *
      * <p>컨텍스트의 빈을 주입받지 않는다 — 다른 외부 API 어댑터들도 저마다 하나씩 들고 있고(TAGO·TMAP·
-     * 기상청), 그쪽 설정(응답 관용도·날짜 형식)이 우리 요청 본문의 모양을 바꾸면 안 된다.
+     * 기상청), 그쪽 설정(응답 관용도·날짜 형식)이 우리 해석을 바꾸면 안 된다. 보낼 본문을 만드는 매퍼는
+     * {@link ApnsPayload} 가 따로 갖는다.
      */
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -130,30 +122,66 @@ public class ApnsLiveActivitySender implements LiveActivitySender {
         if (providerToken == null) {
             return ApnsResult.DISABLED;
         }
+        Attempt first = attempt(token, push);
+        if (!first.expiredProviderToken()) {
+            return first.result();
+        }
+        // APNs 가 "이 JWT 는 만료됐다" 고 답했다. 버리지 않으면 캐시가 자연히 늙을 때까지(최대 50분)
+        // 이어지는 발송이 같은 JWT 로 나가 전부 같은 거절을 받는다 — 자정 회차가 통째로 날아간다.
+        providerToken.invalidate(first.usedToken());
+        log.warn("APNs provider token 이 만료돼 새로 발급하고 한 번만 다시 보냅니다");
+        return attempt(token, push).result();
+    }
+
+    /**
+     * 한 번 보낸다.
+     *
+     * <p><b>어떤 JWT 로 보냈는지를 함께 돌려준다.</b> 만료 거절을 받았을 때 버려야 할 것이 바로 그
+     * 토큰인데, 팬아웃이라 그 사이 다른 스레드가 이미 새로 만들었을 수 있다 — 무엇을 썼는지 모르면
+     * 남의 새 토큰을 버리게 되고, 그 재발급 연쇄가 {@code 429} 를 부른다.
+     */
+    private Attempt attempt(String token, LiveActivityPush push) {
         Instant now = Instant.now();
+        String jwt = providerToken.value();
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(properties.pushUrl(token)))
                     .timeout(REQUEST_TIMEOUT)
-                    .header("authorization", "bearer " + providerToken.value())
+                    .header("authorization", "bearer " + jwt)
                     .header("apns-push-type", PUSH_TYPE)
                     .header("apns-topic", properties.topic())
-                    .header("apns-priority", priorityOf(push))
+                    .header("apns-priority", ApnsPayload.priorityOf(push))
                     .header("apns-expiration", String.valueOf(now.plus(DELIVERY_WINDOW).getEpochSecond()))
                     .header("content-type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body(push, now)))
+                    .POST(HttpRequest.BodyPublishers.ofString(ApnsPayload.body(push, now)))
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            return interpret(response);
+            String reason = reasonOf(response.body());
+            return new Attempt(interpret(response, reason), jwt, expiredProviderToken(response, reason));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return ApnsResult.FAILED;
+            return new Attempt(ApnsResult.FAILED, jwt, false);
         } catch (Exception e) {
             // 한 건의 실패가 나머지를 막으면 안 된다(port 계약). 다만 조용히 넘기지도 않는다 —
             // 토큰은 싣지 않는다(그 값을 아는 쪽은 남의 잠금화면에 내용을 그릴 수 있다).
             log.warn("Live Activity 발송 실패 env={} cause={}",
                     properties.environmentName(), e.getClass().getSimpleName());
-            return ApnsResult.FAILED;
+            return new Attempt(ApnsResult.FAILED, jwt, false);
         }
+    }
+
+    /**
+     * 다시 보낼 만한 거절인가.
+     *
+     * <p><b>{@code ExpiredProviderToken} 하나만이다.</b> 그것만이 "지금 이 JWT 가 낡았다" 는 뜻이고,
+     * 새 JWT 로 곧바로 풀린다. {@code InvalidProviderToken}·키 회전·{@code teamId}·{@code keyId} 오류는
+     * 설정을 고쳐야 하는 일이라 다시 보내도 같은 답이 온다 — 재시도로 넣으면 발송 수만 두 배가 된다.
+     */
+    private static boolean expiredProviderToken(HttpResponse<String> response, String reason) {
+        return response.statusCode() == STATUS_FORBIDDEN && REASON_EXPIRED_PROVIDER_TOKEN.equals(reason);
+    }
+
+    /** 한 번의 시도 — 결과와, <b>그때 쓴 JWT</b>. */
+    private record Attempt(ApnsResult result, String usedToken, boolean expiredProviderToken) {
     }
 
     /**
@@ -163,12 +191,11 @@ public class ApnsLiveActivitySender implements LiveActivitySender {
      * 나머지 {@code 400}(토픽 오류·본문 오류)은 <b>우리 설정이 틀린 것</b>이라 토큰을 지우면 멀쩡한
      * 등록이 매일 조금씩 사라진다.
      */
-    private ApnsResult interpret(HttpResponse<String> response) {
+    private ApnsResult interpret(HttpResponse<String> response, String reason) {
         int status = response.statusCode();
         if (status == STATUS_OK) {
             return ApnsResult.SENT;
         }
-        String reason = reasonOf(response.body());
         if (status == STATUS_GONE
                 || (status == STATUS_BAD_REQUEST
                         && (REASON_BAD_DEVICE_TOKEN.equals(reason) || REASON_UNREGISTERED.equals(reason)))) {
@@ -200,59 +227,6 @@ public class ApnsLiveActivitySender implements LiveActivitySender {
         } catch (Exception e) {
             return "";
         }
-    }
-
-    /**
-     * 실어 보낼 JSON.
-     *
-     * <p>{@code timestamp} 는 <b>초 단위</b> Unix time 이다. 이 값이 직전 것보다 작으면 iOS 가 조용히
-     * 무시하므로, 보낼 때마다 현재 시각으로 새로 넣는다.
-     */
-    private String body(LiveActivityPush push, Instant now) throws Exception {
-        Map<String, Object> aps = new LinkedHashMap<>();
-        aps.put("timestamp", now.getEpochSecond());
-        switch (push) {
-            case LiveActivityPush.Update update -> {
-                aps.put("event", "update");
-                aps.put("content-state", contentState(update));
-            }
-            case LiveActivityPush.End ignored -> {
-                aps.put("event", "end");
-                // 지금 치운다. 이 값을 빼면 iOS 가 스스로 걷어낼 때까지 최대 12시간 남는다.
-                aps.put("dismissal-date", now.getEpochSecond());
-            }
-        }
-        return objectMapper.writeValueAsString(Map.of("aps", aps));
-    }
-
-    /**
-     * 앱의 {@code TripActivityAttributes.ContentState} 와 <b>1:1</b> 인 칸들.
-     *
-     * <p>이름이 하나라도 어긋나면 갱신이 통째로 실패하는데 <b>오류가 오지 않는다</b>. 여기 문자열을
-     * 고칠 일이 생기면 앱 쪽과 같은 PR 에서 함께 고쳐야 한다.
-     *
-     * <p>{@code null} 인 칸도 실어 보낸다 — {@code daysLeft}·{@code dayNth} 는 <b>둘 중 하나가 비어
-     * 있다는 것 자체가 뜻</b>(출발 전이냐 여행 중이냐)이라, 빼 버리면 앱이 직전 값을 그대로 쓴다.
-     */
-    private Map<String, Object> contentState(LiveActivityPush.Update update) {
-        Map<String, Object> state = new LinkedHashMap<>();
-        state.put("regionName", update.regionName());
-        state.put("daysLeft", update.daysLeft());
-        state.put("dayNth", update.dayNth());
-        state.put("startDate", format(update.startDate()));
-        state.put("endDate", format(update.endDate()));
-        return state;
-    }
-
-    private static String format(LocalDate date) {
-        return date == null ? null : date.format(DateTimeFormatter.ISO_LOCAL_DATE);
-    }
-
-    private static String priorityOf(LiveActivityPush push) {
-        return switch (push) {
-            case LiveActivityPush.Update ignored -> PRIORITY_UPDATE;
-            case LiveActivityPush.End ignored -> PRIORITY_END;
-        };
     }
 
     /**

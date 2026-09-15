@@ -79,6 +79,25 @@ class ApnsProviderToken {
         }
     }
 
+    /**
+     * APNs 가 <b>이 토큰은 만료됐다</b>({@code 403 ExpiredProviderToken})고 답했을 때 버린다.
+     *
+     * <p><b>수명만으로는 못 막는다.</b> 우리 쪽 갱신 간격(50분)은 APNs 의 판단과 별개라, 그쪽이 먼저
+     * 만료로 보면 캐시가 자연히 늙을 때까지 <b>최대 50분 동안 모든 발송이 실패한다</b> — 자정에 한 번
+     * 도는 배치라 그 회차가 통째로 날아간다.
+     *
+     * <p><b>내가 쓰던 그 토큰일 때만 버린다.</b> 팬아웃이라 여러 스레드가 동시에 같은 거절을 받는데,
+     * 무조건 비우면 방금 다른 스레드가 새로 만든 토큰까지 버리고 그 스레드도 다시 만든다 — 재발급이
+     * 연쇄하면 APNs 가 {@code 429 TooManyProviderTokenUpdates} 로 막는다.
+     *
+     * @param stale 거절당한 토큰 문자열
+     */
+    synchronized void invalidate(String stale) {
+        if (issued != null && issued.token().equals(stale)) {
+            issued = null;
+        }
+    }
+
     private String sign(Instant now) {
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
                 .issuer(properties.teamId())
@@ -102,10 +121,16 @@ class ApnsProviderToken {
      *
      * <p>환경변수에 담긴 것은 <b>PEM 파일 전체를 base64 한 것</b>이라, 한 번 풀면 머리말·꼬리말·개행이
      * 있는 PEM 문자열이 나온다. 그것을 그대로 다시 base64 디코딩하면 깨진다.
+     *
+     * <p><b>바깥 base64 는 개행을 관용하는 디코더로 푼다.</b> 이 값을 만드는 흔한 방법
+     * ({@code base64 < AuthKey_XXX.p8})이 76자마다 개행을 넣는데, strict 디코더는 그 개행 하나에
+     * 예외를 던진다. {@code strip()} 은 앞뒤만 걷어내므로 가운데 개행은 남는다. 그리고 그 예외는
+     * {@code providerToken(...)} 이 삼켜 발송이 통째로 {@code DISABLED} 가 된다 — <b>키를 제대로
+     * 넣었는데 아무것도 안 나가는</b>, 원인을 짐작하기 가장 어려운 모양이다.
      */
     private static JWSSigner signer(String privateKeyBase64) {
         try {
-            String pem = new String(Base64.getDecoder().decode(privateKeyBase64.strip()));
+            String pem = new String(Base64.getMimeDecoder().decode(privateKeyBase64.strip()));
             String body = pem.replace(PEM_HEADER, "").replace(PEM_FOOTER, "").replaceAll("\\s", "");
             ECPrivateKey key = (ECPrivateKey) KeyFactory.getInstance("EC")
                     .generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(body)));
