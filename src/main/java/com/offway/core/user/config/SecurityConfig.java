@@ -108,7 +108,8 @@ public class SecurityConfig {
     private static final String ADMIN_ROLE = AccountRole.ADMIN.roleName();
 
     /**
-     * <b>소유자가 있는 데이터</b> — 내 코스 · 연차 · 알림 · 푸시 토큰. 읽기든 쓰기든 Bearer 를 요구한다(#280).
+     * <b>소유자가 있는 데이터</b> — 내 코스 · 연차 · 알림 · 푸시 토큰 · 잠금화면 등록. 읽기든 쓰기든
+     * Bearer 를 요구한다(#280).
      *
      * <p>읽기까지 역할을 요구하는 이유는 <b>소유 키가 {@code user_id} 로 바뀌었기</b> 때문이다. 이 경로들은
      * 요청 헤더가 아니라 access 토큰이 넣은 principal 로 대상을 정하는데, Basic 으로 들어온 요청은 principal 이
@@ -123,6 +124,7 @@ public class SecurityConfig {
         "/api/v1/leaves/me/**",
         "/api/v1/notifications/**",
         "/api/v1/devices/**",
+        "/api/v1/live-activities/**",
         "/api/v1/users/**",
         "/api/v1/auth/logout"
     };
