@@ -30,6 +30,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 잠금화면 갱신 토큰 등록·해제의 HTTP 계약(#575).
@@ -43,12 +44,18 @@ import org.springframework.test.web.servlet.MockMvc;
  *       잠금화면에 그려 준다. 확인을 빠뜨리면 코스 id 를 적는 것만으로 남의 여행 일정을 받아 본다
  * </ul>
  *
- * <p><b>소유자·토큰을 테스트마다 다르게 쓴다.</b> 이 클래스는 DB 를 롤백하지 않아(컨텍스트를 공유하는
- * 다른 컨트롤러 통합 테스트와 같다) 같은 값을 쓰면 앞 테스트의 잔여 상태가 다음 시나리오로 새어 든다.
+ * <p><b>클래스 레벨 {@code @Transactional} 로 롤백한다</b>(테스트 규약, #577 리뷰). 여기서 남긴 등록은
+ * 소유자를 가리지 않고 전부 훑는 자정 배치 테스트({@code LiveActivityRefreshIntegrationTest})의 대상에
+ * 섞인다 — 임의 UUID 는 소유자 충돌만 줄일 뿐 남은 행을 치우지 않는다. 저장 경로가 전부 테스트 스레드
+ * 에서 도므로(MockMvc 요청·{@code CourseRepository.save}) 함께 롤백된다.
+ *
+ * <p>그래도 소유자·토큰은 시나리오마다 다르게 쓴다 — 트랜잭션 안에서도 한 메서드가 자기 데이터로
+ * 완결되는 편이 읽기 쉽다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @WithLoginUser
+@Transactional
 class LiveActivityIntegrationTest {
 
     private static final String URL = "/api/v1/live-activities";
