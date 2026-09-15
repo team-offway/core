@@ -17,7 +17,9 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import com.offway.core.transport.domain.BusTerminalKind;
 import com.offway.core.transport.domain.Departure;
 import java.util.Optional;
@@ -111,9 +113,14 @@ public class RegionAccessService {
         // **다만 같은 곳에 내리는 둘 중에서는 도착 시각을 아는 쪽을 고른다**(#551). 종합터미널은
         // 고속·시외가 같은 자리라 어느 쪽이 최근접으로 뽑히는지가 우연인데, 한쪽만 소요시간을 알면
         // 그 우연이 코스의 첫날 판단(#127)을 좌우한다. 내리는 곳이 같아 동선은 그대로다.
+        //
+        // **판정 결과를 들고 있다가 대표가 정해지면 그대로 쓴다**(#572 리뷰). 터미널 하나를 푸는 데
+        // 후보 여덟을 훑으므로, 버리고 다시 풀면 같은 질의를 세 벌 돌린다.
+        Map<String, Optional<KnownArrival>> probed = new HashMap<>();
         Optional<Terminal> destTerminal = SameArrivalPoint.timeAware(
                 busTerminalResolver.nearest(destLat, destLng), destExpress, destIntercity,
-                terminal -> knowsArrivalTime(terminal, originLat, originLng));
+                terminal -> probed.computeIfAbsent(
+                        terminal.code(), code -> knownArrival(terminal, originLat, originLng)).isPresent());
         Optional<Port> destPort = ferryPortResolver.nearest(destLat, destLng);
 
         RegionAccess chosen = forcedTo(preferred, train, destExpress, destIntercity, destPort)
@@ -131,11 +138,20 @@ public class RegionAccessService {
             Optional<Terminal> chosenTerminal = terminalFor(chosen.mode(), destExpress, destIntercity);
             // **출발 지점을 한 번만 푼다.** 셋이 각자 풀면 그 사이 배치가 한 코드를 미운행으로 적었을 때
             // 출발지명은 A 터미널, 소요시간·시간표는 B 터미널인 응답이 나간다(#507 리뷰).
-            Optional<RegionArrival> departure =
-                    departurePoint(chosen.mode(), originLat, originLng, chosenTerminal, destPort);
+            //
+            // 위에서 이미 푼 터미널이면 그 결과를 쓴다 — 같은 질의를 또 돌리지 않는다(#572 리뷰).
+            TransitMode chosenMode = chosen.mode();
+            Optional<KnownArrival> known =
+                    chosenTerminal.flatMap(terminal -> probed.getOrDefault(terminal.code(), Optional.empty()));
+            Optional<RegionArrival> departure = known.map(KnownArrival::departure)
+                    .or(() -> departurePoint(chosenMode, originLat, originLng, chosenTerminal, destPort));
             chosen = chosen
                     .withFromName(departure.map(RegionArrival::name).orElse(null))
-                    .withDuration(durationOf(chosen.mode(), departure, chosenTerminal, destPort).orElse(null))
+                    // 잰 값을 이미 아는 구간은 다시 묻지 않는다. minutesFor 는 쓰기라(자리 생성 ·
+                    // lastAskedAt 갱신) 아는 값을 위해 부를 이유가 없다.
+                    .withDuration(known.map(KnownArrival::minutes)
+                            .orElseGet(() -> durationOf(
+                                    chosenMode, departure, chosenTerminal, destPort).orElse(null)))
                     .withDepartures(departuresOf(
                             chosen.mode(), departure, chosenTerminal, destPort, date, notBefore));
             chosen = viaOrHonest(chosen, departure, chosenTerminal);
@@ -210,24 +226,38 @@ public class RegionAccessService {
         };
     }
 
-    /** 이 수단이 쓰는 도착 터미널. 버스가 아니면 빈 값이다. */
+    /** 이 터미널로 갈 때 <b>어디서 타고 몇 분인가</b> — 잰 값이 있을 때만 만들어진다(#551). */
+    private record KnownArrival(RegionArrival departure, int minutes) {}
+
     /**
-     * 이 터미널로 가면 <b>도착 시각을 알 수 있나</b>(#551) — 대표를 정하기 <b>전에</b> 묻는다.
+     * 이 터미널로 가는 <b>잰 구간</b>을 찾는다(#551) — 대표를 정하기 <b>전에</b> 묻는다.
      *
-     * <p>순서가 얽힌 자리다. 소요시간을 알려면 출발 지점이 먼저 풀려야 하는데, 지금 흐름은 대표가
-     * 정해진 뒤에 한 번만 푼다(#507 리뷰가 "한 자리로 모은다" 고 못박았다). 그 구조를 깨지 않으려고
-     * <b>여기서는 판정만</b> 하고, 실제로 쓰는 값은 대표가 정해진 뒤 원래 자리에서 다시 푼다.
+     * <h2>읽기만 한다</h2>
      *
-     * <p><b>외부를 안 친다.</b> 출발 터미널 해석도 소요시간도 전부 우리 DB 다. 늘어나는 것은 지역당
-     * 최대 두 번의 조회이고, 같은 지점이 아닌 지역에서는 {@link SameArrivalPoint} 가 먼저 걸러 한 번도
-     * 안 묻는다.
+     * <p>{@code minutesFor} 가 아니라 {@link TransitDurationService#measuredMinutes} 를 쓴다. 앞엣것은
+     * <b>쓰기</b>라 자리를 만들고 {@code lastAskedAt} 을 올리는데(#491), 그건 "사용자가 실제로 물어본
+     * 구간" 이라는 뜻이다. 대표로 고르지도 않을 터미널에 그 표시를 남기면 <b>배치가 우선순위를 잘못
+     * 잡는다</b> — 쓰이지도 않는 구간을 먼저 재러 간다.
+     *
+     * <h2>첫 패스만 돈다</h2>
+     *
+     * <p>{@code boardableDeparture} 는 잰 구간을 못 찾으면 <b>같은 후보를 다시 훑어</b> "안 다니는 것으로
+     * 판명됐나" 를 묻는다. 여기서 알고 싶은 것은 "잰 값이 있나" 하나라 그 둘째 패스가 필요 없다 —
+     * 후보 {@value #MAX_DEPARTURE_CANDIDATES}개를 한 번만 훑고, 첫 값에서 멈춘다.
+     *
+     * <p>그래서 같은 지점인 지역에서 <b>터미널당 최대 여덟 질의</b>가 늘고, 그렇게 찾은 값은 대표가
+     * 정해진 뒤 그대로 쓰여 <b>다시 풀지 않는다</b>. 같은 지점이 아닌 지역에서는 {@link SameArrivalPoint}
+     * 가 먼저 걸러 한 번도 안 묻는다.
      */
-    private boolean knowsArrivalTime(Terminal terminal, double originLat, double originLng) {
+    private Optional<KnownArrival> knownArrival(Terminal terminal, double originLat, double originLng) {
         TransitMode mode = TransitMode.of(terminal.kind());
-        Optional<Terminal> only = Optional.of(terminal);
-        return departurePoint(mode, originLat, originLng, only, Optional.empty())
-                .flatMap(departure -> durationOf(mode, Optional.of(departure), only, Optional.empty()))
-                .isPresent();
+        return busTerminalResolver
+                .candidatesNear(originLat, originLng, terminal.kind(), MAX_DEPARTURE_CANDIDATES).stream()
+                .flatMap(candidate -> transitDurationService
+                        .measuredMinutes(mode, candidate.code(), terminal.code())
+                        .map(minutes -> new KnownArrival(RegionArrival.of(candidate), minutes))
+                        .stream())
+                .findFirst();
     }
 
     private static Optional<Terminal> terminalFor(
