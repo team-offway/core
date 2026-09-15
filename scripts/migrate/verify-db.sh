@@ -18,8 +18,12 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
   exit 1
 fi
 
+# 비밀번호는 argv 가 아니라 `MYSQL_PWD` 로 넘긴다(같은 컨테이너의 `/proc` 노출을 막는다).
+# DB 이름도 문자열 조립 대신 `$1` 로 넘긴다.
 mysql_in() {
-  docker exec -i "$CONTAINER" sh -c 'exec mysql -N -B --default-character-set=utf8mb4 -uroot -p"$MYSQL_ROOT_PASSWORD" '"$DATABASE"
+  docker exec -i "$CONTAINER" sh -c \
+    'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -N -B --default-character-set=utf8mb4 -uroot "$1"' \
+    sh "$DATABASE"
 }
 
 echo "── 배치 실행 기록"

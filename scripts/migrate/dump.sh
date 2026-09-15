@@ -32,9 +32,15 @@ echo "덤프 시작: $DATABASE" >&2
 # **파이프 중간 실패를 숨기지 않는다.** gzip 은 mysqldump 가 죽어도 정상 종료하므로,
 # pipefail 이 없으면 **잘린 덤프가 성공으로 흘러간다** — 그러면 복원이 절반만 된 채 끝난다.
 set -o pipefail
+# **비밀번호를 argv 로 넘기지 않는다.** 컨테이너 안에서 확장되므로 호스트 `ps` 에는 안 뜨지만,
+# 같은 컨테이너의 다른 프로세스가 `/proc/<pid>/cmdline` 을 읽으면 보인다. `MYSQL_PWD` 는 환경으로
+# 넘기고, 그 값은 이미 컨테이너 환경변수로 있어 새로 노출되는 자리가 없다.
+#
+# DB 이름도 `$1` 로 넘긴다 — 문자열을 조립해 붙이면 이름에 공백·따옴표가 섞이는 날 엉뚱한 인자가 된다.
 docker exec "$CONTAINER" sh -c \
-  'exec mysqldump --single-transaction --routines --triggers --set-gtid-purged=OFF --no-tablespaces \
-     -uroot -p"$MYSQL_ROOT_PASSWORD" '"$DATABASE" \
+  'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqldump --single-transaction --routines --triggers \
+     --set-gtid-purged=OFF --no-tablespaces -uroot "$1"' \
+  sh "$DATABASE" \
   | gzip -9
 status=$?
 

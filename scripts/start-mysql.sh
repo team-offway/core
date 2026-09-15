@@ -78,7 +78,10 @@ docker run -d \
 # 그 사이에 앱을 붙이면 Flyway 가 연결 실패로 죽는다.
 echo "기동 대기 중..."
 for _ in $(seq 1 60); do
-  if docker exec "$CONTAINER" sh -c 'mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' >/dev/null 2>&1; then
+  # 비밀번호는 argv 가 아니라 MYSQL_PWD 로 넘긴다 — 같은 컨테이너의 다른 프로세스가
+  # /proc/<pid>/cmdline 을 읽는 경로를 막는다. 값 자체는 이미 컨테이너 환경변수로 있다.
+  if docker exec "$CONTAINER" sh -c \
+      'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin ping -uroot --silent' >/dev/null 2>&1; then
     echo "$CONTAINER 준비 완료"
     exit 0
   fi
