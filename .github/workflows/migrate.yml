@@ -229,18 +229,63 @@ jobs:
             --protocol tcp --port 22 --cidr "${{ steps.ip.outputs.runner_ip }}/32"
 
       - name: SSH 키 준비
+        env:
+          NEW_HOST_KEY_FP: ${{ secrets.NEW_EC2_HOST_KEY_FP }}
+          OLD_HOST_KEY_FP: ${{ secrets.EC2_HOST_KEY_FP }}
         run: |
           set -uo pipefail
           mkdir -p ~/.ssh
           echo "${{ secrets.NEW_EC2_SSH_KEY }}" > ~/.ssh/new_key
           chmod 600 ~/.ssh/new_key
+
           # 호스트 키를 미리 신뢰 목록에 넣는다 — StrictHostKeyChecking=no 로 열어두면
           # 중간자 공격을 그대로 받는다. 이사는 DB 전체가 이 연결을 지나는 작업이다.
-          ssh-keyscan -H "${{ secrets.NEW_EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          #
+          # **다만 스캔 결과를 무조건 믿는 것도 신뢰의 근거가 없다(TOFU).** 경로를 잡은 공격자가
+          # 내놓은 키도 그대로 등록된다. 지문 시크릿이 있으면 **그 지문과 일치하는 키 줄만** 등록하고,
+          # 없으면 지금처럼 등록하되 경고를 남긴다 — 시크릿을 채우기 전에도 이사가 막히지 않게
+          # 점진 적용한다.
+          #
+          # 지문은 `ssh-keyscan -H <host> | ssh-keygen -lf -` 의 두 번째 칸(SHA256:...)이다.
+          trust_host() {
+            host=$1
+            expected=${2:-}
+            scan=$(mktemp)
+            ssh-keyscan -H "$host" > "$scan" 2>/dev/null
+            if [ ! -s "$scan" ]; then
+              echo "::error::$host 의 호스트 키를 가져오지 못했습니다"
+              rm -f "$scan"
+              return 1
+            fi
+            if [ -z "$expected" ]; then
+              echo "::warning::$host 호스트 키 지문 시크릿이 없어 스캔 결과를 그대로 신뢰합니다(TOFU)"
+              cat "$scan" >> ~/.ssh/known_hosts
+              rm -f "$scan"
+              return 0
+            fi
+            matched=0
+            while IFS= read -r line; do
+              [ -n "$line" ] || continue
+              fp=$(printf '%s\n' "$line" | ssh-keygen -lf - 2>/dev/null | awk '{print $2}')
+              if [ "$fp" = "$expected" ]; then
+                printf '%s\n' "$line" >> ~/.ssh/known_hosts
+                matched=1
+              fi
+            done < "$scan"
+            rm -f "$scan"
+            if [ "$matched" != "1" ]; then
+              echo "::error::$host 호스트 키 지문이 기대값과 다릅니다 — 중간자이거나 서버를 다시 만든 것입니다"
+              echo "::error::서버를 새로 만든 것이라면 시크릿의 지문을 갱신하세요"
+              return 1
+            fi
+            echo "$host 호스트 키 확인 완료"
+          }
+
+          trust_host "${{ secrets.NEW_EC2_HOST }}" "$NEW_HOST_KEY_FP" || exit 1
           if [ "${{ steps.plan.outputs.prepare }}" = "true" ] || [ "${{ steps.plan.outputs.data }}" = "true" ]; then
             echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/old_key
             chmod 600 ~/.ssh/old_key
-            ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+            trust_host "${{ secrets.EC2_HOST }}" "$OLD_HOST_KEY_FP" || exit 1
           fi
 
       # ── ① prepare ─────────────────────────────────────────────────────────
@@ -317,6 +362,40 @@ jobs:
 
       # ── ② data ────────────────────────────────────────────────────────────
 
+      # **호스트 문자열이 다르다고 서버가 다른 것은 아니다.**
+      #
+      # confirm 가드는 `NEW_EC2_HOST` 와 `EC2_HOST` 를 문자열로 견준다. 그런데 같은 EC2 를 IP·
+      # DNS 이름·CNAME 으로 다르게 적을 수 있어, 두 시크릿이 같은 서버를 가리키면서도 그 비교를
+      # 통과한다. 거기에 force 까지 켜면 <b>운영 DB 를 그대로 덮는다</b> — 이 작업에서 유일하게
+      # 되돌릴 수 없는 사고다.
+      #
+      # 그래서 덤프 전에 <b>서버 자신에게 정체를 묻는다</b>. IMDS 를 못 읽는 환경(EC2 가 아님)에서는
+      # 경고만 남기고 넘어간다 — 지금보다 나빠지지 않고, 읽히는 환경에서 실수 하나를 더 막는다.
+      - name: data · 두 서버가 다른 인스턴스인지 확인
+        if: steps.plan.outputs.data == 'true'
+        run: |
+          set -uo pipefail
+          instance_id() {
+            ssh -i "$1" -o ConnectTimeout=10 "$2" '
+              TOKEN=$(curl -sS -m 5 -X PUT http://169.254.169.254/latest/api/token \
+                -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null) || exit 0
+              curl -sS -m 5 -H "X-aws-ec2-metadata-token: $TOKEN" \
+                http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || exit 0
+            ' 2>/dev/null | tr -d '\r\n '
+          }
+          OLD_ID=$(instance_id ~/.ssh/old_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}")
+          NEW_ID=$(instance_id ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}")
+
+          if [ -z "$OLD_ID" ] || [ -z "$NEW_ID" ]; then
+            echo "::warning::인스턴스 ID 를 읽지 못했습니다(옛='$OLD_ID' 새='$NEW_ID') — 호스트 문자열 비교만으로 진행합니다"
+            exit 0
+          fi
+          if [ "$OLD_ID" = "$NEW_ID" ]; then
+            echo "::error::두 시크릿이 같은 인스턴스($OLD_ID)를 가리킵니다 — 옛 서버를 덮을 뻔했습니다"
+            exit 1
+          fi
+          echo "서로 다른 인스턴스입니다 (옛=$OLD_ID 새=$NEW_ID)"
+
       # **본 이사에서만 켠다.** `--single-transaction` 덕에 앱이 돌아도 일관된 스냅샷이 나오지만,
       # 덤프가 시작된 뒤의 쓰기는 안 담긴다. 그 쓰기를 잃지 않으려면 멈춰야 한다.
       #
@@ -383,6 +462,11 @@ jobs:
 
           if diff -u "$RUNNER_TEMP/old.tsv" "$RUNNER_TEMP/new.tsv" > "$RUNNER_TEMP/rowdiff.txt"; then
             echo "행 수가 모든 표에서 일치합니다 (${OLD_TABLES}개 표)"
+            # **여기가 "데이터가 다 왔다" 를 말할 수 있는 유일한 지점이다.** 마커를 남겨 app 단계가
+            # 빈 DB 위에서 뜨는 것을 막는다 — 그러면 Flyway 가 스키마를 새로 만들고, 그 뒤 data 를
+            # 돌리면 restore.sh 가 표를 발견해 force 없이 거부한다(복구 가능하지만 중단이다).
+            ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+              "printf '%s\n' '${{ github.run_id }}' > ~/offway/.data-restored"
             {
               echo "### 행 수 대조 — 일치 (${OLD_TABLES}개 표)"
               echo '```'
@@ -400,14 +484,6 @@ jobs:
             cat "$RUNNER_TEMP/rowdiff.txt"
             exit 1
           fi
-
-      # 이사를 접는 회차다. 서비스가 내려가 있을 이유가 없으므로 옛 앱을 되살린다.
-      - name: data · 실패하면 옛 앱 되살리기
-        if: failure() && steps.freeze.outputs.stopped == 'true'
-        run: |
-          ssh -i ~/.ssh/old_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            'docker start offway-core && echo "옛 앱을 다시 띄웠습니다"' || \
-            echo "::error::옛 앱을 되살리지 못했습니다 — 서버에 직접 붙어 확인하세요"
 
       # ── ③ app ─────────────────────────────────────────────────────────────
 
@@ -515,9 +591,23 @@ jobs:
             exit 1
           fi
 
+          # **MySQL 이 떠 있는 것과 데이터가 들어온 것은 다르다.** 컨테이너만 보고 뜨면 빈 DB 에
+          # 앱이 붙어 Flyway 가 스키마를 처음부터 만든다. 그 뒤 data 를 돌리면 restore.sh 가 표를
+          # 발견해 force 없이 거부하므로, 강제 복원을 다시 해야 하는 중단이 된다.
+          #
+          # 마커는 data 단계의 행 수 대조가 통과한 뒤에만 생기고, restore.sh 가 복원을 시작할 때
+          # 지운다 — 즉 '완결된 데이터' 일 때만 존재한다.
+          if [ ! -s ~/offway/.data-restored ]; then
+            echo "::error::데이터 복원 완료 표식이 없습니다 — data 단계를 먼저 돌리세요"
+            echo "::error::(빈 DB 에 앱을 띄우면 Flyway 가 스키마를 만들어 이후 복원이 거부됩니다)"
+            exit 1
+          fi
+
           docker build -t "offway-core:$SHA" -t offway-core:latest . || exit 1
-          docker rm -f offway-core 2>/dev/null || true
+          # **지우기 전에 읽는다.** 예전에는 `docker rm -f` 를 먼저 해서 그다음 `inspect` 가 항상
+          # 실패했고, `.prev-image` 가 늘 빈 파일이 됐다 — 롤백이 되돌아갈 이미지를 못 찾는다.
           docker inspect -f '{{.Config.Image}}' offway-core > ~/offway/.prev-image 2>/dev/null || : > ~/offway/.prev-image
+          docker rm -f offway-core 2>/dev/null || true
 
           docker run -d \
             --name offway-core \
@@ -652,17 +742,44 @@ jobs:
         run: |
           set -uo pipefail
           DOMAIN=api.offway.cloud
-          end=$(echo | openssl s_client -connect "$DOMAIN:443" -servername "$DOMAIN" 2>/dev/null \
+          NEW_HOST="${{ secrets.NEW_EC2_HOST }}"
+
+          # **새 서버에 직접 붙어 읽는다.** 도메인으로 붙으면 DNS 가 가리키는 곳의 인증서를 읽는데,
+          # DNS 가 아직 옛 서버면 **옛 서버의 정상 인증서**를 보고 이 단계가 통과한다 — 새 서버의
+          # Caddy 가 인증서를 못 받았는데도 초록불이 뜬다. SNI 는 도메인으로 보내야 Caddy 가 맞는
+          # 인증서를 내준다.
+          end=$(echo | openssl s_client -connect "$NEW_HOST:443" -servername "$DOMAIN" 2>/dev/null \
             | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
           if [ -z "$end" ]; then
-            echo "::error::$DOMAIN 443 에서 인증서를 읽지 못했습니다 — DNS 가 넘어왔는지, Caddy 로그를 확인하세요"
+            echo "::error::새 서버($NEW_HOST) 443 에서 $DOMAIN 인증서를 읽지 못했습니다 — Caddy 로그를 확인하세요"
             exit 1
           fi
-          echo "인증서 만료 $end"
+          echo "새 서버 인증서 만료 $end"
+
+          # DNS 가 넘어왔는지는 따로 알린다. 아직이면 사용자 요청은 여전히 옛 서버로 간다 —
+          # 인증서가 준비된 것과 트래픽이 넘어온 것은 별개다.
+          RESOLVED=$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1)
+          if [ "$RESOLVED" = "$NEW_HOST" ]; then
+            echo "DNS 도 새 서버를 가리킵니다 ($RESOLVED)"
+          else
+            echo "::warning::DNS 는 아직 $RESOLVED 입니다 — 인증서는 준비됐지만 트래픽은 넘어오지 않았습니다"
+          fi
 
       # ── 정리 ──────────────────────────────────────────────────────────────
       #
       # 실패해도 규칙은 반드시 회수한다 — 남으면 22번이 조금씩 영구 개방된다.
+
+      # 이사를 접는 회차다. 서비스가 내려가 있을 이유가 없으므로 옛 앱을 되살린다.
+      #
+      # **모든 단계 뒤에 둔다.** 예전에는 data 단계 직후에 있었는데, `all` 실행에서 그 뒤의 app·
+      # verify 가 실패하면 이 스텝을 **이미 지난 상태**라 옛 앱이 내려간 채 남았다 — 이사가 실패했는데
+      # 서비스도 멈춘 최악의 조합이다. 여기서는 어느 단계가 깨져도 freeze 를 한 회차면 되살린다.
+      - name: 실패하면 옛 앱 되살리기
+        if: failure() && steps.freeze.outputs.stopped == 'true'
+        run: |
+          ssh -i ~/.ssh/old_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'docker start offway-core && echo "옛 앱을 다시 띄웠습니다"' || \
+            echo "::error::옛 앱을 되살리지 못했습니다 — 서버에 직접 붙어 확인하세요"
 
       - name: 옛 서버 SSH 회수
         if: always() && steps.open-old.outcome == 'success'
