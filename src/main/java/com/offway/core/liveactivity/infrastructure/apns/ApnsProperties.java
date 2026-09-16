@@ -5,11 +5,28 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * APNs 직접 연동 설정(#575).
  *
- * <h2>Sign in with Apple 의 {@code .p8} 과 다른 키다</h2>
+ * <h2>Sign in with Apple 의 {@code .p8} 과 <b>다를 수 있다</b> — 그래서 설정을 따로 받는다</h2>
  *
- * <p>서버는 이미 Apple {@code .p8} 을 하나 들고 있다({@code offway.auth.apple.*}, #287). 그건 로그인
- * 연결 해제에 쓰는 <b>Sign in with Apple 키</b>라 푸시를 보낼 수 없다. APNs 키는 별도로 발급된 것이고,
- * 따라서 설정도 따로 받는다 — 두 값을 한 칸에 몰면 한쪽을 넣는 순간 다른 쪽이 조용히 망가진다.
+ * <p>서버는 이미 Apple {@code .p8} 을 하나 들고 있다({@code offway.auth.apple.*}, #287). 로그인 연결
+ * 해제에 쓰는 키다. <b>그 키가 APNs 에도 쓰일 수 있다</b> — Apple Developer 는 키 하나에 여러 서비스를
+ * 붙일 수 있고, 우리 키가 그 경우다.
+ *
+ * <p><b>실측(2026-09-15)</b> — 운영의 {@code APPLE_PRIVATE_KEY_BASE64} 로 JWT 를 만들어 APNs 에 더미
+ * 토큰으로 쐈다.
+ *
+ * <pre>
+ * api.sandbox.push.apple.com -> 400 {"reason":"BadDeviceToken"}
+ * api.push.apple.com         -> 400 {"reason":"BadDeviceToken"}
+ * </pre>
+ *
+ * <p>{@code InvalidProviderToken} 이 아니라 {@code BadDeviceToken} 이다 — APNs 가 provider token 을
+ * <b>받아들이고</b> 그다음 단계에서 거절한 것이다. {@code TopicDisallowed} 도 아니었으므로 topic 도 맞다.
+ *
+ * <p><b>그래도 한 칸에 몰지 않는다.</b> 한 키에 두 서비스가 붙어 있는 것은 우연이고 언제든 분리될 수
+ * 있어, 합쳐 두면 그때 한쪽을 바꾸는 순간 다른 쪽이 조용히 망가진다. 지금은 같은 값을 양쪽에 넣는다.
+ *
+ * <p>예전 이 주석은 "APNs 키는 <b>별도로 발급된 것</b>" 이라고 단정했다. 그 서술 때문에 있는 키를 두고
+ * 새로 발급하려는 일이 실제로 있었다(#581) — 확인은 위처럼 <b>쏴 보는 것</b>이 가장 빠르다.
  *
  * <p>FCM 을 쓰고 있어도 이 값은 안 채워져 있을 수 있다. Firebase 콘솔에 키를 <b>업로드한 것</b>과
  * 서버가 그 키로 <b>직접 JWT 를 만드는 것</b>은 별개다.

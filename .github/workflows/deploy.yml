@@ -247,6 +247,16 @@ jobs:
           APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}
           APPLE_KEY_ID=${{ secrets.APPLE_KEY_ID }}
           APPLE_PRIVATE_KEY_BASE64=${{ secrets.APPLE_PRIVATE_KEY_BASE64 }}
+          # APNs 직접 연동(#575) — 이 전달이 없어 운영에서 발송이 조용히 DISABLED 로 돌았다(#581).
+          # 값은 위 APPLE_* 와 같다. 한 키에 Sign in with Apple 과 APNs 가 둘 다 활성이기 때문이다
+          # (2026-09-15 실측: 그 키로 만든 JWT 가 APNs 에서 BadDeviceToken 을 받았다 = provider token 통과).
+          # 그래도 같은 환경변수로 합치지 않는다 — 키가 분리되는 날 한쪽을 바꾸면 다른 쪽이 조용히 망가진다.
+          APNS_TEAM_ID=${{ secrets.APNS_TEAM_ID }}
+          APNS_KEY_ID=${{ secrets.APNS_KEY_ID }}
+          APNS_PRIVATE_KEY_BASE64=${{ secrets.APNS_PRIVATE_KEY_BASE64 }}
+          APNS_TOPIC=${{ secrets.APNS_TOPIC }}
+          # APNS_SANDBOX 는 넘기지 않는다. 기본값 false(운영)가 맞고, 시크릿으로 열어 두면 실수로 true 가
+          # 들어가는 순간 운영 토큰이 BadDeviceToken 을 받아 푸시가 **조용히** 안 간다.
           PROVIDER_TOKEN_KEY_BASE64=${{ secrets.PROVIDER_TOKEN_KEY_BASE64 }}
           PROVIDER_TOKEN_KEY_VERSION=${{ secrets.PROVIDER_TOKEN_KEY_VERSION }}
           FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}
