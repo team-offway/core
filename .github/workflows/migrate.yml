@@ -74,8 +74,9 @@ on:
           - verify    # 스모크 + 배치가 발사됐는지 확인
           - all       # prepare → data → app → verify
           - caddy     # **DNS 를 넘긴 뒤에만.** 아래 주석 참고
+          - oneclick  # 인스턴스 생성 → all → IP 전환 → caddy. 시크릿을 새로 안 넣는다
       confirm:
-        description: 'NEW_EC2_HOST 를 손으로 다시 친다 (오타면 즉시 중단)'
+        description: 'NEW_EC2_HOST 를 손으로 다시 친다. oneclick 은 MIGRATE 라고 친다'
         required: true
         type: string
       freeze:
@@ -126,13 +127,27 @@ jobs:
           OLD_HOST: ${{ secrets.EC2_HOST }}
         run: |
           set -uo pipefail
+          trim() { printf '%s' "$1" | tr -d '\r\n '; }
+
+          # **oneclick 은 새 호스트를 아직 모른다** — 워크플로가 이제부터 만들기 때문이다. 그래서
+          # 확인 문구를 고정값으로 둔다. 대신 "같은 인스턴스인가" 는 확인할 자리가 따로 있는데,
+          # 만든 인스턴스는 당연히 다른 인스턴스라 그 검사가 저절로 통과한다.
+          if [ "${{ steps.plan.outputs.create }}" = "true" ]; then
+            if [ "$(trim "$CONFIRM")" != "MIGRATE" ]; then
+              echo "::error::oneclick 은 confirm 에 MIGRATE 라고 쳐야 합니다 — 중단합니다"
+              exit 1
+            fi
+            echo "확인 완료 — 인스턴스를 새로 만들어 이사합니다"
+            exit 0
+          fi
+
           if [ -z "${NEW_HOST:-}" ]; then
             echo "::error::NEW_EC2_HOST 시크릿이 없습니다 — 새 서버 정보를 먼저 넣으세요"
             exit 1
           fi
           # 앞뒤 공백·개행을 걷어내고 비교한다. 시크릿을 붙여 넣을 때 개행이 딸려 오는 일이 잦고,
           # 그때 "맞는데 안 맞는다" 로 한참 헤맨다.
-          if [ "$(printf '%s' "$CONFIRM" | tr -d '\r\n ')" != "$(printf '%s' "$NEW_HOST" | tr -d '\r\n ')" ]; then
+          if [ "$(trim "$CONFIRM")" != "$(trim "$NEW_HOST")" ]; then
             echo "::error::confirm 이 NEW_EC2_HOST 와 다릅니다 — 중단합니다"
             exit 1
           fi
@@ -157,13 +172,15 @@ jobs:
         run: |
           set -uo pipefail
           on() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+          # create·switch 는 oneclick 만 켠다 — 인스턴스를 만들고 IP 를 넘기는 두 자리다.
           case "$STAGE" in
-            prepare) on prepare true;  on data false; on app false; on verify false; on caddy false ;;
-            data)    on prepare false; on data true;  on app false; on verify false; on caddy false ;;
-            app)     on prepare false; on data false; on app true;  on verify false; on caddy false ;;
-            verify)  on prepare false; on data false; on app false; on verify true;  on caddy false ;;
-            all)     on prepare true;  on data true;  on app true;  on verify true;  on caddy false ;;
-            caddy)   on prepare false; on data false; on app false; on verify false; on caddy true  ;;
+            prepare)  on create false; on prepare true;  on data false; on app false; on verify false; on switch false; on caddy false ;;
+            data)     on create false; on prepare false; on data true;  on app false; on verify false; on switch false; on caddy false ;;
+            app)      on create false; on prepare false; on data false; on app true;  on verify false; on switch false; on caddy false ;;
+            verify)   on create false; on prepare false; on data false; on app false; on verify true;  on switch false; on caddy false ;;
+            all)      on create false; on prepare true;  on data true;  on app true;  on verify true;  on switch false; on caddy false ;;
+            caddy)    on create false; on prepare false; on data false; on app false; on verify false; on switch false; on caddy true  ;;
+            oneclick) on create true;  on prepare true;  on data true;  on app true;  on verify true;  on switch true;  on caddy true  ;;
             *) echo "::error::알 수 없는 stage: $STAGE"; exit 1 ;;
           esac
           echo "stage=$STAGE"
@@ -205,6 +222,98 @@ jobs:
           echo "runner_ip=$RUNNER_IP" >> "$GITHUB_OUTPUT"
 
       # prepare 도 옛 서버를 읽는다 — MySQL 설정(conf.d)을 거기서 가져온다.
+      # ── ⓞ create (oneclick 전용) ───────────────────────────────────────────
+      #
+      # **옛 서버를 복제한다 — 스펙을 우리가 고르지 않는다.**
+      #
+      # 인스턴스 타입·서브넷·보안그룹·키페어·AMI 를 옛 인스턴스에서 읽어 그대로 쓴다. 그래서
+      # `NEW_*` 시크릿이 **하나도 필요 없다** — 같은 키페어라 접속되고, 같은 보안그룹이라 22번
+      # 개방도 옛 것과 한 번에 끝난다. "AWS 만 옮긴다" 는 것이 이 뜻이다.
+      #
+      # 우리가 고르면 그 순간 "옛 서버와 무엇이 다른지" 를 사람이 관리해야 한다. 이사에서 가장
+      # 비싼 실수가 그 차이다 — 장애가 나기 전까지 안 보인다(#232·#526 이 같은 이유로 docker run
+      # 인자를 세 곳에서 똑같이 맞춘다).
+      #
+      # **AMI 에는 도커가 없다.** 옛 인스턴스의 AMI 는 만들 당시의 것이고 도커는 그 뒤에 깔렸다.
+      # 그래서 user-data 로 설치한다 — 골든 AMI 를 따로 만들지 않는 이유는 그것을 갱신하는 수동
+      # 작업이 새로 생기고, 그 AMI 에 MySQL 데이터가 딸려오면 restore 가 매번 force 를 요구하기
+      # 때문이다. 설치 2~3분은 이사에서 무의미한 시간이다.
+      - name: create · 옛 서버를 복제해 인스턴스를 띄운다
+        id: create
+        if: steps.plan.outputs.create == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ap-northeast-1
+          OLD_HOST: ${{ secrets.EC2_HOST }}
+          OLD_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -uo pipefail
+
+          # 옛 인스턴스를 공개 IP 로 찾는다. 시크릿에 적힌 그 주소가 곧 우리가 아는 유일한 좌표다.
+          SPEC=$(aws ec2 describe-instances \
+            --filters "Name=ip-address,Values=$OLD_HOST" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].{id:InstanceId,type:InstanceType,ami:ImageId,key:KeyName,subnet:SubnetId,sgs:SecurityGroups[].GroupId,az:Placement.AvailabilityZone}' \
+            --output json 2>&1) || { echo "::error::옛 인스턴스를 조회하지 못했습니다 — ec2:DescribeInstances 권한을 확인하세요"; echo "$SPEC"; exit 1; }
+
+          OLD_ID=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id") or "")')
+          if [ -z "$OLD_ID" ]; then
+            echo "::error::$OLD_HOST 로 running 인스턴스를 찾지 못했습니다"
+            exit 1
+          fi
+          TYPE=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin)["type"])')
+          AMI=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin)["ami"])')
+          KEY=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"] or "")')
+          SUBNET=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin)["subnet"])')
+          SGS=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["sgs"]))')
+          echo "옛 인스턴스 $OLD_ID — type=$TYPE ami=$AMI key=$KEY subnet=$SUBNET sg=$SGS"
+
+          if [ -z "$KEY" ]; then
+            echo "::error::옛 인스턴스에 키페어가 없습니다 — 같은 키로 접속할 수 없어 멈춥니다"
+            exit 1
+          fi
+
+          # 도커만 깔고 끝낸다. 나머지 바탕(디렉터리·네트워크·MySQL)은 prepare 가 이미 한다 —
+          # 여기서 또 하면 같은 일이 두 곳에 적히고, 그 둘이 어긋나는 날 원인을 못 찾는다.
+          cat > /tmp/user-data.sh <<'UD'
+          #!/bin/bash
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -y
+          apt-get install -y docker.io
+          systemctl enable --now docker
+          for u in ubuntu ec2-user admin; do id "$u" >/dev/null 2>&1 && usermod -aG docker "$u" || true; done
+          UD
+
+          RUN=$(aws ec2 run-instances \
+            --image-id "$AMI" --instance-type "$TYPE" --key-name "$KEY" \
+            --subnet-id "$SUBNET" $(for g in $SGS; do printf ' --security-group-ids %s' "$g"; done) \
+            --associate-public-ip-address \
+            --user-data "file:///tmp/user-data.sh" \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=offway-migrate-${{ github.run_id }}},{Key=offway:migrate,Value=${{ github.run_id }}},{Key=offway:source,Value=$OLD_ID}]" \
+            --query 'Instances[0].InstanceId' --output text 2>&1) \
+            || { echo "::error::인스턴스를 만들지 못했습니다 — ec2:RunInstances 권한을 확인하세요"; echo "$RUN"; exit 1; }
+          echo "새 인스턴스 $RUN — 태그 offway:migrate=${{ github.run_id }}"
+          echo "id=$RUN" >> "$GITHUB_OUTPUT"
+
+          aws ec2 wait instance-running --instance-ids "$RUN"
+          HOST=$(aws ec2 describe-instances --instance-ids "$RUN" \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+          if [ -z "$HOST" ] || [ "$HOST" = "None" ]; then
+            echo "::error::새 인스턴스에 공개 IP 가 붙지 않았습니다 (서브넷의 자동 할당 설정을 확인하세요)"
+            exit 1
+          fi
+          echo "host=$HOST" >> "$GITHUB_OUTPUT"
+          echo "user=$OLD_USER" >> "$GITHUB_OUTPUT"
+          echo "새 서버 $HOST (사용자 $OLD_USER — 옛 서버와 같은 키페어)"
+
+          {
+            echo "### 새 인스턴스"
+            echo "- id \`$RUN\` · $HOST · type \`$TYPE\`"
+            echo "- 옛 인스턴스 \`$OLD_ID\` 의 AMI·서브넷·보안그룹·키페어를 그대로 씁니다"
+            echo "- **실패하면 이 인스턴스는 남습니다** — 태그 \`offway:migrate=${{ github.run_id }}\` 로 찾아 정리하세요"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: 옛 서버 SSH 개방
         id: open-old
         if: steps.plan.outputs.prepare == 'true' || steps.plan.outputs.data == 'true'
@@ -217,8 +326,11 @@ jobs:
             --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
             --protocol tcp --port 22 --cidr "${{ steps.ip.outputs.runner_ip }}/32"
 
+      # oneclick 에서는 **건너뛴다** — 새 인스턴스가 옛 것과 같은 보안그룹을 쓰므로 위 스텝이
+      # 이미 그 22번을 열었다. 여기서 또 열면 같은 규칙을 두 번 넣어 중복 오류가 난다.
       - name: 새 서버 SSH 개방
         id: open-new
+        if: steps.plan.outputs.create != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NEW_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NEW_AWS_SECRET_ACCESS_KEY }}
@@ -228,14 +340,39 @@ jobs:
             --group-id "${{ secrets.NEW_EC2_SECURITY_GROUP_ID }}" \
             --protocol tcp --port 22 --cidr "${{ steps.ip.outputs.runner_ip }}/32"
 
-      - name: SSH 키 준비
+      # 접속 좌표를 **한 곳에서** 정한다.
+      #
+      # 이 아래 모든 스텝은 `ssh newsrv` · `scp ... oldsrv:` 처럼 **별칭만** 쓴다. 예전에는 스텝마다
+      # `ssh -i <키> "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}"` 를 적어, 같은 좌표가
+      # **51군데**에 흩어져 있었다. 그러면 oneclick 처럼 <b>호스트를 실행 중에 알게 되는</b> 경로를
+      # 붙일 수가 없다 — 51군데를 다 바꿔야 하고, 하나만 놓치면 그 스텝이 엉뚱한 서버에 붙는다.
+      #
+      # 별칭은 `~/.ssh/config` 가 든다. 사용자·키·호스트가 거기 한 번만 적히므로, oneclick 은
+      # 방금 만든 인스턴스의 IP 를 여기 넣기만 하면 나머지가 따라온다.
+      - name: SSH 접속 좌표 준비
         env:
           NEW_HOST_KEY_FP: ${{ secrets.NEW_EC2_HOST_KEY_FP }}
           OLD_HOST_KEY_FP: ${{ secrets.EC2_HOST_KEY_FP }}
+          # oneclick 은 방금 만든 인스턴스를, 그 밖에는 시크릿을 쓴다. 빈 값이면 아래에서 멈춘다.
+          NEW_HOST: ${{ steps.create.outputs.host || secrets.NEW_EC2_HOST }}
+          NEW_USER: ${{ steps.create.outputs.user || secrets.NEW_EC2_USER }}
+          OLD_HOST: ${{ secrets.EC2_HOST }}
+          OLD_USER: ${{ secrets.EC2_USER }}
         run: |
           set -uo pipefail
           mkdir -p ~/.ssh
-          echo "${{ secrets.NEW_EC2_SSH_KEY }}" > ~/.ssh/new_key
+          if [ -z "$NEW_HOST" ] || [ -z "$NEW_USER" ]; then
+            echo "::error::새 서버 접속 좌표가 없습니다 — oneclick 이 아니면 NEW_EC2_HOST·NEW_EC2_USER 를 채우세요"
+            exit 1
+          fi
+
+          # oneclick 이 만든 인스턴스는 **옛 서버와 같은 키페어**로 띄운다. 그래서 새 키 시크릿이
+          # 없어도 접속된다 — 그게 "시크릿 0개로 이사한다" 의 근거다.
+          if [ -n "${{ secrets.NEW_EC2_SSH_KEY }}" ]; then
+            echo "${{ secrets.NEW_EC2_SSH_KEY }}" > ~/.ssh/new_key
+          else
+            echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/new_key
+          fi
           chmod 600 ~/.ssh/new_key
 
           # 호스트 키를 미리 신뢰 목록에 넣는다 — StrictHostKeyChecking=no 로 열어두면
@@ -281,12 +418,58 @@ jobs:
             echo "$host 호스트 키 확인 완료"
           }
 
-          trust_host "${{ secrets.NEW_EC2_HOST }}" "$NEW_HOST_KEY_FP" || exit 1
+          # 별칭을 쓴다 — 이 아래 모든 스텝이 이 파일만 본다.
+          alias_for() {
+            printf 'Host %s\n  HostName %s\n  User %s\n  IdentityFile %s\n  StrictHostKeyChecking yes\n  ConnectTimeout 15\n\n' \
+              "$1" "$2" "$3" "$4" >> ~/.ssh/config
+          }
+          : > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+          trust_host "$NEW_HOST" "$NEW_HOST_KEY_FP" || exit 1
+          alias_for newsrv "$NEW_HOST" "$NEW_USER" ~/.ssh/new_key
+          echo "newsrv → $NEW_USER@$NEW_HOST"
+
           if [ "${{ steps.plan.outputs.prepare }}" = "true" ] || [ "${{ steps.plan.outputs.data }}" = "true" ]; then
             echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/old_key
             chmod 600 ~/.ssh/old_key
-            trust_host "${{ secrets.EC2_HOST }}" "$OLD_HOST_KEY_FP" || exit 1
+            trust_host "$OLD_HOST" "$OLD_HOST_KEY_FP" || exit 1
+            alias_for oldsrv "$OLD_HOST" "$OLD_USER" ~/.ssh/old_key
+            echo "oldsrv → $OLD_USER@$OLD_HOST"
           fi
+
+      # 방금 만든 인스턴스는 **부팅과 도커 설치가 끝나야** 쓸 수 있다.
+      #
+      # `instance-running` 은 하이퍼바이저가 켰다는 뜻일 뿐이다. SSH 데몬이 뜨기 전이고, user-data
+      # 는 그 뒤로도 몇 분 돈다. 기다리지 않으면 prepare 가 "도커가 없습니다" 로 멈춘다 —
+      # 인스턴스는 멀쩡한데 이사가 실패하는 모양이라 원인을 찾기 어렵다.
+      #
+      # `cloud-init status --wait` 가 user-data 완료를 직접 기다린다. 우리가 sleep 으로 어림하지
+      # 않는 이유는 설치 시간이 인스턴스 타입·리전에 따라 달라지기 때문이다.
+      - name: create · 새 서버가 준비될 때까지 기다린다
+        if: steps.plan.outputs.create == 'true'
+        run: |
+          set -uo pipefail
+          echo "SSH 대기..."
+          for i in $(seq 1 60); do
+            if ssh -o BatchMode=yes -o ConnectTimeout=5 newsrv true 2>/dev/null; then
+              echo "SSH 연결됨 (${i}회차)"
+              break
+            fi
+            sleep 5
+          done
+          if ! ssh -o BatchMode=yes -o ConnectTimeout=5 newsrv true 2>/dev/null; then
+            echo "::error::5분 동안 새 서버에 SSH 로 붙지 못했습니다"
+            exit 1
+          fi
+
+          echo "도커 설치(user-data) 완료 대기..."
+          ssh newsrv 'sudo cloud-init status --wait' || true
+          if ! ssh newsrv 'docker ps >/dev/null 2>&1'; then
+            echo "::error::도커를 쓸 수 없습니다 — cloud-init 로그를 확인하세요 (sudo cat /var/log/cloud-init-output.log)"
+            exit 1
+          fi
+          echo "새 서버 준비 완료 — 도커 사용 가능"
 
       # ── ① prepare ─────────────────────────────────────────────────────────
       #
@@ -298,9 +481,9 @@ jobs:
         if: steps.plan.outputs.prepare == 'true'
         run: |
           set -uo pipefail
-          scp -i ~/.ssh/new_key scripts/start-mysql.sh \
-            "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}:/tmp/start-mysql.sh"
-          ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" 'bash -s' <<'REMOTE'
+          scp scripts/start-mysql.sh \
+            newsrv:/tmp/start-mysql.sh
+          ssh newsrv 'bash -s' <<'REMOTE'
           set -uo pipefail
           if ! command -v docker >/dev/null 2>&1; then
             echo "::error::도커가 없습니다 — 인스턴스에 먼저 설치하세요"
@@ -329,35 +512,60 @@ jobs:
         run: |
           set -uo pipefail
           set -o pipefail
-          ssh -i ~/.ssh/old_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          ssh oldsrv \
             'cd ~/offway/mysql && tar cz conf.d' \
-            | ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+            | ssh newsrv \
                 'cd ~/offway/mysql && tar xz'
           echo "── 옮긴 설정 내용"
-          ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+          ssh newsrv \
             'for f in ~/offway/mysql/conf.d/*; do [ -f "$f" ] || continue; echo "--- $f"; cat "$f"; done' \
             || echo "(설정 파일이 없습니다 — 빈 conf.d 로 뜹니다)"
 
       - name: prepare · MySQL 기동
         if: steps.plan.outputs.prepare == 'true'
+        env:
+          NEW_ROOT_PW: ${{ secrets.NEW_MYSQL_ROOT_PASSWORD }}
+          NEW_DB_PW: ${{ secrets.NEW_DB_PASSWORD }}
         run: |
           set -uo pipefail
-          # 환경변수 파일은 600 으로 둔다. `docker run -e` 로 나열하면 서버에서 `ps` 만 쳐도
-          # root 비밀번호가 그대로 보인다.
+
+          # **비밀번호가 없으면 옛 서버의 것을 그대로 가져온다.**
           #
-          # quoted heredoc('ENVEOF') 이어야 한다 — 따옴표가 없으면 셸이 $ 를 변수로 해석해
-          # 비밀번호의 특수문자가 조용히 잘린다. secrets 참조는 Actions 가 YAML 단계에서
-          # 치환하므로 quote 를 붙여도 정상 주입된다.
-          cat > mysql.env <<'ENVEOF'
+          # `MYSQL_ROOT_PASSWORD` 는 시크릿에 없다 — 운영 MySQL 을 손으로 띄웠고 그 값은 서버의
+          # `mysql.env` 에만 있다. oneclick 은 시크릿을 새로 안 넣는 것이 목적이라, 없으면 옛
+          # 서버에서 복사한다. 같은 값이 되는 것은 문제가 아니다 — 덤프·복원이 같은 자격으로
+          # 돌아야 하고, 옛 서버는 이사가 끝나면 버린다.
+          #
+          # **빈 값으로 넘어가지 않게 막는 것이 요점이다.** 예전에는 시크릿이 비면 그대로
+          # `MYSQL_ROOT_PASSWORD=` 가 되어 MySQL 이 비밀번호 없이 떴다 — 그 상태로 복원이 성공하면
+          # 아무도 모른 채 열린 DB 가 남는다.
+          if [ -n "$NEW_ROOT_PW" ] && [ -n "$NEW_DB_PW" ]; then
+            # 환경변수 파일은 600 으로 둔다. `docker run -e` 로 나열하면 서버에서 `ps` 만 쳐도
+            # root 비밀번호가 그대로 보인다.
+            #
+            # quoted heredoc('ENVEOF') 이어야 한다 — 따옴표가 없으면 셸이 $ 를 변수로 해석해
+            # 비밀번호의 특수문자가 조용히 잘린다. secrets 참조는 Actions 가 YAML 단계에서
+            # 치환하므로 quote 를 붙여도 정상 주입된다.
+            cat > mysql.env <<'ENVEOF'
           MYSQL_ROOT_PASSWORD=${{ secrets.NEW_MYSQL_ROOT_PASSWORD }}
           MYSQL_DATABASE=offway
           MYSQL_USER=${{ secrets.DB_USERNAME }}
           MYSQL_PASSWORD=${{ secrets.NEW_DB_PASSWORD }}
           ENVEOF
-          scp -i ~/.ssh/new_key mysql.env \
-            "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}:~/offway/mysql.env"
-          rm -f mysql.env
-          ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+            scp mysql.env newsrv:~/offway/mysql.env
+            rm -f mysql.env
+            echo "MySQL 자격 — NEW_* 시크릿을 씁니다"
+          else
+            echo "NEW_MYSQL_ROOT_PASSWORD·NEW_DB_PASSWORD 가 없어 옛 서버의 mysql.env 를 복사합니다"
+            # 러너를 거치지 않고 서버에서 서버로 보낸다 — 비밀번호가 러너 디스크에 안 남는다.
+            ssh oldsrv 'cat ~/offway/mysql.env' | ssh newsrv 'cat > ~/offway/mysql.env'
+            if ! ssh newsrv 'grep -q "^MYSQL_ROOT_PASSWORD=." ~/offway/mysql.env'; then
+              echo "::error::옛 서버의 mysql.env 에서 root 비밀번호를 읽지 못했습니다 — 빈 비밀번호로 띄우지 않고 멈춥니다"
+              exit 1
+            fi
+          fi
+
+          ssh newsrv \
             'chmod 600 ~/offway/mysql.env && bash ~/offway/start-mysql.sh'
 
       # ── ② data ────────────────────────────────────────────────────────────
@@ -376,15 +584,15 @@ jobs:
         run: |
           set -uo pipefail
           instance_id() {
-            ssh -i "$1" -o ConnectTimeout=10 "$2" '
+            ssh "$1" '
               TOKEN=$(curl -sS -m 5 -X PUT http://169.254.169.254/latest/api/token \
                 -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null) || exit 0
               curl -sS -m 5 -H "X-aws-ec2-metadata-token: $TOKEN" \
                 http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || exit 0
             ' 2>/dev/null | tr -d '\r\n '
           }
-          OLD_ID=$(instance_id ~/.ssh/old_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}")
-          NEW_ID=$(instance_id ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}")
+          OLD_ID=$(instance_id oldsrv)
+          NEW_ID=$(instance_id newsrv)
 
           if [ -z "$OLD_ID" ] || [ -z "$NEW_ID" ]; then
             echo "::warning::인스턴스 ID 를 읽지 못했습니다(옛='$OLD_ID' 새='$NEW_ID') — 호스트 문자열 비교만으로 진행합니다"
@@ -407,7 +615,7 @@ jobs:
         if: steps.plan.outputs.data == 'true' && inputs.freeze
         run: |
           set -uo pipefail
-          ssh -i ~/.ssh/old_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          ssh oldsrv \
             'docker stop offway-core && echo "옛 앱을 멈췄습니다"'
           echo "stopped=true" >> "$GITHUB_OUTPUT"
 
@@ -418,19 +626,18 @@ jobs:
           MIGRATE_FORCE: ${{ inputs.force && '1' || '0' }}
         run: |
           set -uo pipefail
-          scp -i ~/.ssh/old_key scripts/migrate/dump.sh \
-            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/offway-dump.sh"
-          scp -i ~/.ssh/new_key scripts/migrate/restore.sh scripts/migrate/count-rows.sh \
-            "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}:/tmp/"
-
+          scp scripts/migrate/dump.sh \
+            oldsrv:/tmp/offway-dump.sh
+          scp scripts/migrate/restore.sh scripts/migrate/count-rows.sh \
+            newsrv:/tmp/
           # **러너 디스크에 떨구지 않고 흘린다.** 사용자 데이터가 러너에 남지 않고, 남았을 때
           # 그것을 지우는 일을 또 챙길 필요도 없다 — 실패한 회차에서 가장 잘 잊히는 일이다.
           #
           # pipefail 이 없으면 덤프가 중간에 죽어도 복원 쪽 종료코드만 보고 성공으로 읽는다.
           set -o pipefail
-          ssh -i ~/.ssh/old_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          ssh oldsrv \
             'bash /tmp/offway-dump.sh' \
-            | ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+            | ssh newsrv \
                 "MIGRATE_FORCE=$MIGRATE_FORCE bash /tmp/restore.sh"
 
       # **이 스텝이 이 워크플로를 만드는 이유다.**
@@ -442,11 +649,11 @@ jobs:
         if: steps.plan.outputs.data == 'true'
         run: |
           set -uo pipefail
-          scp -i ~/.ssh/old_key scripts/migrate/count-rows.sh \
-            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/count-rows.sh"
-          ssh -i ~/.ssh/old_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          scp scripts/migrate/count-rows.sh \
+            oldsrv:/tmp/count-rows.sh
+          ssh oldsrv \
             'bash /tmp/count-rows.sh' > "$RUNNER_TEMP/old.tsv"
-          ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+          ssh newsrv \
             'bash /tmp/count-rows.sh' > "$RUNNER_TEMP/new.tsv"
 
           OLD_TABLES=$(wc -l < "$RUNNER_TEMP/old.tsv")
@@ -465,7 +672,7 @@ jobs:
             # **여기가 "데이터가 다 왔다" 를 말할 수 있는 유일한 지점이다.** 마커를 남겨 app 단계가
             # 빈 DB 위에서 뜨는 것을 막는다 — 그러면 Flyway 가 스키마를 새로 만들고, 그 뒤 data 를
             # 돌리면 restore.sh 가 표를 발견해 force 없이 거부한다(복구 가능하지만 중단이다).
-            ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+            ssh newsrv \
               "printf '%s\n' '${{ github.run_id }}' > ~/offway/.data-restored"
             {
               echo "### 행 수 대조 — 일치 (${OLD_TABLES}개 표)"
@@ -492,23 +699,26 @@ jobs:
         run: |
           set -uo pipefail
           JAR=$(ls build/libs/*.jar | grep -v plain | head -1)
-          ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+          ssh newsrv \
             'mkdir -p ~/offway/build/libs'
-          scp -i ~/.ssh/new_key "$JAR" \
-            "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}:~/offway/build/libs/app.jar"
-          scp -i ~/.ssh/new_key Dockerfile \
-            "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}:~/offway/Dockerfile"
+          scp "$JAR" \
+            newsrv:~/offway/build/libs/app.jar
+          scp Dockerfile \
+            newsrv:~/offway/Dockerfile
           # 복구 스크립트도 함께 올린다 — 이사 뒤 첫 배포가 실패했을 때 이 파일이 없으면
           # deploy.yml 의 롤백이 "파일 없음" 으로 죽는다.
-          scp -i ~/.ssh/new_key scripts/recover-container.sh \
-            "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}:~/offway/recover-container.sh"
-
+          scp scripts/recover-container.sh \
+            newsrv:~/offway/recover-container.sh
       # `deploy.yml` 의 목록과 **같은 순서·같은 항목**이다. DB 값 셋만 새것으로 바뀐다.
       # 한쪽에 키가 늘면 다른 쪽도 늘려야 한다 — 빠뜨리면 이사한 서버에서 그 기능만 조용히 죽는다.
       #
       # `DB_URL` 은 기본적으로 그대로다. 앱이 `offway-net` 안에서 컨테이너 이름(`offway-mysql`)으로
       # 붙으므로 호스트가 서버에 안 묶여 있기 때문이다. 그 가정이 깨지는 구성이면 `NEW_DB_URL` 을
       # 넣어 덮어쓴다.
+      #
+      # `DB_PASSWORD` 도 같은 규칙이다 — `NEW_DB_PASSWORD` 가 없으면 옛 값을 쓴다. 위 MySQL 기동이
+      # 시크릿이 없을 때 옛 `mysql.env` 를 복사하므로, 앱도 옛 값을 써야 **두 쪽이 맞는다.**
+      # 폴백이 없으면 앱만 빈 비밀번호로 붙어 기동 중에 죽는다.
       - name: app · 환경변수 파일 생성 (600)
         if: steps.plan.outputs.app == 'true'
         run: |
@@ -517,7 +727,7 @@ jobs:
           SPRING_PROFILES_ACTIVE=prod
           DB_URL=${{ secrets.NEW_DB_URL || secrets.DB_URL }}
           DB_USERNAME=${{ secrets.DB_USERNAME }}
-          DB_PASSWORD=${{ secrets.NEW_DB_PASSWORD }}
+          DB_PASSWORD=${{ secrets.NEW_DB_PASSWORD || secrets.DB_PASSWORD }}
           OFFWAY_BASIC_USERNAME=${{ secrets.OFFWAY_BASIC_USERNAME }}
           OFFWAY_BASIC_PASSWORD=${{ secrets.OFFWAY_BASIC_PASSWORD }}
           JWT_SECRET=${{ secrets.JWT_SECRET }}
@@ -565,9 +775,9 @@ jobs:
           STUBEOF
           fi
 
-          scp -i ~/.ssh/new_key env.prod \
-            "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}:~/offway/env.prod"
-          ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+          scp env.prod \
+            newsrv:~/offway/env.prod
+          ssh newsrv \
             'chmod 600 ~/offway/env.prod'
           rm -f env.prod
 
@@ -580,7 +790,7 @@ jobs:
         run: |
           set -uo pipefail
           set -o pipefail
-          ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+          ssh newsrv \
             'bash -s' -- "${{ github.sha }}" <<'REMOTE'
           set -uo pipefail
           SHA="$1"
@@ -644,7 +854,7 @@ jobs:
           # 비밀번호만 러너에서 넘긴다. 서버의 env.prod 에는 bcrypt 해시만 있어 평문을 복원할 수 없다.
           # 사용자명은 반대로 **서버 파일에서 읽는다** — 시크릿을 인자로 넘기면 값 끝의 개행 하나로
           # `-u "user\n:pass"` 가 되어 401 이 난다(deploy.yml 에서 실제로 두 번 겪었다).
-          ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+          ssh newsrv \
             'bash -s' -- "${{ secrets.OFFWAY_SMOKE_PASSWORD }}" <<'REMOTE'
           set -uo pipefail
           SMOKE_PASS=$(printf '%s' "$1" | tr -d '\r\n')
@@ -689,9 +899,9 @@ jobs:
         if: steps.plan.outputs.verify == 'true'
         run: |
           set -uo pipefail
-          scp -i ~/.ssh/new_key scripts/migrate/verify-db.sh scripts/migrate/count-rows.sh \
-            "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}:/tmp/"
-          ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+          scp scripts/migrate/verify-db.sh scripts/migrate/count-rows.sh \
+            newsrv:/tmp/
+          ssh newsrv \
             'bash /tmp/verify-db.sh' | tee "$RUNNER_TEMP/verify.txt"
           {
             echo "### 이사 뒤 DB 상태"
@@ -700,6 +910,86 @@ jobs:
             echo '```'
             # 작은따옴표다. 큰따옴표 안의 백틱은 셸이 명령 치환으로 읽어 batch_run 을 실행하려 든다.
             echo '`batch_run` 이 비어 있으면 배치가 전부 발사됩니다 — 오늘 외부 호출 수를 함께 보세요.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── ④½ switch (oneclick 전용) — 트래픽을 넘긴다 ────────────────────────
+      #
+      # **도메인은 바뀌지 않는다. 그 도메인이 가리키는 곳이 바뀐다.**
+      #
+      # 앱·프론트·카카오가 전부 `api.offway.cloud` 로 붙는다(카카오 콘솔에 redirect URI 가 등록돼
+      # 있어 IP 로는 대체할 수 없다). 그래서 트래픽을 넘기려면 그 이름이 새 서버를 가리켜야 한다.
+      #
+      # 방법이 둘인데 값어치가 다르다.
+      #
+      #   Elastic IP 재연결 — API 한 번. **되돌리기도 한 번.** 도메인·DNS 를 안 건드린다
+      #   A 레코드 변경     — 가비아 콘솔 로그인. 새벽에 문제가 나면 그 로그인이 복구 시간이 된다
+      #
+      # 그래서 EIP 가 있으면 자동으로 넘기고, 없으면 **넘기지 않고 멈춘다** — 사람이 A 레코드를
+      # 고쳐야 하는데 그 주소를 요약에 찍어 준다. 여기서 임의로 진행하면 "앱은 새 서버에 떴는데
+      # 트래픽은 옛 서버로 가는" 상태를 초록불로 보고하게 된다.
+      - name: switch · Elastic IP 를 새 서버로 넘긴다
+        id: switch
+        if: steps.plan.outputs.switch == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ap-northeast-1
+          OLD_HOST: ${{ secrets.EC2_HOST }}
+          NEW_ID: ${{ steps.create.outputs.id }}
+          NEW_HOST: ${{ steps.create.outputs.host }}
+        run: |
+          set -uo pipefail
+          ALLOC=$(aws ec2 describe-addresses --public-ips "$OLD_HOST" \
+            --query 'Addresses[0].AllocationId' --output text 2>/dev/null) || ALLOC=""
+
+          if [ -z "$ALLOC" ] || [ "$ALLOC" = "None" ]; then
+            echo "::warning::$OLD_HOST 는 Elastic IP 가 아닙니다 — 트래픽을 자동으로 넘길 수 없습니다"
+            {
+              echo "### 트래픽 전환 — **손이 필요합니다**"
+              echo ""
+              echo "옛 주소가 Elastic IP 가 아니라 재연결로 넘길 수 없습니다. 가비아에서 A 레코드를 고치세요."
+              echo ""
+              echo "| | |"
+              echo "|---|---|"
+              echo "| 도메인 | \`api.offway.cloud\` (바뀌지 않습니다) |"
+              echo "| 지금 | \`$OLD_HOST\` |"
+              echo "| 바꿀 값 | \`$NEW_HOST\` |"
+              echo ""
+              echo "**다음 이사를 위해** — EIP 를 하나 할당해 붙여 두면 A 레코드를 마지막으로 한 번 고치고,"
+              echo "이후 모든 이사·인스턴스 교체에서 DNS 를 영구히 안 건드립니다."
+              echo ""
+              echo "A 레코드를 넘긴 뒤 \`stage=caddy\` 를 눌러 인증서를 받으세요."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "switched=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Elastic IP 확인 — $OLD_HOST ($ALLOC)"
+          aws ec2 associate-address --allocation-id "$ALLOC" --instance-id "$NEW_ID" --allow-reassociation \
+            >/dev/null || { echo "::error::EIP 재연결에 실패했습니다 — ec2:AssociateAddress 권한을 확인하세요"; exit 1; }
+          echo "switched=true" >> "$GITHUB_OUTPUT"
+          echo "eip=$OLD_HOST" >> "$GITHUB_OUTPUT"
+
+          # 재연결 뒤 그 IP 는 **새 서버**다. 별칭을 갱신해 뒤 단계(caddy)가 새 서버를 보게 한다.
+          # 갱신하지 않으면 caddy 가 방금 떼어낸 임시 IP 로 붙어, 인증서를 엉뚱한 곳에서 받는다.
+          python3 - "$OLD_HOST" <<'PY'
+          import pathlib, re, sys
+          eip = sys.argv[1]
+          p = pathlib.Path.home() / '.ssh' / 'config'
+          text = p.read_text()
+          # newsrv 블록의 HostName 만 EIP 로 바꾼다
+          text = re.sub(r'(Host newsrv\n(?:  \w+ .*\n)*?  HostName )\S+', r'\g<1>' + eip, text)
+          p.write_text(text)
+          print(f'newsrv 별칭을 {eip} 로 갱신')
+          PY
+          # 호스트 키가 달라졌다(같은 IP, 다른 서버). 옛 항목을 지우고 다시 받는다.
+          ssh-keygen -R "$OLD_HOST" >/dev/null 2>&1 || true
+          ssh-keyscan -H "$OLD_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          {
+            echo "### 트래픽 전환 완료"
+            echo "- Elastic IP \`$OLD_HOST\` → 새 인스턴스 \`$NEW_ID\`"
+            echo "- **도메인·DNS 를 건드리지 않았습니다** — 되돌리려면 같은 EIP 를 옛 인스턴스에 재연결하세요"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # ── ⑤ caddy — DNS 를 넘긴 뒤에만 ───────────────────────────────────────
@@ -712,12 +1002,16 @@ jobs:
       # 누른다. `caddy-data` 볼륨을 옛 서버에서 옮기지 않는 이유도 같다. 새로 발급받는 편이
       # 단순하고, DNS 가 이미 넘어와 있으면 10~30초면 끝난다.
       - name: caddy · 기동 (DNS 전환 후)
-        if: steps.plan.outputs.caddy == 'true'
+        # oneclick 에서는 **EIP 전환이 성공했을 때만** 돈다. 전환이 안 됐으면 DNS 가 아직 옛
+        # 서버를 가리키므로 HTTP-01 검증이 거기로 가 실패하고, 그 실패가 주 5회 제한을 태운다.
+        if: |
+          steps.plan.outputs.caddy == 'true'
+          && (steps.plan.outputs.switch != 'true' || steps.switch.outputs.switched == 'true')
         run: |
           set -uo pipefail
-          scp -i ~/.ssh/new_key scripts/Caddyfile \
-            "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}:~/offway/caddy/Caddyfile"
-          ssh -i ~/.ssh/new_key "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" 'bash -s' <<'REMOTE'
+          scp scripts/Caddyfile \
+            newsrv:~/offway/caddy/Caddyfile
+          ssh newsrv 'bash -s' <<'REMOTE'
           set -uo pipefail
           docker rm -f offway-caddy 2>/dev/null || true
           # 인자는 scripts/setup-https.md 의 정본과 같다. caddy-data 볼륨이 인증서가 사는 곳이라,
@@ -738,11 +1032,16 @@ jobs:
           REMOTE
 
       - name: caddy · 인증서 확인
-        if: steps.plan.outputs.caddy == 'true'
+        # oneclick 에서는 **EIP 전환이 성공했을 때만** 돈다. 전환이 안 됐으면 DNS 가 아직 옛
+        # 서버를 가리키므로 HTTP-01 검증이 거기로 가 실패하고, 그 실패가 주 5회 제한을 태운다.
+        if: |
+          steps.plan.outputs.caddy == 'true'
+          && (steps.plan.outputs.switch != 'true' || steps.switch.outputs.switched == 'true')
         run: |
           set -uo pipefail
           DOMAIN=api.offway.cloud
-          NEW_HOST="${{ secrets.NEW_EC2_HOST }}"
+          # EIP 를 넘겼으면 그 주소가 곧 새 서버다. oneclick 이 아니면 시크릿을 쓴다.
+          NEW_HOST="${{ steps.switch.outputs.eip || steps.create.outputs.host || secrets.NEW_EC2_HOST }}"
 
           # **새 서버에 직접 붙어 읽는다.** 도메인으로 붙으면 DNS 가 가리키는 곳의 인증서를 읽는데,
           # DNS 가 아직 옛 서버면 **옛 서버의 정상 인증서**를 보고 이 단계가 통과한다 — 새 서버의
@@ -777,7 +1076,7 @@ jobs:
       - name: 실패하면 옛 앱 되살리기
         if: failure() && steps.freeze.outputs.stopped == 'true'
         run: |
-          ssh -i ~/.ssh/old_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          ssh oldsrv \
             'docker start offway-core && echo "옛 앱을 다시 띄웠습니다"' || \
             echo "::error::옛 앱을 되살리지 못했습니다 — 서버에 직접 붙어 확인하세요"
 
@@ -810,14 +1109,12 @@ jobs:
         run: |
           set -uo pipefail
           # 서버에 올려 둔 스크립트를 치운다 — 남겨 둘 이유가 없고, 다음 회차는 다시 올린다.
-          ssh -o ConnectTimeout=10 -i ~/.ssh/new_key \
-            "${{ secrets.NEW_EC2_USER }}@${{ secrets.NEW_EC2_HOST }}" \
+          ssh newsrv \
             'rm -f /tmp/restore.sh /tmp/count-rows.sh /tmp/verify-db.sh /tmp/start-mysql.sh' 2>/dev/null || true
-          ssh -o ConnectTimeout=10 -i ~/.ssh/old_key \
-            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+          ssh oldsrv \
             'rm -f /tmp/offway-dump.sh /tmp/count-rows.sh' 2>/dev/null || true
           # 러너에 남은 덤프 부산물·자격은 전부 지운다. 러너는 회차마다 버려지지만, 그것에 기대지 않는다.
-          rm -f ~/.ssh/old_key ~/.ssh/new_key env.prod mysql.env
+          rm -f ~/.ssh/old_key ~/.ssh/new_key ~/.ssh/config env.prod mysql.env
           rm -f "$RUNNER_TEMP/old.tsv" "$RUNNER_TEMP/new.tsv"
 
       # 무엇이 남았는지 사람에게 넘긴다. **freeze 로 멈춘 앱이 있으면 그게 가장 중요한 한 줄이다.**
