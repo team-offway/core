@@ -113,6 +113,33 @@ jobs:
       - name: 체크아웃
         uses: actions/checkout@v7
 
+      # 어떤 단계를 돌릴지 한 곳에서 정한다. 스텝마다 `inputs.stage` 를 다시 해석하면 조건이
+      # 흩어져 "왜 이게 돌았지" 를 추적하기 어렵다.
+      #
+      # **`all` 에 caddy 는 안 들어간다.** Caddy 를 DNS 전환 전에 띄우면 Let's Encrypt 의 HTTP-01
+      # 검증이 옛 서버로 가서 실패하고, 실패가 쌓이면 **같은 도메인 주 5회** 제한에 걸린다. 그러면
+      # 정작 이사 날에 인증서를 못 받는다. 그래서 caddy 는 사람이 DNS 를 넘긴 뒤 따로 누른다.
+      - name: 단계 결정
+        id: plan
+        env:
+          STAGE: ${{ inputs.stage }}
+        run: |
+          set -uo pipefail
+          on() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+          # create·switch 는 oneclick 만 켠다 — 인스턴스를 만들고 IP 를 넘기는 두 자리다.
+          case "$STAGE" in
+            prepare)  on create false; on prepare true;  on data false; on app false; on verify false; on switch false; on caddy false ;;
+            data)     on create false; on prepare false; on data true;  on app false; on verify false; on switch false; on caddy false ;;
+            app)      on create false; on prepare false; on data false; on app true;  on verify false; on switch false; on caddy false ;;
+            verify)   on create false; on prepare false; on data false; on app false; on verify true;  on switch false; on caddy false ;;
+            all)      on create false; on prepare true;  on data true;  on app true;  on verify true;  on switch false; on caddy false ;;
+            caddy)    on create false; on prepare false; on data false; on app false; on verify false; on switch false; on caddy true  ;;
+            oneclick) on create true;  on prepare true;  on data true;  on app true;  on verify true;  on switch true;  on caddy true  ;;
+            *) echo "::error::알 수 없는 stage: $STAGE"; exit 1 ;;
+          esac
+          echo "stage=$STAGE"
+
+
       # **가장 먼저, 서버를 건드리기 전에 확인한다.**
       #
       # 이 워크플로가 하는 일 중 유일하게 되돌릴 수 없는 것이 복원이다. 새 호스트 자리에 옛 호스트를
@@ -158,33 +185,6 @@ jobs:
             exit 1
           fi
           echo "확인 완료 — 대상은 새 서버입니다"
-
-      # 어떤 단계를 돌릴지 한 곳에서 정한다. 스텝마다 `inputs.stage` 를 다시 해석하면 조건이
-      # 흩어져 "왜 이게 돌았지" 를 추적하기 어렵다.
-      #
-      # **`all` 에 caddy 는 안 들어간다.** Caddy 를 DNS 전환 전에 띄우면 Let's Encrypt 의 HTTP-01
-      # 검증이 옛 서버로 가서 실패하고, 실패가 쌓이면 **같은 도메인 주 5회** 제한에 걸린다. 그러면
-      # 정작 이사 날에 인증서를 못 받는다. 그래서 caddy 는 사람이 DNS 를 넘긴 뒤 따로 누른다.
-      - name: 단계 결정
-        id: plan
-        env:
-          STAGE: ${{ inputs.stage }}
-        run: |
-          set -uo pipefail
-          on() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
-          # create·switch 는 oneclick 만 켠다 — 인스턴스를 만들고 IP 를 넘기는 두 자리다.
-          case "$STAGE" in
-            prepare)  on create false; on prepare true;  on data false; on app false; on verify false; on switch false; on caddy false ;;
-            data)     on create false; on prepare false; on data true;  on app false; on verify false; on switch false; on caddy false ;;
-            app)      on create false; on prepare false; on data false; on app true;  on verify false; on switch false; on caddy false ;;
-            verify)   on create false; on prepare false; on data false; on app false; on verify true;  on switch false; on caddy false ;;
-            all)      on create false; on prepare true;  on data true;  on app true;  on verify true;  on switch false; on caddy false ;;
-            caddy)    on create false; on prepare false; on data false; on app false; on verify false; on switch false; on caddy true  ;;
-            oneclick) on create true;  on prepare true;  on data true;  on app true;  on verify true;  on switch true;  on caddy true  ;;
-            *) echo "::error::알 수 없는 stage: $STAGE"; exit 1 ;;
-          esac
-          echo "stage=$STAGE"
-
       - name: JDK 설치
         if: steps.plan.outputs.app == 'true'
         uses: actions/setup-java@v5
@@ -539,6 +539,18 @@ jobs:
           # **빈 값으로 넘어가지 않게 막는 것이 요점이다.** 예전에는 시크릿이 비면 그대로
           # `MYSQL_ROOT_PASSWORD=` 가 되어 MySQL 이 비밀번호 없이 떴다 — 그 상태로 복원이 성공하면
           # 아무도 모른 채 열린 DB 가 남는다.
+          #
+          # **둘 중 하나만 채운 조합은 거절한다.** `MYSQL_ROOT_PASSWORD` 가 시크릿에 없는 값이라
+          # `NEW_DB_PASSWORD` 만 채우는 일이 현실적으로 생기는데, 그러면 MySQL 은 옛 비밀번호로
+          # 초기화되고 앱은 새 비밀번호로 붙는다 — `app` 단계가 5분 헬스체크 실패로 끝나고, 로그에는
+          # 접속 거부만 남아 원인을 되짚기 어렵다. 애매한 상태를 만들지 않고 여기서 끊는다.
+          if { [ -n "$NEW_ROOT_PW" ] && [ -z "$NEW_DB_PW" ]; } \
+            || { [ -z "$NEW_ROOT_PW" ] && [ -n "$NEW_DB_PW" ]; }; then
+            echo "::error::NEW_MYSQL_ROOT_PASSWORD 와 NEW_DB_PASSWORD 는 **둘 다** 채우거나 **둘 다** 비워야 합니다"
+            echo "::error::하나만 채우면 MySQL 과 앱이 서로 다른 비밀번호를 쓰게 됩니다"
+            exit 1
+          fi
+
           if [ -n "$NEW_ROOT_PW" ] && [ -n "$NEW_DB_PW" ]; then
             # 환경변수 파일은 600 으로 둔다. `docker run -e` 로 나열하면 서버에서 `ps` 만 쳐도
             # root 비밀번호가 그대로 보인다.
@@ -939,6 +951,30 @@ jobs:
           NEW_HOST: ${{ steps.create.outputs.host }}
         run: |
           set -uo pipefail
+
+          # **호스트 키를 전환 **전에** 확보한다.**
+          #
+          # 재연결 뒤 그 IP 는 새 서버이므로 known_hosts 항목이 달라진다. 그때 `ssh-keyscan` 을 하면
+          # 두 가지가 겹친다 — 경로가 아직 안 잡혀 **빈 결과로 끝날 수 있고**, 결과를 검증 없이
+          # 믿으면 TOFU 다. 빈 결과면 known_hosts 에 항목이 없어 뒤의 caddy 가 `scp` 에서 바로
+          # 실패하는데, **그 시점은 트래픽이 이미 넘어간 자리**다 — 443 에 Caddy 가 없는 상태로
+          # 실패가 남아 사용자 요청이 끊긴다.
+          #
+          # 지금은 그 서버에 이미 SSH 로 붙어 있다. 그래서 **같은 서버의 키를 미리 받아 두고**,
+          # 전환 뒤에는 호스트 이름만 바꿔 등록한다 — 스캔도 재시도도 필요 없고, 받은 키가 그
+          # 서버의 것임이 확실하다.
+          NEW_KEYS=""
+          for i in 1 2 3; do
+            NEW_KEYS=$(ssh-keyscan "$NEW_HOST" 2>/dev/null)
+            [ -n "$NEW_KEYS" ] && break
+            sleep 3
+          done
+          if [ -z "$NEW_KEYS" ]; then
+            echo "::error::새 서버($NEW_HOST)의 호스트 키를 받지 못했습니다 — 전환하지 않고 멈춥니다"
+            echo "::error::(전환 전이라 옛 서버가 그대로 운영입니다)"
+            exit 1
+          fi
+
           ALLOC=$(aws ec2 describe-addresses --public-ips "$OLD_HOST" \
             --query 'Addresses[0].AllocationId' --output text 2>/dev/null) || ALLOC=""
 
@@ -982,9 +1018,15 @@ jobs:
           p.write_text(text)
           print(f'newsrv 별칭을 {eip} 로 갱신')
           PY
-          # 호스트 키가 달라졌다(같은 IP, 다른 서버). 옛 항목을 지우고 다시 받는다.
+          # 같은 IP 에 다른 서버가 붙었으니 옛 항목을 지우고, **위에서 미리 받아 둔 새 서버의 키**를
+          # 그 IP 이름으로 등록한다. 여기서 다시 스캔하지 않는 이유는 위 주석에 적었다.
           ssh-keygen -R "$OLD_HOST" >/dev/null 2>&1 || true
-          ssh-keyscan -H "$OLD_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          printf '%s\n' "$NEW_KEYS" | sed "s/^[^ ]*/$OLD_HOST/" >> ~/.ssh/known_hosts
+          if ! ssh-keygen -F "$OLD_HOST" >/dev/null 2>&1; then
+            echo "::error::$OLD_HOST 의 호스트 키를 등록하지 못했습니다 — caddy 가 접속하지 못합니다"
+            exit 1
+          fi
+          echo "호스트 키를 $OLD_HOST 이름으로 옮겨 등록했습니다"
 
           {
             echo "### 트래픽 전환 완료"
