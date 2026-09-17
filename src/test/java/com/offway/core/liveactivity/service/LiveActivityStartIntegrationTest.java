@@ -229,7 +229,7 @@ class LiveActivityStartIntegrationTest {
         sender.respondWith(token -> ApnsResult.SENT);
         UUID owner = UUID.randomUUID();
         saveCourse(owner, TODAY.plusDays(2), 2);
-        String device = "pts-" + UUID.randomUUID();
+        String device = hexToken();
         register(owner, device);
         register(owner, device);
 
@@ -239,7 +239,7 @@ class LiveActivityStartIntegrationTest {
     }
 
     private String registerDevice(UUID owner) {
-        String token = "pts-" + UUID.randomUUID();
+        String token = hexToken();
         register(owner, token);
         return token;
     }
@@ -249,10 +249,15 @@ class LiveActivityStartIntegrationTest {
     }
 
     private String registerCard(UUID owner, Long courseId) {
-        String token = "card-" + UUID.randomUUID();
+        String token = hexToken();
         liveActivityTokenRepository.register(
                 LiveActivityToken.register(owner, courseId, token, LocalDateTime.now()));
         return token;
+    }
+
+    /** 앱이 보내는 모양 그대로 — {@code Data} 를 바이트마다 {@code %02x} 로 푼 hex 문자열이다. */
+    private static String hexToken() {
+        return UUID.randomUUID().toString().replace("-", "");
     }
 
     private boolean deviceExists(String token) {

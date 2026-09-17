@@ -10,6 +10,7 @@ import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -76,6 +77,22 @@ public class PushToStartToken {
      */
     public static final int MAX_TOKEN_LENGTH = 512;
 
+    /**
+     * 토큰의 생김새 — <b>hex 문자열, 짝수 길이</b>.
+     *
+     * <p>{@code Activity.pushToStartTokenUpdates} 가 주는 것은 {@code Data} 이고, 앱은 그것을
+     * 바이트마다 {@code %02x} 로 풀어 보낸다. 그래서 hex 문자만 들어 있고 길이가 항상 짝수다 —
+     * {@code (?:[0-9A-Fa-f]{2})+} 하나가 그 둘을 함께 강제한다.
+     *
+     * <p><b>왜 형식까지 보나.</b> 이 값은 그대로 APNs 요청 URL 에 붙는다. 공백이 섞인 값이 들어오면
+     * {@code URI.create} 가 터지고, 그 실패는 {@link com.offway.core.liveactivity.infrastructure.apns.ApnsResult#FAILED}
+     * 로 번역된다 — <b>{@code GONE} 이 아니라서 행이 안 지워지고 매일 같은 실패를 되풀이한다.</b>
+     * 여기서 한 번 막는 것이 그 반복을 없애는 유일한 자리다.
+     */
+    public static final String TOKEN_PATTERN = "^(?:[0-9A-Fa-f]{2})+$";
+
+    private static final Pattern HEX = Pattern.compile(TOKEN_PATTERN);
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -120,6 +137,9 @@ public class PushToStartToken {
      */
     public static String requireToken(String token) {
         if (token == null || token.isBlank() || token.length() > MAX_TOKEN_LENGTH) {
+            throw LiveActivityException.invalidPushToken();
+        }
+        if (!HEX.matcher(token).matches()) {
             throw LiveActivityException.invalidPushToken();
         }
         return token;
