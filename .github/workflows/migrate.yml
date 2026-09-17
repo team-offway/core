@@ -123,10 +123,27 @@ jobs:
         id: plan
         env:
           STAGE: ${{ inputs.stage }}
+          LIVE_KEYS: ${{ inputs.live_keys }}
         run: |
           set -uo pipefail
           on() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
-          # create·switch 는 oneclick 만 켠다 — 인스턴스를 만들고 IP 를 넘기는 두 자리다.
+
+          # **oneclick 의 전환·인증서는 `live_keys` 가 켜졌을 때만 돈다.**
+          #
+          # EIP 는 지금 운영 인스턴스에 붙어 있다. 리허설에서 그것을 옮기면 **사용자 요청이 리허설
+          # 서버로 간다** — 그 서버는 `live_keys` 를 끈 채라 외부 API 키가 없어, 코스 생성이 통째로
+          # degrade 된 화면을 사용자가 받는다. 리허설이 운영을 가져가는 것은 어떤 경우에도 틀리다.
+          #
+          # caddy 도 같이 묶는다. DNS 가 아직 운영을 가리키는 동안 인증서를 받으려 하면 HTTP-01
+          # 검증이 **운영 서버로** 가서 실패하고, 그 실패가 쌓이면 같은 도메인 주 5회 제한에 걸려
+          # 정작 이사 날에 인증서를 못 받는다.
+          #
+          # 그래서 `live_keys` 가 리허설/본 이사를 가르는 단일 신호다 — 키 없이 도는 회차는 전환도
+          # 인증서도 하지 않는다.
+          SWITCHABLE=false
+          [ "$LIVE_KEYS" = "true" ] && SWITCHABLE=true
+
+          # create 는 oneclick 만 켠다 — 인스턴스를 만드는 유일한 자리다.
           case "$STAGE" in
             prepare)  on create false; on prepare true;  on data false; on app false; on verify false; on switch false; on caddy false ;;
             data)     on create false; on prepare false; on data true;  on app false; on verify false; on switch false; on caddy false ;;
@@ -134,10 +151,20 @@ jobs:
             verify)   on create false; on prepare false; on data false; on app false; on verify true;  on switch false; on caddy false ;;
             all)      on create false; on prepare true;  on data true;  on app true;  on verify true;  on switch false; on caddy false ;;
             caddy)    on create false; on prepare false; on data false; on app false; on verify false; on switch false; on caddy true  ;;
-            oneclick) on create true;  on prepare true;  on data true;  on app true;  on verify true;  on switch true;  on caddy true  ;;
+            oneclick) on create true;  on prepare true;  on data true;  on app true;  on verify true;  on switch "$SWITCHABLE"; on caddy "$SWITCHABLE" ;;
             *) echo "::error::알 수 없는 stage: $STAGE"; exit 1 ;;
           esac
           echo "stage=$STAGE"
+
+          if [ "$STAGE" = "oneclick" ] && [ "$SWITCHABLE" != "true" ]; then
+            echo "리허설 회차입니다 — 인스턴스를 만들고 데이터까지 옮기되 **트래픽은 넘기지 않습니다**"
+            {
+              echo "### 리허설 회차 (live_keys 꺼짐)"
+              echo "- 인스턴스 생성 · 복원 · 행 수 대조 · 앱 기동까지 확인합니다"
+              echo "- **EIP 전환과 인증서는 건너뜁니다** — 운영 트래픽을 키 없는 서버로 보내지 않기 위해서입니다"
+              echo "- 본 이사에서는 \`live_keys\` 를 켜세요. 그때 전환까지 이어집니다"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
 
       # **가장 먼저, 서버를 건드리기 전에 확인한다.**
