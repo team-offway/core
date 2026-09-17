@@ -37,6 +37,24 @@ public sealed interface LiveActivityPush {
     }
 
     /**
+     * 잠금화면에 카드를 <b>새로 만든다</b>(#583) — push-to-start.
+     *
+     * <p><b>앱이 안 켜져 있어도 된다.</b> iOS 가 카드를 만들고 앱을 백그라운드로 깨워 그 카드의
+     * 갱신 토큰을 준다. 앱이 그 토큰을 {@code POST /api/v1/live-activities} 로 올리면 그 뒤 갱신·종료는
+     * 지금 경로(#577)를 그대로 탄다.
+     *
+     * <p>{@link Update} 와 {@code state} 를 공유한다 — <b>같은 다섯 칸이어야 한다.</b> 띄울 때와
+     * 갱신할 때 모양이 다르면 앱의 {@code ContentState} 디코딩이 한쪽에서만 성공하고, 그 실패는
+     * 오류 없이 화면이 안 바뀌는 것으로만 드러난다.
+     *
+     * @param courseId 어느 코스인가. <b>문자열로 나간다</b> — 앱의 {@code TripActivityAttributes} 가
+     *     {@code let courseId: String} 이라, 숫자로 보내면 디코딩에 실패해 카드가 조용히 안 뜬다
+     * @param state 처음 그릴 값. 갱신과 같은 계약이다
+     */
+    record Start(long courseId, Update state) implements LiveActivityPush {
+    }
+
+    /**
      * 카드를 내린다 — 여행이 끝났거나 코스가 사라졌다.
      *
      * <p>안 보내면 iOS 가 스스로 걷어낼 때까지 <b>최대 12시간</b> 끝난 여행이 잠금화면에 남는다.

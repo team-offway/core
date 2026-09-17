@@ -224,11 +224,39 @@ class TmapClientImpl implements TmapClient {
         if (vias.size() != size - 2) {
             return Optional.empty();
         }
+        if (!isPermutation(vias, size)) {
+            log.warn("TMAP 경유지 순서가 자리바꿈이 아닙니다 — 직선거리 정렬로 폴백 점개수={}", size);
+            return Optional.empty();
+        }
         vias.sort(Comparator.comparingInt(via -> via[0]));
         List<Integer> order = new ArrayList<>();
         order.add(0);
         vias.forEach(via -> order.add(via[1]));
         order.add(size - 1);
         return Optional.of(order);
+    }
+
+    /**
+     * 돌려받은 경유지들이 <b>우리가 보낸 것의 자리바꿈</b>인가 — 각 원본 인덱스가 {@code 1..size-2} 에서
+     * 정확히 한 번씩.
+     *
+     * <p>개수만 세면 부족하다. {@code viaPointId} 는 <b>외부가 채워 주는 값</b>이라 같은 인덱스가 두 번
+     * 오거나 범위를 벗어나도 개수는 맞을 수 있고, 그러면 <b>한 장소가 코스에 두 번 들어가고 다른
+     * 하나는 사라진다.</b> 범위를 벗어나면 그 인덱스를 쓰는 쪽에서 터진다.
+     *
+     * <p>여기서 끊는 이유: 이 값은 이제 <b>캐시에 최대 30일 남는다</b>(#584). 한 번 잘못 받으면 그동안
+     * 같은 구간이 계속 틀린 순서로 나가고, TMAP 을 다시 안 부르니 저절로 낫지도 않는다. 폴백은
+     * 캐시하지 않으므로 빈 결과로 돌리면 다음 요청이 다시 묻는다.
+     */
+    private static boolean isPermutation(List<int[]> vias, int size) {
+        boolean[] seen = new boolean[size];
+        for (int[] via : vias) {
+            int original = via[1];
+            if (original <= 0 || original >= size - 1 || seen[original]) {
+                return false;
+            }
+            seen[original] = true;
+        }
+        return true;
     }
 }

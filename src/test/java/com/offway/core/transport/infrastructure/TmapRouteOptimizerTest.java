@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.infrastructure.tmap.TmapClient;
 import com.offway.core.transport.infrastructure.tmap.dto.CarRouteResult;
+import com.offway.core.transport.service.CarRouteCaches;
 import com.offway.core.transport.service.RouteOptimizer;
 import java.util.HashSet;
 import java.util.List;
@@ -34,14 +35,14 @@ class TmapRouteOptimizerTest {
 
     @Test
     void TMAP_최적순서가_있으면_그대로_쓴다() {
-        RouteOptimizer optimizer = new TmapRouteOptimizer(orderStub(Optional.of(List.of(0, 2, 1, 3))));
+        RouteOptimizer optimizer = new TmapRouteOptimizer(orderStub(Optional.of(List.of(0, 2, 1, 3))), CarRouteCaches.empty());
 
         assertEquals(List.of(0, 2, 1, 3), optimizer.optimalOrder(FOUR));
     }
 
     @Test
     void TMAP가_없으면_최근접_폴백으로_전체를_한번씩_방문한다() {
-        RouteOptimizer optimizer = new TmapRouteOptimizer(orderStub(Optional.empty()));
+        RouteOptimizer optimizer = new TmapRouteOptimizer(orderStub(Optional.empty()), CarRouteCaches.empty());
 
         List<Integer> order = optimizer.optimalOrder(FOUR);
 
@@ -51,7 +52,7 @@ class TmapRouteOptimizerTest {
 
     @Test
     void 두곳_이하는_순서를_그대로_둔다() {
-        RouteOptimizer optimizer = new TmapRouteOptimizer(orderStub(Optional.empty()));
+        RouteOptimizer optimizer = new TmapRouteOptimizer(orderStub(Optional.empty()), CarRouteCaches.empty());
 
         assertEquals(List.of(0, 1), optimizer.optimalOrder(FOUR.subList(0, 2)));
     }

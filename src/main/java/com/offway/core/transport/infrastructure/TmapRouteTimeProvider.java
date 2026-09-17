@@ -5,7 +5,9 @@ import com.offway.core.transport.domain.TransportMode;
 import com.offway.core.transport.infrastructure.tmap.TmapClient;
 import com.offway.core.transport.infrastructure.tmap.dto.CarRouteResult;
 import com.offway.core.transport.service.RouteTimeProvider;
+import com.offway.core.transport.service.CarRouteCacheService;
 import com.offway.core.transport.service.UnroutableCoordinateService;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -29,11 +31,28 @@ public class TmapRouteTimeProvider implements RouteTimeProvider {
     private final TmapClient tmapClient;
     private final HaversineTravelTimeProvider fallback;
     private final UnroutableCoordinateService unroutableCoordinateService;
+    private final CarRouteCacheService carRouteCacheService;
 
+    /**
+     * <p><b>최근에 잰 구간이면 다시 묻지 않는다</b>(#584). 같은 코스를 다시 만들면 좌표가 글자 하나까지
+     * 같아(생성이 결정적이다) 여기가 그대로 적중한다.
+     *
+     * <p><b>폴백은 캐시에 안 남긴다.</b> 직선거리는 한도가 말랐거나 좌표가 도로에 안 붙을 때 나오는
+     * 값이라, 그걸 남기면 하루 한도가 마른 것이 재측정 주기 내내 굳는다 — 그날 이후로는 한도가
+     * 멀쩡해도 계속 직선거리를 쓴다.
+     */
     @Override
     public int drivingMinutes(Coordinate from, Coordinate to) {
+        Optional<Integer> cached = carRouteCacheService.legMinutes(from, to);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
         return switch (tmapClient.carRoute(from, to)) {
-            case CarRouteResult.Found found -> found.route().durationMinutes();
+            case CarRouteResult.Found found -> {
+                int minutes = found.route().durationMinutes();
+                carRouteCacheService.rememberLeg(from, to, minutes);
+                yield minutes;
+            }
             case CarRouteResult.Rejected rejected -> {
                 // 좌표를 기록해 다음 코스에서 뺀다. 이 코스는 이미 조립된 뒤라 여기서 되돌리지 않는다 —
                 // 후보를 다시 골라 처음부터 짜면 외부 호출이 배로 는다.
