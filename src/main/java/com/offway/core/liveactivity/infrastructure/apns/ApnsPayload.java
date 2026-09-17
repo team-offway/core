@@ -38,6 +38,14 @@ final class ApnsPayload {
      */
     static final String PRIORITY_END = "10";
 
+    /**
+     * 카드를 만들 때 iOS 에 알려 줄 Activity 종류 — 앱의 Swift 구조체 이름 그대로다(#583).
+     *
+     * <p>앱에서 그 구조체 이름을 바꾸면 여기도 같은 PR 에서 고쳐야 한다. 안 고치면 카드가 안 뜨는데
+     * <b>오류가 오지 않는다.</b>
+     */
+    private static final String ATTRIBUTES_TYPE = "TripActivityAttributes";
+
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private ApnsPayload() {
@@ -62,6 +70,14 @@ final class ApnsPayload {
                 // 지금 치운다. 이 값을 빼면 iOS 가 스스로 걷어낼 때까지 최대 12시간 남는다.
                 aps.put("dismissal-date", now.getEpochSecond());
             }
+            case LiveActivityPush.Start start -> {
+                aps.put("event", "start");
+                // Swift 구조체 이름 그대로다. 틀리면 iOS 가 어느 Activity 를 만들지 못 정해
+                // 카드가 조용히 안 뜬다 — 오류도 응답도 없다.
+                aps.put("attributes-type", ATTRIBUTES_TYPE);
+                aps.put("attributes", attributes(start));
+                aps.put("content-state", contentState(start.state()));
+            }
         }
         return OBJECT_MAPPER.writeValueAsString(Map.of("aps", aps));
     }
@@ -69,8 +85,21 @@ final class ApnsPayload {
     static String priorityOf(LiveActivityPush push) {
         return switch (push) {
             case LiveActivityPush.Update ignored -> PRIORITY_UPDATE;
+            // 띄우기는 지금 보여야 값어치가 있다. 늦게 닿으면 그날 낮을 통째로 놓친다.
+            case LiveActivityPush.Start ignored -> PRIORITY_END;
             case LiveActivityPush.End ignored -> PRIORITY_END;
         };
+    }
+
+    /**
+     * 카드를 만들 때 <b>한 번 고정되는</b> 값들 — 푸시로 못 바꾼다.
+     *
+     * <p><b>{@code courseId} 는 문자열이다.</b> 앱의 {@code TripActivityAttributes} 가
+     * {@code let courseId: String} 이라, 숫자로 보내면 디코딩에 실패해 카드가 조용히 안 뜬다.
+     * 여기서 {@code String.valueOf} 를 빼면 Jackson 이 그대로 숫자로 직렬화한다.
+     */
+    private static Map<String, Object> attributes(LiveActivityPush.Start start) {
+        return Map.of("courseId", String.valueOf(start.courseId()));
     }
 
     /**
