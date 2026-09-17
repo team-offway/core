@@ -87,7 +87,31 @@ public class CarRouteOrder {
     /** 잰 값 하나 — 계산이라 팩토리다. */
     public static CarRouteOrder measured(
             List<Coordinate> points, List<Integer> order, LocalDateTime measuredAt) {
+        requirePermutation(points, order);
         return new CarRouteOrder(keyOf(points), join(order), measuredAt);
+    }
+
+    /**
+     * 순서는 <b>넘긴 점들의 자리바꿈</b>이어야 한다 — 각 인덱스가 정확히 한 번씩.
+     *
+     * <p>어댑터가 이미 걸러 주지만 여기서 한 번 더 본다. 이 값은 <b>최대 30일 재사용되는 캐시</b>라
+     * 한 번 잘못 들어가면 같은 구간이 그동안 계속 틀린 순서로 나가고, 밖을 다시 안 부르니 저절로
+     * 낫지 않는다. 엔티티는 누가 만들든 스스로 유효함을 보장하는 최후의 보루다(영속성 규약).
+     *
+     * <p>깨져도 <b>코스는 그대로 나간다</b> — {@code CarRouteCacheService.rememberOrder} 가 받아
+     * warn 만 남기고 캐시를 건너뛴다. 캐시 실패가 코스를 막지 않는다는 이 캐시의 규칙 그대로다.
+     */
+    private static void requirePermutation(List<Coordinate> points, List<Integer> order) {
+        if (order.size() != points.size()) {
+            throw new IllegalArgumentException("순서가 점 개수와 다릅니다");
+        }
+        boolean[] seen = new boolean[points.size()];
+        for (Integer index : order) {
+            if (index == null || index < 0 || index >= points.size() || seen[index]) {
+                throw new IllegalArgumentException("순서가 점들의 자리바꿈이 아닙니다");
+            }
+            seen[index] = true;
+        }
     }
 
     /**

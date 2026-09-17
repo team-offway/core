@@ -3,6 +3,7 @@ package com.offway.core.transport.domain;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.geo.Coordinate;
@@ -92,6 +93,51 @@ class CarRouteOrderTest {
         String key = CarRouteOrder.keyOf(twelve);
 
         assertTrue(CarRouteOrder.storable(key), "키가 칸을 넘친다 — 길이=" + key.length());
+    }
+
+    /**
+     * <b>자리바꿈이 아닌 순서는 안 받는다</b>(PR #588 리뷰).
+     *
+     * <p>순서의 원본 인덱스는 TMAP 응답의 {@code viaPointId} 에서 온다 — <b>외부가 채워 주는 값</b>이다.
+     * 개수만 세면 같은 인덱스가 두 번 와도 통과하는데, 그러면 <b>한 장소가 코스에 두 번 들어가고 다른
+     * 하나는 사라진다.</b> 범위를 벗어나면 그 인덱스를 쓰는 쪽에서 터진다.
+     *
+     * <p>이 PR 전에는 그런 값이 그 요청 한 번으로 끝났다. 이제는 <b>최대 30일 캐시에 남아</b> 같은
+     * 구간이 그동안 계속 틀린 순서로 나가고, TMAP 을 다시 안 부르니 저절로 낫지도 않는다.
+     */
+    @Test
+    void 같은_자리가_두_번_들어간_순서는_안_받는다() {
+        List<Coordinate> three = List.of(point(37.1, 127.1), point(37.2, 127.2), point(37.3, 127.3));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> CarRouteOrder.measured(three, List.of(0, 1, 1), NOW));
+    }
+
+    @Test
+    void 점_개수를_벗어난_자리를_가리키는_순서는_안_받는다() {
+        List<Coordinate> three = List.of(point(37.1, 127.1), point(37.2, 127.2), point(37.3, 127.3));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> CarRouteOrder.measured(three, List.of(0, 1, 3), NOW));
+    }
+
+    @Test
+    void 점보다_짧은_순서는_안_받는다() {
+        List<Coordinate> three = List.of(point(37.1, 127.1), point(37.2, 127.2), point(37.3, 127.3));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> CarRouteOrder.measured(three, List.of(0, 1), NOW));
+    }
+
+    /** 뒤집힌 쪽 — 멀쩡한 자리바꿈은 그대로 받는다. 위 셋이 과하게 막고 있지 않은지. */
+    @Test
+    void 가운데가_뒤바뀐_순서는_그대로_받는다() {
+        List<Coordinate> four = List.of(
+                point(37.1, 127.1), point(37.2, 127.2), point(37.3, 127.3), point(37.4, 127.4));
+
+        CarRouteOrder saved = CarRouteOrder.measured(four, List.of(0, 2, 1, 3), NOW);
+
+        assertEquals(List.of(0, 2, 1, 3), saved.order());
     }
 
     private static Coordinate point(double lat, double lng) {
