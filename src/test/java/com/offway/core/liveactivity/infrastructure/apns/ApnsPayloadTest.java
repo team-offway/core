@@ -105,6 +105,61 @@ class ApnsPayloadTest {
         assertEquals(2, state.get("daysLeft").asInt());
     }
 
+    /**
+     * 카드를 <b>만드는</b> 요청(#583).
+     *
+     * <p>{@code attributes-type} 이 앱의 Swift 구조체 이름과 다르면 iOS 가 어느 Activity 를 만들지
+     * 못 정해 <b>카드가 조용히 안 뜬다</b> — 오류도 응답도 없다.
+     */
+    @Test
+    void 띄우기는_Activity_종류를_함께_보낸다() throws Exception {
+        JsonNode aps = parse(start()).get("aps");
+
+        assertEquals("start", aps.get("event").asText());
+        assertEquals("TripActivityAttributes", aps.get("attributes-type").asText());
+    }
+
+    /**
+     * <b>{@code courseId} 는 문자열이다.</b>
+     *
+     * <p>앱의 {@code TripActivityAttributes} 가 {@code let courseId: String} 이라, 숫자로 보내면
+     * 디코딩에 실패해 카드가 안 뜬다. {@code String.valueOf} 를 빼면 Jackson 이 그대로 숫자로
+     * 직렬화하는데, 그 차이는 JSON 을 눈으로 봐도 잘 안 보인다.
+     */
+    @Test
+    void 띄우기의_courseId_는_문자열이다() throws Exception {
+        JsonNode attributes = parse(start()).get("aps").get("attributes");
+
+        assertTrue(attributes.get("courseId").isTextual(), "숫자로 나가면 앱이 디코딩에 실패해 카드가 안 뜬다");
+        assertEquals("122", attributes.get("courseId").asText());
+    }
+
+    /**
+     * 띄울 때와 갱신할 때의 {@code content-state} 가 <b>같은 모양</b>이어야 한다.
+     *
+     * <p>한쪽만 칸이 다르면 앱의 디코딩이 한쪽에서만 성공한다 — 카드는 뜨는데 다음 날 안 바뀌거나,
+     * 그 반대가 된다.
+     */
+    @Test
+    void 띄우기의_content_state_는_갱신과_같다() throws Exception {
+        JsonNode started = parse(start()).get("aps").get("content-state");
+        JsonNode updated = parse(new LiveActivityPush.Update("정선군", 2, null, START, END))
+                .get("aps")
+                .get("content-state");
+
+        assertEquals(updated, started);
+    }
+
+    /** 띄우기는 지금 보여야 값어치가 있다 — 늦게 닿으면 그날 낮을 통째로 놓친다. */
+    @Test
+    void 띄우기는_우선순위가_높다() {
+        assertEquals("10", ApnsPayload.priorityOf(start()));
+    }
+
+    private static LiveActivityPush start() {
+        return new LiveActivityPush.Start(122L, new LiveActivityPush.Update("정선군", 2, null, START, END));
+    }
+
     private static JsonNode parse(LiveActivityPush push) throws Exception {
         return MAPPER.readTree(ApnsPayload.body(push, NOW));
     }
