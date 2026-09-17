@@ -2,6 +2,7 @@ package com.offway.core.liveactivity.controller;
 
 import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.liveactivity.controller.dto.LiveActivityRegisterRequest;
+import com.offway.core.liveactivity.controller.dto.PushToStartRegisterRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -70,4 +71,57 @@ public interface LiveActivityApi {
     ApiResponseBody<Void> unregister(
             UUID userId,
             @Parameter(description = "해제할 코스 id", example = "122") Long courseId);
+
+    @Operation(
+            summary = "잠금화면 띄우기 토큰 등록 (push-to-start)",
+            description =
+                    """
+                    **앱을 안 열어도** 서버가 이 기기 잠금화면에 여행 카드를 띄울 수 있게 하는 토큰이다
+                    (iOS 17.2+, `Activity.pushToStartTokenUpdates`).
+
+                    **위의 갱신 토큰과 다른 값이다.** 저쪽은 *이미 떠 있는 카드 하나*를 가리키고 (사용자,
+                    코스) 단위인데, 이건 **그 기기**를 가리키고 카드를 한 번도 띄운 적이 없어도 나온다.
+                    그래서 코스를 함께 보내지 않는다 — 무엇을 띄울지는 서버가 그날 정한다.
+
+                    **앱 시작·로그인 직후마다 그냥 보내면 된다.** 같은 토큰이 다시 와도 200이고 행이
+                    늘지 않는다(갱신 시각만 고쳐 쓴다). 앱을 지웠다 깔면 토큰이 바뀌므로 매번 보내는 것이
+                    맞다.
+
+                    **한 사람이 기기 둘이면 행도 둘이다.** 폰과 태블릿 양쪽 잠금화면에 카드가 뜬다.
+
+                    **POST 가 아니라 PUT 인 이유** — 같은 요청을 몇 번 보내도 결과가 같다(멱등). 새로
+                    만드는지 고쳐 쓰는지가 요청마다 달라 201 도 쓰지 않는다.
+
+                    등록한다고 카드가 바로 뜨지는 않는다. 띄우는 것은 **낮에 도는 배치**이고, 출발 5일
+                    이내이거나 여행 중인 코스가 있어야 한다.
+                    """)
+    @ApiResponse(responseCode = "200", description = "등록·갱신 성공")
+    @ApiResponse(responseCode = "400", description = "token 누락·빈 값·512자 초과")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
+    ApiResponseBody<Void> registerPushToStart(UUID userId, PushToStartRegisterRequest request);
+
+    @Operation(
+            summary = "잠금화면 띄우기 토큰 해제 (push-to-start)",
+            description =
+                    """
+                    **로그인한 사용자의** push-to-start 토큰을 전부 지운다. 로그아웃하거나 알림을 끌 때
+                    부른다. 이 사람이 여러 기기를 등록해 뒀으면 **그 전부가 지워진다** —
+                    `DELETE /api/v1/devices` 와 같은 태도다.
+
+                    **토큰을 경로에 받지 않는다.** 이 값을 아는 쪽은 그 기기 잠금화면에 카드를 만들 수
+                    있어 비밀값에 준하는데, URL 에 실으면 프록시 접근 로그에 그대로 남는다. 그리고
+                    이 API 를 부르는 상황(로그아웃)이 원하는 바가 "이 사람에게 더 이상 카드가 생기지
+                    않는다" 라 기기 하나만 지울 이유도 없다.
+
+                    **지울 것이 없어도 성공(200)이다.** 원한 상태가 이미 이뤄져 있는데 404 를 띄울
+                    이유가 없다.
+
+                    이미 떠 있는 카드를 내리지는 않는다. 그건 앱이 하거나, 여행이 끝나면 자정 배치가
+                    종료를 보낸다.
+                    """)
+    @ApiResponse(responseCode = "200", description = "해제 성공(지울 등록이 없어도 성공)")
+    @ApiResponse(responseCode = "401", description = "인증 필요")
+    @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
+    ApiResponseBody<Void> unregisterPushToStart(UUID userId);
 }
