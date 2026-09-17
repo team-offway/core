@@ -141,20 +141,25 @@ jobs:
           set -uo pipefail
           on() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
 
-          # **oneclick 의 전환·인증서는 `live_keys` 가 켜졌을 때만 돈다.**
+          # **oneclick 의 주소 확보는 `live_keys` 가 켜졌을 때만 돈다.**
           #
-          # EIP 는 지금 운영 인스턴스에 붙어 있다. 리허설에서 그것을 옮기면 **사용자 요청이 리허설
-          # 서버로 간다** — 그 서버는 `live_keys` 를 끈 채라 외부 API 키가 없어, 코스 생성이 통째로
-          # degrade 된 화면을 사용자가 받는다. 리허설이 운영을 가져가는 것은 어떤 경우에도 틀리다.
+          # 계정을 옮기는 것이라 EIP 는 **새 계정에 새로 할당**한다. 그것만으로 운영 트래픽이 움직이지
+          # 않으므로(DNS 가 아직 옛 주소를 가리킨다) 리허설에서 위험하지는 않다. 그래도 끈다 —
+          # 리허설마다 EIP 를 세우면 안 쓰는 주소가 쌓이고, 붙지 않은 EIP 는 시간당 과금된다.
           #
-          # caddy 도 같이 묶는다. DNS 가 아직 운영을 가리키는 동안 인증서를 받으려 하면 HTTP-01
-          # 검증이 **운영 서버로** 가서 실패하고, 그 실패가 쌓이면 같은 도메인 주 5회 제한에 걸려
-          # 정작 이사 날에 인증서를 못 받는다.
-          #
-          # 그래서 `live_keys` 가 리허설/본 이사를 가르는 단일 신호다 — 키 없이 도는 회차는 전환도
-          # 인증서도 하지 않는다.
+          # **caddy 는 oneclick 에서 아예 켜지 않는다.** 가비아 A 레코드는 사람만 바꿀 수 있어서,
+          # 이 워크플로가 DNS 가 넘어온 시점을 알 방법이 없다. 아직 옛 서버를 가리키는 동안 인증서를
+          # 받으려 하면 HTTP-01 검증이 **옛 서버로** 가서 실패하고, 그 실패가 쌓이면 같은 도메인
+          # **주 5회** 제한에 걸려 정작 이사 날에 인증서를 못 받는다. 그래서 사람이 A 레코드를 바꾼 뒤
+          # `stage=caddy` 를 따로 누른다 — 버튼이 둘인 유일한 이유다.
           SWITCHABLE=false
           [ "$LIVE_KEYS" = "true" ] && SWITCHABLE=true
+
+          # **리허설 정리는 리허설에서만 켠다.** 본 이사의 인스턴스를 지우면 그게 곧 운영이다.
+          CLEANUP=false
+          if [ "$STAGE" = "oneclick" ] && [ "$LIVE_KEYS" != "true" ]; then
+            CLEANUP=true
+          fi
 
           # create 는 oneclick 만 켠다 — 인스턴스를 만드는 유일한 자리다.
           case "$STAGE" in
@@ -164,9 +169,10 @@ jobs:
             verify)   on create false; on prepare false; on data false; on app false; on verify true;  on switch false; on caddy false ;;
             all)      on create false; on prepare true;  on data true;  on app true;  on verify true;  on switch false; on caddy false ;;
             caddy)    on create false; on prepare false; on data false; on app false; on verify false; on switch false; on caddy true  ;;
-            oneclick) on create true;  on prepare true;  on data true;  on app true;  on verify true;  on switch "$SWITCHABLE"; on caddy "$SWITCHABLE" ;;
+            oneclick) on create true;  on prepare true;  on data true;  on app true;  on verify true;  on switch "$SWITCHABLE"; on caddy false ;;
             *) echo "::error::알 수 없는 stage: $STAGE"; exit 1 ;;
           esac
+          on cleanup "$CLEANUP"
           echo "stage=$STAGE"
 
           # **단계 번호를 여기서 매긴다.** 총 개수가 실행마다 달라서다 — oneclick 리허설은 5,
@@ -175,13 +181,12 @@ jobs:
           #
           # 스텝마다 번호를 손으로 박으면 단계가 스킵되는 순간 어긋난다 — 그러면 "[5/5] 인데 왜
           # 안 끝났지" 가 된다.
+          # 위 case 가 이미 `$GITHUB_OUTPUT` 에 켜짐/꺼짐을 적어 뒀으므로 **그 파일을 그대로 읽는다.**
+          # 예전에는 여기서 조건을 다시 계산했는데, 판단이 두 곳에 생기면 한쪽만 고치는 날 번호와
+          # 실제로 도는 단계가 어긋난다 — 실제로 caddy 규칙을 바꾸면서 그렇게 될 자리였다.
           ORDER=""
-          for s in create prepare data app verify switch caddy; do
-            case "$s" in
-              create) v=$([ "$STAGE" = "oneclick" ] && echo true || echo false) ;;
-              switch|caddy) v=$([ "$STAGE" = "oneclick" ] && echo "$SWITCHABLE" || { [ "$STAGE" = "caddy" ] && [ "$s" = "caddy" ] && echo true || echo false; }) ;;
-              *) v=$(grep -m1 "^$s=" "$GITHUB_OUTPUT" | cut -d= -f2) ;;
-            esac
+          for s in create prepare data app verify switch caddy cleanup; do
+            v=$(grep -m1 "^$s=" "$GITHUB_OUTPUT" | cut -d= -f2)
             [ "$v" = "true" ] && ORDER="$ORDER $s"
           done
           TOTAL=$(printf '%s\n' $ORDER | grep -c . || echo 0)
@@ -229,6 +234,20 @@ jobs:
               exit 1
             fi
             echo "확인 완료 — 인스턴스를 새로 만들어 이사합니다"
+            exit 0
+          fi
+
+          # **`stage=caddy` 는 확인 문구를 요구하지 않는다.**
+          #
+          # 이 가드가 막는 것은 **옛 서버에 대고 복원하는 사고** 하나다. caddy 는 DB 를 건드리지
+          # 않고 인증서만 받으므로 그 사고가 닿지 않는다. 그런데 계정 이관에서 caddy 는 oneclick
+          # 다음에 누르는 두 번째 버튼이고, 그 회차는 새 호스트를 **태그로 찾는다** — 시크릿에
+          # `NEW_EC2_HOST` 가 없으므로 여기서 요구하면 통과할 방법이 없다.
+          if [ "${{ steps.plan.outputs.caddy }}" = "true" ] \
+            && [ "${{ steps.plan.outputs.prepare }}" != "true" ] \
+            && [ "${{ steps.plan.outputs.data }}" != "true" ] \
+            && [ "${{ steps.plan.outputs.app }}" != "true" ]; then
+            echo "확인 완료 — 인증서만 받는 회차라 DB 를 건드리지 않습니다"
             exit 0
           fi
 
@@ -298,22 +317,6 @@ jobs:
           echo "runner_ip=$RUNNER_IP" >> "$GITHUB_OUTPUT"
 
       # prepare 도 옛 서버를 읽는다 — MySQL 설정(conf.d)을 거기서 가져온다.
-      # ── ⓞ create (oneclick 전용) ───────────────────────────────────────────
-      #
-      # **옛 서버를 복제한다 — 스펙을 우리가 고르지 않는다.**
-      #
-      # 인스턴스 타입·서브넷·보안그룹·키페어·AMI 를 옛 인스턴스에서 읽어 그대로 쓴다. 그래서
-      # `NEW_*` 시크릿이 **하나도 필요 없다** — 같은 키페어라 접속되고, 같은 보안그룹이라 22번
-      # 개방도 옛 것과 한 번에 끝난다. "AWS 만 옮긴다" 는 것이 이 뜻이다.
-      #
-      # 우리가 고르면 그 순간 "옛 서버와 무엇이 다른지" 를 사람이 관리해야 한다. 이사에서 가장
-      # 비싼 실수가 그 차이다 — 장애가 나기 전까지 안 보인다(#232·#526 이 같은 이유로 docker run
-      # 인자를 세 곳에서 똑같이 맞춘다).
-      #
-      # **AMI 에는 도커가 없다.** 옛 인스턴스의 AMI 는 만들 당시의 것이고 도커는 그 뒤에 깔렸다.
-      # 그래서 user-data 로 설치한다 — 골든 AMI 를 따로 만들지 않는 이유는 그것을 갱신하는 수동
-      # 작업이 새로 생기고, 그 AMI 에 MySQL 데이터가 딸려오면 restore 가 매번 force 를 요구하기
-      # 때문이다. 설치 2~3분은 이사에서 무의미한 시간이다.
       # 단계마다 **시작도** 알린다. 끝만 알리면 오래 걸리는 단계(덤프·복원은 수 분)에서 알림이
       # 뚝 끊겨, 돌고 있는 것과 멈춘 것이 구별되지 않는다. 시작 시각은 notify.sh 가 파일에 남겨
       # 그 단계가 몇 분 걸렸는지 완료 알림에 함께 찍는다.
@@ -321,49 +324,157 @@ jobs:
         if: steps.plan.outputs.create == 'true'
         run: bash scripts/migrate/notify.sh begin "${{ steps.plan.outputs.no_create }}" "인스턴스 생성"
 
-      - name: create · 옛 서버를 복제해 인스턴스를 띄운다
+      # ── ⓞ create (oneclick 전용) — 새 계정에 바탕을 만든다 ─────────────────
+      #
+      # **계정을 옮기는 것이라 옛 계정의 것을 복제할 수 없다.**
+      #
+      # 예전에는 옛 인스턴스의 AMI·서브넷·보안그룹·키페어를 읽어 그대로 다시 띄웠다. 그건 같은
+      # 계정에서 인스턴스를 갈아끼울 때만 성립한다 — 그 넷은 전부 **계정 안에서만 유효한
+      # 식별자**라서, 다른 계정에는 그 id 가 존재하지 않는다. 복제로는 계정을 넘지 못한다.
+      #
+      # 그래서 이 단계는 복제가 아니라 **바탕을 새로 만든다.**
+      #
+      #   만든다      키페어(옛 키의 공개 반쪽을 import) · 보안그룹 · 인스턴스
+      #   안 만든다   VPC·서브넷 — 새 계정에는 리전마다 default VPC 가 이미 있다
+      #   안 고른다   AMI — Canonical 이 SSM 공개 파라미터로 발행하는 최신 Ubuntu 를 쓴다
+      #
+      # **키페어를 새로 만들지 않는 이유가 중요하다.** `create-key-pair` 는 개인키를 한 번만
+      # 돌려주므로, 그 뒤 SSH 로 붙으려면 그 값이 시크릿에 들어가야 한다. 워크플로가 레포 시크릿을
+      # 쓰려면 PAT 이 필요하고, 그건 이사 하나를 위해 레포 전체 권한을 하나 더 만드는 일이다.
+      # 대신 **이미 가진 `EC2_SSH_KEY` 의 공개 반쪽을 새 계정에 import** 한다 — 같은 개인키로
+      # 양쪽에 붙으니 새로 넣을 시크릿이 0개다.
+      #
+      # 대가는 적어 둔다: 그 키가 새면 두 계정이 함께 열린다. 이사가 끝나고 옛 계정을 닫은 뒤
+      # 새 계정의 키를 갈아 두면 그 노출이 끝난다.
+      #
+      # **AMI 에는 도커가 없다.** user-data 로 설치한다 — 골든 AMI 를 따로 만들면 그것을 갱신하는
+      # 수동 작업이 새로 생기고, 그 AMI 에 MySQL 데이터가 딸려오면 restore 가 매번 force 를
+      # 요구한다. 설치 2~3분은 이사에서 무의미한 시간이다.
+      - name: create · 새 계정에 바탕과 인스턴스를 만든다
         id: create
         if: steps.plan.outputs.create == 'true'
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ap-northeast-1
-          OLD_HOST: ${{ secrets.EC2_HOST }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.NEW_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NEW_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.NEW_AWS_REGION || 'ap-northeast-1' }}
+          OLD_AK: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          OLD_SK: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          OLD_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
           OLD_USER: ${{ secrets.EC2_USER }}
+          # 운영과 같은 타입이 기본이다. 바꿀 일이 생기면 레포 변수로 덮는다 — 시크릿이 아니다
+          # (비밀이 아닌 값을 시크릿에 넣으면 무엇이 비밀인지가 흐려진다).
+          INSTANCE_TYPE: ${{ vars.NEW_INSTANCE_TYPE || 't4g.small' }}
+          UBUNTU_RELEASE: ${{ vars.NEW_UBUNTU_RELEASE || '24.04' }}
         run: |
           set -uo pipefail
+          NO="${{ steps.plan.outputs.no_create }}"
+          say() { bash scripts/migrate/notify.sh sub "$NO" "$1"; }
 
-          # 옛 인스턴스를 공개 IP 로 찾는다. 시크릿에 적힌 그 주소가 곧 우리가 아는 유일한 좌표다.
-          SPEC=$(aws ec2 describe-instances \
-            --filters "Name=ip-address,Values=$OLD_HOST" "Name=instance-state-name,Values=running" \
-            --query 'Reservations[0].Instances[0].{id:InstanceId,type:InstanceType,ami:ImageId,key:KeyName,subnet:SubnetId,sgs:SecurityGroups[].GroupId,az:Placement.AvailabilityZone}' \
-            --output json 2>&1) || { echo "::error::옛 인스턴스를 조회하지 못했습니다 — ec2:DescribeInstances 권한을 확인하세요"; echo "$SPEC"; exit 1; }
-
-          OLD_ID=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id") or "")')
-          if [ -z "$OLD_ID" ]; then
-            echo "::error::$OLD_HOST 로 running 인스턴스를 찾지 못했습니다"
-            exit 1
-          fi
-          TYPE=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin)["type"])')
-          AMI=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin)["ami"])')
-          KEY=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"] or "")')
-          SUBNET=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin)["subnet"])')
-          SGS=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["sgs"]))')
-          echo "옛 인스턴스 $OLD_ID — type=$TYPE ami=$AMI key=$KEY subnet=$SUBNET sg=$SGS"
-          # 알림에는 id·타입까지만 싣는다. Actions 로그는 시크릿을 마스킹하지만 **디스코드로 보낸
-          # 본문에는 그 마스킹이 걸리지 않으므로**, 습관적으로 주소를 싣지 않는다 — 지금 그 값은
-          # `api.offway.cloud` 가 공개로 답하는 EIP 라 새로 드러날 것이 없지만, 그 사정은 바뀐다.
-          bash scripts/migrate/notify.sh sub "${{ steps.plan.outputs.no_create }}" \
-            "옛 인스턴스 확인 — $OLD_ID · $TYPE"
-
-          if [ -z "$KEY" ]; then
-            echo "::error::옛 인스턴스에 키페어가 없습니다 — 같은 키로 접속할 수 없어 멈춥니다"
+          if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "::error::NEW_AWS_ACCESS_KEY_ID·NEW_AWS_SECRET_ACCESS_KEY 가 없습니다"
+            echo "::error::새 계정에 IAM 사용자를 만들고 그 액세스 키를 시크릿에 넣으세요 (PR 본문의 준비 절차)"
             exit 1
           fi
 
-          # 도커만 깔고 끝낸다. 나머지 바탕(디렉터리·네트워크·MySQL)은 prepare 가 이미 한다 —
-          # 여기서 또 하면 같은 일이 두 곳에 적히고, 그 둘이 어긋나는 날 원인을 못 찾는다.
-          cat > /tmp/user-data.sh <<'UD'
+          NEW_ACCT=$(aws sts get-caller-identity --query Account --output text 2>&1) \
+            || { echo "::error::새 계정 자격으로 호출하지 못했습니다"; echo "$NEW_ACCT"; exit 1; }
+
+          # **같은 계정이면 멈춘다.** `NEW_AWS_*` 에 옛 자격을 넣어 두면 옛 계정에 인스턴스를 만들고
+          # "계정을 옮겼다" 고 보고한다 — 그 회차는 실제로 아무것도 옮기지 않는데 전부 초록으로 끝난다.
+          # 계정 id 는 비밀이 아니고 로그에도 남아 있는 값이라 그대로 찍는다.
+          OLD_ACCT=$(AWS_ACCESS_KEY_ID="$OLD_AK" AWS_SECRET_ACCESS_KEY="$OLD_SK" \
+            aws sts get-caller-identity --query Account --output text 2>/dev/null) || OLD_ACCT=""
+          if [ -n "$OLD_ACCT" ] && [ "$OLD_ACCT" = "$NEW_ACCT" ]; then
+            echo "::error::NEW_AWS_* 가 옛 계정($OLD_ACCT)과 같은 계정을 가리킵니다 — 계정 이관이 아닙니다"
+            exit 1
+          fi
+          echo "새 계정 $NEW_ACCT (옛 계정 ${OLD_ACCT:-확인불가})"
+          say "새 계정 확인 — $NEW_ACCT"
+
+          # 타입에서 아키텍처를 도출한다. 손으로 적으면 타입을 바꿀 때 한쪽만 고쳐, arm64 AMI 로
+          # x86 인스턴스를 띄우려다 `InvalidParameterValue` 로 죽는다.
+          case "$INSTANCE_TYPE" in
+            t4g.*|m6g.*|m7g.*|c6g.*|c7g.*|r6g.*|r7g.*|a1.*) ARCH=arm64 ;;
+            *) ARCH=x86_64 ;;
+          esac
+          AMI_PARAM="/aws/service/canonical/ubuntu/server/$UBUNTU_RELEASE/stable/current/$ARCH/hvm/ebs-gp3/ami-id"
+          AMI=$(aws ssm get-parameters --names "$AMI_PARAM" \
+            --query 'Parameters[0].Value' --output text 2>/dev/null) || AMI=""
+          if [ -z "$AMI" ] || [ "$AMI" = "None" ]; then
+            echo "::error::Ubuntu AMI 를 찾지 못했습니다 ($AMI_PARAM)"
+            echo "::error::릴리스·아키텍처 조합을 확인하세요 (vars.NEW_UBUNTU_RELEASE)"
+            exit 1
+          fi
+          echo "AMI $AMI ($UBUNTU_RELEASE · $ARCH · $INSTANCE_TYPE)"
+          say "Ubuntu $UBUNTU_RELEASE $ARCH AMI 확인 — $AMI"
+
+          # default VPC 를 쓴다. 새 계정은 리전마다 하나를 들고 있고, 인터넷 게이트웨이·라우트가
+          # 이미 붙어 있어 우리가 만들 것이 없다. 없는 계정(누가 지운 경우)은 여기서 멈춘다 —
+          # VPC 를 만드는 것은 라우트 테이블·IGW·서브넷까지 딸려오는 별개의 일이다.
+          VPC=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true \
+            --query 'Vpcs[0].VpcId' --output text 2>/dev/null) || VPC=""
+          if [ -z "$VPC" ] || [ "$VPC" = "None" ]; then
+            echo "::error::default VPC 가 없습니다 — 새 계정에서 지워졌거나 리전이 다릅니다"
+            echo "::error::콘솔에서 VPC > Actions > Create default VPC 를 한 번 누르면 됩니다"
+            exit 1
+          fi
+          SUBNET=$(aws ec2 describe-subnets \
+            --filters "Name=vpc-id,Values=$VPC" "Name=default-for-az,Values=true" \
+            --query 'Subnets[0].SubnetId' --output text 2>/dev/null) || SUBNET=""
+          if [ -z "$SUBNET" ] || [ "$SUBNET" = "None" ]; then
+            echo "::error::default VPC($VPC)에 서브넷이 없습니다"
+            exit 1
+          fi
+
+          # 보안그룹은 **이름으로 찾고 없으면 만든다.** 회차마다 새로 만들면 리허설을 열 번 돌린
+          # 계정에 안 쓰는 보안그룹이 열 개 남고, 그중 어느 것이 지금 쓰는 것인지 알 수 없게 된다.
+          SG=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=offway" "Name=vpc-id,Values=$VPC" \
+            --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null) || SG=""
+          if [ -z "$SG" ] || [ "$SG" = "None" ]; then
+            SG=$(aws ec2 create-security-group --group-name offway \
+              --description "offway core - 80/443 public, 22 opened per run" \
+              --vpc-id "$VPC" --query GroupId --output text 2>&1) \
+              || { echo "::error::보안그룹을 만들지 못했습니다"; echo "$SG"; exit 1; }
+            # **22번은 여기서 열지 않는다.** 러너 IP 로만 회차마다 열고 회수하는 스텝이 따로 있다.
+            # 여기서 열어 두면 영구 개방이 되고, 그게 이 워크플로가 피하려는 바로 그 상태다.
+            aws ec2 authorize-security-group-ingress --group-id "$SG" --ip-permissions \
+              'IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges=[{CidrIp=0.0.0.0/0,Description=http-01 및 리다이렉트}]' \
+              'IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges=[{CidrIp=0.0.0.0/0,Description=api.offway.cloud}]' \
+              >/dev/null || { echo "::error::보안그룹 규칙을 넣지 못했습니다"; exit 1; }
+            echo "보안그룹 $SG 새로 만듦 (80·443 공개)"
+            say "보안그룹 생성 — $SG (80·443 공개, 22 는 회차마다)"
+          else
+            echo "보안그룹 $SG 재사용"
+            say "보안그룹 재사용 — $SG"
+          fi
+          echo "sg=$SG" >> "$GITHUB_OUTPUT"
+
+          # 키페어도 **없을 때만** import 한다. 같은 이름으로 두 번 import 하면 중복 오류가 난다.
+          KEY=offway-migrate
+          if aws ec2 describe-key-pairs --key-names "$KEY" >/dev/null 2>&1; then
+            echo "키페어 $KEY 재사용"
+            say "키페어 재사용 — $KEY"
+          else
+            install -m 600 /dev/null "$RUNNER_TEMP/oldkey"
+            printf '%s\n' "$OLD_SSH_KEY" > "$RUNNER_TEMP/oldkey"
+            # `< /dev/null` 이 필요하다 — 개인키에 passphrase 가 걸려 있으면 ssh-keygen 이 입력을
+            # 기다려 잡이 6시간 타임아웃까지 매달린다. 즉시 실패하는 쪽이 낫다.
+            if ! ssh-keygen -y -f "$RUNNER_TEMP/oldkey" < /dev/null > "$RUNNER_TEMP/oldkey.pub" 2>/dev/null; then
+              echo "::error::EC2_SSH_KEY 에서 공개키를 뽑지 못했습니다 (형식이 깨졌거나 passphrase 가 걸려 있습니다)"
+              rm -f "$RUNNER_TEMP/oldkey" "$RUNNER_TEMP/oldkey.pub"
+              exit 1
+            fi
+            OUT=$(aws ec2 import-key-pair --key-name "$KEY" \
+              --public-key-material "fileb://$RUNNER_TEMP/oldkey.pub" 2>&1) \
+              || { echo "::error::키페어를 import 하지 못했습니다"; echo "$OUT"; \
+                   rm -f "$RUNNER_TEMP/oldkey" "$RUNNER_TEMP/oldkey.pub"; exit 1; }
+            rm -f "$RUNNER_TEMP/oldkey" "$RUNNER_TEMP/oldkey.pub"
+            echo "키페어 $KEY import 완료 (옛 키의 공개 반쪽)"
+            say "키페어 import 완료 — 옛 키로 그대로 접속합니다"
+          fi
+
+          cat > "$RUNNER_TEMP/user-data.sh" <<'UD'
           #!/bin/bash
           set -eux
           export DEBIAN_FRONTEND=noninteractive
@@ -374,20 +485,18 @@ jobs:
           UD
 
           RUN=$(aws ec2 run-instances \
-            --image-id "$AMI" --instance-type "$TYPE" --key-name "$KEY" \
-            --subnet-id "$SUBNET" $(for g in $SGS; do printf ' --security-group-ids %s' "$g"; done) \
+            --image-id "$AMI" --instance-type "$INSTANCE_TYPE" --key-name "$KEY" \
+            --subnet-id "$SUBNET" --security-group-ids "$SG" \
             --associate-public-ip-address \
-            --user-data "file:///tmp/user-data.sh" \
-            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=offway-migrate-${{ github.run_id }}},{Key=offway:migrate,Value=${{ github.run_id }}},{Key=offway:source,Value=$OLD_ID}]" \
+            --user-data "file://$RUNNER_TEMP/user-data.sh" \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=offway-core},{Key=offway:migrate,Value=${{ github.run_id }}},{Key=offway:mode,Value=${{ inputs.live_keys && 'live' || 'rehearsal' }}}]" \
             --query 'Instances[0].InstanceId' --output text 2>&1) \
             || { echo "::error::인스턴스를 만들지 못했습니다 — ec2:RunInstances 권한을 확인하세요"; echo "$RUN"; exit 1; }
           echo "새 인스턴스 $RUN — 태그 offway:migrate=${{ github.run_id }}"
           echo "id=$RUN" >> "$GITHUB_OUTPUT"
-          bash scripts/migrate/notify.sh sub "${{ steps.plan.outputs.no_create }}" \
-            "인스턴스 시작 요청 — $RUN"
+          say "인스턴스 시작 요청 — $RUN"
 
-          bash scripts/migrate/notify.sh sub "${{ steps.plan.outputs.no_create }}" \
-            "running 대기…"
+          say "running 대기…"
           aws ec2 wait instance-running --instance-ids "$RUN"
           HOST=$(aws ec2 describe-instances --instance-ids "$RUN" \
             --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
@@ -395,18 +504,89 @@ jobs:
             echo "::error::새 인스턴스에 공개 IP 가 붙지 않았습니다 (서브넷의 자동 할당 설정을 확인하세요)"
             exit 1
           fi
+          # **사용자 이름은 AMI 가 정한다.** Ubuntu 는 ubuntu, Amazon Linux 는 ec2-user 다. 옛
+          # 서버의 값을 그대로 쓰되(같은 Ubuntu 계열), 비어 있으면 ubuntu 로 떨어진다.
           echo "host=$HOST" >> "$GITHUB_OUTPUT"
-          echo "user=$OLD_USER" >> "$GITHUB_OUTPUT"
-          echo "새 서버 $HOST (사용자 $OLD_USER — 옛 서버와 같은 키페어)"
-          bash scripts/migrate/notify.sh sub "${{ steps.plan.outputs.no_create }}" \
-            "running 확인 · 공개 IP 붙음"
+          echo "user=${OLD_USER:-ubuntu}" >> "$GITHUB_OUTPUT"
+          echo "새 서버 $HOST (사용자 ${OLD_USER:-ubuntu})"
+          say "running 확인 · 공개 IP 붙음"
 
           {
-            echo "### 새 인스턴스"
-            echo "- id \`$RUN\` · $HOST · type \`$TYPE\`"
-            echo "- 옛 인스턴스 \`$OLD_ID\` 의 AMI·서브넷·보안그룹·키페어를 그대로 씁니다"
-            echo "- **실패하면 이 인스턴스는 남습니다** — 태그 \`offway:migrate=${{ github.run_id }}\` 로 찾아 정리하세요"
+            echo "### 새 계정의 인스턴스"
+            echo "| | |"
+            echo "|---|---|"
+            echo "| 계정 | \`$NEW_ACCT\` (옛 계정 \`${OLD_ACCT:-확인불가}\`) |"
+            echo "| 인스턴스 | \`$RUN\` · $HOST · \`$INSTANCE_TYPE\` |"
+            echo "| AMI | \`$AMI\` — Ubuntu $UBUNTU_RELEASE $ARCH |"
+            echo "| VPC·서브넷 | \`$VPC\` · \`$SUBNET\` (default) |"
+            echo "| 보안그룹 | \`$SG\` — 80·443 공개, 22 는 이 회차만 |"
+            echo "| 키페어 | \`$KEY\` — 옛 키의 공개 반쪽을 import |"
+            echo ""
+            echo "**실패하면 이 인스턴스는 남습니다** — 태그 \`offway:migrate=${{ github.run_id }}\` 로 찾아 정리하세요."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # **`create` 없이 도는 회차는 새 서버가 어디인지 스스로 찾아야 한다.**
+      #
+      # 계정 이관은 버튼이 둘이다 — oneclick 으로 새 계정을 세우고, 사람이 A 레코드를 바꾸고,
+      # `stage=caddy` 를 누른다. 그런데 두 번째 버튼은 **다른 실행**이라 첫 실행의 출력을 못 본다.
+      # 그때 호스트·보안그룹을 시크릿으로 받게 하면, 버튼 사이에 사람이 시크릿 셋을 손으로 넣어야
+      # 한다 — "버튼 둘" 이 "버튼 둘 + 시크릿 셋" 이 되고, 그 셋이 가장 잘 틀리는 자리다.
+      #
+      # 그래서 `switch` 가 붙인 **EIP 의 태그로 찾는다**. `offway:role=api` 가 달린 주소는 하나이고,
+      # 그 주소가 붙은 인스턴스가 곧 새 서버다.
+      #
+      # **시크릿이 있으면 그쪽이 먼저다** — 단계별 경로(새 계정 인스턴스를 손으로 만든 경우)를
+      # 그대로 살려 둔다. 자동 탐색은 시크릿이 없을 때의 폴백이다.
+      - name: 새 서버 좌표 찾기
+        id: find
+        if: |
+          steps.plan.outputs.create != 'true'
+          && (steps.plan.outputs.prepare == 'true' || steps.plan.outputs.data == 'true'
+              || steps.plan.outputs.app == 'true' || steps.plan.outputs.verify == 'true'
+              || steps.plan.outputs.caddy == 'true')
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NEW_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NEW_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.NEW_AWS_REGION || 'ap-northeast-1' }}
+          S_HOST: ${{ secrets.NEW_EC2_HOST }}
+          S_USER: ${{ secrets.NEW_EC2_USER }}
+          S_SG: ${{ secrets.NEW_EC2_SECURITY_GROUP_ID }}
+        run: |
+          set -uo pipefail
+          if [ -n "${S_HOST:-}" ] && [ -n "${S_SG:-}" ]; then
+            echo "host=$S_HOST"  >> "$GITHUB_OUTPUT"
+            echo "user=${S_USER:-ubuntu}" >> "$GITHUB_OUTPUT"
+            echo "sg=$S_SG"      >> "$GITHUB_OUTPUT"
+            echo "시크릿의 좌표를 씁니다"
+            exit 0
+          fi
+          if [ -z "${AWS_ACCESS_KEY_ID:-}" ]; then
+            echo "::error::새 서버 좌표를 모릅니다 — NEW_EC2_HOST·NEW_EC2_SECURITY_GROUP_ID 를 채우거나 NEW_AWS_* 자격을 넣으세요"
+            exit 1
+          fi
+
+          # EIP → 그것이 붙은 인스턴스 → 공개 주소·보안그룹
+          INST=$(aws ec2 describe-addresses --filters "Name=tag:offway:role,Values=api" \
+            --query 'Addresses[0].InstanceId' --output text 2>/dev/null) || INST=""
+          if [ -z "$INST" ] || [ "$INST" = "None" ]; then
+            echo "::error::offway:role=api 태그가 붙은 Elastic IP 에 인스턴스가 없습니다"
+            echo "::error::oneclick 을 먼저 돌려 새 계정에 주소를 세우세요 (live_keys 를 켠 회차)"
+            exit 1
+          fi
+          SPEC=$(aws ec2 describe-instances --instance-ids "$INST" \
+            --query 'Reservations[0].Instances[0].{ip:PublicIpAddress,sg:SecurityGroups[0].GroupId}' \
+            --output json 2>&1) \
+            || { echo "::error::인스턴스 $INST 를 조회하지 못했습니다"; echo "$SPEC"; exit 1; }
+          HOST=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ip") or "")')
+          SG=$(printf '%s' "$SPEC" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("sg") or "")')
+          if [ -z "$HOST" ] || [ -z "$SG" ]; then
+            echo "::error::인스턴스 $INST 의 공개 주소·보안그룹을 읽지 못했습니다"
+            exit 1
+          fi
+          echo "host=$HOST" >> "$GITHUB_OUTPUT"
+          echo "user=${S_USER:-ubuntu}" >> "$GITHUB_OUTPUT"
+          echo "sg=$SG" >> "$GITHUB_OUTPUT"
+          echo "새 서버를 태그로 찾았습니다 — $INST"
 
       - name: 옛 서버 SSH 개방
         id: open-old
@@ -420,18 +600,28 @@ jobs:
             --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
             --protocol tcp --port 22 --cidr "${{ steps.ip.outputs.runner_ip }}/32"
 
-      # oneclick 에서는 **건너뛴다** — 새 인스턴스가 옛 것과 같은 보안그룹을 쓰므로 위 스텝이
-      # 이미 그 22번을 열었다. 여기서 또 열면 같은 규칙을 두 번 넣어 중복 오류가 난다.
+      # **oneclick 에서도 돈다.** 예전에는 건너뛰었는데, 그때는 새 인스턴스가 옛 것과 **같은 계정의
+      # 같은 보안그룹**을 써서 위 스텝이 이미 그 22번을 열었기 때문이다. 이제 새 인스턴스는 **다른
+      # 계정의 다른 보안그룹**이라 그 개방이 새 서버에 닿지 않는다 — 여기서 따로 열어야 붙는다.
+      #
+      # 보안그룹 id 는 `create` 가 방금 만든 것을 쓰고, 단계별 경로에서는 시크릿을 쓴다.
       - name: 새 서버 SSH 개방
         id: open-new
-        if: steps.plan.outputs.create != 'true'
+        if: steps.plan.outputs.prepare == 'true' || steps.plan.outputs.data == 'true' || steps.plan.outputs.app == 'true' || steps.plan.outputs.verify == 'true' || steps.plan.outputs.caddy == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NEW_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NEW_AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.NEW_AWS_REGION || 'ap-northeast-1' }}
+          SG: ${{ steps.create.outputs.sg || steps.find.outputs.sg || secrets.NEW_EC2_SECURITY_GROUP_ID }}
         run: |
+          set -uo pipefail
+          if [ -z "${SG:-}" ]; then
+            echo "::error::새 서버 보안그룹을 모릅니다 — oneclick 이 아니면 NEW_EC2_SECURITY_GROUP_ID 를 채우세요"
+            exit 1
+          fi
+          echo "sg=$SG" >> "$GITHUB_OUTPUT"
           aws ec2 authorize-security-group-ingress \
-            --group-id "${{ secrets.NEW_EC2_SECURITY_GROUP_ID }}" \
+            --group-id "$SG" \
             --protocol tcp --port 22 --cidr "${{ steps.ip.outputs.runner_ip }}/32"
 
       # 접속 좌표를 **한 곳에서** 정한다.
@@ -448,8 +638,8 @@ jobs:
           NEW_HOST_KEY_FP: ${{ secrets.NEW_EC2_HOST_KEY_FP }}
           OLD_HOST_KEY_FP: ${{ secrets.EC2_HOST_KEY_FP }}
           # oneclick 은 방금 만든 인스턴스를, 그 밖에는 시크릿을 쓴다. 빈 값이면 아래에서 멈춘다.
-          NEW_HOST: ${{ steps.create.outputs.host || secrets.NEW_EC2_HOST }}
-          NEW_USER: ${{ steps.create.outputs.user || secrets.NEW_EC2_USER }}
+          NEW_HOST: ${{ steps.create.outputs.host || steps.find.outputs.host || secrets.NEW_EC2_HOST }}
+          NEW_USER: ${{ steps.create.outputs.user || steps.find.outputs.user || secrets.NEW_EC2_USER }}
           OLD_HOST: ${{ secrets.EC2_HOST }}
           OLD_USER: ${{ secrets.EC2_USER }}
         run: |
@@ -1133,145 +1323,137 @@ jobs:
             "${{ steps.plan.outputs.no_verify }}" "검증" "완료" \
             "스모크 · 배치 기록 확인"
 
-      # ── ④½ switch (oneclick 전용) — 트래픽을 넘긴다 ────────────────────────
+      # ── ④½ switch (oneclick 전용) — 새 계정에 주소를 세운다 ─────────────────
       #
-      # **도메인은 바뀌지 않는다. 그 도메인이 가리키는 곳이 바뀐다.**
+      # **계정을 옮기면 트래픽을 API 로 넘길 수 없다.**
       #
-      # 앱·프론트·카카오가 전부 `api.offway.cloud` 로 붙는다(카카오 콘솔에 redirect URI 가 등록돼
-      # 있어 IP 로는 대체할 수 없다). 그래서 트래픽을 넘기려면 그 이름이 새 서버를 가리켜야 한다.
+      # 예전 판은 옛 Elastic IP 를 새 인스턴스에 재연결했다. 같은 계정에서는 그게 최선이다 — API
+      # 한 번이고, 되돌리기도 한 번이고, 도메인을 안 건드린다. 그런데 **EIP 는 계정을 넘지 못한다.**
+      # 주소는 그것을 할당한 계정에 묶여 있다.
       #
-      # 방법이 둘인데 값어치가 다르다.
+      # 그래서 계정 이관에서는 순서가 이렇게 된다.
       #
-      #   Elastic IP 재연결 — API 한 번. **되돌리기도 한 번.** 도메인·DNS 를 안 건드린다
-      #   A 레코드 변경     — 가비아 콘솔 로그인. 새벽에 문제가 나면 그 로그인이 복구 시간이 된다
+      #   ① 이 단계가 **새 계정에 EIP 를 할당해** 새 인스턴스에 붙이고, 그 주소를 알려준다
+      #   ② **사람이 가비아에서 A 레코드를 그 주소로 바꾼다** — 가비아는 쓸 수 있는 API 가 없다
+      #   ③ DNS 가 넘어온 뒤 `stage=caddy` 를 눌러 인증서를 받는다
       #
-      # 그래서 EIP 가 있으면 자동으로 넘기고, 없으면 **넘기지 않고 멈춘다** — 사람이 A 레코드를
-      # 고쳐야 하는데 그 주소를 요약에 찍어 준다. 여기서 임의로 진행하면 "앱은 새 서버에 떴는데
-      # 트래픽은 옛 서버로 가는" 상태를 초록불로 보고하게 된다.
-      - name: 알림 · 단계 시작 (트래픽 전환)
+      # ②를 자동화할 수 없어서 버튼이 둘이다. 그 대신 **이번 한 번만** 그렇다 — 새 계정에도 EIP 가
+      # 서면, 그 뒤의 인스턴스 교체는 같은 계정 안의 재연결이라 DNS 를 다시 안 건드린다.
+      #
+      # **인증서를 여기서 받지 않는 이유**가 중요하다. DNS 가 아직 옛 서버를 가리키는 동안 Let's
+      # Encrypt 의 HTTP-01 검증을 걸면 그 검증이 **옛 서버로 가서** 실패하고, 실패가 쌓이면 같은
+      # 도메인 **주 5회** 제한에 걸려 정작 이사 날에 인증서를 못 받는다. 그래서 `plan` 이 oneclick
+      # 에서 caddy 를 끈다.
+      - name: 알림 · 단계 시작 (새 계정 주소 확보)
         if: steps.plan.outputs.switch == 'true'
-        run: bash scripts/migrate/notify.sh begin "${{ steps.plan.outputs.no_switch }}" "트래픽 전환"
+        run: bash scripts/migrate/notify.sh begin "${{ steps.plan.outputs.no_switch }}" "새 계정 주소 확보"
 
-      - name: switch · Elastic IP 를 새 서버로 넘긴다
+      - name: switch · 새 계정에 Elastic IP 를 세운다
         id: switch
         if: steps.plan.outputs.switch == 'true'
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ap-northeast-1
+          AWS_ACCESS_KEY_ID: ${{ secrets.NEW_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NEW_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.NEW_AWS_REGION || 'ap-northeast-1' }}
           OLD_HOST: ${{ secrets.EC2_HOST }}
           NEW_ID: ${{ steps.create.outputs.id }}
           NEW_HOST: ${{ steps.create.outputs.host }}
         run: |
           set -uo pipefail
+          NO="${{ steps.plan.outputs.no_switch }}"
+          say() { bash scripts/migrate/notify.sh sub "$NO" "$1"; }
+          DOMAIN=api.offway.cloud
 
-          # **호스트 키를 전환 **전에** 확보한다.**
-          #
-          # 재연결 뒤 그 IP 는 새 서버이므로 known_hosts 항목이 달라진다. 그때 `ssh-keyscan` 을 하면
-          # 두 가지가 겹친다 — 경로가 아직 안 잡혀 **빈 결과로 끝날 수 있고**, 결과를 검증 없이
-          # 믿으면 TOFU 다. 빈 결과면 known_hosts 에 항목이 없어 뒤의 caddy 가 `scp` 에서 바로
-          # 실패하는데, **그 시점은 트래픽이 이미 넘어간 자리**다 — 443 에 Caddy 가 없는 상태로
-          # 실패가 남아 사용자 요청이 끊긴다.
-          #
-          # 지금은 그 서버에 이미 SSH 로 붙어 있다. 그래서 **같은 서버의 키를 미리 받아 두고**,
-          # 전환 뒤에는 호스트 이름만 바꿔 등록한다 — 스캔도 재시도도 필요 없고, 받은 키가 그
-          # 서버의 것임이 확실하다.
-          NEW_KEYS=""
-          for i in 1 2 3; do
-            NEW_KEYS=$(ssh-keyscan "$NEW_HOST" 2>/dev/null)
-            [ -n "$NEW_KEYS" ] && break
-            sleep 3
-          done
-          if [ -z "$NEW_KEYS" ]; then
-            echo "::error::새 서버($NEW_HOST)의 호스트 키를 받지 못했습니다 — 전환하지 않고 멈춥니다"
-            echo "::error::(전환 전이라 옛 서버가 그대로 운영입니다)"
+          if [ -z "${NEW_ID:-}" ]; then
+            echo "::error::새 인스턴스 id 를 모릅니다 — create 가 돌지 않은 회차입니다"
             exit 1
           fi
-          bash scripts/migrate/notify.sh sub "${{ steps.plan.outputs.no_switch }}" \
-            "새 서버 호스트 키 확보"
 
-          ALLOC=$(aws ec2 describe-addresses --public-ips "$OLD_HOST" \
+          # **주소를 회차마다 새로 할당하지 않는다.** 리허설을 몇 번 돌리면 쓰지 않는 EIP 가 그만큼
+          # 쌓이고, 붙지 않은 EIP 는 시간당 과금된다(IdleAddress). 태그로 우리 것을 찾아 재사용한다.
+          ALLOC=$(aws ec2 describe-addresses --filters "Name=tag:offway:role,Values=api" \
             --query 'Addresses[0].AllocationId' --output text 2>/dev/null) || ALLOC=""
-
           if [ -z "$ALLOC" ] || [ "$ALLOC" = "None" ]; then
-            echo "::warning::$OLD_HOST 는 Elastic IP 가 아닙니다 — 트래픽을 자동으로 넘길 수 없습니다"
-            {
-              echo "### 트래픽 전환 — **손이 필요합니다**"
-              echo ""
-              echo "옛 주소가 Elastic IP 가 아니라 재연결로 넘길 수 없습니다. 가비아에서 A 레코드를 고치세요."
-              echo ""
-              echo "| | |"
-              echo "|---|---|"
-              echo "| 도메인 | \`api.offway.cloud\` (바뀌지 않습니다) |"
-              echo "| 지금 | \`$OLD_HOST\` |"
-              echo "| 바꿀 값 | \`$NEW_HOST\` |"
-              echo ""
-              echo "**다음 이사를 위해** — EIP 를 하나 할당해 붙여 두면 A 레코드를 마지막으로 한 번 고치고,"
-              echo "이후 모든 이사·인스턴스 교체에서 DNS 를 영구히 안 건드립니다."
-              echo ""
-              echo "A 레코드를 넘긴 뒤 \`stage=caddy\` 를 눌러 인증서를 받으세요."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "switched=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            # `offway:migrate` 태그를 함께 붙인다 — 정리 단계의 IAM 조건이 그 태그를 본다.
+            ALLOC=$(aws ec2 allocate-address --domain vpc \
+              --tag-specifications "ResourceType=elastic-ip,Tags=[{Key=offway:role,Value=api},{Key=offway:migrate,Value=${{ github.run_id }}}]" \
+              --query AllocationId --output text 2>&1) \
+              || { echo "::error::EIP 를 할당하지 못했습니다 — ec2:AllocateAddress 권한을 확인하세요"; echo "$ALLOC"; exit 1; }
+            echo "EIP 새로 할당 — $ALLOC"
+            say "새 계정에 Elastic IP 할당"
+          else
+            echo "EIP 재사용 — $ALLOC"
+            say "새 계정의 Elastic IP 재사용"
           fi
 
-          echo "Elastic IP 확인 — $OLD_HOST ($ALLOC)"
-          bash scripts/migrate/notify.sh sub "${{ steps.plan.outputs.no_switch }}" \
-            "Elastic IP 확인 — $ALLOC"
           aws ec2 associate-address --allocation-id "$ALLOC" --instance-id "$NEW_ID" --allow-reassociation \
-            >/dev/null || { echo "::error::EIP 재연결에 실패했습니다 — ec2:AssociateAddress 권한을 확인하세요"; exit 1; }
-          echo "switched=true" >> "$GITHUB_OUTPUT"
-          echo "eip=$OLD_HOST" >> "$GITHUB_OUTPUT"
-          # **여기서 트래픽이 넘어간다.** 이사 전체에서 사용자에게 보이는 변화가 일어나는 유일한 지점이라
-          # 알림을 따로 남긴다 — 되돌릴 판단을 해야 할 때 그 시각이 기준이 된다.
-          bash scripts/migrate/notify.sh sub "${{ steps.plan.outputs.no_switch }}" \
-            "EIP 재연결 완료 → $NEW_ID · 지금부터 사용자 요청이 새 서버로 갑니다"
+            >/dev/null || { echo "::error::EIP 를 붙이지 못했습니다 — ec2:AssociateAddress 권한을 확인하세요"; exit 1; }
+          EIP=$(aws ec2 describe-addresses --allocation-ids "$ALLOC" \
+            --query 'Addresses[0].PublicIp' --output text)
+          if [ -z "$EIP" ] || [ "$EIP" = "None" ]; then
+            echo "::error::붙인 EIP 의 주소를 읽지 못했습니다"
+            exit 1
+          fi
+          echo "alloc=$ALLOC" >> "$GITHUB_OUTPUT"
+          echo "eip=$EIP" >> "$GITHUB_OUTPUT"
+          echo "switched=false" >> "$GITHUB_OUTPUT"
+          echo "새 계정 EIP $EIP → $NEW_ID"
 
-          # 재연결 뒤 그 IP 는 **새 서버**다. 별칭을 갱신해 뒤 단계(caddy)가 새 서버를 보게 한다.
-          # 갱신하지 않으면 caddy 가 방금 떼어낸 임시 IP 로 붙어, 인증서를 엉뚱한 곳에서 받는다.
-          python3 - "$OLD_HOST" <<'PY'
+          # **주소가 바뀌었으니 별칭을 갱신한다.** 안 하면 뒤의 caddy 가 방금 떼어낸 임시 IP 로 붙어,
+          # 인증서를 엉뚱한 곳에서 받으려 한다. 같은 이유로 호스트 키도 새 이름으로 다시 등록한다.
+          python3 - "$EIP" <<'PY'
           import pathlib, re, sys
           eip = sys.argv[1]
           p = pathlib.Path.home() / '.ssh' / 'config'
           text = p.read_text()
-          # newsrv 블록의 HostName 만 EIP 로 바꾼다
           text = re.sub(r'(Host newsrv\n(?:  \w+ .*\n)*?  HostName )\S+', r'\g<1>' + eip, text)
           p.write_text(text)
           print(f'newsrv 별칭을 {eip} 로 갱신')
           PY
-          # 같은 IP 에 다른 서버가 붙었으니 옛 항목을 지우고, **위에서 미리 받아 둔 새 서버의 키**를
-          # 그 IP 이름으로 등록한다. 여기서 다시 스캔하지 않는 이유는 위 주석에 적었다.
-          ssh-keygen -R "$OLD_HOST" >/dev/null 2>&1 || true
-          printf '%s\n' "$NEW_KEYS" | sed "s/^[^ ]*/$OLD_HOST/" >> ~/.ssh/known_hosts
-          if ! ssh-keygen -F "$OLD_HOST" >/dev/null 2>&1; then
-            echo "::error::$OLD_HOST 의 호스트 키를 등록하지 못했습니다 — caddy 가 접속하지 못합니다"
-            exit 1
+          KEYS=""
+          for i in 1 2 3; do
+            KEYS=$(ssh-keyscan "$EIP" 2>/dev/null)
+            [ -n "$KEYS" ] && break
+            sleep 3
+          done
+          if [ -z "$KEYS" ]; then
+            echo "::warning::EIP($EIP)의 호스트 키를 받지 못했습니다 — caddy 단계에서 다시 시도됩니다"
+          else
+            ssh-keygen -R "$EIP" >/dev/null 2>&1 || true
+            printf '%s\n' "$KEYS" >> ~/.ssh/known_hosts
+            echo "EIP 이름으로 호스트 키 등록"
           fi
-          echo "호스트 키를 $OLD_HOST 이름으로 옮겨 등록했습니다"
-          bash scripts/migrate/notify.sh sub "${{ steps.plan.outputs.no_switch }}" \
-            "known_hosts 재등록 완료"
+
+          # **트래픽은 아직 안 넘어갔다.** 이 줄이 그 사실을 말한다 — `switched=false` 로 둔 이유다.
+          say "EIP $EIP 확보 — 트래픽은 아직 옛 서버로 갑니다"
 
           {
-            echo "### 트래픽 전환 완료"
-            echo "- Elastic IP \`$OLD_HOST\` → 새 인스턴스 \`$NEW_ID\`"
-            echo "- **도메인·DNS 를 건드리지 않았습니다** — 되돌리려면 같은 EIP 를 옛 인스턴스에 재연결하세요"
+            echo "### 이제 사람이 할 일 — 가비아에서 A 레코드 하나"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| 도메인 | \`$DOMAIN\` (바뀌지 않습니다) |"
+            echo "| 지금 가리키는 곳 | \`${OLD_HOST:-옛 서버}\` — 옛 계정 |"
+            echo "| **바꿀 값** | \`$EIP\` — 새 계정 |"
+            echo ""
+            echo "1. 가비아 > My가비아 > DNS 관리 > \`offway.cloud\` > DNS 설정"
+            echo "2. \`api\` 의 A 레코드 값을 \`$EIP\` 로 바꿉니다"
+            echo "3. 반영되면(\`dig api.offway.cloud\` 가 \`$EIP\` 를 답하면) **\`stage=caddy\`** 를 누릅니다"
+            echo ""
+            echo "**이번 한 번만 DNS 를 건드립니다.** 새 계정에도 EIP 가 섰으니, 이후 인스턴스 교체는"
+            echo "같은 계정 안의 재연결이라 A 레코드를 다시 고치지 않습니다."
+            echo ""
+            echo "되돌리려면 A 레코드를 \`${OLD_HOST:-옛 주소}\` 로 되돌리면 됩니다 — 옛 서버는 그대로 있습니다."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # **전환했을 때와 못 했을 때를 가른다.** 예전에는 `success()` 만 보고 늘 "완료" 라고 알렸다 —
-      # EIP 가 아니어서 넘기지 못한 회차(그 스텝은 0 으로 끝난다)도 전환 완료로 보고됐다. 그러면
-      # 트래픽이 아직 옛 서버로 가는데 알림만 보고 이사가 끝난 줄 안다.
-      - name: 알림 · 트래픽 전환
+      # **이 알림이 사람을 부르는 자리다.** 여기서 워크플로가 할 수 있는 일이 끝나고, 가비아 A
+      # 레코드는 사람만 바꿀 수 있다. 그래서 "완료" 가 아니라 **무엇을 어떤 값으로 바꾸라**고 적는다.
+      - name: 알림 · 주소 확보
         if: success() && steps.plan.outputs.switch == 'true'
         run: |
-          if [ "${{ steps.switch.outputs.switched }}" = "true" ]; then
-            bash scripts/migrate/notify.sh step \
-              "${{ steps.plan.outputs.no_switch }}" "트래픽 전환" "완료" \
-              "EIP 를 새 서버로 넘겼습니다 · 도메인·DNS 는 건드리지 않았습니다"
-          else
-            bash scripts/migrate/notify.sh step \
-              "${{ steps.plan.outputs.no_switch }}" "트래픽 전환" "손이 필요합니다" \
-              "옛 주소가 Elastic IP 가 아니라 자동으로 넘기지 못했습니다 — 가비아에서 A 레코드를 고친 뒤 stage=caddy 를 누르세요 (주소는 Actions 요약에 있습니다)"
-          fi
+          bash scripts/migrate/notify.sh step \
+            "${{ steps.plan.outputs.no_switch }}" "새 계정 주소 확보" "이제 사람 차례" \
+            "가비아에서 api.offway.cloud 의 A 레코드를 **${{ steps.switch.outputs.eip }}** 로 바꾸세요. 반영되면 stage=caddy 를 누르면 인증서까지 끝납니다. 그때까지 트래픽은 옛 서버로 갑니다"
 
       # ── ⑤ caddy — DNS 를 넘긴 뒤에만 ───────────────────────────────────────
       #
@@ -1283,11 +1465,10 @@ jobs:
       # 누른다. `caddy-data` 볼륨을 옛 서버에서 옮기지 않는 이유도 같다. 새로 발급받는 편이
       # 단순하고, DNS 가 이미 넘어와 있으면 10~30초면 끝난다.
       - name: caddy · 기동 (DNS 전환 후)
-        # oneclick 에서는 **EIP 전환이 성공했을 때만** 돈다. 전환이 안 됐으면 DNS 가 아직 옛
-        # 서버를 가리키므로 HTTP-01 검증이 거기로 가 실패하고, 그 실패가 주 5회 제한을 태운다.
-        if: |
-          steps.plan.outputs.caddy == 'true'
-          && (steps.plan.outputs.switch != 'true' || steps.switch.outputs.switched == 'true')
+        # **DNS 가 실제로 새 서버를 가리킬 때만 돈다.** 아직 옛 서버를 가리키면 HTTP-01 검증이
+        # 거기로 가 실패하고, 그 실패가 주 5회 제한을 태워 정작 이사 날에 인증서를 못 받는다.
+        # 그래서 `plan` 이 oneclick 에서 caddy 를 끄고, 사람이 A 레코드를 바꾼 뒤 따로 누른다.
+        if: steps.plan.outputs.caddy == 'true'
         run: |
           set -uo pipefail
           set -o pipefail
@@ -1316,16 +1497,15 @@ jobs:
           REMOTE
 
       - name: caddy · 인증서 확인
-        # oneclick 에서는 **EIP 전환이 성공했을 때만** 돈다. 전환이 안 됐으면 DNS 가 아직 옛
-        # 서버를 가리키므로 HTTP-01 검증이 거기로 가 실패하고, 그 실패가 주 5회 제한을 태운다.
-        if: |
-          steps.plan.outputs.caddy == 'true'
-          && (steps.plan.outputs.switch != 'true' || steps.switch.outputs.switched == 'true')
+        # **DNS 가 실제로 새 서버를 가리킬 때만 돈다.** 아직 옛 서버를 가리키면 HTTP-01 검증이
+        # 거기로 가 실패하고, 그 실패가 주 5회 제한을 태워 정작 이사 날에 인증서를 못 받는다.
+        # 그래서 `plan` 이 oneclick 에서 caddy 를 끄고, 사람이 A 레코드를 바꾼 뒤 따로 누른다.
+        if: steps.plan.outputs.caddy == 'true'
         run: |
           set -uo pipefail
           DOMAIN=api.offway.cloud
           # EIP 를 넘겼으면 그 주소가 곧 새 서버다. oneclick 이 아니면 시크릿을 쓴다.
-          NEW_HOST="${{ steps.switch.outputs.eip || steps.create.outputs.host || secrets.NEW_EC2_HOST }}"
+          NEW_HOST="${{ steps.switch.outputs.eip || steps.create.outputs.host || steps.find.outputs.host || secrets.NEW_EC2_HOST }}"
 
           # **새 서버에 직접 붙어 읽는다.** 도메인으로 붙으면 DNS 가 가리키는 곳의 인증서를 읽는데,
           # DNS 가 아직 옛 서버면 **옛 서버의 정상 인증서**를 보고 이 단계가 통과한다 — 새 서버의
@@ -1395,8 +1575,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NEW_AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.NEW_AWS_REGION || 'ap-northeast-1' }}
         run: |
+          # 개방 스텝이 실제로 쓴 보안그룹을 그대로 회수한다. 시크릿을 다시 읽으면 oneclick 에서
+          # 그 값이 비어 있어 **회수가 조용히 실패하고 22번이 열린 채 남는다.**
           aws ec2 revoke-security-group-ingress \
-            --group-id "${{ secrets.NEW_EC2_SECURITY_GROUP_ID }}" \
+            --group-id "${{ steps.open-new.outputs.sg }}" \
             --protocol tcp --port 22 --cidr "${{ steps.ip.outputs.runner_ip }}/32"
 
       # **서버 정리를 먼저, 키 삭제를 나중에.** 순서가 바뀌면 키가 없어진 뒤에 SSH 를 부르게 되어
@@ -1414,24 +1596,85 @@ jobs:
           rm -f ~/.ssh/old_key ~/.ssh/new_key ~/.ssh/config env.prod mysql.env
           rm -f "$RUNNER_TEMP/old.tsv" "$RUNNER_TEMP/new.tsv"
 
+      # ── ⑥ cleanup — 리허설이 남긴 것을 지운다 ──────────────────────────────
+      #
+      # **리허설은 끝나면 스스로 지운다.** 안 지우면 t4g.small + EBS + 공개 IPv4 가 계속 붙는데,
+      # 리허설은 몇 번이고 돌리는 것이라 그 잔해가 쌓인다. "태그로 찾아 지우세요" 를 사람에게 넘기면
+      # 그게 가장 잘 잊히는 일이다.
+      #
+      # **지울 수 있는 길을 태그로만 열어 둔다.** 인스턴스 id 를 그대로 받아 지우는 대신, 이 회차가
+      # 붙인 `offway:migrate=<run_id>` 를 조회해 **그 결과와 id 가 일치할 때만** 지운다. IAM 정책도
+      # 같은 조건을 걸어(`aws:ResourceTag/offway:migrate`) 태그 없는 인스턴스는 자격 자체로 못 지운다.
+      # 두 겹인 이유: 워크플로 버그로 엉뚱한 id 가 들어와도 자격이 막고, 정책이 느슨해져도 조회가 막는다.
+      #
+      # **성공했을 때만 지운다.** 실패한 회차의 서버는 원인이 남아 있는 유일한 자리다 — 그것을 지우면
+      # 다음 회차가 같은 자리에서 또 깨지고, 우리는 로그만 들고 추측하게 된다.
+      - name: cleanup · 리허설 인스턴스 종료
+        if: success() && steps.plan.outputs.cleanup == 'true' && steps.create.outputs.id != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NEW_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NEW_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.NEW_AWS_REGION || 'ap-northeast-1' }}
+          TARGET: ${{ steps.create.outputs.id }}
+        run: |
+          set -uo pipefail
+          NO="${{ steps.plan.outputs.no_cleanup }}"
+          bash scripts/migrate/notify.sh begin "$NO" "리허설 정리"
+          say() { bash scripts/migrate/notify.sh sub "$NO" "$1"; }
+
+          # 이 회차의 태그가 붙은 인스턴스를 조회한다. 목록이 정확히 그 하나여야 지운다.
+          TAGGED=$(aws ec2 describe-instances \
+            --filters "Name=tag:offway:migrate,Values=${{ github.run_id }}" \
+                      "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+            --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null) || TAGGED=""
+          if [ "$(printf '%s\n' $TAGGED | grep -c .)" != "1" ] || [ "$TAGGED" != "$TARGET" ]; then
+            echo "::warning::태그 조회 결과가 기대와 다릅니다(태그='$TAGGED' 만든것='$TARGET') — 지우지 않고 남깁니다"
+            say "정리 건너뜀 — 태그 조회가 기대와 달라 사람이 확인해야 합니다"
+            exit 0
+          fi
+
+          aws ec2 terminate-instances --instance-ids "$TARGET" >/dev/null \
+            || { echo "::error::인스턴스를 종료하지 못했습니다 — 콘솔에서 $TARGET 를 지우세요"; \
+                 say "정리 실패 — $TARGET 를 직접 지워야 합니다"; exit 0; }
+          echo "리허설 인스턴스 $TARGET 종료 요청"
+          say "인스턴스 $TARGET 종료"
+
+          # **EIP 는 리허설에서 붙지 않는다**(`switch` 가 꺼져 있다). 그래도 혹시 남으면 알린다 —
+          # 붙지 않은 EIP 는 시간당 과금되고, 인스턴스를 지운 뒤가 정확히 그 상태다.
+          IDLE=$(aws ec2 describe-addresses --filters "Name=tag:offway:migrate,Values=${{ github.run_id }}" \
+            --query 'Addresses[?AssociationId==null].PublicIp' --output text 2>/dev/null) || IDLE=""
+          if [ -n "$IDLE" ]; then
+            echo "::warning::붙지 않은 EIP 가 남았습니다: $IDLE (시간당 과금됩니다)"
+            say "안 붙은 EIP 가 남았습니다 — 콘솔에서 해제하세요"
+          fi
+
+          bash scripts/migrate/notify.sh step "$NO" "리허설 정리" "완료" \
+            "인스턴스를 종료해 과금이 남지 않습니다"
+          {
+            echo "### 리허설 정리 완료"
+            echo "- 인스턴스 \`$TARGET\` 를 종료했습니다 — 남는 과금이 없습니다"
+            echo "- 보안그룹 \`offway\` 와 키페어 \`offway-migrate\` 는 **남깁니다** (무료이고 다음 회차가 재사용합니다)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # 무엇이 남았는지 사람에게 넘긴다. **freeze 로 멈춘 앱이 있으면 그게 가장 중요한 한 줄이다.**
       # **마지막에 한 번 더 알린다.** 단계별 알림은 "무엇이 끝났나" 를 말하고, 이것은 "이제 무엇을
       # 하면 되나" 를 말한다 — 리허설이면 인스턴스를 정리하라고, 본 이사면 전환됐는지를 짚는다.
       - name: 알림 · 완료
         if: success()
         run: |
-          if [ "${{ steps.plan.outputs.switch }}" = "true" ] && [ "${{ steps.switch.outputs.switched }}" = "true" ]; then
-            TITLE="이관 완료 — 트래픽이 새 서버로 넘어갔습니다"
-            BODY="EIP ${{ steps.switch.outputs.eip }} · 옛 인스턴스는 남아 있습니다(며칠 지켜본 뒤 종료하세요)"
-          elif [ "${{ steps.plan.outputs.switch }}" = "true" ]; then
-            TITLE="이관 완료 — 트래픽 전환은 손이 필요합니다"
-            BODY="EIP 가 없어 A 레코드를 ${{ steps.create.outputs.host }} 로 고쳐야 합니다. 그 뒤 stage=caddy 를 누르세요"
-          elif [ "${{ steps.plan.outputs.create }}" = "true" ]; then
+          if [ "${{ steps.plan.outputs.switch }}" = "true" ]; then
+            # 계정을 옮기는 회차다. 여기서 워크플로가 할 수 있는 일이 끝나고 사람 차례가 된다.
+            TITLE="새 계정 준비 끝 — 이제 가비아에서 A 레코드 하나"
+            BODY="api.offway.cloud 를 **${{ steps.switch.outputs.eip }}** 로 바꾸고, dig 로 반영을 확인한 뒤 stage=caddy 를 누르세요. 그때까지 트래픽은 옛 서버로 갑니다(옛 앱을 freeze 했으면 그동안 응답하지 않습니다)"
+          elif [ "${{ steps.plan.outputs.caddy }}" = "true" ]; then
+            TITLE="이사 완료 — 인증서까지 끝났습니다"
+            BODY="옛 계정의 인스턴스는 남아 있습니다 — 며칠 지켜본 뒤 종료하세요. 옛 계정을 닫기 전에 새 계정의 키페어를 갈아 두면 옛 키 노출이 끝납니다"
+          elif [ "${{ steps.plan.outputs.cleanup }}" = "true" ]; then
             # 제목에 "리허설" 을 또 쓰지 않는다 — notify.sh 가 모드를 붙이므로 "리허설 완료 · 리허설"
             # 이 된다. 대신 **트래픽이 그대로라는 사실**을 첫 줄로 올린다. 리허설을 본 이사로 착각하는
             # 쪽이 그 반대보다 위험하다.
-            TITLE="이관 완료 — 트래픽은 넘기지 않았습니다"
-            BODY="운영은 그대로 옛 서버입니다. 새 인스턴스 ${{ steps.create.outputs.id }} 는 남아 있습니다 — 태그 offway:migrate=${{ github.run_id }} 로 찾아 종료하세요(안 지우면 계속 과금됩니다)"
+            TITLE="리허설 통과 — 트래픽은 넘기지 않았습니다"
+            BODY="운영은 그대로 옛 서버입니다. 새 계정에서 인스턴스 생성부터 데이터 이관·앱 기동·검증까지 확인했고, 리허설 인스턴스는 정리했습니다. 본 이사는 live_keys 를 켜고 같은 버튼을 누르세요"
           else
             TITLE="이관 단계 완료 — ${{ inputs.stage }}"
             BODY="다음 단계를 누르세요"
@@ -1459,8 +1702,8 @@ jobs:
             WHERE="${{ steps.plan.outputs.no_app }}"; WHAT="앱 기동"
             BODY="데이터는 이미 옮겨졌습니다. stage=app 으로 다시 시도할 수 있습니다"
           elif [ "${{ steps.switch.outcome }}" = "failure" ]; then
-            WHERE="${{ steps.plan.outputs.no_switch }}"; WHAT="트래픽 전환"
-            BODY="**전환 도중 실패입니다** — 지금 트래픽이 어디로 가는지 직접 확인하세요"
+            WHERE="${{ steps.plan.outputs.no_switch }}"; WHAT="새 계정 주소 확보"
+            BODY="EIP 를 세우지 못했습니다. **트래픽은 아직 옛 서버로 가므로 서비스는 영향이 없습니다** — 권한(ec2:AllocateAddress·AssociateAddress)을 확인하세요"
           else
             WHERE="?"; WHAT="이관"
             BODY="어느 단계인지 Actions 로그를 확인하세요"
