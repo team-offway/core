@@ -99,10 +99,28 @@ public class CourseGenerationService {
     private final CourseUsageAlert courseUsageAlert;
     private final RegionVisitMetricsService regionVisitMetricsService;
     private final AttractionCrowdService attractionCrowdService;
+    private final RecentCourses recentCourses;
 
+    /**
+     * 코스를 만든다 — <b>방금 만든 것과 같은 요청이면 그것을 그대로 준다</b>(#584).
+     *
+     * <p>캐시를 여기 두는 것이 요점이다.
+     *
+     * <ul>
+     *   <li><b>위가 아니다</b> — {@code generate(command, userId)} 는 이 한 건이 태운 외부 호출을
+     *       알린다(#421). 그 위에 캐시를 두면 재사용된 건이 집계에서 통째로 빠져, 실제로 몇 콜을
+     *       썼는지가 로그에서 사라진다. 여기 두면 재사용된 건은 <b>0콜로 정직하게</b> 잡힌다
+     *   <li><b>아래가 아니다</b> — {@code generate(command, pois)} 는 재생성이 씨앗을 바꿔가며 여러 번
+     *       부르는 자리라, 거기 캐시를 두면 씨앗마다 다른 코스를 캐시하며 쌓이기만 한다
+     * </ul>
+     *
+     * <p>이 자리라야 <b>후보 수집(TourAPI 3콜)까지</b> 함께 건너뛴다 — {@code collect} 는 캐시가 없어
+     * 호출마다 세 번 나간다.
+     */
     public GeneratedCourse generate(GenerateCourse command) {
-        // ① POI 수집 (trip)
-        return generate(command, regionPoiService.collect(command.regionId(), command.travelDate()));
+        return recentCourses.get(command, () ->
+                // ① POI 수집 (trip)
+                generate(command, regionPoiService.collect(command.regionId(), command.travelDate())));
     }
 
     /**
