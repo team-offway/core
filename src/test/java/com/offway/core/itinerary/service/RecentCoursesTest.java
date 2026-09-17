@@ -152,6 +152,36 @@ class RecentCoursesTest {
         assertEquals(1, built.get(), "방금 만든 것이 벌써 밀려났다");
     }
 
+    /**
+     * 나가는 순서는 <b>들어온 순</b>이 아니라 <b>안 쓴 순</b>이다.
+     *
+     * <p>위 두 테스트는 개수만 본다 — {@code LinkedHashMap} 을 삽입 순서(FIFO)로 되돌려도 둘 다
+     * 그대로 통과한다. 그런데 이 캐시가 막으려는 것이 <b>같은 코스를 되풀이해 여는 사람</b>이라,
+     * 계속 보고 있는 코스가 "먼저 들어왔다" 는 이유로 밀려나면 정작 막아야 할 왕복이 다시 나간다.
+     *
+     * <p>그래서 꽉 채운 뒤 <b>가장 오래된 것을 한 번 더 열어 보고</b> 새 것을 넣는다. 접근 순서라면
+     * 그때 나가는 것은 방금 연 그것이 아니라 <b>그다음으로 안 쓴 것</b>이다.
+     */
+    @Test
+    void 밀어낼_때_들어온_순이_아니라_안_쓴_순으로_나간다() {
+        RecentCourses recent = new RecentCourses(true);
+        AtomicInteger built = new AtomicInteger();
+        GenerateCourse oldest = command(0L, 2, TransportMode.CAR);
+        GenerateCourse secondOldest = command(1L, 2, TransportMode.CAR);
+
+        for (int i = 0; i < RecentCourses.MAX_ENTRIES; i++) {
+            recent.get(command(i, 2, TransportMode.CAR), RecentCoursesTest::course);
+        }
+        recent.get(oldest, RecentCoursesTest::course); // 다시 열어 본다 — 이걸로 가장 최근이 된다
+        recent.get(command(RecentCourses.MAX_ENTRIES, 2, TransportMode.CAR), RecentCoursesTest::course);
+
+        recent.get(oldest, () -> counted(built));
+        assertEquals(0, built.get(), "방금 다시 연 것이 밀려났다 — 들어온 순으로 내보내고 있다");
+
+        recent.get(secondOldest, () -> counted(built));
+        assertEquals(1, built.get(), "아무도 안 쓴 것이 그대로 남아 있다 — 밀어내기가 안 걸렸다");
+    }
+
     @Test
     void 들고_있는_시간은_1분이다() {
         // 이 값을 늘리려면 그 안에 무엇이 낡는지를 먼저 답해야 한다 — 코스에는 날씨·혼잡·운영시간이 섞인다.
