@@ -255,6 +255,16 @@ public class LiveActivityStarter {
      *
      * <p><b>동시 상한을 둔다.</b> 순차로 돌면 지연이 기기 수만큼 곱해지고, 무제한이면 APNs 쪽 속도
      * 제한을 스스로 부른다.
+     *
+     * <h2>DB 를 만지는 일은 전부 이 스레드에서 한다</h2>
+     *
+     * <p>발송만 가상 스레드로 팬아웃하고, <b>삭제는 전부 join 뒤 여기서</b> 한다. 처음에는 편하다는
+     * 이유로 죽은 갱신 토큰을 발송 스레드 안에서 지웠는데, 그러면 <b>바깥 트랜잭션이 잡고 있는 행을
+     * 다른 트랜잭션이 지우려 들어</b> 잠금 대기로 죽는다 — CI 에서 {@code LockTimeoutException} 으로
+     * 드러났다. 통합 테스트는 클래스 트랜잭션이 자기가 넣은 행을 쥐고 있어 그 조합이 바로 재현된다.
+     *
+     * <p>운영에서도 같은 이유로 여기가 맞다. 삭제가 세마포어 permit 을 쥔 채 도는 것은 DB 가 느릴 때
+     * 발송 동시성을 DB 가 정하게 두는 셈이다. {@link LiveActivityDispatcher} 도 같은 모양이다.
      */
     private int send(List<LiveActivityStartTarget> targets) {
         Semaphore inFlight = new Semaphore(LiveActivityDispatcher.MAX_CONCURRENT_SENDS);
@@ -277,11 +287,13 @@ public class LiveActivityStarter {
                         updated++;
                     }
                 }
-                case GONE -> removed += removeRow(sent.target());
+                case GONE -> removed += removeDeviceRow(sent.target());
                 case DISABLED -> disabled++;
                 case FAILED, THROTTLED -> failed++;
             }
-            removed += sent.staleUpdateRowsRemoved();
+            if (sent.staleUpdate()) {
+                removed += removeCardRow(sent.target());
+            }
         }
 
         if (disabled > 0) {
@@ -304,16 +316,14 @@ public class LiveActivityStarter {
             if (target.alreadyShowing()) {
                 ApnsResult updated = liveActivitySender.send(target.updateToken(), target.update());
                 if (updated != ApnsResult.GONE) {
-                    return new Sent(target, updated, false, 0);
+                    return new Sent(target, updated, false, false);
                 }
-                // 카드는 이미 죽었다. 그 행을 지우고 새로 띄운다.
-                int cleaned = target.updateRow()
-                        .map(liveActivityTokenRepository::deleteById)
-                        .orElse(0);
+                // 카드는 이미 죽었다. **행 정리는 여기서 하지 않는다**(위 주석 참고) — 표식만 달고
+                // 곧바로 새로 띄운다. 띄우는 것은 이 회차 안에서 해야 그날 카드를 안 놓친다.
                 return new Sent(target, liveActivitySender.send(target.pushToStartToken(), target.start()),
-                        true, cleaned);
+                        true, true);
             }
-            return new Sent(target, liveActivitySender.send(target.pushToStartToken(), target.start()), true, 0);
+            return new Sent(target, liveActivitySender.send(target.pushToStartToken(), target.start()), true, false);
         } finally {
             inFlight.release();
         }
@@ -325,12 +335,23 @@ public class LiveActivityStarter {
      * <p><b>한 건의 삭제 실패로 나머지를 버리지 않는다.</b> 이 정리는 곁가지고, 여기서 예외가 올라가면
      * 이미 성공한 발송의 집계까지 잃는다.
      */
-    private int removeRow(LiveActivityStartTarget target) {
+    private int removeDeviceRow(LiveActivityStartTarget target) {
         try {
             return pushToStartTokenRepository.deleteById(target.pushToStartRowId());
         } catch (RuntimeException e) {
             log.warn("띄우기 토큰을 지우지 못했습니다 rowId={} cause={}",
                     target.pushToStartRowId(), e.getClass().getSimpleName());
+            return 0;
+        }
+    }
+
+    /** 죽은 갱신 토큰을 지운다 — 카드가 8시간을 넘겨 끝나 있었다. */
+    private int removeCardRow(LiveActivityStartTarget target) {
+        try {
+            return target.updateRow().map(liveActivityTokenRepository::deleteById).orElse(0);
+        } catch (RuntimeException e) {
+            log.warn("죽은 갱신 토큰을 지우지 못했습니다 courseId={} cause={}",
+                    target.courseId(), e.getClass().getSimpleName());
             return 0;
         }
     }
@@ -343,9 +364,9 @@ public class LiveActivityStarter {
      * 보낸 결과.
      *
      * @param started 띄우기였나(참) 갱신이었나(거짓)
-     * @param staleUpdateRowsRemoved 죽은 갱신 토큰을 몇 건 걷어냈나
+     * @param staleUpdate 갱신이 {@code 410} 이라 그 행을 걷어내야 하나
      */
     private record Sent(
-            LiveActivityStartTarget target, ApnsResult result, boolean started, int staleUpdateRowsRemoved) {
+            LiveActivityStartTarget target, ApnsResult result, boolean started, boolean staleUpdate) {
     }
 }
