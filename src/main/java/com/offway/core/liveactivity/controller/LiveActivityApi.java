@@ -3,6 +3,7 @@ package com.offway.core.liveactivity.controller;
 import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.liveactivity.controller.dto.LiveActivityRegisterRequest;
 import com.offway.core.liveactivity.controller.dto.PushToStartRegisterRequest;
+import com.offway.core.liveactivity.controller.dto.PushToStartUnregisterRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -96,7 +97,9 @@ public interface LiveActivityApi {
                     이내이거나 여행 중인 코스가 있어야 한다.
                     """)
     @ApiResponse(responseCode = "200", description = "등록·갱신 성공")
-    @ApiResponse(responseCode = "400", description = "token 누락·빈 값·512자 초과")
+    @ApiResponse(
+            responseCode = "400",
+            description = "token 누락·빈 값·512자 초과 · hex 가 아니거나 길이가 홀수")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<Void> registerPushToStart(UUID userId, PushToStartRegisterRequest request);
@@ -105,14 +108,20 @@ public interface LiveActivityApi {
             summary = "잠금화면 띄우기 토큰 해제 (push-to-start)",
             description =
                     """
-                    **로그인한 사용자의** push-to-start 토큰을 전부 지운다. 로그아웃하거나 알림을 끌 때
-                    부른다. 이 사람이 여러 기기를 등록해 뒀으면 **그 전부가 지워진다** —
-                    `DELETE /api/v1/devices` 와 같은 태도다.
+                    **토큰을 함께 보내면 그 기기만** 해제한다. 로그아웃(`POST /api/v1/auth/logout`)이
+                    이미 그렇게 갈린다 — refresh 를 실으면 그 기기만, 안 실으면 전부다. 여기서도 같은
+                    기준을 쓴다. 폰에서 로그아웃했다고 태블릿 잠금화면의 카드까지 끊으면 사용자에게는
+                    "아무것도 안 했는데 사라졌다" 로 보인다.
 
-                    **토큰을 경로에 받지 않는다.** 이 값을 아는 쪽은 그 기기 잠금화면에 카드를 만들 수
-                    있어 비밀값에 준하는데, URL 에 실으면 프록시 접근 로그에 그대로 남는다. 그리고
-                    이 API 를 부르는 상황(로그아웃)이 원하는 바가 "이 사람에게 더 이상 카드가 생기지
-                    않는다" 라 기기 하나만 지울 이유도 없다.
+                    **본문을 비우면 이 사람의 모든 기기**가 해제된다. 계정을 지우기 전이나 "모든
+                    기기에서 로그아웃" 에 쓴다.
+
+                    **토큰을 경로가 아니라 본문으로 받는다.** 이 값을 아는 쪽은 그 기기 잠금화면에
+                    카드를 만들 수 있어 비밀값에 준하는데, URL 에 실으면 프록시 접근 로그에 그대로
+                    남는다. 본문은 안 남는다.
+
+                    **앱이 이걸 안 불러도 남의 일정이 새지는 않는다.** 같은 기기에 다른 계정이 등록하면
+                    서버가 앞 계정의 등록을 그때 정리한다 — 이 API 는 그보다 빨리 치우는 수단이다.
 
                     **지울 것이 없어도 성공(200)이다.** 원한 상태가 이미 이뤄져 있는데 404 를 띄울
                     이유가 없다.
@@ -123,5 +132,5 @@ public interface LiveActivityApi {
     @ApiResponse(responseCode = "200", description = "해제 성공(지울 등록이 없어도 성공)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
-    ApiResponseBody<Void> unregisterPushToStart(UUID userId);
+    ApiResponseBody<Void> unregisterPushToStart(UUID userId, PushToStartUnregisterRequest request);
 }

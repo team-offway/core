@@ -3,6 +3,7 @@ package com.offway.core.liveactivity.controller;
 import com.offway.core.common.response.ApiResponseBody;
 import com.offway.core.liveactivity.controller.dto.LiveActivityRegisterRequest;
 import com.offway.core.liveactivity.controller.dto.PushToStartRegisterRequest;
+import com.offway.core.liveactivity.controller.dto.PushToStartUnregisterRequest;
 import com.offway.core.liveactivity.service.LiveActivityService;
 import com.offway.core.liveactivity.service.PushToStartService;
 import com.offway.core.user.config.LoginUser;
@@ -55,8 +56,9 @@ public class LiveActivityController implements LiveActivityApi {
 
     @Override
     @DeleteMapping("/push-to-start")
-    public ApiResponseBody<Void> unregisterPushToStart(@LoginUser UUID userId) {
-        pushToStartService.unregisterAll(userId);
+    public ApiResponseBody<Void> unregisterPushToStart(
+            @LoginUser UUID userId, @RequestBody(required = false) PushToStartUnregisterRequest request) {
+        pushToStartService.unregister(userId, PushToStartUnregisterRequest.tokenOrNull(request));
         return ApiResponseBody.ok();
     }
 }

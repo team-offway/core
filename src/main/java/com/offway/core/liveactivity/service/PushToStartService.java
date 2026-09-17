@@ -43,20 +43,41 @@ public class PushToStartService {
      */
     @Transactional
     public void register(UUID userId, String token) {
-        pushToStartTokenRepository.register(
-                PushToStartToken.register(userId, token, LocalDateTime.now(SERVICE_ZONE)));
+        PushToStartToken registration =
+                PushToStartToken.register(userId, token, LocalDateTime.now(SERVICE_ZONE));
+        // **앞사람의 등록을 먼저 치운다.** 기기 하나에는 지금 한 사람만 로그인해 있다. 앞사람이
+        // 로그아웃을 안 하고 계정을 바꿨으면 그 행이 남는데, 그러면 배치가 **앞사람의 여행지·날짜를
+        // 지금 이 기기 잠금화면에 그린다.** 앱이 해제를 안 불러도 여기서 끊긴다.
+        int evicted = pushToStartTokenRepository.deleteOthersWithToken(userId, registration.getToken());
+        pushToStartTokenRepository.register(registration);
+        if (evicted > 0) {
+            // 계정이 바뀐 기기다. 남의 일정이 남의 화면에 뜰 뻔한 자리라 조용히 넘기지 않는다.
+            log.info("잠금화면 띄우기 토큰 등록 — 같은 기기의 앞선 계정 등록 {}건을 정리했습니다", evicted);
+            return;
+        }
         log.info("잠금화면 띄우기 토큰 등록");
     }
 
     /**
-     * 이 사람의 push-to-start 토큰을 전부 지운다 — 로그아웃·알림 끄기.
+     * 등록을 지운다 — <b>토큰을 함께 보내면 그 기기만</b>.
      *
-     * <p><b>지울 것이 없어도 성공이다.</b> 원한 상태("이 사람의 기기에 카드가 생기지 않는다")가 이미
-     * 이뤄져 있고, 로그아웃 화면이 404 를 띄울 이유가 없다.
+     * <p>로그아웃이 이미 그렇게 갈린다(#389) — refresh 를 실으면 그 기기만, 안 실으면 전부 끊는다.
+     * 여기서도 같은 기준을 쓴다. 폰에서 로그아웃했다고 태블릿 잠금화면의 카드까지 끊으면, 사용자에게는
+     * "아무것도 안 했는데 사라졌다" 로 보인다.
+     *
+     * <p><b>지울 것이 없어도 성공이다.</b> 원한 상태("이 기기에 카드가 생기지 않는다")가 이미 이뤄져
+     * 있고, 로그아웃 화면이 404 를 띄울 이유가 없다.
+     *
+     * @param token 이 기기의 토큰. <b>{@code null} 이면 이 사람의 모든 기기</b>를 해제한다
      */
     @Transactional
-    public void unregisterAll(UUID userId) {
-        int deleted = pushToStartTokenRepository.deleteByUserId(userId);
-        log.info("잠금화면 띄우기 토큰 해제 deleted={}", deleted);
+    public void unregister(UUID userId, String token) {
+        if (token == null || token.isBlank()) {
+            int deleted = pushToStartTokenRepository.deleteByUserId(userId);
+            log.info("잠금화면 띄우기 해제 — 토큰을 안 실어 모든 기기 deleted={}", deleted);
+            return;
+        }
+        int deleted = pushToStartTokenRepository.deleteByUserAndToken(userId, token);
+        log.info("잠금화면 띄우기 해제 — 이 기기만 deleted={}", deleted);
     }
 }

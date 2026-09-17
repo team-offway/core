@@ -91,25 +91,6 @@ class PushToStartIntegrationTest {
         assertEquals(2, rowsOf(owner).size());
     }
 
-    /**
-     * 같은 토큰이 다른 소유자로 와도 <b>앞 사람의 등록을 뺏어오지 않는다</b>.
-     *
-     * <p>한 기기에 두 계정이 로그인하는 경우다. 토큰 단독 유니크면 주인이 갈아끼워져, 남의 토큰을
-     * 아는 쪽이 그 사람의 카드를 가로챌 수 있다.
-     */
-    @Test
-    void 같은_토큰이_다른_소유자로_오면_행이_따로_생긴다() throws Exception {
-        UUID first = UUID.randomUUID();
-        UUID second = UUID.randomUUID();
-        String shared = uniqueToken();
-
-        register(first, shared);
-        register(second, shared);
-
-        assertEquals(1, rowsOf(first).size(), "앞 사람의 등록이 사라졌다");
-        assertEquals(1, rowsOf(second).size());
-    }
-
     @Test
     void 토큰이_비면_400이다() throws Exception {
         mockMvc.perform(put(URL).with(loginAs(UUID.randomUUID()))
@@ -117,6 +98,71 @@ class PushToStartIntegrationTest {
                         .content(body("")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * hex 가 아니면 <b>입구에서</b> 막는다.
+     *
+     * <p>이 값은 그대로 APNs 요청 URL 에 붙는다. 공백이 섞이면 {@code URI.create} 가 터지고 그 실패는
+     * {@code FAILED} 로 번역되는데, <b>{@code GONE} 이 아니라 행이 안 지워져 매일 같은 실패를
+     * 되풀이한다.</b> 여기서 한 번 막는 것이 그 반복을 없애는 유일한 자리다.
+     */
+    @Test
+    void hex가_아니면_400이다() throws Exception {
+        mockMvc.perform(put(URL).with(loginAs(UUID.randomUUID()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("pts-not-hex")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /** 길이가 홀수면 바이트로 안 떨어진다 — 앱이 {@code %02x} 로 만든 값일 수 없다. */
+    @Test
+    void 길이가_홀수면_400이다() throws Exception {
+        mockMvc.perform(put(URL).with(loginAs(UUID.randomUUID()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("80a1b")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * <b>같은 기기에 다른 계정이 로그인하면 앞 계정의 등록이 사라진다.</b>
+     *
+     * <p>앞사람이 로그아웃을 안 하고 계정을 바꾸면 그 행이 남는데, 그러면 배치가 <b>앞사람의 여행지·
+     * 날짜를 지금 이 기기 잠금화면에 그린다</b> — 남의 일정이 남의 화면에 뜨는 것이라 단순한 찌꺼기가
+     * 아니다. 앱이 해제를 안 불러도 여기서 끊긴다.
+     */
+    @Test
+    void 같은_기기에_다른_계정이_등록하면_앞_계정은_사라진다() throws Exception {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        String device = uniqueToken();
+
+        register(first, device);
+        register(second, device);
+
+        assertTrue(rowsOf(first).isEmpty(), "앞 계정의 등록이 남았다 — 그 사람 일정이 이 기기에 뜬다");
+        assertEquals(1, rowsOf(second).size());
+    }
+
+    /** 토큰을 실으면 <b>그 기기만</b> 해제된다 — 로그아웃(#389)이 갈리는 기준과 같다. */
+    @Test
+    void 토큰을_실으면_그_기기만_해제된다() throws Exception {
+        UUID owner = UUID.randomUUID();
+        String phone = uniqueToken();
+        String tablet = uniqueToken();
+        register(owner, phone);
+        register(owner, tablet);
+
+        mockMvc.perform(delete(URL).with(loginAs(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(phone)))
+                .andExpect(status().isOk());
+
+        List<PushToStartToken> rows = rowsOf(owner);
+        assertEquals(1, rows.size(), "폰에서 로그아웃했는데 태블릿 카드까지 끊겼다");
+        assertEquals(tablet, rows.getFirst().getToken());
     }
 
     @Test
@@ -170,7 +216,8 @@ class PushToStartIntegrationTest {
         return "{\"token\": \"%s\"}".formatted(token);
     }
 
+    /** 앱이 보내는 모양 그대로 — {@code Data} 를 바이트마다 {@code %02x} 로 푼 hex 문자열이다. */
     private static String uniqueToken() {
-        return "pts-" + UUID.randomUUID();
+        return UUID.randomUUID().toString().replace("-", "");
     }
 }

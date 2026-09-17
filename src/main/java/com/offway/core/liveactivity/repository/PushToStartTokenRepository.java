@@ -14,8 +14,25 @@ public interface PushToStartTokenRepository {
      */
     void register(PushToStartToken token);
 
-    /** 이 사람의 등록 전부 — 로그아웃·탈퇴. */
+    /** 이 사람의 등록 전부 — 모든 기기 로그아웃·탈퇴. */
     int deleteByUserId(UUID userId);
+
+    /** 이 사람의 <b>이 기기</b> 등록 — 그 기기에서만 로그아웃할 때. 토큰이 곧 기기다. */
+    int deleteByUserAndToken(UUID userId, String token);
+
+    /**
+     * 같은 토큰을 쥔 <b>다른 사람</b>의 등록을 지운다 — 계정이 바뀌었다.
+     *
+     * <p><b>왜 필요한가.</b> 기기 하나에는 지금 한 사람만 로그인해 있다. 그런데 앞 사람이 로그아웃을
+     * 안 하고(앱이 죽었거나 그냥 계정을 바꿨거나) 새 사람이 등록하면, 앞 사람의 행이 남는다. 그러면
+     * 배치가 <b>앞 사람의 여행지·날짜를 지금 이 기기 잠금화면에 그린다</b> — 남의 일정이 남의 화면에
+     * 뜨는 것이라 단순한 찌꺼기가 아니다.
+     *
+     * <p><b>토큰 단독 유니크와 다르다.</b> 그쪽은 남의 토큰을 아는 사람이 <b>그 사람의 카드를 받아
+     * 보게</b> 되지만(주인을 갈아끼우므로), 이쪽은 앞 사람의 등록이 사라질 뿐이다 — 그리고 새 주인은
+     * <b>자기 여행만</b> 받는다. 잃는 쪽이 있어도 새는 쪽이 없다.
+     */
+    int deleteOthersWithToken(UUID userId, String token);
 
     /**
      * 행 하나를 지운다 — APNs 가 {@code 410 Unregistered} 로 답했을 때.

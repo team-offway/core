@@ -35,6 +35,18 @@ public class PushToStartTokenRepositoryImpl implements PushToStartTokenRepositor
 
     @Override
     @Transactional
+    public int deleteByUserAndToken(UUID userId, String token) {
+        return pushToStartTokenJpaRepository.deleteByUserIdAndToken(userId, token);
+    }
+
+    @Override
+    @Transactional
+    public int deleteOthersWithToken(UUID userId, String token) {
+        return pushToStartTokenJpaRepository.deleteOthersWithToken(userId, token);
+    }
+
+    @Override
+    @Transactional
     public int deleteById(long id) {
         return pushToStartTokenJpaRepository.deleteRow(id);
     }

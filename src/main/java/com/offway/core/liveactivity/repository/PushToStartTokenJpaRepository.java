@@ -45,6 +45,15 @@ interface PushToStartTokenJpaRepository extends JpaRepository<PushToStartToken, 
     @Query("delete from PushToStartToken t where t.userId = :userId")
     int deleteByUserId(@Param("userId") UUID userId);
 
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from PushToStartToken t where t.userId = :userId and t.token = :token")
+    int deleteByUserIdAndToken(@Param("userId") UUID userId, @Param("token") String token);
+
+    /** 같은 토큰을 쥔 다른 사람의 등록 — 계정이 바뀌었다는 뜻이다. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from PushToStartToken t where t.token = :token and t.userId <> :userId")
+    int deleteOthersWithToken(@Param("userId") UUID userId, @Param("token") String token);
+
     /** 행 id 로 지운다 — 죽은 토큰 정리. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from PushToStartToken t where t.id = :id")
