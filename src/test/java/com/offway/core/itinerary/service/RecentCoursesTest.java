@@ -29,7 +29,7 @@ class RecentCoursesTest {
 
     @Test
     void 같은_요청이면_다시_만들지_않는다() {
-        RecentCourses recent = new RecentCourses();
+        RecentCourses recent = new RecentCourses(true);
         AtomicInteger built = new AtomicInteger();
         GenerateCourse command = command(76L, 2, TransportMode.CAR);
 
@@ -48,7 +48,7 @@ class RecentCoursesTest {
      */
     @Test
     void 지역이_다르면_새로_만든다() {
-        RecentCourses recent = new RecentCourses();
+        RecentCourses recent = new RecentCourses(true);
         AtomicInteger built = new AtomicInteger();
 
         recent.get(command(76L, 2, TransportMode.CAR), () -> counted(built));
@@ -59,7 +59,7 @@ class RecentCoursesTest {
 
     @Test
     void 이동수단이_다르면_새로_만든다() {
-        RecentCourses recent = new RecentCourses();
+        RecentCourses recent = new RecentCourses(true);
         AtomicInteger built = new AtomicInteger();
 
         recent.get(command(76L, 2, TransportMode.CAR), () -> counted(built));
@@ -70,7 +70,7 @@ class RecentCoursesTest {
 
     @Test
     void 기간이_다르면_새로_만든다() {
-        RecentCourses recent = new RecentCourses();
+        RecentCourses recent = new RecentCourses(true);
         AtomicInteger built = new AtomicInteger();
 
         recent.get(command(76L, 2, TransportMode.CAR), () -> counted(built));
@@ -87,7 +87,7 @@ class RecentCoursesTest {
      */
     @Test
     void 실패는_캐시하지_않는다() {
-        RecentCourses recent = new RecentCourses();
+        RecentCourses recent = new RecentCourses(true);
         AtomicInteger tried = new AtomicInteger();
         GenerateCourse command = command(76L, 2, TransportMode.CAR);
 
@@ -111,7 +111,7 @@ class RecentCoursesTest {
      */
     @Test
     void 실패는_그대로_올라간다() {
-        RecentCourses recent = new RecentCourses();
+        RecentCourses recent = new RecentCourses(true);
 
         assertThrows(ItineraryException.class,
                 () -> recent.get(command(76L, 2, TransportMode.CAR), () -> {
@@ -127,7 +127,7 @@ class RecentCoursesTest {
      */
     @Test
     void 상한을_넘으면_오래된_것부터_나간다() {
-        RecentCourses recent = new RecentCourses();
+        RecentCourses recent = new RecentCourses(true);
 
         for (int i = 0; i < RecentCourses.MAX_ENTRIES + 50; i++) {
             recent.get(command(i, 2, TransportMode.CAR), RecentCoursesTest::course);
@@ -139,7 +139,7 @@ class RecentCoursesTest {
     /** 상한을 넘겨도 <b>가장 최근 것</b>은 남아 있다 — 뒤로가기 왕복이 바로 그 경우다. */
     @Test
     void 상한을_넘어도_방금_것은_남는다() {
-        RecentCourses recent = new RecentCourses();
+        RecentCourses recent = new RecentCourses(true);
         AtomicInteger built = new AtomicInteger();
         GenerateCourse latest = command(999_999L, 2, TransportMode.CAR);
 

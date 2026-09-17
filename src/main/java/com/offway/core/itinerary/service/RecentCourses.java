@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -93,6 +94,31 @@ public class RecentCourses {
             });
 
     /**
+     * 이 캐시를 쓸지.
+     *
+     * <p><b>왜 끄는 길이 필요한가.</b> 이 캐시는 "같은 커맨드면 같은 코스" 를 전제하는데, 그 전제는
+     * <b>바탕 데이터가 그 1분 사이에 안 바뀐다</b>는 것에 기대고 있다. 운영에서는 참이다 — 장소 풀은
+     * 부팅과 새벽 배치가 채우고, 날씨·혼잡은 시간 단위다.
+     *
+     * <p><b>통합 테스트에서는 거짓이다.</b> 테스트는 같은 커맨드로 stub 만 갈아 가며 생성한다 —
+     * 밀리초 사이에 바탕이 바뀐다. 그대로 두면 앞 시나리오의 코스가 다음 시나리오로 새어 들어
+     * <b>테스트가 조용히 엉뚱한 것을 단언한다.</b> 그래서 테스트 프로파일에서 끈다
+     * ({@code src/test/resources/application-local.properties}).
+     *
+     * <p>운영에서도 끌 수 있게 열어 둔다 — 캐시가 예상 못한 모양으로 굴 때 <b>배포 없이</b> 되돌릴
+     * 자리가 있어야 한다.
+     */
+    private final boolean enabled;
+
+    public RecentCourses(
+            @Value("${offway.itinerary.recent-course-cache.enabled:true}") boolean enabled) {
+        this.enabled = enabled;
+        if (!enabled) {
+            log.info("방금 만든 코스 재사용이 꺼져 있습니다 — 매 요청이 새로 만듭니다");
+        }
+    }
+
+    /**
      * 방금 만든 것이 있으면 그것을, 없으면 만들어서 준다.
      *
      * <p><b>실패는 캐시하지 않고 그대로 올린다.</b> 코스를 못 만드는 것은 사용자에게 닿아야 하는
@@ -104,6 +130,9 @@ public class RecentCourses {
      * 위에서 {@code ExternalDataCache} 를 못 쓰게 만든 이유다.
      */
     public GeneratedCourse get(GenerateCourse command, Supplier<GeneratedCourse> generator) {
+        if (!enabled) {
+            return generator.get();
+        }
         Entry cached = cache.get(command);
         Instant now = Instant.now();
         if (cached != null && cached.isFresh(now)) {
