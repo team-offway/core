@@ -12,6 +12,7 @@ import com.offway.core.transport.infrastructure.tmap.dto.CarRouteResult;
 import com.offway.core.transport.infrastructure.tmap.dto.TmapRoute;
 import com.offway.core.transport.repository.UnroutableProbeRepository;
 import com.offway.core.transport.service.RouteTimeProvider;
+import com.offway.core.transport.service.CarRouteCaches;
 import com.offway.core.transport.service.UnroutableCoordinateService;
 import java.util.ArrayList;
 import java.util.List;
@@ -58,7 +59,7 @@ class TmapRouteTimeProviderTest {
     private static TmapRouteTimeProvider provider(CarRouteResult result, UnroutableProbeRepository repository) {
         return new TmapRouteTimeProvider(
                 carRouteStub(result), new HaversineTravelTimeProvider(),
-                new UnroutableCoordinateService(repository));
+                new UnroutableCoordinateService(repository), CarRouteCaches.empty());
     }
 
     @Test
