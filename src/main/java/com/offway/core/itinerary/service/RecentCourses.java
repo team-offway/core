@@ -134,13 +134,15 @@ public class RecentCourses {
             return generator.get();
         }
         Entry cached = cache.get(command);
-        Instant now = Instant.now();
-        if (cached != null && cached.isFresh(now)) {
+        if (cached != null && cached.isFresh(Instant.now())) {
             log.debug("코스 재사용 — 방금 만든 것을 그대로 줍니다 regionId={}", command.regionId());
             return cached.course();
         }
         GeneratedCourse generated = generator.get();
-        cache.put(command, new Entry(generated, now.plus(TTL)));
+        // **만든 뒤의 시각으로 만료를 잡는다.** 만들기 전 시각으로 잡으면 생성에 걸린 시간이 TTL 을
+        // 깎는다 — 코스 하나가 TourAPI 3콜 + TMAP 여러 건이라 몇 초가 예사이고, 느린 날에는 1분을
+        // 넘겨 **돌려주는 순간 이미 만료된 값**이 된다. 그러면 뒤로가기 왕복이 그대로 다시 나간다.
+        cache.put(command, new Entry(generated, Instant.now().plus(TTL)));
         return generated;
     }
 
