@@ -58,8 +58,7 @@ class GoCampingClientE2ETest {
     private static final int MIN_EXPECTED = 1_500;
 
     private static GoCampingClientImpl client() {
-        ExternalApiProperties props = new ExternalApiProperties(
-                new DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), new Tmap(null));
+        ExternalApiProperties props = ExternalApiProperties.ofDataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY"));
         return new GoCampingClientImpl(WebClient.builder().build(), props, new NoOpCallRecorder());
     }
 

@@ -1,5 +1,6 @@
 package com.offway.core.transport.domain;
 
+import com.offway.core.common.geo.Coordinate;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -9,6 +10,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -61,7 +63,22 @@ public class BusTerminal {
 
     private Double lng;
 
-    private BusTerminal(String code, String name, BusTerminalKind kind, Double lat, Double lng) {
+    /**
+     * 속한 시·도(#590) — 출발지 자동완성의 지역 검색이 보는 값.
+     *
+     * <p><b>왜 이름으로 못 하나.</b> "서울" 을 쳤을 때 서울의 터미널이 떠야 하는데, 이름에 그 말이 든
+     * 것만으로는 안 된다. 좌표 사각형으로 자르는 것도 안 된다 — 서울 범위로 잡으면 부천·일산 같은
+     * 경기 것이 섞인다.
+     *
+     * <p><b>결측 가능하다.</b> 좌표가 없으면 판정할 근거가 없다. 그런 터미널은 애초에 출발지로 고를 수
+     * 없으므로(동선에 못 올린다) 부재가 정상이다.
+     *
+     * <p>표기는 통합 이전 기준이다 — 자세한 이유는 {@link OriginSido} 에 적었다.
+     */
+    @Column(length = 20)
+    private String sido;
+
+    private BusTerminal(String code, String name, BusTerminalKind kind, Double lat, Double lng, String sido) {
         // 코드·이름·종류는 누가 만들든 반드시 있어야 하는 불변식(좌표만 결측 허용) — DB flush 까지 미루지 않는다.
         this.code = Objects.requireNonNull(code, "터미널 코드는 null 일 수 없습니다.");
         this.name = Objects.requireNonNull(name, "터미널 이름은 null 일 수 없습니다.");
@@ -73,15 +90,47 @@ public class BusTerminal {
         }
         this.lat = lat;
         this.lng = lng;
+        this.sido = sido;
     }
 
     /** 코드·이름·종류·좌표로 만든다(시드 로딩·테스트용). 좌표는 결측 가능. */
     public static BusTerminal of(String code, String name, BusTerminalKind kind, Double lat, Double lng) {
-        return new BusTerminal(code, name, kind, lat, lng);
+        return new BusTerminal(code, name, kind, lat, lng, null);
+    }
+
+    /**
+     * 시도까지 함께 만든다(#590).
+     *
+     * <p>운영에서는 시도를 마이그레이션이 채우므로 이 팩토리가 필요한 곳은 테스트다 — 출발지 제안은
+     * 시도가 있어야 성립하는데, 위 팩토리로 만든 터미널은 지역 검색에 걸리지 않는다.
+     */
+    public static BusTerminal of(
+            String code, String name, BusTerminalKind kind, Double lat, Double lng, String sido) {
+        return new BusTerminal(code, name, kind, lat, lng, sido);
     }
 
     /** 최근접 탐색에 쓸 수 있는가 — 좌표가 있어야 한다. */
     public boolean hasCoordinate() {
         return lat != null && lng != null;
+    }
+
+    /**
+     * 출발지 제안 한 줄로 옮긴다 — 올릴 수 없으면 비어 있다(#590).
+     *
+     * <p>세 조건을 모두 넘어야 한다.
+     *
+     * <ul>
+     *   <li><b>좌표</b> — 없으면 동선에 못 올린다. 고를 수 있게 하면 그 코스가 통째로 degrade 된다
+     *   <li><b>시도</b> — 좌표가 있으면 판정돼 있다. 없다는 것은 시드가 어긋났다는 신호다
+     *   <li><b>터미널</b> — 경유 정류소는 특정 노선만 서므로 "거기서 타세요" 가 틀린 안내가 된다
+     * </ul>
+     */
+    public Optional<OriginHub> toOriginHub() {
+        if (!hasCoordinate() || !isTerminal) {
+            return Optional.empty();
+        }
+        return OriginSido.ofStored(sido)
+                .map(found -> OriginHub.of(
+                        OriginHubType.BUS_TERMINAL, code, name, found, new Coordinate(lat, lng)));
     }
 }

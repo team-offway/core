@@ -18,9 +18,9 @@ import reactor.core.publisher.Mono;
 class BusArrivalClientImplTest {
 
     private static final ExternalApiProperties WITH_KEY =
-            new ExternalApiProperties(new ExternalApiProperties.DataGoKr("test-key"), null);
+            ExternalApiProperties.ofDataGoKr("test-key");
     private static final ExternalApiProperties NO_KEY =
-            new ExternalApiProperties(new ExternalApiProperties.DataGoKr(null), null);
+            ExternalApiProperties.ofDataGoKr(null);
     private static final BusStop STOP = new BusStop("GMB165", "정선터미널", 32020, 37.3801, 128.6604);
 
     private static BusArrivalClient client(String body) {

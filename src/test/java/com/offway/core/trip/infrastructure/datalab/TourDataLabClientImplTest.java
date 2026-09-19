@@ -27,9 +27,9 @@ import reactor.core.publisher.Mono;
 class TourDataLabClientImplTest {
 
     private static final ExternalApiProperties WITH_KEY =
-            new ExternalApiProperties(new ExternalApiProperties.DataGoKr("test-key"), null);
+            ExternalApiProperties.ofDataGoKr("test-key");
     private static final ExternalApiProperties NO_KEY =
-            new ExternalApiProperties(new ExternalApiProperties.DataGoKr(null), null);
+            ExternalApiProperties.ofDataGoKr(null);
 
     /** 이 테스트들은 집계 예산 제약을 검증하지 않는다 - 자체 timeout(20초)보다 길게 줘서 영향을 없앤다. */
     private static final Duration AMPLE = Duration.ofMinutes(1);

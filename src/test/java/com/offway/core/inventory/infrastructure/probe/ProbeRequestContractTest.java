@@ -39,9 +39,10 @@ class ProbeRequestContractTest {
     private static final String ENCODED_KEY = "Ab3dXy9%2Bz1w%2Fq7%3D%3D";
 
     private static ExternalApiProperties withKey() {
-        return new ExternalApiProperties(
-                new ExternalApiProperties.DataGoKr(SECRET_KEY),
-                new ExternalApiProperties.Tmap(SECRET_KEY));
+        return ExternalApiProperties.builder()
+                .dataGoKr(new ExternalApiProperties.DataGoKr(SECRET_KEY))
+                .tmap(new ExternalApiProperties.Tmap(SECRET_KEY))
+                .build();
     }
 
     /** 프로브가 실제로 낸 요청을 붙잡는 WebClient. 응답은 호출자가 정한다. */
@@ -131,9 +132,10 @@ class ProbeRequestContractTest {
      */
     @Test
     void 모든_프로브가_인증키를_다시_인코딩하지_않는다() {
-        ExternalApiProperties props = new ExternalApiProperties(
-                new ExternalApiProperties.DataGoKr(ENCODED_KEY),
-                new ExternalApiProperties.Tmap(ENCODED_KEY));
+        ExternalApiProperties props = ExternalApiProperties.builder()
+                .dataGoKr(new ExternalApiProperties.DataGoKr(ENCODED_KEY))
+                .tmap(new ExternalApiProperties.Tmap(ENCODED_KEY))
+                .build();
 
         for (BiFunction<WebClient, ExternalApiProperties, ExternalApiProbe> factory : factories()) {
             List<ClientRequest> captured = new ArrayList<>();

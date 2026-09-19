@@ -21,10 +21,8 @@ import reactor.core.publisher.Mono;
 /** TmapClientImpl stub 통합 테스트 — 외부 HTTP 경계만 ExchangeFunction 으로 격리한다. */
 class TmapClientImplTest {
 
-    private static final ExternalApiProperties WITH_KEY = new ExternalApiProperties(
-            new ExternalApiProperties.DataGoKr(null), new ExternalApiProperties.Tmap("test-key"));
-    private static final ExternalApiProperties NO_KEY = new ExternalApiProperties(
-            new ExternalApiProperties.DataGoKr(null), new ExternalApiProperties.Tmap(null));
+    private static final ExternalApiProperties WITH_KEY = ExternalApiProperties.ofTmap("test-key");
+    private static final ExternalApiProperties NO_KEY = ExternalApiProperties.ofTmap(null);
 
     private static final Coordinate SEOUL = new Coordinate(37.5665, 126.9780);
     private static final Coordinate BUSAN = new Coordinate(35.1796, 129.0756);

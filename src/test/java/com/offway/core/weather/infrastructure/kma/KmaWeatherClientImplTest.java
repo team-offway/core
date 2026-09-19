@@ -22,9 +22,9 @@ import reactor.core.publisher.Mono;
 class KmaWeatherClientImplTest {
 
     private static final ExternalApiProperties WITH_KEY =
-            new ExternalApiProperties(new ExternalApiProperties.DataGoKr("test-key"), null);
+            ExternalApiProperties.ofDataGoKr("test-key");
     private static final ExternalApiProperties NO_KEY =
-            new ExternalApiProperties(new ExternalApiProperties.DataGoKr(null), null);
+            ExternalApiProperties.ofDataGoKr(null);
     private static final LocalDate DATE = LocalDate.of(2026, 5, 1);
 
     private static WebClient stubbing(ClientResponse response) {
