@@ -1,7 +1,10 @@
 package com.offway.core.transport.service;
 
+import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.domain.OriginCode;
 import com.offway.core.transport.domain.OriginHub;
+import com.offway.core.transport.domain.OriginHubType;
+import com.offway.core.transport.domain.TransportException;
 import com.offway.core.transport.infrastructure.kakao.OriginPlaceSearchClient;
 import com.offway.core.transport.infrastructure.kakao.dto.FoundPlace;
 import com.offway.core.transport.service.dto.OriginSuggestion;
@@ -38,6 +41,14 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class OriginSuggestService {
 
+    /** 출발지를 고르기 전에 쓰는 기본 허브 — 서울역의 TAGO nodeid. */
+    private static final String DEFAULT_ORIGIN_HUB_CODE = "NAT010000";
+
+    private static final String DEFAULT_ORIGIN_NAME = "서울역";
+
+    /** 시드에서 서울역을 못 찾았을 때의 최후 폴백 — 서울역 좌표. */
+    private static final Coordinate DEFAULT_ORIGIN_COORDINATE = new Coordinate(37.553261, 126.969133);
+
     private final OriginHubCatalog catalog;
     private final OriginPlaceSearchClient placeSearchClient;
 
@@ -47,11 +58,17 @@ public class OriginSuggestService {
      * <p>검색어가 짧으면 빈 목록이다(정상 결과 — 화면이 아직 아무것도 안 그린다).
      */
     public List<OriginSuggestion> suggest(String query) {
+        // **짧은 검색어는 외부까지 막는다.** 허브에 쓰는 최소 글자 수 판단이 주소 검색에도 그대로
+        // 적용돼야 한다 — 한 글자로 외부를 부르면 쓸모없는 결과에 한도를 태운다. 예전에는 허브만
+        // 걸러 "서" 한 글자가 카카오로 나갔다.
+        if (!OriginHubCatalog.isSearchable(query)) {
+            return List.of();
+        }
         List<OriginHub> hubs = catalog.search(query);
         List<OriginSuggestion> suggestions = new ArrayList<>(hubs.stream().map(OriginSuggestion::from).toList());
 
         int room = OriginHubCatalog.MAX_SUGGESTIONS - suggestions.size();
-        if (room <= 0 || query == null || query.isBlank()) {
+        if (room <= 0) {
             return List.copyOf(suggestions);
         }
         for (FoundPlace place : placeSearchClient.search(query.trim(), room)) {
@@ -90,5 +107,51 @@ public class OriginSuggestService {
         }
         return catalog.findByCode(code)
                 .map(hub -> new ResolvedOrigin(hub.coordinate(), hub.displayName()));
+    }
+
+    /**
+     * 요청이 실은 출발지를 하나로 정한다 — 전환 기간 동안 세 형태를 다 받는다(#590).
+     *
+     * <p>우선순위와 그 이유:
+     *
+     * <ol>
+     *   <li><b>{@code originCode}</b> — 사용자가 고른 값이다. 있으면 무조건 이것이 이긴다
+     *   <li><b>{@code originLat}·{@code originLng}</b> — 위치 수집을 걷어내기 전의 구버전 앱이다.
+     *       심사를 거쳐야 해서 한동안 남는다
+     *   <li><b>기본 출발지(서울역)</b> — 아직 아무것도 고르지 않은 화면이다
+     * </ol>
+     *
+     * <p><b>코드가 있는데 못 풀면 거절한다.</b> 조용히 다음 순위로 내려가면 사용자가 고른 곳과 다른
+     * 데서 출발하는 코스가 나오고, 그것이 틀렸다는 사실이 아무 흔적도 남기지 않는다.
+     *
+     * <p><b>기본값은 조용한 실패가 아니다.</b> 출발지를 고르기 전에도 추천을 보여주는 화면이 있어서,
+     * 그 상태는 버그가 아니라 정상 흐름이다 — 그래서 info 로 남긴다.
+     */
+    public ResolvedOrigin resolveOrDefault(String originCode, String originName, Double lat, Double lng) {
+        if (originCode != null && !originCode.isBlank()) {
+            return resolve(new OriginCode(originCode.trim()), originName)
+                    .orElseThrow(TransportException::unknownOriginCode);
+        }
+        if (lat != null && lng != null) {
+            String name = originName == null ? "" : originName.trim();
+            return new ResolvedOrigin(new Coordinate(lat, lng), name);
+        }
+        log.info("출발지가 없어 기본값을 쓴다 — {}", DEFAULT_ORIGIN_NAME);
+        return defaultOrigin();
+    }
+
+    /**
+     * 출발지를 고르기 전에 쓰는 기본값 — 서울역.
+     *
+     * <p><b>왜 서울역인가.</b> 우리 허브 목록에 있는 실제 지점이고, 전국에서 가장 많은 사람이 출발하는
+     * 곳이다. 앱도 같은 폴백을 쓰고 있었다.
+     *
+     * <p>목록에서 찾아 쓰고, 못 찾으면 좌표 상수로 떨어진다. 시드가 바뀌어 코드가 사라지는 경우에도
+     * 추천 화면이 비지 않게 하려는 것이다.
+     */
+    private ResolvedOrigin defaultOrigin() {
+        return catalog.findByCode(OriginCode.ofHub(OriginHubType.TRAIN_STATION, DEFAULT_ORIGIN_HUB_CODE))
+                .map(hub -> new ResolvedOrigin(hub.coordinate(), hub.displayName()))
+                .orElseGet(() -> new ResolvedOrigin(DEFAULT_ORIGIN_COORDINATE, DEFAULT_ORIGIN_NAME));
     }
 }

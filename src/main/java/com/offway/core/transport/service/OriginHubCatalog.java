@@ -69,19 +69,33 @@ public class OriginHubCatalog {
      *
      * <p>검색어가 짧으면 <b>빈 목록</b>이다. 그건 정상 결과다 — 화면은 아직 아무것도 안 그린다.
      */
-    public List<OriginHub> search(String query) {
+    /**
+     * 이 검색어로 찾을 만한가 — 허브와 주소 검색이 <b>같은 기준</b>을 쓴다.
+     *
+     * <p>여기서 갈라지면 짧은 검색어가 허브는 못 찾으면서 외부는 부르는 상태가 된다.
+     */
+    public static boolean isSearchable(String query) {
         if (query == null) {
+            return false;
+        }
+        SearchableName normalized = SearchableName.of(query.trim());
+        return !normalized.isBlank() && normalized.value().length() >= MIN_QUERY_LENGTH;
+    }
+
+    public List<OriginHub> search(String query) {
+        if (!isSearchable(query)) {
             return List.of();
         }
         SearchableName normalized = SearchableName.of(query.trim());
-        if (normalized.isBlank() || normalized.value().length() < MIN_QUERY_LENGTH) {
-            return List.of();
-        }
         return hubs().stream()
                 .flatMap(hub -> hub.match(normalized).stream().map(match -> Map.entry(hub, match)))
                 .sorted(Comparator
                         .<Map.Entry<OriginHub, OriginHub.Match>, OriginHub.Match>comparing(Map.Entry::getValue)
                         .thenComparing(entry -> !entry.getKey().curated())
+                        // **짧은 이름을 먼저.** 검색어가 이름의 더 많은 부분을 덮는다는 뜻이라, 그쪽이
+                        // 그 지역의 대표 표기다. 사전순만으로 정하면 "서울" 의 첫 줄이 서울남부터미널이
+                        // 된다 — 가나다순으로 '남' 이 '역' 보다 앞이기 때문이고, 그건 판단이 아니라 우연이다.
+                        .thenComparing(entry -> entry.getKey().displayName().length())
                         .thenComparing(entry -> entry.getKey().displayName()))
                 .limit(MAX_SUGGESTIONS)
                 .map(Map.Entry::getKey)

@@ -51,7 +51,15 @@ public record OriginHub(
      * 그 아래다. 한 덩어리로 섞으면 36줄 중에 찾는 것이 어디 있는지 알 수 없다.
      */
     public enum Match {
-        /** 표시 이름·원본 이름·별칭에 걸렸다. */
+        /**
+         * 표시 이름이 검색어로 <b>시작한다</b>.
+         *
+         * <p>자동완성의 기본 규칙이다 — "서울" 을 친 사람이 첫 줄에서 기대하는 것은 서울역이고,
+         * 이름 안쪽에 그 말이 든 동서울터미널이나 원본 이름으로 걸린 고속버스터미널은 그 뒤다.
+         * 이 등급이 없으면 별칭이 붙은 허브가 늘 위로 올라가, 별칭을 더할 때마다 순서가 뒤집힌다.
+         */
+        NAME_PREFIX,
+        /** 표시 이름 안쪽·원본 이름·별칭에 걸렸다. */
         NAME,
         /** 지역(시도)으로만 걸렸다. */
         AREA
@@ -82,6 +90,9 @@ public record OriginHub(
      */
     public Optional<Match> match(SearchableName query) {
         Objects.requireNonNull(query, "검색어는 필수입니다");
+        if (SearchableName.of(displayName).value().startsWith(query.value())) {
+            return Optional.of(Match.NAME_PREFIX);
+        }
         if (matchesName(query)) {
             return Optional.of(Match.NAME);
         }
