@@ -1,8 +1,10 @@
 package com.offway.core.transport.service;
 
+import com.offway.core.transport.domain.BusTerminal;
 import com.offway.core.transport.domain.OriginCode;
 import com.offway.core.transport.domain.OriginHub;
 import com.offway.core.transport.domain.SearchableName;
+import com.offway.core.transport.domain.TrainStation;
 import com.offway.core.transport.repository.BusTerminalRepository;
 import com.offway.core.transport.repository.TrainStationRepository;
 import java.util.Comparator;
@@ -52,24 +54,6 @@ public class OriginHubCatalog {
     private volatile List<OriginHub> cache;
 
     /**
-     * 검색어에 걸리는 허브를 순위대로.
-     *
-     * <p>정렬 순서와 그 이유:
-     *
-     * <ol>
-     *   <li><b>이름에 걸린 것 먼저.</b> "서울" 은 서울의 36곳 전부에 걸리는데 사용자가 찾는 것은 이름에
-     *       그 말이 든 것이다(서울역·동서울터미널·고속버스터미널). 지역으로만 걸린 청량리·용산은 그 아래다
-     *   <li><b>별칭이 붙은 허브를 위로.</b> 부르는 이름이 따로 있는 곳이 그 지역의 대표 허브다
-     *   <li><b>표시 이름 사전순.</b> 남은 순서를 우연(DB 순서)에 맡기지 않는다
-     * </ol>
-     *
-     * <p><b>통근 전용 역을 걸러내지 않는다.</b> 가려낼 근거가 데이터에 없다 — 자세한 사정은
-     * {@code TrainStation#toOriginHub} 에 적었다. 정렬로 아래에 두고, 실제 사용 기록이 쌓이면 그때 근거로
-     * 삼는다.
-     *
-     * <p>검색어가 짧으면 <b>빈 목록</b>이다. 그건 정상 결과다 — 화면은 아직 아무것도 안 그린다.
-     */
-    /**
      * 이 검색어로 찾을 만한가 — 허브와 주소 검색이 <b>같은 기준</b>을 쓴다.
      *
      * <p>여기서 갈라지면 짧은 검색어가 허브는 못 찾으면서 외부는 부르는 상태가 된다.
@@ -82,6 +66,25 @@ public class OriginHubCatalog {
         return !normalized.isBlank() && normalized.value().length() >= MIN_QUERY_LENGTH;
     }
 
+    /**
+     * 검색어에 걸리는 허브를 순위대로.
+     *
+     * <p>정렬 순서와 그 이유:
+     *
+     * <ol>
+     *   <li><b>이름이 검색어로 시작하는 것 먼저.</b> "서울" 은 서울의 허브 전부에 걸리는데, 첫 줄에서
+     *       기대하는 것은 서울역이다. 이름 안쪽에 든 동서울터미널이나 원본 이름으로 걸린 고속버스터미널은
+     *       그 뒤다
+     *   <li><b>별칭이 붙은 허브를 위로.</b> 부르는 이름이 따로 있는 곳이 그 지역의 대표 허브다
+     *   <li><b>짧은 이름을 먼저.</b> 검색어가 이름의 더 많은 부분을 덮는다는 뜻이다
+     *   <li><b>표시 이름 사전순.</b> 남은 순서를 우연(DB 순서)에 맡기지 않는다
+     * </ol>
+     *
+     * <p>올릴 수 없는 허브는 애초에 목록에 없다 — 좌표 없음·경유 정류소·간선 열차 미정차. 그 판정은
+     * 엔티티의 {@code toOriginHub} 가 소유한다.
+     *
+     * <p>검색어가 짧으면 <b>빈 목록</b>이다. 그건 정상 결과다 — 화면은 아직 아무것도 안 그린다.
+     */
     public List<OriginHub> search(String query) {
         if (!isSearchable(query)) {
             return List.of();
@@ -105,15 +108,43 @@ public class OriginHubCatalog {
     /**
      * 앱이 되돌려 보낸 코드가 가리키는 허브.
      *
-     * <p><b>없을 수 있다</b> — 앱이 들고 있던 코드의 허브가 시드에서 사라졌거나(폐역) 코드가 망가진
-     * 경우다. 부재를 그대로 알려, 부르는 쪽이 폴백을 고르게 한다(조용히 기본 출발지로 바꾸면 사용자는
-     * 엉뚱한 곳에서 출발하는 코스를 받는다).
+     * <h2>제안보다 넉넉하게 받는다</h2>
+     *
+     * <b>필터는 "무엇을 추천하나" 의 규칙이고, 받아들이는 것은 더 넉넉해야 한다.</b> 그래서 여기서는
+     * 접힌 제안 목록이 아니라 <b>마스터 전체</b>에서 찾고, 좌표만 요구한다.
+     *
+     * <p>이유가 둘이다.
+     *
+     * <ul>
+     *   <li><b>대표 코드가 바뀔 수 있다.</b> 같은 지점에 코드가 여럿일 때 하나만 내리는데(동서울 5개 →
+     *       {@code NAEK030}), 그 선택은 별칭·이름 길이·코드 순으로 정해진다. 나중에 별칭을 하나 더하면
+     *       대표가 옮겨가고, 앱이 저장해 둔 옛 코드가 못 풀린다 — <b>우리 잘못인데 사용자가 오류를 본다</b>
+     *   <li><b>필터가 나중에 는다.</b> 이번에 기차역 119곳을 목록에서 뺐다(통근 전용). 그 전에 고른
+     *       출발지를 앱이 저장해 뒀다면 그것도 못 풀린다
+     * </ul>
+     *
+     * <p>통근 전용 역 코드가 살아 있으면 그 좌표로 코스를 짜고, 열차가 없으면 버스·자차로 degrade
+     * 한다 — GPS 를 쓰던 때와 같은 동작이다. 목록에서 빼는 것은 <b>새로 고르는 사람</b>에게 더 나은
+     * 후보를 주려는 것이고, 이미 고른 사람의 요청을 깨뜨릴 이유는 아니다.
+     *
+     * <p><b>그래도 비어 있을 수 있다</b> — 마스터에 없는 코드(오타·폐역)거나 좌표가 틀린 것으로 확인돼
+     * 비운 역(신림·대야·상동·진성)이다. 그때는 부재를 그대로 알려 부르는 쪽이 거절하게 한다. 조용히
+     * 기본 출발지로 바꾸면 사용자는 엉뚱한 곳에서 출발하는 코스를 받는다.
      */
     public Optional<OriginHub> findByCode(OriginCode code) {
         if (code == null || code.isCoordinate()) {
             return Optional.empty();
         }
-        return hubs().stream().filter(hub -> hub.code().equals(code)).findFirst();
+        return code.hubType().flatMap(type -> switch (type) {
+            case TRAIN_STATION -> stationRepository.findAll().stream()
+                    .filter(station -> station.getCode().equals(code.hubCode()))
+                    .findFirst()
+                    .flatMap(TrainStation::toAnyOriginHub);
+            case BUS_TERMINAL -> terminalRepository.findAll().stream()
+                    .filter(terminal -> terminal.getCode().equals(code.hubCode()))
+                    .findFirst()
+                    .flatMap(BusTerminal::toAnyOriginHub);
+        });
     }
 
     /** 캐시 무효화 — 시드 갱신·통합 테스트 격리용. */

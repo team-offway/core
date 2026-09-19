@@ -73,6 +73,38 @@ class OriginCodeOnCourseIntegrationTest {
     }
 
     @Test
+    void 제안에서_빠진_허브_코드도_되살린다() throws Exception {
+        // 노량진은 간선 열차가 안 서서 **제안 목록에는 없다.** 그래도 앱이 저장해 둔 코드라면 받는다 —
+        // 필터는 "무엇을 추천하나" 의 규칙이고, 우리가 목록을 좁힐 때마다 남의 저장값이 깨지면 안 된다.
+        mockMvc.perform(post(URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("\"originCode\": \"TRAIN:NAT010058\",")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"));
+    }
+
+    @Test
+    void 접혀서_대표가_아닌_코드도_되살린다() throws Exception {
+        // 동서울은 코드가 5개인데 제안에는 NAEK030 만 내린다. 대표 선택 기준이 바뀌면 옛 코드가
+        // 저장돼 있을 수 있고, 그건 우리 잘못이라 400 이 나면 안 된다.
+        mockMvc.perform(post(URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("\"originCode\": \"BUS:NAEK031\",")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"));
+    }
+
+    @Test
+    void 좌표를_비운_역_코드는_400_이다() throws Exception {
+        // 신림은 좌표가 틀린 것으로 확인돼 비웠다. 좌표가 없으면 동선에 올릴 값이 아예 없다.
+        mockMvc.perform(post(URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("\"originCode\": \"TRAIN:NAT021357\",")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("TRANSPORT-001"));
+    }
+
+    @Test
     void 없는_허브_코드는_400_이다() throws Exception {
         // 조용히 기본값으로 떨어지면 고른 곳과 다른 데를 기준으로 추천이 나오고, 틀렸다는 사실이
         // 아무 흔적도 남지 않는다.

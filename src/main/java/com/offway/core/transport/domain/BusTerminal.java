@@ -129,6 +129,23 @@ public class BusTerminal {
         if (!hasCoordinate() || !isTerminal) {
             return Optional.empty();
         }
+        return toAnyOriginHub();
+    }
+
+    /**
+     * 좌표만 있으면 출발지로 옮긴다 — <b>이미 고른 출발지를 되살릴 때</b> 쓴다(#590).
+     *
+     * <p>{@link #toOriginHub()} 와 다른 점은 <b>경유 정류소 여부를 보지 않는다</b>는 것이다. 필터는
+     * "무엇을 추천하나" 의 규칙이라, 앱이 저장해 둔 코드를 되살리는 자리에 그대로 적용하면 우리가
+     * 목록을 좁힐 때마다 남의 저장값이 깨진다 — 자세한 사정은 {@code OriginHubCatalog#findByCode}
+     * 에 적었다.
+     *
+     * <p>좌표는 여전히 요구한다 — 없으면 동선에 올릴 값이 아예 없다.
+     */
+    public Optional<OriginHub> toAnyOriginHub() {
+        if (!hasCoordinate()) {
+            return Optional.empty();
+        }
         return OriginSido.ofStored(sido)
                 .map(found -> OriginHub.of(
                         OriginHubType.BUS_TERMINAL, code, name, found, new Coordinate(lat, lng)));
