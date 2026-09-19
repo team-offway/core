@@ -14,4 +14,9 @@ public final class TransportException extends BaseException {
     public static TransportException unknownOriginCode() {
         return new TransportException(TransportErrorCode.UNKNOWN_ORIGIN_CODE);
     }
+
+    /** 출발지 좌표가 반쪽만 옴 — 위도·경도는 함께여야 한다. */
+    public static TransportException partialOriginCoordinate() {
+        return new TransportException(TransportErrorCode.PARTIAL_ORIGIN_COORDINATE);
+    }
 }

@@ -31,17 +31,25 @@
 """
 
 import csv
+import hashlib
 import json
 import os
 import sys
 import urllib.request
 
-# 통계청 시도 경계(2018). 행정구역 경계는 거의 변하지 않으므로 연도를 고정한다 — 최신을 따라가면
-# 판정 결과가 실행 시점에 따라 달라지고, 그러면 시드를 다시 만들 때마다 diff 가 생긴다.
+# 통계청 시도 경계(2018).
+#
+# **커밋 SHA 로 고정한다.** 연도만 고정하고 `master` 를 가리키면 upstream 이 그 파일을 고치는 순간
+# 판정 결과가 실행 시점에 따라 달라진다 — "재실행 가능" 이라고 적어 둔 약속이 그때 깨진다.
+#
+# 내용도 검증한다. 받은 바이트의 SHA-256 이 다르면 멈춘다 — 판정은 마이그레이션으로 굳어지는 값이라,
+# 다른 경계로 조용히 다시 만들면 그 diff 의 원인을 아무도 못 찾는다.
+BOUNDARY_COMMIT = "60c8c0cf0016381d80004d6b125760d6c5cb0605"
 BOUNDARY_URL = (
-    "https://raw.githubusercontent.com/southkorea/southkorea-maps/master"
+    f"https://raw.githubusercontent.com/southkorea/southkorea-maps/{BOUNDARY_COMMIT}"
     "/kostat/2018/json/skorea-provinces-2018-geo.json"
 )
+BOUNDARY_SHA256 = "6065b2b8517939f1406ed9be1953265f9d580649489fbe8440913cb1e043c31f"
 
 # **판정 결과를 지금 표기로 바꾸지 않는다.** 경계 데이터의 이름(2018년 기준)을 그대로 내린다.
 #
@@ -56,14 +64,29 @@ CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".sido-boundary
 
 
 def load_boundary():
-    """경계를 받아 캐시한다 — 7MB 라 매번 내려받을 이유가 없다."""
-    if not os.path.exists(CACHE):
-        with urllib.request.urlopen(BOUNDARY_URL, timeout=120) as res:
-            data = res.read()
-        with open(CACHE, "wb") as f:
-            f.write(data)
-    with open(CACHE) as f:
-        return json.load(f)
+    """경계를 받아 캐시한다 — 7MB 라 매번 내려받을 이유가 없다.
+
+    받은 것과 캐시된 것 **양쪽 다** 체크섬을 본다. 캐시만 믿으면 예전에 다른 파일로 받아 둔 환경이
+    조용히 그것을 계속 쓴다.
+    """
+    if os.path.exists(CACHE):
+        with open(CACHE, "rb") as f:
+            cached = f.read()
+        if hashlib.sha256(cached).hexdigest() == BOUNDARY_SHA256:
+            return json.loads(cached)
+        print(f"캐시가 기대 체크섬과 달라 다시 받습니다: {CACHE}", file=sys.stderr)
+
+    with urllib.request.urlopen(BOUNDARY_URL, timeout=120) as res:
+        data = res.read()
+    got = hashlib.sha256(data).hexdigest()
+    if got != BOUNDARY_SHA256:
+        sys.exit(
+            f"경계 데이터 체크섬이 다릅니다.\n  기대 {BOUNDARY_SHA256}\n  실제 {got}\n"
+            "upstream 이 바뀌었거나 전송이 깨졌습니다. 판정 결과가 달라지므로 멈춥니다."
+        )
+    with open(CACHE, "wb") as f:
+        f.write(data)
+    return json.loads(data)
 
 
 def rings(geometry):

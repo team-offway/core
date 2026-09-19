@@ -132,7 +132,13 @@ public class OriginSuggestService {
             return resolve(new OriginCode(originCode.trim()), originName)
                     .orElseThrow(TransportException::unknownOriginCode);
         }
-        if (lat != null && lng != null) {
+        // **반쪽 좌표를 기본값으로 삼키지 않는다.** 한쪽만 온 것은 구버전 앱의 버그이거나 잘못된
+        // 요청인데, 조용히 서울역으로 바꾸면 사용자는 엉뚱한 곳에서 출발하는 코스를 받고 그것이
+        // 틀렸다는 사실이 아무 흔적도 남지 않는다. `CourseSaveRequest` 가 같은 판단으로 거절한다.
+        if ((lat == null) != (lng == null)) {
+            throw TransportException.partialOriginCoordinate();
+        }
+        if (lat != null) {
             String name = originName == null ? "" : originName.trim();
             return new ResolvedOrigin(new Coordinate(lat, lng), name);
         }

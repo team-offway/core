@@ -17,8 +17,18 @@ import java.util.regex.Pattern;
  */
 public record SearchableName(String value) {
 
-    /** 구두점·공백 — 사용자가 치지 않거나 다르게 치는 것들. */
-    private static final Pattern NOISE = Pattern.compile("[\\s·ㆍ()\\[\\]{}\\-–—_,./~]");
+    /**
+     * 구두점·공백·기호 — 사용자가 치지 않거나 다르게 치는 것들.
+     *
+     * <p><b>범주로 잡는다.</b> 목록으로 열거하면 빠뜨린 글자가 검색을 막는다 — {@code 서울역!} 의
+     * {@code !} 가 남아 {@code 서울역} 과 안 맞는 식이다. {@code \p{P}}(구두점)와 {@code \p{S}}(기호)로
+     * 넓히면 새 조합도 같은 규칙을 탄다.
+     *
+     * <p>{@code ㆍ}(U+318D)는 <b>범주에 안 들어간다</b> — 유니코드가 이것을 한글 문자(Lo)로 분류해서다.
+     * 그런데 {@code 광주(유·스퀘어)} 같은 이름에 실제로 쓰이므로 따로 적어 둔다. 범주만 믿고 지우면
+     * 이 한 글자가 조용히 남는다.
+     */
+    private static final Pattern NOISE = Pattern.compile("[\\s\\p{P}\\p{S}ㆍ]");
 
     public SearchableName {
         Objects.requireNonNull(value, "검색 이름은 필수입니다");

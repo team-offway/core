@@ -85,7 +85,10 @@ public record OriginCode(String value) {
         if (!isCoordinate()) {
             return Optional.empty();
         }
-        String[] parts = value.substring(GEO_PREFIX.length() + DELIMITER.length()).split(GEO_DELIMITER);
+        // **빈 조각을 보존한다**(limit = -1). 기본 split 은 끝의 빈 문자열을 버려
+        // `GEO:37.5,127.0,` 가 두 조각으로 읽히고, 망가진 코드가 정상으로 통과한다.
+        String[] parts = value.substring(GEO_PREFIX.length() + DELIMITER.length())
+                .split(GEO_DELIMITER, -1);
         if (parts.length != 2) {
             return Optional.empty();
         }

@@ -127,6 +127,33 @@ class OriginCodeOnCourseIntegrationTest {
     }
 
     @Test
+    void 좌표가_반쪽만_오면_400_이다() throws Exception {
+        // 조용히 기본값(서울역)으로 삼키면 사용자는 엉뚱한 곳에서 출발하는 코스를 받고, 그것이
+        // 틀렸다는 사실이 아무 흔적도 남지 않는다. 저장 요청이 같은 판단으로 거절한다.
+        mockMvc.perform(post(URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("\"originLat\": 37.5665,")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("TRANSPORT-002"))
+                .andExpect(jsonPath("$.detail").value("출발지 좌표는 위도와 경도를 함께 보내야 합니다."));
+
+        mockMvc.perform(post(URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("\"originLng\": 126.9780,")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("TRANSPORT-002"));
+    }
+
+    @Test
+    void 끝에_구분자가_남은_좌표_코드도_400_이다() throws Exception {
+        mockMvc.perform(post(URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("\"originCode\": \"GEO:37.5665,126.9780,\",")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("TRANSPORT-001"));
+    }
+
+    @Test
     void 코드가_있으면_좌표보다_우선한다() throws Exception {
         // 둘을 함께 보내도 코드가 이긴다 — 없는 코드를 넣으면 좌표로 떨어지지 않고 400 이 되는 것이
         // 그 증거다. 조용히 좌표로 내려가면 이 계약이 깨진 것을 아무도 모른다.

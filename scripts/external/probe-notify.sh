@@ -109,7 +109,15 @@ case "$ACTION" in
       printf "ON DUPLICATE KEY UPDATE call_count = call_count + %s;" "$COUNT"
       printf "INSERT INTO external_api_call_caller (call_date, api, caller, call_count) VALUES (CURDATE(), '%s', '%s', %s) " "$API" "$CALLER" "$COUNT"
       printf "ON DUPLICATE KEY UPDATE call_count = call_count + %s;" "$COUNT"
-    } | mysql_in || { echo "집계 기록 실패 — 앱의 한도 판단이 그만큼 낮게 남습니다" >&2; }
+    } | mysql_in || {
+      # **성공 알림을 보내지 않고 끝낸다.** 여기서 계속 진행하면 아래 알림이 "집계에 반영했습니다"
+      # 라고 잘못 말한다 — 실제로는 소비가 어디에도 안 남았고, 그건 이 도구가 막으려던 바로 그
+      # 상태다. 실패는 실패로 알린다.
+      echo "집계 기록 실패 — 앱의 한도 판단이 그만큼 낮게 남습니다" >&2
+      notify "$(printf '## 외부 API 실측 집계 실패 — %s\n`%s` 가 %s콜을 썼지만 **집계에 남기지 못했습니다.**\n앱은 한도가 그만큼 남았다고 판단합니다 — DB·컨테이너 상태를 확인하고 손으로 반영하세요.' \
+        "$API" "$CALLER" "$COUNT")"
+      exit 1
+    }
 
     AFTER=$(used_today)
     AFTER=${AFTER:-$((USED + COUNT))}

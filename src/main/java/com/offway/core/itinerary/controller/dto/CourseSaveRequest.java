@@ -68,9 +68,14 @@ public record CourseSaveRequest(
                         description = """
                                 출발지 코드 — 생성 요청에 보낸 `originCode` 를 그대로 돌려준다(#590).
 
-                                이 값이 있으면 `originLat`·`originLng`·`originName` 을 보내지 않아도 된다 —
-                                서버가 좌표와 표시 이름을 안다. 못 풀면 좌표로 떨어지고, 좌표도 없으면
-                                출발지 없이 저장된다.""",
+                                **역·터미널 코드**(`TRAIN:`·`BUS:`)면 `originLat`·`originLng`·`originName` 을
+                                보내지 않아도 된다 — 서버가 좌표와 표시 이름을 안다.
+
+                                **주소 코드**(`GEO:`)는 표시 이름을 서버가 모른다. 그 지점에는 우리 이름이
+                                없어서다. `originName` 을 함께 보내지 않으면 저장 코스에 표시명이 남지 않고,
+                                카드의 "어디에서 출발" 이 빈다 — 거절하지는 않는다(이름 없는 출발지도 정상이다).
+
+                                못 풀면 좌표로 떨어지고, 좌표도 없으면 출발지 없이 저장된다.""",
                         example = "TRAIN:NAT010000",
                         nullable = true)
                 @Size(max = OriginCode.MAX_LENGTH) String originCode,

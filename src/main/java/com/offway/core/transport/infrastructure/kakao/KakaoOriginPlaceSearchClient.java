@@ -111,32 +111,49 @@ class KakaoOriginPlaceSearchClient implements OriginPlaceSearchClient {
     }
 
     private ExternalDataCache.Loaded<List<FoundPlace>> load(CacheKey key) {
-        try {
-            // **주소를 먼저 묻고, 모자란 자리만 키워드로 채운다.** 주소로 다 채워지면 키워드는 아예
-            // 부르지 않는다 — 자동완성은 글자마다 부르는 화면이라, 안 불러도 되는 호출을 줄이는 것이
-            // 한도를 지키는 가장 확실한 방법이다.
-            List<FoundPlace> found = new ArrayList<>(fetch(ADDRESS_URL, key.query(), key.limit()));
-            int room = key.limit() - found.size();
-            if (room > 0) {
-                for (FoundPlace place : fetch(KEYWORD_URL, key.query(), room)) {
-                    // 주소 검색이 이미 준 지점은 건너뛴다 — 같은 곳이 이름만 달라 두 줄 뜨는 것을 막는다.
-                    if (found.stream().noneMatch(kept -> kept.coordinate().equals(place.coordinate()))) {
-                        found.add(place);
-                    }
+        // **주소를 먼저 묻고, 모자란 자리만 키워드로 채운다.** 주소로 다 채워지면 키워드는 아예
+        // 부르지 않는다 — 자동완성은 글자마다 부르는 화면이라, 안 불러도 되는 호출을 줄이는 것이
+        // 한도를 지키는 가장 확실한 방법이다.
+        //
+        // **둘의 실패를 따로 받는다.** 한 try 로 묶었더니 주소가 실패하면 키워드를 시도하지 않고,
+        // 키워드가 실패하면 이미 받아 둔 주소 결과까지 버렸다 — 멀쩡한 결과를 버리는 것은 degrade 가
+        // 아니라 손실이다.
+        List<FoundPlace> found = new ArrayList<>(fetchOrEmpty(ADDRESS_URL, "주소", key));
+        int room = key.limit() - found.size();
+        if (room > 0) {
+            for (FoundPlace place : fetchOrEmpty(KEYWORD_URL, "키워드", key.withLimit(room))) {
+                // 주소 검색이 이미 준 지점은 건너뛴다 — 같은 곳이 이름만 달라 두 줄 뜨는 것을 막는다.
+                if (found.stream().noneMatch(kept -> kept.coordinate().equals(place.coordinate()))) {
+                    found.add(place);
                 }
             }
-            if (found.isEmpty()) {
-                // 빈 응답은 실패와 결과가 같다 — 성공 TTL 로 굳히지 않고 warn 을 남겨 재시도를 유도한다.
-                log.warn("카카오 로컬 검색 결과 없음 — 짧은 TTL 로 둔다 length={}", key.query().length());
-                return new ExternalDataCache.Loaded<>(List.of(), RETRY_TTL);
-            }
-            return new ExternalDataCache.Loaded<>(List.copyOf(found), SUCCESS_TTL);
-        } catch (Exception e) {
-            // **검색어를 로그에 남기지 않는다.** 사용자가 친 원본이고, 출발지라서 사는 곳을 가리킨다 —
-            // 위치를 수집하지 않으려고 이 기능을 만드는데 로그에 남기면 그 취지가 무너진다.
-            log.warn("카카오 로컬 검색 실패 — 허브 목록만으로 답한다 length={} cause={}",
-                    key.query().length(), RootCause.of(e));
+        }
+        if (found.isEmpty()) {
+            // 빈 응답은 실패와 결과가 같다 — 성공 TTL 로 굳히지 않고 warn 을 남겨 재시도를 유도한다.
+            log.warn("카카오 로컬 검색 결과 없음 — 짧은 TTL 로 둔다 length={}", key.query().length());
             return new ExternalDataCache.Loaded<>(List.of(), RETRY_TTL);
+        }
+        return new ExternalDataCache.Loaded<>(List.copyOf(found), SUCCESS_TTL);
+    }
+
+    /**
+     * 한 오퍼레이션을 부르고, 실패하면 빈 목록으로 떨어진다.
+     *
+     * <p><b>검색어를 로그에 남기지 않는다.</b> 사용자가 친 원본이고, 출발지라서 사는 곳을 가리킨다 —
+     * 위치를 수집하지 않으려고 이 기능을 만드는데 로그에 남기면 그 취지가 무너진다.
+     *
+     * <p>그래서 {@code RootCause.of} 가 아니라 {@link RootCause#label} 을 쓴다. {@code of} 는 예외
+     * 메시지를 담는데 {@code WebClientResponseException} 메시지에는 <b>요청 URL 이 통째로</b> 들어올 수
+     * 있고, 우리 요청 URL 에는 {@code ?query=<사용자가 친 말>} 이 붙어 있다. 마스킹은 비밀값만 가리고
+     * 검색어는 못 가린다. {@code label} 은 상태코드나 클래스명만 남긴다.
+     */
+    private List<FoundPlace> fetchOrEmpty(String url, String what, CacheKey key) {
+        try {
+            return fetch(url, key.query(), key.limit());
+        } catch (Exception e) {
+            log.warn("카카오 로컬 {} 검색 실패 — 나머지 결과로 답한다 length={} cause={}",
+                    what, key.query().length(), RootCause.label(e));
+            return List.of();
         }
     }
 
@@ -226,5 +243,11 @@ class KakaoOriginPlaceSearchClient implements OriginPlaceSearchClient {
      *
      * <p>건수를 빼면 {@code size=5} 로 받은 값이 {@code size=20} 요청에 그대로 나가 목록이 조용히 짧아진다.
      */
-    private record CacheKey(String query, int limit) {}
+    private record CacheKey(String query, int limit) {
+
+        /** 남은 자리만큼으로 줄인 키 — 키워드 검색이 주소가 채운 뒤의 자리 수만 받게 한다. */
+        CacheKey withLimit(int newLimit) {
+            return new CacheKey(query, newLimit);
+        }
+    }
 }

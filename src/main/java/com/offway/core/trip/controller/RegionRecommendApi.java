@@ -18,7 +18,8 @@ public interface RegionRecommendApi {
     @ApiResponse(responseCode = "200", description = "추천 성공 (없으면 빈 목록. 외부 관광정보 실패 시 이미지·랭킹 가중치 없이 degrade — 502 아님)")
     @ApiResponse(
             responseCode = "400",
-            description = "좌표 범위 초과 · 이동수단 누락 · 도달 한계가 양수가 아님 · 출발지 코드를 못 풂(TRANSPORT-001)")
+            description = "좌표 범위 초과 · 이동수단 누락 · 도달 한계가 양수가 아님"
+                    + " · 출발지 코드를 못 풂(TRANSPORT-001) · 출발지 좌표가 반쪽만 옴(TRANSPORT-002)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     ApiResponseBody<RegionRecommendResponse> recommend(RegionRecommendRequest request);

@@ -19,7 +19,17 @@ public enum TransportErrorCode implements ErrorCode {
      *
      * <p>메시지에 코드값을 담지 않는다 — detail 은 그대로 사용자에게 나가는 자리다.
      */
-    UNKNOWN_ORIGIN_CODE("TRANSPORT-001", ErrorCategory.BAD_REQUEST, "출발지를 찾을 수 없습니다. 다시 선택해 주세요.");
+    UNKNOWN_ORIGIN_CODE("TRANSPORT-001", ErrorCategory.BAD_REQUEST, "출발지를 찾을 수 없습니다. 다시 선택해 주세요."),
+
+    /**
+     * 출발지 좌표가 반쪽만 왔다(위도만·경도만).
+     *
+     * <p>조용히 기본 출발지로 바꾸지 않는다 — 클라이언트는 출발지를 보냈다고 여기는데 다른 곳에서
+     * 출발하는 코스가 나오고, 그것이 틀렸다는 사실이 아무 흔적도 남지 않는다. 저장 요청이 같은
+     * 판단으로 거절한다.
+     */
+    PARTIAL_ORIGIN_COORDINATE(
+            "TRANSPORT-002", ErrorCategory.BAD_REQUEST, "출발지 좌표는 위도와 경도를 함께 보내야 합니다.");
 
     private final String code;
     private final ErrorCategory category;
