@@ -7,6 +7,8 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,6 +17,8 @@ import com.jayway.jsonpath.JsonPath;
 import com.offway.core.leave.infrastructure.holiday.HolidayClient;
 import com.offway.core.leave.infrastructure.holiday.StubHolidayClient;
 import com.offway.core.itinerary.repository.TripOutcomeRepository;
+import com.offway.core.itinerary.repository.TripOutcomeJpaRepository;
+import com.offway.core.itinerary.domain.TripFeedback;
 import com.offway.core.leave.service.LeaveService;
 import com.offway.core.user.config.WithLoginUser;
 import java.time.DayOfWeek;
@@ -71,6 +75,24 @@ class TripOutcomeIntegrationTest {
     /** 화면에 안 드러나는 정리를 단언한다 — 내부 컴포넌트라 stub 이 아니라 실제 빈이다. */
     @Autowired
     private TripOutcomeRepository tripOutcomeRepository;
+
+    /**
+     * 저장된 행을 되읽어 본다 — port 에는 조회가 없다(#592).
+     *
+     * <p><b>왜 200 만으로는 부족한가.</b> 평가를 받는 것이 이 기능인데, 응답에는 평가가 실리지 않고
+     * 읽는 경로도 아직 없다(집계는 후속). 그러면 매핑이 조용히 값을 버려도 테스트가 초록이다 —
+     * 실제로 TINYINT 매핑이 어긋나 있었고, 그건 부팅이 깨져서 잡혔을 뿐이다.
+     */
+    @Autowired
+    private TripOutcomeJpaRepository tripOutcomeJpaRepository;
+
+    private TripFeedback savedFeedback(long courseId) {
+        return tripOutcomeJpaRepository.findAll().stream()
+                .filter(outcome -> outcome.getCourseId() == courseId)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("답변 행이 없습니다 courseId=" + courseId))
+                .feedback();
+    }
 
     @TestConfiguration
     static class StubConfig {
@@ -397,6 +419,12 @@ class TripOutcomeIntegrationTest {
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.remainingDays").value(11.0));
 
+        // **저장된 행을 되읽어 확인한다.** 응답에 평가가 안 실리고 읽는 경로도 없어서, 이 단언이
+        // 없으면 매핑이 값을 버려도 초록이다.
+        TripFeedback saved = savedFeedback(courseId);
+        assertEquals(4, saved.rating());
+        assertEquals("버스 배차가 아쉬웠어요", saved.comment());
+
         pending().andExpect(jsonPath("$.data.trips.length()").value(0));
     }
 
@@ -410,6 +438,9 @@ class TripOutcomeIntegrationTest {
         answer(courseId, "VISITED")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.remainingDays").value(11.0));
+
+        // 건너뛰면 행은 남고 평가만 비어 있다 — "답하지 않은 상태" 와 구분돼야 다시 묻지 않는다.
+        assertFalse(savedFeedback(courseId).isPresent());
     }
 
     @Test
@@ -419,6 +450,10 @@ class TripOutcomeIntegrationTest {
         long courseId = saveCourse(weekdayRun(-3, 2));
 
         answerWith(courseId, "VISITED", "\"rating\": 5").andExpect(status().isOk());
+
+        TripFeedback saved = savedFeedback(courseId);
+        assertEquals(5, saved.rating());
+        assertTrue(saved.commentValue().isEmpty());
     }
 
     @Test
@@ -428,6 +463,10 @@ class TripOutcomeIntegrationTest {
         long courseId = saveCourse(weekdayRun(-3, 2));
 
         answerWith(courseId, "VISITED", "\"comment\": \"또 가고 싶어요\"").andExpect(status().isOk());
+
+        TripFeedback saved = savedFeedback(courseId);
+        assertTrue(saved.ratingValue().isEmpty());
+        assertEquals("또 가고 싶어요", saved.comment());
     }
 
     @Test
