@@ -162,6 +162,13 @@ class TripOutcomeIntegrationTest {
                 .content("{\"outcome\": \"" + outcome + "\"}"));
     }
 
+    /** 여행지 평가를 함께 실어 보낸다(#592) — {@code extraFields} 는 앞에 콤마 없이 준다. */
+    private ResultActions answerWith(long courseId, String outcome, String extraFields) throws Exception {
+        return mockMvc.perform(post(COURSES + "/{id}/trip-outcome", courseId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"outcome\": \"" + outcome + "\", " + extraFields + "}"));
+    }
+
     @Test
     void 여행이_끝난_다음_날부터_물어본다() throws Exception {
         noHolidays();
@@ -375,6 +382,107 @@ class TripOutcomeIntegrationTest {
         pending()
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.trips.length()").value(0));
+    }
+
+    @Test
+    void 여행지_평가를_함께_남길_수_있다() throws Exception {
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(weekdayRun(-3, 2));
+
+        // 평가가 붙어도 답의 본업(연차 차감)은 그대로다.
+        answerWith(courseId, "VISITED", "\"rating\": 4, \"comment\": \"버스 배차가 아쉬웠어요\"")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.remainingDays").value(11.0));
+
+        pending().andExpect(jsonPath("$.data.trips.length()").value(0));
+    }
+
+    @Test
+    void 평가를_건너뛰어도_답이_기록된다() throws Exception {
+        // 건너뛰기가 정상 상태다 — 모달의 본업은 연차 차감이라 평가가 그것을 막지 않는다.
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(weekdayRun(-3, 2));
+
+        answer(courseId, "VISITED")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.remainingDays").value(11.0));
+    }
+
+    @Test
+    void 별점만_남길_수_있다() throws Exception {
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(weekdayRun(-3, 2));
+
+        answerWith(courseId, "VISITED", "\"rating\": 5").andExpect(status().isOk());
+    }
+
+    @Test
+    void 한_줄만_남길_수_있다() throws Exception {
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(weekdayRun(-3, 2));
+
+        answerWith(courseId, "VISITED", "\"comment\": \"또 가고 싶어요\"").andExpect(status().isOk());
+    }
+
+    @Test
+    void 안_갔다면서_평가를_보내면_400이다() throws Exception {
+        // 안 간 여행지는 평가가 성립하지 않는다. 조용히 버리면 사용자는 남겼다고 여기는데 데이터가 없다.
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(today().minusDays(3));
+
+        answerWith(courseId, "NOT_VISITED", "\"rating\": 4")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("ITINERARY-012"))
+                .andExpect(jsonPath("$.detail").value("다녀오지 않은 여행에는 평가를 남길 수 없습니다."));
+    }
+
+    @Test
+    void 안_갔다고만_답하면_그대로_통과한다() throws Exception {
+        // 위 400 이 안 간 답 자체를 막지 않는다는 것을 함께 잠근다.
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(today().minusDays(3));
+
+        answer(courseId, "NOT_VISITED").andExpect(status().isOk());
+    }
+
+    @Test
+    void 안_갔다면서_공백뿐인_한_줄을_보내면_통과한다() throws Exception {
+        // 공백은 없는 것으로 접히므로 "평가를 남겼다" 가 아니다 — 거절할 이유가 없다.
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(today().minusDays(3));
+
+        answerWith(courseId, "NOT_VISITED", "\"comment\": \"   \"").andExpect(status().isOk());
+    }
+
+    @Test
+    void 별점이_범위를_벗어나면_400이다() throws Exception {
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(weekdayRun(-3, 2));
+
+        answerWith(courseId, "VISITED", "\"rating\": 6").andExpect(status().isBadRequest());
+        answerWith(courseId, "VISITED", "\"rating\": 0").andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 한_줄이_상한을_넘으면_400이다() throws Exception {
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(weekdayRun(-3, 2));
+
+        String tooLong = "가".repeat(201);
+        answerWith(courseId, "VISITED", "\"comment\": \"" + tooLong + "\"")
+                .andExpect(status().isBadRequest());
     }
 
     @Test
