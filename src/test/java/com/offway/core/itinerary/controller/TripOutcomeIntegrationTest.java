@@ -17,7 +17,8 @@ import com.jayway.jsonpath.JsonPath;
 import com.offway.core.leave.infrastructure.holiday.HolidayClient;
 import com.offway.core.leave.infrastructure.holiday.StubHolidayClient;
 import com.offway.core.itinerary.repository.TripOutcomeRepository;
-import com.offway.core.itinerary.repository.TripOutcomeJpaRepository;
+import com.offway.core.itinerary.repository.RegionFeedbackJpaRepository;
+import com.offway.core.itinerary.domain.RegionFeedback;
 import com.offway.core.itinerary.domain.TripFeedback;
 import com.offway.core.leave.service.LeaveService;
 import com.offway.core.user.config.WithLoginUser;
@@ -55,6 +56,9 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 @WithLoginUser
 class TripOutcomeIntegrationTest {
 
+    /** 코스 픽스처가 쓰는 지역 — 평가를 되읽을 때 이 값으로 찾는다(평가 표에는 코스 참조가 없다). */
+    private static final long REGION_ID = 16L;
+
     private static final String COURSES = "/api/v1/courses";
     private static final String PENDING = COURSES + "/pending-trips";
     private static final String LEAVES = "/api/v1/leaves/me";
@@ -77,21 +81,40 @@ class TripOutcomeIntegrationTest {
     private TripOutcomeRepository tripOutcomeRepository;
 
     /**
-     * 저장된 행을 되읽어 본다 — port 에는 조회가 없다(#592).
+     * 쌓인 익명 평가를 되읽어 본다 — port 에 조회가 없다(#592).
      *
      * <p><b>왜 200 만으로는 부족한가.</b> 평가를 받는 것이 이 기능인데, 응답에는 평가가 실리지 않고
      * 읽는 경로도 아직 없다(집계는 후속). 그러면 매핑이 조용히 값을 버려도 테스트가 초록이다 —
      * 실제로 TINYINT 매핑이 어긋나 있었고, 그건 부팅이 깨져서 잡혔을 뿐이다.
+     *
+     * <p><b>여기서 "내 평가" 를 찾을 수 없다는 것이 요점이다.</b> 이 표에는 userId·courseId 가 없다.
+     * 이 클래스의 격리는 <b>테스트마다 새 사용자</b>인데(위 클래스 주석) 익명 평가는 사용자 단위가
+     * 아니라 그 격리가 통하지 않는다 — 앞 테스트가 남긴 행이 그대로 보인다.
+     *
+     * <p>그래서 <b>직전 최대 id 이후에 생긴 행</b>만 본다. 이 조회 모양 자체가 익명이 실제로 익명임을
+     * 드러낸다 — 사람이나 코스로 좁히는 길이 없어서 시간 순서밖에 남지 않는다.
      */
     @Autowired
-    private TripOutcomeJpaRepository tripOutcomeJpaRepository;
+    private RegionFeedbackJpaRepository regionFeedbackJpaRepository;
 
-    private TripFeedback savedFeedback(long courseId) {
-        return tripOutcomeJpaRepository.findAll().stream()
-                .filter(outcome -> outcome.getCourseId() == courseId)
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("답변 행이 없습니다 courseId=" + courseId))
-                .feedback();
+    private long lastFeedbackId() {
+        return regionFeedbackJpaRepository.findAll().stream()
+                .mapToLong(RegionFeedback::getId)
+                .max()
+                .orElse(0L);
+    }
+
+    private List<RegionFeedback> feedbacksAfter(long lastId) {
+        return regionFeedbackJpaRepository.findAll().stream()
+                .filter(feedback -> feedback.getId() > lastId)
+                .toList();
+    }
+
+    private RegionFeedback onlyFeedbackAfter(long lastId) {
+        List<RegionFeedback> found = feedbacksAfter(lastId);
+        assertEquals(1, found.size(), "새로 쌓인 평가가 한 건이어야 합니다");
+        assertEquals(REGION_ID, found.getFirst().getRegionId(), "평가가 코스의 지역에 붙어야 합니다");
+        return found.getFirst();
     }
 
     @TestConfiguration
@@ -411,6 +434,7 @@ class TripOutcomeIntegrationTest {
         noHolidays();
         setTotalLeave(13.0);
         long courseId = saveCourse(weekdayRun(-3, 2));
+        long before = lastFeedbackId();
 
         // 평가가 붙어도 답의 본업(연차 차감)은 그대로다.
         answerWith(courseId, "VISITED", "\"rating\": 4, \"comment\": \"버스 배차가 아쉬웠어요\"")
@@ -421,7 +445,8 @@ class TripOutcomeIntegrationTest {
 
         // **저장된 행을 되읽어 확인한다.** 응답에 평가가 안 실리고 읽는 경로도 없어서, 이 단언이
         // 없으면 매핑이 값을 버려도 초록이다.
-        TripFeedback saved = savedFeedback(courseId);
+        // **코스로 찾을 수 없다** — 평가 표에는 코스·사용자 참조가 없다.
+        TripFeedback saved = onlyFeedbackAfter(before).feedback();
         assertEquals(4, saved.rating());
         assertEquals("버스 배차가 아쉬웠어요", saved.comment());
 
@@ -435,12 +460,15 @@ class TripOutcomeIntegrationTest {
         setTotalLeave(13.0);
         long courseId = saveCourse(weekdayRun(-3, 2));
 
+        long before = lastFeedbackId();
+
         answer(courseId, "VISITED")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.remainingDays").value(11.0));
 
-        // 건너뛰면 행은 남고 평가만 비어 있다 — "답하지 않은 상태" 와 구분돼야 다시 묻지 않는다.
-        assertFalse(savedFeedback(courseId).isPresent());
+        // 건너뛰면 **평가 행이 아예 생기지 않는다.** 빈 행이 쌓이면 지역별 집계가 실제보다 많은
+        // 의견이 있는 것처럼 보인다. 답(trip_outcome)은 남아 다시 묻지 않는다 — 위 pending 이 그것을 본다.
+        assertTrue(feedbacksAfter(before).isEmpty());
     }
 
     @Test
@@ -449,9 +477,11 @@ class TripOutcomeIntegrationTest {
         setTotalLeave(13.0);
         long courseId = saveCourse(weekdayRun(-3, 2));
 
+        long before = lastFeedbackId();
+
         answerWith(courseId, "VISITED", "\"rating\": 5").andExpect(status().isOk());
 
-        TripFeedback saved = savedFeedback(courseId);
+        TripFeedback saved = onlyFeedbackAfter(before).feedback();
         assertEquals(5, saved.rating());
         assertTrue(saved.commentValue().isEmpty());
     }
@@ -462,9 +492,11 @@ class TripOutcomeIntegrationTest {
         setTotalLeave(13.0);
         long courseId = saveCourse(weekdayRun(-3, 2));
 
+        long before = lastFeedbackId();
+
         answerWith(courseId, "VISITED", "\"comment\": \"또 가고 싶어요\"").andExpect(status().isOk());
 
-        TripFeedback saved = savedFeedback(courseId);
+        TripFeedback saved = onlyFeedbackAfter(before).feedback();
         assertTrue(saved.ratingValue().isEmpty());
         assertEquals("또 가고 싶어요", saved.comment());
     }
