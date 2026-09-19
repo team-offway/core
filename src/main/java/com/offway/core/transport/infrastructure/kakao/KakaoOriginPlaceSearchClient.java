@@ -45,6 +45,19 @@ import org.springframework.web.util.UriComponentsBuilder;
 class KakaoOriginPlaceSearchClient implements OriginPlaceSearchClient {
 
     private static final String KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json";
+
+    /**
+     * 주소 검색 — 키워드 검색보다 <b>먼저</b> 본다.
+     *
+     * <p><b>왜 둘을 쓰나.</b> 키워드 검색만 부르면 도로명주소를 친 사람이 그 자리의 건물·상호를 본다 —
+     * {@code 서초구 남부순환로 2567} 에 "CONEST아파트"·"CU 양재역점"·"서초청년센터"가 떴다(실측
+     * 2026-09-19). 자기 집 주소를 치고 남의 상호를 고르는 화면이 된다.
+     *
+     * <p>주소 검색은 같은 질의에 {@code 서울 서초구 남부순환로 2567} 을 준다. 그래서 <b>주소가 걸리면
+     * 그것을 앞에 두고</b>, 모자란 자리만 키워드로 채운다.
+     */
+    private static final String ADDRESS_URL = "https://dapi.kakao.com/v2/local/search/address.json";
+
     private static final String AUTH_HEADER = "Authorization";
     private static final String AUTH_SCHEME = "KakaoAK ";
 
@@ -99,27 +112,25 @@ class KakaoOriginPlaceSearchClient implements OriginPlaceSearchClient {
 
     private ExternalDataCache.Loaded<List<FoundPlace>> load(CacheKey key) {
         try {
-            callRecorder.record(ExternalApi.KAKAO_LOCAL);
-            String uri = UriComponentsBuilder.fromUriString(KEYWORD_URL)
-                    .queryParam("query", key.query())
-                    .queryParam("size", key.limit())
-                    .build()
-                    .encode()
-                    .toUriString();
-            String body = webClient.get()
-                    .uri(uri)
-                    .header(AUTH_HEADER, AUTH_SCHEME + props.kakao().restApiKey())
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .timeout(TIMEOUT)
-                    .block();
-            List<FoundPlace> found = parse(body);
+            // **주소를 먼저 묻고, 모자란 자리만 키워드로 채운다.** 주소로 다 채워지면 키워드는 아예
+            // 부르지 않는다 — 자동완성은 글자마다 부르는 화면이라, 안 불러도 되는 호출을 줄이는 것이
+            // 한도를 지키는 가장 확실한 방법이다.
+            List<FoundPlace> found = new ArrayList<>(fetch(ADDRESS_URL, key.query(), key.limit()));
+            int room = key.limit() - found.size();
+            if (room > 0) {
+                for (FoundPlace place : fetch(KEYWORD_URL, key.query(), room)) {
+                    // 주소 검색이 이미 준 지점은 건너뛴다 — 같은 곳이 이름만 달라 두 줄 뜨는 것을 막는다.
+                    if (found.stream().noneMatch(kept -> kept.coordinate().equals(place.coordinate()))) {
+                        found.add(place);
+                    }
+                }
+            }
             if (found.isEmpty()) {
                 // 빈 응답은 실패와 결과가 같다 — 성공 TTL 로 굳히지 않고 warn 을 남겨 재시도를 유도한다.
                 log.warn("카카오 로컬 검색 결과 없음 — 짧은 TTL 로 둔다 length={}", key.query().length());
                 return new ExternalDataCache.Loaded<>(List.of(), RETRY_TTL);
             }
-            return new ExternalDataCache.Loaded<>(found, SUCCESS_TTL);
+            return new ExternalDataCache.Loaded<>(List.copyOf(found), SUCCESS_TTL);
         } catch (Exception e) {
             // **검색어를 로그에 남기지 않는다.** 사용자가 친 원본이고, 출발지라서 사는 곳을 가리킨다 —
             // 위치를 수집하지 않으려고 이 기능을 만드는데 로그에 남기면 그 취지가 무너진다.
@@ -127,6 +138,26 @@ class KakaoOriginPlaceSearchClient implements OriginPlaceSearchClient {
                     key.query().length(), RootCause.of(e));
             return new ExternalDataCache.Loaded<>(List.of(), RETRY_TTL);
         }
+    }
+
+    /** 한 오퍼레이션을 부르고 파싱한다 — 콜 수를 세는 자리도 여기 하나뿐이다. */
+    private List<FoundPlace> fetch(String url, String query, int size)
+            throws com.fasterxml.jackson.core.JsonProcessingException {
+        callRecorder.record(ExternalApi.KAKAO_LOCAL);
+        String uri = UriComponentsBuilder.fromUriString(url)
+                .queryParam("query", query)
+                .queryParam("size", size)
+                .build()
+                .encode()
+                .toUriString();
+        String body = webClient.get()
+                .uri(uri)
+                .header(AUTH_HEADER, AUTH_SCHEME + props.kakao().restApiKey())
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(TIMEOUT)
+                .block();
+        return parse(body);
     }
 
     /**
@@ -142,21 +173,37 @@ class KakaoOriginPlaceSearchClient implements OriginPlaceSearchClient {
         JsonNode documents = objectMapper.readTree(body).path("documents");
         List<FoundPlace> found = new ArrayList<>();
         for (JsonNode doc : documents) {
-            String name = text(doc, "place_name");
+            // 두 오퍼레이션의 모양이 다르다(실측 2026-09-19).
+            //   keyword.json  place_name · road_address_name · address_name  (전부 평평한 문자열)
+            //   address.json  place_name 없음 · road_address 가 **중첩 객체** · address_name
+            String place = text(doc, "place_name");
             String road = text(doc, "road_address_name");
+            if (road.isBlank()) {
+                road = text(doc.path("road_address"), "address_name");
+            }
             String jibun = text(doc, "address_name");
             String address = road.isBlank() ? jibun : road;
-            String label = name.isBlank() ? address : name;
-            if (label.isBlank()) {
+            // 장소명이 있으면 그것이 이름이고 주소는 부제목이다. 주소만 온 결과는 주소가 이름이 되고,
+            // 부제목에는 **시도만** 남긴다 — 같은 문자열을 두 줄에 그리지 않고, 허브 행의 `area`
+            // (서울·부산)와 표기를 맞춘다. 카카오가 이미 짧은 시도 표기로 준다("서울 서초구 …").
+            String name = place.isBlank() ? address : place;
+            String area = place.isBlank() ? firstToken(address) : address;
+            if (name.isBlank()) {
                 continue;
             }
-            coordinateOf(doc).ifPresent(coordinate -> found.add(new FoundPlace(label, address, coordinate)));
+            coordinateOf(doc).ifPresent(coordinate -> found.add(new FoundPlace(name, area, coordinate)));
         }
         return List.copyOf(found);
     }
 
     private static String text(JsonNode node, String field) {
         return node.path(field).asText("");
+    }
+
+    /** 주소의 첫 낱말 — 시도 표기다("서울 서초구 남부순환로 2567" → "서울"). */
+    private static String firstToken(String address) {
+        int space = address.indexOf(' ');
+        return space < 0 ? address : address.substring(0, space);
     }
 
     /** 카카오는 {@code x} 가 경도, {@code y} 가 위도다(문자열로 온다). */
