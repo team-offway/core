@@ -3,6 +3,8 @@ package com.offway.core.itinerary.controller.dto;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
+import com.offway.core.transport.domain.OriginCode;
+import com.offway.core.transport.service.dto.ResolvedOrigin;
 import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.domain.TransportMode;
@@ -13,6 +15,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.util.Set;
 
@@ -32,10 +35,31 @@ public record CourseRegenerateRequest(
                 @NotNull @Min(1) @Max(Course.MAX_TRAVEL_DAYS) Integer travelDays,
         @Schema(example = "PACKED", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull Density density,
         @Schema(example = "CAR", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull TransportMode transport,
-        @Schema(example = "37.49", requiredMode = Schema.RequiredMode.REQUIRED)
-                @NotNull @DecimalMin("-90") @DecimalMax("90") Double originLat,
-        @Schema(example = "127.02", requiredMode = Schema.RequiredMode.REQUIRED)
-                @NotNull @DecimalMin("-180") @DecimalMax("180") Double originLng,
+        @Schema(
+                        description = """
+                                출발지 코드 — `GET /api/v1/origins` 가 준 `code` 를 그대로 넣는다(#590).
+
+                                앱이 GPS 수집을 그만두면서 사용자가 출발지를 직접 고른다. 이 값이 있으면
+                                `originLat`·`originLng` 는 무시된다.
+
+                                **못 풀면 400(TRANSPORT-001)이다** — 조용히 기본 출발지로 바꾸면 고른 곳과
+                                다른 데서 출발하는 코스가 나오고, 틀렸다는 사실이 아무 흔적도 남지 않는다.""",
+                        example = "TRAIN:NAT010000",
+                        nullable = true)
+                @Size(max = OriginCode.MAX_LENGTH) String originCode,
+        @Schema(
+                        description = """
+                                출발지 이름 — `kind` 가 `ADDRESS` 인 제안을 골랐을 때만 보낸다.
+
+                                역·터미널은 서버가 이름을 알고 있어 무시된다. 주소·장소는 우리 이름이 없어,
+                                카드의 "어디에서 출발" 을 그릴 값이 여기서 온다.""",
+                        example = "분당구청",
+                        nullable = true)
+                @Size(max = 64) String originName,
+        @Schema(example = "37.49", description = "구버전 앱용 — originCode 가 없을 때만 쓴다", nullable = true)
+                @DecimalMin("-90") @DecimalMax("90") Double originLat,
+        @Schema(example = "127.02", description = "originLat 와 짝", nullable = true)
+                @DecimalMin("-180") @DecimalMax("180") Double originLng,
         @Schema(example = "2026-05-01", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull LocalDate travelDate,
         @Schema(description = """
                 이 수단으로 코스를 짠다(#453). 카드에서 수단 칩을 눌렀을 때만 보낸다.
@@ -60,15 +84,17 @@ public record CourseRegenerateRequest(
                 Set<String> excludePoiContentIds) {
 
     /** 재생성이 시도마다 씨앗만 바꿔 끼우므로, 여기서는 씨앗을 비워 둔 커맨드를 만든다. */
-    public GenerateCourse toCommand() {
+    public GenerateCourse toCommand(ResolvedOrigin origin) {
         return GenerateCourse.builder()
                 .regionId(regionId)
                 .travelDays(travelDays)
                 .density(density)
                 .transport(transport)
                 .transitMode(transitMode)
-                .originLat(originLat)
-                .originLng(originLng)
+                // 출발지는 **컨트롤러가 이미 풀어 준 값**을 쓴다. originCode·좌표·기본값 중 어느
+                // 것이었는지는 여기서 알 필요가 없다 — 우선순위는 OriginSuggestService 가 소유한다.
+                .originLat(origin.coordinate().lat())
+                .originLng(origin.coordinate().lng())
                 .travelDate(travelDate)
                 .startDayLeave(startDayLeave)
                 .seed(GenerateCourse.FIRST_SEED)
