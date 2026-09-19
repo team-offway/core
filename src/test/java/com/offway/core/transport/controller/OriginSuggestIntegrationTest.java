@@ -84,6 +84,8 @@ class OriginSuggestIntegrationTest {
                 // 지역으로 걸린 것들 — 이름 매칭만으로는 안 나오는 역들이 이 API 의 이유다
                 .andExpect(jsonPath("$.data[?(@.name == '청량리역')]").exists())
                 .andExpect(jsonPath("$.data[?(@.name == '용산역')]").exists())
+                // 통근 전용 역은 같은 서울인데도 안 나온다
+                .andExpect(jsonPath("$.data[?(@.name == '노량진역')]").doesNotExist())
                 .andExpect(jsonPath("$.data[?(@.area == '서울')]").exists());
     }
 
@@ -153,6 +155,53 @@ class OriginSuggestIntegrationTest {
                 .andExpect(jsonPath("$.data.length()").value(0));
 
         catalog.evictCache();
+    }
+
+    @Test
+    void 간선_열차가_안_서는_역은_제안에_오르지_않는다() throws Exception {
+        stub().willReturnNothing();
+        // 실측으로 확인한 통근 전용 역들(#590). 고를 수 있게 하면 열차 없는 코스가 나온다.
+        mockMvc.perform(get(URL).param("query", "노량진"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+        mockMvc.perform(get(URL).param("query", "신도림"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void 간선_열차가_서는_역은_통근선_역이라도_남는다() throws Exception {
+        stub().willReturnNothing();
+        // 옥수·왕십리는 경의중앙선 역이지만 ITX-청춘이 정차한다 — 실측이 그것을 잡아냈다.
+        // "통근선에 있다" 로 지우면 이 역들이 사라진다.
+        mockMvc.perform(get(URL).param("query", "옥수"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].name").value("옥수역"));
+        mockMvc.perform(get(URL).param("query", "왕십리"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].name").value("왕십리역"));
+    }
+
+    @Test
+    void 좌표가_틀린_것으로_확인된_역은_사라진다() throws Exception {
+        stub().willReturnNothing();
+        // 신림은 원주시 신림면인데 서울 관악구로 지오코딩됐다. 좌표를 비워 최근접 탐색과
+        // 제안에서 모두 빠진다 — 틀린 좌표를 남기면 엉뚱한 곳을 "가장 가까운 역" 으로 답한다.
+        mockMvc.perform(get(URL).param("query", "신림"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[?(@.name == '신림역')]").doesNotExist());
+    }
+
+    @Test
+    void 지선_역도_남는다() throws Exception {
+        stub().willReturnNothing();
+        // 1차 측정이 미운행으로 잘못 판정했던 역들 — 2차 확인으로 살렸다.
+        mockMvc.perform(get(URL).param("query", "정선"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[?(@.name == '정선역')]").exists());
+        mockMvc.perform(get(URL).param("query", "목포"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[?(@.name == '목포역')]").exists());
     }
 
     @Test

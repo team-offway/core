@@ -49,6 +49,24 @@ public class TrainStation {
     @Column(length = 20)
     private String sido;
 
+    /**
+     * 간선 열차가 서는 역인가(#590) — 출발지로 고를 수 있는지를 가른다.
+     *
+     * <p><b>왜 필요한가.</b> 이 마스터는 TAGO 노드 목록 전체라 통근 전용 역이 섞여 있다. 서울만 봐도
+     * 노량진·신도림·서빙고가 그렇다. 자동완성은 사용자가 <b>직접 고르는</b> 화면이라, 그런 역을 목록에
+     * 두면 고른 사람이 열차 없는 코스를 받는다 — 우리가 고를 수 있게 해 놓고 degrade 시킨 것이다.
+     * GPS 로 최근접을 자동 선택하던 때와 성질이 다르다.
+     *
+     * <p><b>목록으로는 못 갈라 실측했다.</b> 역마다 먼 허브로 편성을 물어 1,772콜을 썼다. 자세한 근거는
+     * 마이그레이션 주석에 있다 — 특히 <b>1차 측정이 목포·전주·원주·정선역을 미운행으로 잘못 판정했고</b>
+     * 2차 확인으로 살렸다는 것.
+     *
+     * <p><b>기본값은 {@code true} 다.</b> 새로 들어오는 역은 재기 전까지 쓸 수 있어야 한다 —
+     * {@link BusTerminal#isTerminal()} 과 같은 판단이다.
+     */
+    @Column(nullable = false)
+    private boolean intercity = true;
+
     private TrainStation(String code, String name, Double lat, Double lng, String sido) {
         // 역코드·역명은 누가 만들든 반드시 있어야 하는 불변식(좌표만 결측 허용) — DB flush 까지 미루지 않고 생성 시점에 막는다.
         this.code = Objects.requireNonNull(code, "역코드는 null 일 수 없습니다.");
@@ -73,6 +91,18 @@ public class TrainStation {
         return new TrainStation(code, name, lat, lng, sido);
     }
 
+    /**
+     * 간선 정차 여부까지 정해 만든다(#590) — 통근 전용 역 시나리오를 세우는 테스트용.
+     *
+     * <p>운영에서는 마이그레이션이 채우므로 코드가 이 값을 정하는 자리는 없다.
+     */
+    public static TrainStation of(
+            String code, String name, Double lat, Double lng, String sido, boolean intercity) {
+        TrainStation station = new TrainStation(code, name, lat, lng, sido);
+        station.intercity = intercity;
+        return station;
+    }
+
     /** 좌표가 있어 최근접 계산에 쓸 수 있는가. */
     public boolean hasCoordinate() {
         return lat != null && lng != null;
@@ -81,15 +111,17 @@ public class TrainStation {
     /**
      * 출발지 제안 한 줄로 옮긴다 — 올릴 수 없으면 비어 있다(#590).
      *
-     * <p>버스와 달리 <b>거르는 조건이 좌표와 시도뿐이다.</b> 통근 전용 역(옥수·서빙고·신림)을 가려낼
-     * 근거가 데이터에 없다 — 이 마스터는 TAGO 노드 목록 전체이고, 코드 접두는 노선(경부선·중앙선)이라
-     * 간선과 통근을 구별하지 않는다. 실측하려면 역마다 TAGO 를 물어야 해서 한도를 태운다.
+     * <p>세 조건을 모두 넘어야 한다.
      *
-     * <p><b>그래서 거르지 않고 정렬로 내린다.</b> 지금보다 나빠지지 않는다 — GPS 를 쓰는 지금도 옥수동에
-     * 있는 사용자는 최근접 탐색이 옥수역을 골라 같은 경로를 탄다. 자동완성이 만드는 새 문제가 아니다.
+     * <ul>
+     *   <li><b>좌표</b> — 없으면 동선에 못 올린다. 좌표가 틀린 것으로 확인된 역은 비워 뒀다(신림·대야·
+     *       상동·진성) — 틀린 좌표를 남기면 최근접 탐색이 엉뚱한 곳을 답한다
+     *   <li><b>시도</b> — 좌표가 있으면 판정돼 있다
+     *   <li><b>간선 정차</b> — 통근 전용 역을 고르면 열차 없는 코스가 나온다({@link #intercity})
+     * </ul>
      */
     public Optional<OriginHub> toOriginHub() {
-        if (!hasCoordinate()) {
+        if (!hasCoordinate() || !intercity) {
             return Optional.empty();
         }
         return OriginSido.ofStored(sido)
