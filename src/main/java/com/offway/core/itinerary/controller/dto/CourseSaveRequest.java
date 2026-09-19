@@ -7,6 +7,7 @@ import com.offway.core.itinerary.domain.DaySchedule;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.domain.ItineraryException;
 import com.offway.core.itinerary.domain.Origin;
+import com.offway.core.transport.domain.OriginCode;
 import com.offway.core.itinerary.domain.Slot;
 import com.offway.core.itinerary.domain.SlotDisplay;
 import com.offway.core.itinerary.domain.SlotKind;
@@ -23,6 +24,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -35,6 +37,7 @@ import java.util.function.Function;
  * @param regionId 코스 지역
  * @param density 일정 밀도
  * @param transport 이동수단
+ * @param originCode 출발지 코드(#590) — 생성 요청에 보낸 값. 있으면 좌표·이름을 서버가 안다
  * @param originLat 출발지 위도(대중교통 열차 접근 재계산용, 없으면 null)
  * @param originLng 출발지 경도(없으면 null)
  * @param originName 출발지 표시명(#382). 자차 코스의 "서울에서 출발" 을 그리는 값이다. 서버는 좌표를
@@ -61,6 +64,16 @@ public record CourseSaveRequest(
                 @Min(1)
                 @Max(Course.MAX_TRAVEL_DAYS)
                 Integer travelDays,
+        @Schema(
+                        description = """
+                                출발지 코드 — 생성 요청에 보낸 `originCode` 를 그대로 돌려준다(#590).
+
+                                이 값이 있으면 `originLat`·`originLng`·`originName` 을 보내지 않아도 된다 —
+                                서버가 좌표와 표시 이름을 안다. 못 풀면 좌표로 떨어지고, 좌표도 없으면
+                                출발지 없이 저장된다.""",
+                        example = "TRAIN:NAT010000",
+                        nullable = true)
+                @Size(max = OriginCode.MAX_LENGTH) String originCode,
         @Schema(
                         description = "출발지 위도. 대중교통 코스는 이 값이 있어야 저장 후에도 열차 접근이 나온다 "
                                 + "(생성 요청에 보낸 값을 그대로 돌려주면 된다). 자차 코스는 필요 없다.",
@@ -91,11 +104,16 @@ public record CourseSaveRequest(
                 TransitMode transitMode,
         @NotEmpty List<@Valid Day> days) {
 
-    /** 인증된 사용자 소유의 도메인 코스로 변환한다 — 예외 번역은 {@link #build} 가 소유한다. */
-    public Course toCourse(UUID userId) {
+    /**
+     * 인증된 사용자 소유의 도메인 코스로 변환한다 — 예외 번역은 {@link #build} 가 소유한다.
+     *
+     * @param resolvedOrigin 코드로 푼 출발지. <b>없을 수 있다</b>(코드를 안 보낸 구버전 앱) — 그러면
+     *     좌표 경로로 떨어진다
+     */
+    public Course toCourse(UUID userId, Origin resolvedOrigin) {
         return build(origin -> Course.ownedBy(
                 userId, regionId, density, transport, schedules(), travelDate, span(), origin,
-                startDayLeaveOrFullDay(), transitMode));
+                startDayLeaveOrFullDay(), transitMode), resolvedOrigin);
     }
 
     /**
@@ -104,10 +122,10 @@ public record CourseSaveRequest(
      * <p>구성 검증은 저장과 <b>똑같다</b>. 링크로 열리는 코스가 담은 코스보다 느슨할 이유가 없고,
      * 두 경로의 규칙이 갈리면 같은 payload 가 한쪽에서만 통과한다.
      */
-    public Course toSharedCourse() {
+    public Course toSharedCourse(Origin resolvedOrigin) {
         return build(origin -> Course.sharedOnly(
                 regionId, density, transport, schedules(), travelDate, span(), origin,
-                startDayLeaveOrFullDay(), transitMode));
+                startDayLeaveOrFullDay(), transitMode), resolvedOrigin);
     }
 
     /**
@@ -125,8 +143,13 @@ public record CourseSaveRequest(
      * 연속성 등)은 도메인이 던지고, 여기서 계약 예외(400)로 번역한다. 입력 경계가 계약 검증을
      * 소유하므로 이 매핑에서 400 을 확정한다.
      */
-    private Course build(Function<Origin, Course> factory) {
+    private Course build(Function<Origin, Course> factory, Origin resolvedOrigin) {
         try {
+            // **코드로 푼 출발지가 있으면 그것이 먼저다.** 앱이 좌표를 안 다루면 아래 좌표 경로로는
+            // 출발지를 채울 수 없고, 그러면 저장한 코스에서 "어디에서 출발" 이 통째로 빈다(#590).
+            if (resolvedOrigin != null) {
+                return factory.apply(resolvedOrigin);
+            }
             // 출발지는 위도·경도가 함께여야 좌표가 된다. 한쪽만 오면 조용히 버리지 않고 거절한다 —
             // 클라이언트는 출발지를 보냈다고 여기는데 저장 코스에서 열차 접근이 비고, 그 이유를 알 수 없다.
             // Day 날짜(#180)에서 시작일 없이 날짜만 온 요청을 거절한 것과 같은 판단이다.
