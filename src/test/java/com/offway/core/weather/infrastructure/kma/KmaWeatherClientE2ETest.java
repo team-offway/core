@@ -36,8 +36,7 @@ class KmaWeatherClientE2ETest {
     private static final double LNG = 129.0454604;
 
     private static KmaWeatherClient client() {
-        ExternalApiProperties props = new ExternalApiProperties(
-                new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
+        ExternalApiProperties props = ExternalApiProperties.ofDataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY"));
         return new KmaWeatherClientImpl(WebClient.builder().build(), props, new NoOpCallRecorder(), ExternalApiCachePolicy.ALWAYS_CACHE);
     }
 

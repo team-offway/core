@@ -92,3 +92,6 @@ docs/specs/progress-report-*.html
 
 # 파이썬 스크립트(scripts/) 실행 부산물
 __pycache__/
+
+# 시도 경계 캐시(7.5MB) — hub-sido.py 가 필요할 때 내려받는다. 결과(마이그레이션)만 추적하면 된다.
+scripts/transit/.sido-boundary.json

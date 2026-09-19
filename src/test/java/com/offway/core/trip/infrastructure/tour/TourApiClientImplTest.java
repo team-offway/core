@@ -30,9 +30,9 @@ import reactor.core.publisher.Mono;
 class TourApiClientImplTest {
 
     private static final ExternalApiProperties WITH_KEY =
-            new ExternalApiProperties(new ExternalApiProperties.DataGoKr("test-key"), null);
+            ExternalApiProperties.ofDataGoKr("test-key");
     private static final ExternalApiProperties NO_KEY =
-            new ExternalApiProperties(new ExternalApiProperties.DataGoKr(null), null);
+            ExternalApiProperties.ofDataGoKr(null);
 
     /** 최초 호출 1회 + 구현의 재시도 2회. 구현 상수가 줄면 여기가 먼저 깨져야 한다. */
     private static final int ATTEMPTS_WITH_RETRIES = 3;

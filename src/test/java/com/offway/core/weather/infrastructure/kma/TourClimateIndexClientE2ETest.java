@@ -50,8 +50,7 @@ class TourClimateIndexClientE2ETest {
             SigunguKey.of("경상북도", "영양군"));
 
     private static TourClimateIndexClient client() {
-        ExternalApiProperties props = new ExternalApiProperties(
-                new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
+        ExternalApiProperties props = ExternalApiProperties.ofDataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY"));
         return new TourClimateIndexClientImpl(WebClient.builder()
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
                 .build(), props, new NoOpCallRecorder());

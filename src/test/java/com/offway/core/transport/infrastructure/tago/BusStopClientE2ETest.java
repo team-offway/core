@@ -33,8 +33,7 @@ class BusStopClientE2ETest {
     private static final int EXPECTED_CITY_COUNT = 138;
 
     private static BusStopClient client() {
-        ExternalApiProperties props = new ExternalApiProperties(
-                new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
+        ExternalApiProperties props = ExternalApiProperties.ofDataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY"));
         return new BusStopClientImpl(WebClient.builder().build(), props, new NoOpCallRecorder());
     }
 

@@ -29,8 +29,7 @@ class BusArrivalClientE2ETest {
     private static final double CHUNCHEON_STATION_LNG = 127.7169;
 
     private static ExternalApiProperties props() {
-        return new ExternalApiProperties(
-                new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
+        return ExternalApiProperties.ofDataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY"));
     }
 
     @Test
