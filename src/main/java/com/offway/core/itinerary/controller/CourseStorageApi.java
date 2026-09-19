@@ -286,9 +286,23 @@ public interface CourseStorageApi {
 
                     **차감 단위(종일·반차·반반차)는 묻지 않는다.** 모달에 넣을 질문이 아니어서가 아니라
                     **물을 필요가 없어서**다 — 코스를 만들 때 이미 답한 값을 서버가 그대로 쓴다. 예전에는 이
-                    자리가 종일로 고정돼, 반차로 짠 코스도 하루치가 깎였다(사용자가 0.5 를 더 잃었다).""")
+                    자리가 종일로 고정돼, 반차로 짠 코스도 하루치가 깎였다(사용자가 0.5 를 더 잃었다).
+
+                    **여행지 평가를 함께 받는다**(#592). `rating`(1~5)과 `comment` 는 <b>둘 다 선택</b>이라
+                    건너뛰기를 누르면 보내지 않는다 — 모달의 본업은 연차 차감이고, 평가가 그것을 막으면
+                    확인만 하려던 사용자가 갇힌다.
+
+                    쓰임은 **지자체 전달용 피드백**이다. 우리가 다루는 곳이 인구감소지역 89곳이라, 다녀온
+                    사람들이 무엇을 좋아하고 무엇이 아쉬웠나가 사업 확장 근거가 된다.
+
+                    **`NOT_VISITED` 와 함께 보낼 수 없다** — 안 간 여행지는 평가가 성립하지 않는다.
+                    조용히 버리지 않고 400 으로 알린다(ITINERARY-012).""")
     @ApiResponse(responseCode = "200", description = "기록 성공 (VISITED 면 차감 반영된 연차)")
-    @ApiResponse(responseCode = "400", description = "outcome 누락·잘못된 값, 또는 여행 날짜 없이 저장된 코스")
+    @ApiResponse(
+            responseCode = "400",
+            description = "outcome 누락·잘못된 값 · 여행 날짜 없이 저장된 코스"
+                    + " · 별점이 1~5 밖이거나 한 줄이 200자 초과(ITINERARY-011)"
+                    + " · 안 갔다면서 평가를 함께 보냄(ITINERARY-012)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")
     @ApiResponse(responseCode = "404", description = "코스가 없거나 소유자가 아님")
