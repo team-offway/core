@@ -133,8 +133,8 @@ public class CourseStorageController implements CourseStorageApi {
             @LoginUser UUID userId,
             @PathVariable long courseId,
             @Valid @RequestBody TripOutcomeRequest request) {
-        return ApiResponseBody.ok(
-                MyLeaveResponse.from(tripOutcomeService.answer(userId, courseId, request.outcome())));
+        return ApiResponseBody.ok(MyLeaveResponse.from(
+                tripOutcomeService.answer(userId, courseId, request.outcome(), request.toFeedback())));
     }
 
     /**

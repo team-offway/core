@@ -43,7 +43,25 @@ public enum ItineraryErrorCode implements ErrorCode {
     SHARE_COURSE_DELETED("ITINERARY-009", ErrorCategory.GONE, "게시자가 삭제한 코스입니다."),
 
     /** 자차 코스에 대중교통 수단을 고정하려 한 경우(#456) — 역·터미널을 해석할 것이 없어 아무것도 바뀌지 않는다. */
-    TRANSIT_MODE_ON_NON_TRANSIT("ITINERARY-010", ErrorCategory.BAD_REQUEST, "대중교통 코스에서만 이동수단을 바꿀 수 있습니다.");
+    TRANSIT_MODE_ON_NON_TRANSIT("ITINERARY-010", ErrorCategory.BAD_REQUEST, "대중교통 코스에서만 이동수단을 바꿀 수 있습니다."),
+
+    /**
+     * 여행지 평가가 범위를 벗어났다 — 별점이 1~5 밖이거나 한 줄이 상한을 넘었다(#592).
+     *
+     * <p>메시지에 실제 값을 담지 않는다 — detail 은 그대로 사용자에게 나가는 자리이고, 한 줄은
+     * 사용자가 친 원본이다.
+     */
+    INVALID_TRIP_FEEDBACK("ITINERARY-011", ErrorCategory.BAD_REQUEST, "여행지 평가 값이 올바르지 않습니다."),
+
+    /**
+     * 안 갔다고 답하면서 여행지 평가를 함께 보냈다(#592).
+     *
+     * <p><b>조용히 버리지 않는다.</b> 클라이언트는 평가를 남겼다고 여기는데 데이터가 없고, 그 어긋남이
+     * 아무 흔적도 남기지 않는다. 모달은 안 갔다고 누르면 평가 화면을 띄우지 않으므로 정상 흐름으로는
+     * 닿지 않는다 — 닿았다면 클라이언트 쪽이 어긋난 것이라 알려 주는 편이 낫다.
+     */
+    FEEDBACK_ON_UNVISITED_TRIP(
+            "ITINERARY-012", ErrorCategory.BAD_REQUEST, "다녀오지 않은 여행에는 평가를 남길 수 없습니다.");
 
     private final String code;
     private final ErrorCategory category;
