@@ -61,6 +61,32 @@ class TripFeedbackTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {
+        "좋았어요\n교통은 아쉬웠어요",
+        "좋았어요\r\n교통은 아쉬웠어요",
+        "좋았어요\t교통은 아쉬웠어요",
+        "좋았어요    교통은 아쉬웠어요",
+    })
+    void 안쪽_공백은_한_칸으로_접는다(String raw) {
+        // trim() 은 앞뒤만 걷어내므로 줄바꿈이 섞인 값이 그대로 통과했다 — 한 줄 계약과 어긋난다.
+        // **거절하지 않고 접는 것은 판단이다.** 선택 항목이라 거절하면 그 의견을 통째로 잃는다.
+        assertEquals("좋았어요 교통은 아쉬웠어요", TripFeedback.of(null, raw).comment());
+    }
+
+    @Test
+    void 줄바꿈뿐인_한_줄도_없는_것으로_접힌다() {
+        assertSame(TripFeedback.none(), TripFeedback.of(null, "\n\r\n  \t"));
+    }
+
+    @Test
+    void 길이는_접은_뒤에_잰다() {
+        // 안쪽 공백이 접히므로 원문이 상한을 넘어도 접은 뒤 상한 안이면 통과한다.
+        // 요청 DTO 에 @Size 를 두지 않은 이유가 이것이다 — Bean Validation 은 원문을 본다.
+        String raw = "가".repeat(100) + "          " + "가".repeat(99);
+        assertEquals(200, TripFeedback.of(null, raw).comment().length());
+    }
+
+    @ParameterizedTest
     @ValueSource(ints = {1, 2, 3, 4, 5})
     void 별점은_1부터_5까지다(int rating) {
         assertEquals(rating, TripFeedback.of(rating, null).rating());

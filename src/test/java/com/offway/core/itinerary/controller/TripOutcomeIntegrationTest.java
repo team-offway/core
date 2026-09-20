@@ -553,7 +553,39 @@ class TripOutcomeIntegrationTest {
 
         String tooLong = "가".repeat(201);
         answerWith(courseId, "VISITED", "\"comment\": \"" + tooLong + "\"")
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                // @Size 를 걷어내 도메인이 소유한다 — 그래서 코드가 ITINERARY-011 로 고정된다.
+                .andExpect(jsonPath("$.code").value("ITINERARY-011"))
+                .andExpect(jsonPath("$.detail").value("여행지 평가 값이 올바르지 않습니다."));
+    }
+
+    @Test
+    void 앞뒤_공백까지_세어_거절하지_않는다() throws Exception {
+        // 상한이 200 인데 앞뒤 공백 4자를 더해 204자를 보낸다. 예전에는 @Size 가 원문을 보고
+        // 400 을 냈다 — 도메인은 접은 뒤 200자로 판단하므로 같은 값이 경계와 도메인에서 갈렸다.
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(weekdayRun(-3, 2));
+        long before = lastFeedbackId();
+
+        String padded = "  " + "가".repeat(200) + "  ";
+        answerWith(courseId, "VISITED", "\"comment\": \"" + padded + "\"")
+                .andExpect(status().isOk());
+
+        assertEquals(200, onlyFeedbackAfter(before).feedback().comment().length());
+    }
+
+    @Test
+    void 줄바꿈이_섞인_한_줄은_한_칸으로_접혀_저장된다() throws Exception {
+        noHolidays();
+        setTotalLeave(13.0);
+        long courseId = saveCourse(weekdayRun(-3, 2));
+        long before = lastFeedbackId();
+
+        answerWith(courseId, "VISITED", "\"comment\": \"좋았어요\\n교통은 아쉬웠어요\"")
+                .andExpect(status().isOk());
+
+        assertEquals("좋았어요 교통은 아쉬웠어요", onlyFeedbackAfter(before).feedback().comment());
     }
 
     @Test
