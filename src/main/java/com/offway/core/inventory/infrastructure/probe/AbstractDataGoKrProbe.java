@@ -1,6 +1,7 @@
 package com.offway.core.inventory.infrastructure.probe;
 
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import com.offway.core.common.external.ExternalHealthFilter;
 import com.offway.core.common.logging.ExternalSystems;
 import com.offway.core.common.logging.RootCause;
@@ -20,10 +21,13 @@ abstract class AbstractDataGoKrProbe implements ExternalApiProbe {
 
     protected final WebClient webClient;
     protected final ExternalApiProperties props;
+    private final ExternalApiCallRecorder callRecorder;
 
-    protected AbstractDataGoKrProbe(WebClient externalWebClient, ExternalApiProperties props) {
+    protected AbstractDataGoKrProbe(
+            WebClient externalWebClient, ExternalApiProperties props, ExternalApiCallRecorder callRecorder) {
         this.webClient = externalWebClient;
         this.props = props;
+        this.callRecorder = callRecorder;
     }
 
     protected abstract String name();
@@ -44,6 +48,9 @@ abstract class AbstractDataGoKrProbe implements ExternalApiProbe {
         if (!props.dataGoKr().hasKey()) {
             return ProbeResult.skipped(name(), PROVIDER);
         }
+        // 실호출 직전에 센다(#594). 런타임 클라이언트와 같은 규칙이다 — 응답이 실패해도 한도는 이미
+        // 깎였다(#123). 키가 없어 위에서 돌아간 경우는 호출이 아예 안 나갔으므로 세지 않는다.
+        quota().ifPresent(callRecorder::record);
         try {
             String body = webClient.get()
                     .uri(uri(props.dataGoKr().serviceKey()))

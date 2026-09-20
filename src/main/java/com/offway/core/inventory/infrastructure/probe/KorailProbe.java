@@ -1,7 +1,10 @@
 package com.offway.core.inventory.infrastructure.probe;
 
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import java.net.URI;
+import java.util.Optional;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -13,8 +16,21 @@ class KorailProbe extends AbstractDataGoKrProbe {
     private static final String BASE =
             "https://apis.data.go.kr/B551457/run/v2/travelerTrainRunInfo2";
 
-    KorailProbe(WebClient externalWebClient, ExternalApiProperties props) {
-        super(externalWebClient, props);
+    KorailProbe(WebClient externalWebClient, ExternalApiProperties props, ExternalApiCallRecorder callRecorder) {
+        super(externalWebClient, props, callRecorder);
+    }
+
+    /**
+     * <b>셀 자리가 없다.</b> 우리는 코레일 운행정보를 앱에서 안 부른다 — 이 프로브만 친다. 그래서
+     * {@link ExternalApi} 에 항목이 없고, 없는 항목을 억지로 만들면 "우리가 쓰는 API" 목록이 사실과
+     * 어긋난다.
+     *
+     * <p>이 호출도 한도를 쓰긴 한다(하루 48회). 다만 그 한도는 우리가 다른 데 쓸 일이 없는 것이라,
+     * 집계에 안 잡혀도 <b>다른 호출을 굶기지 않는다</b> — 세어야 하는 이유가 없다.
+     */
+    @Override
+    public Optional<ExternalApi> quota() {
+        return Optional.empty();
     }
 
     @Override

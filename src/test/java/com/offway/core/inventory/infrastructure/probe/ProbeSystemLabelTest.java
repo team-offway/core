@@ -27,12 +27,12 @@ class ProbeSystemLabelTest {
     private static List<ExternalApiProbe> probes() {
         // 생성자는 필드 대입만 한다. system() 은 외부를 부르지 않으므로 협력자가 없어도 된다.
         return Stream.<ExternalApiProbe>of(
-                        new TourApiProbe(null, null),
-                        new TourDataLabProbe(null, null),
-                        new HolidayProbe(null, null),
-                        new TagoProbe(null, null),
-                        new KorailProbe(null, null),
-                        new TmapProbe(null, null))
+                        new TourApiProbe(null, null, null),
+                        new TourDataLabProbe(null, null, null),
+                        new HolidayProbe(null, null, null),
+                        new TagoProbe(null, null, null),
+                        new KorailProbe(null, null, null),
+                        new TmapProbe(null, null, null))
                 .toList();
     }
 

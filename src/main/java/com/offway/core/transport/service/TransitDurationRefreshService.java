@@ -3,6 +3,8 @@ package com.offway.core.transport.service;
 import com.offway.core.common.batch.domain.ManualBatch;
 import com.offway.core.common.batch.service.RunningBatches;
 import com.offway.core.common.batch.repository.BatchRunRepository;
+import com.offway.core.common.external.Caller;
+import com.offway.core.common.external.CallerContext;
 import com.offway.core.transport.domain.MeasuredLeg;
 import com.offway.core.transport.domain.TransitLegDuration;
 import com.offway.core.transport.domain.TransitLegResult;
@@ -33,7 +35,11 @@ import org.springframework.stereotype.Service;
  *
  * <p>상한은 <b>구간 수가 아니라 호출 수</b>({@value #MAX_CALLS_PER_RUN})로 센다. 조회창이 수단마다 달라
  * (버스 3일 · 여객선 8일) 구간 수로 세면 여객선이 몰린 회차에 한도가 두 배 넘게 나간다. 시간당 한 번이면
- * 하루 최대 1,440 건 — TAGO 한도 10,000 의 15% 다. 예산을 다 쓰면 남은 구간은 다음 회차가 이어받는다.
+ * 하루 최대 <b>3,600 건 — TAGO 한도 10,000 의 36%</b> 다. 예산을 다 쓰면 남은 구간은 다음 회차가 이어받는다.
+ *
+ * <p>이 숫자는 <b>한 번 낡았다.</b> #450 에서 회차당 구간을 20 에서 50 으로 올렸는데 여기 적힌 값은
+ * 그대로였다(1,440 건 · 15%). 실제로는 그때 이미 2.5 배였고, 한도의 3분의 1 을 태우는 배치가 문서상
+ * 15% 로 보였다. 상한을 만지면 이 줄을 같이 고친다.
  *
  * <h2>왜 하루만 보지 않는가</h2>
  *
@@ -50,6 +56,15 @@ public class TransitDurationRefreshService implements ManualBatch {
 
     /** 관리자 화면이 마지막 실행 시각을 붙이는 키(#537). batch_run.name 과 같은 값이어야 한다. */
     static final String BATCH_NAME = "transit-duration-refresh";
+
+    /**
+     * 이 배치가 태운 외부 호출에 붙는 이름(#285). 알림에 그대로 실리므로 사람이 읽는 말로 둔다.
+     *
+     * <p><b>없어서 한도의 36% 가 안 보였다</b>(#594). 맥락을 안 심으면 {@code Caller.UNKNOWN}("미상")
+     * 으로 적히는데, 이 배치가 그 상태로 매시 150 콜을 태웠다 — 디스코드 한도 알림 둘째 줄이 계속
+     * {@code 미상 3000} 이었고, 그게 배치인지 코스 생성인지 알림만 보고는 답할 수 없었다.
+     */
+    private static final Caller CALLER = Caller.of("구간소요시간배치");
 
     /**
      * 회당 가져올 구간 수 — 호출 예산을 다 못 쓰고 남으면 다음 회차가 이어받는다.
@@ -230,6 +245,8 @@ public class TransitDurationRefreshService implements ManualBatch {
     @Override
     public boolean runNow() {
         // 스케줄러도 이 메서드를 지난다 — 두 경로가 같은 표식을 잡아야 겹치지 않는다(#540).
-        return runningBatches.runExclusively(BATCH_NAME, this::measurePending);
+        // **맥락도 여기서 심는다**(#594). 스케줄러와 수동 실행이 같은 이 자리를 지나므로, 여기 한 번이면
+        // 양쪽 다 이름이 붙는다 — measurePending 에 심으면 나중에 다른 진입점이 생겼을 때 또 빠진다.
+        return runningBatches.runExclusively(BATCH_NAME, () -> CallerContext.run(CALLER, this::measurePending));
     }
 }
