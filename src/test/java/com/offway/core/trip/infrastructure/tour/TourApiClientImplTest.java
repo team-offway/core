@@ -2,6 +2,7 @@ package com.offway.core.trip.infrastructure.tour;
 
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
+import com.offway.core.common.external.FallbackKeyAlert;
 import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -29,6 +30,9 @@ import reactor.core.publisher.Mono;
  */
 class TourApiClientImplTest {
 
+    /** 알림은 이 테스트의 관심사가 아니다 — 폴백 동작은 TourApiFallbackKeyTest 가 따로 본다. */
+    private static final FallbackKeyAlert SILENT = new FallbackKeyAlert(message -> {});
+
     private static final ExternalApiProperties WITH_KEY =
             ExternalApiProperties.ofDataGoKr("test-key");
     private static final ExternalApiProperties NO_KEY =
@@ -50,7 +54,7 @@ class TourApiClientImplTest {
     }
 
     private static TourApiClient client(String body) {
-        return new TourApiClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder());
+        return new TourApiClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder(), SILENT);
     }
 
     /** 호출마다 다음 응답을 돌려주고 호출 횟수를 센다 — 재시도가 실제로 다시 걸리는지 보려면 필요하다. */
@@ -138,7 +142,7 @@ class TourApiClientImplTest {
                     throw new AssertionError("키가 없는데 외부 호출이 일어났다");
                 })
                 .build();
-        TourApiClient client = new TourApiClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder());
+        TourApiClient client = new TourApiClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder(), SILENT);
 
         assertTrue(client.findByArea(1, null, null, 10).items().isEmpty());
     }
@@ -151,7 +155,7 @@ class TourApiClientImplTest {
                     throw new AssertionError("키가 없는데 외부 호출이 일어났다");
                 })
                 .build();
-        TourApiClient client = new TourApiClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder());
+        TourApiClient client = new TourApiClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder(), SILENT);
 
         TourApiException detailEx = assertThrows(TourApiException.class, () -> client.findDetail("126508"));
         assertEquals(HttpStatus.BAD_GATEWAY, detailEx.httpStatus());
@@ -202,7 +206,7 @@ class TourApiClientImplTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body("{\"error\":\"down\"}")
                 .build();
-        TourApiClient client = new TourApiClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder());
+        TourApiClient client = new TourApiClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder(), SILENT);
 
         TourApiException ex = assertThrows(TourApiException.class, () -> client.findByArea(1, null, null, 10));
         assertEquals(HttpStatus.BAD_GATEWAY, ex.httpStatus());
@@ -309,7 +313,7 @@ class TourApiClientImplTest {
                 {"response":{"header":{"resultCode":"0000"},
                 "body":{"items":{"item":[{"contentid":"1","contenttypeid":"12","title":"갑사"}]},"totalCount":1}}}""";
         Sequence sequence = new Sequence(tooManyRequests(), json(ok));
-        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, new NoOpCallRecorder());
+        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, new NoOpCallRecorder(), SILENT);
 
         assertEquals(1, client.findByArea(34, 1, null, 10).items().size());
         assertEquals(2, sequence.calls(), "429 를 받으면 한 번 더 걸어야 한다");
@@ -319,7 +323,7 @@ class TourApiClientImplTest {
     void 재시도를_다_써도_429면_조회불가로_올린다() {
         // 무한정 매달리지 않는다 — 상한을 넘으면 degrade 하고 그 사실을 로그로 남긴다.
         Sequence sequence = new Sequence(tooManyRequests());
-        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, new NoOpCallRecorder());
+        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, new NoOpCallRecorder(), SILENT);
 
         assertThrows(TourApiException.class, () -> client.findByArea(34, 1, null, 10));
         // 최초 1회 + 재시도 2회. 정확히 세지 않으면 재시도 횟수가 줄어도 이 테스트가 통과해
@@ -336,7 +340,7 @@ class TourApiClientImplTest {
                 "body":{"items":{"item":[{"contentid":"1","contenttypeid":"12","title":"갑사"}]},"totalCount":1}}}""";
         Sequence sequence = new Sequence(tooManyRequests(), tooManyRequests(), json(ok));
         CountingCallRecorder recorder = new CountingCallRecorder();
-        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, recorder);
+        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, recorder, SILENT);
 
         client.findByArea(34, 1, null, 10);
 
@@ -349,7 +353,7 @@ class TourApiClientImplTest {
         // 실패로 끝나도 호출은 이미 나갔다. 여기서 안 세면 한도가 마를수록 카운터가 더 크게 어긋난다.
         Sequence sequence = new Sequence(tooManyRequests());
         CountingCallRecorder recorder = new CountingCallRecorder();
-        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, recorder);
+        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, recorder, SILENT);
 
         assertThrows(TourApiException.class, () -> client.findByArea(34, 1, null, 10));
 
@@ -364,7 +368,7 @@ class TourApiClientImplTest {
                 "body":{"items":{"item":[{"contentid":"1","contenttypeid":"12","title":"갑사"}]},"totalCount":1}}}""";
         Sequence sequence = new Sequence(json(ok));
         CountingCallRecorder recorder = new CountingCallRecorder();
-        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, recorder);
+        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, recorder, SILENT);
 
         client.findByArea(34, 1, null, 10);
 
@@ -376,7 +380,7 @@ class TourApiClientImplTest {
     void 서버오류는_다시_걸지_않는다() {
         // 5xx·timeout 은 이미 느린 상황이라 다시 걸면 지연만 곱해진다. 429 에만 재시도를 건다.
         Sequence sequence = new Sequence(ClientResponse.create(HttpStatus.INTERNAL_SERVER_ERROR).build());
-        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, new NoOpCallRecorder());
+        TourApiClient client = new TourApiClientImpl(sequence.webClient(), WITH_KEY, new NoOpCallRecorder(), SILENT);
 
         assertThrows(TourApiException.class, () -> client.findByArea(34, 1, null, 10));
         assertEquals(1, sequence.calls(), "5xx 는 재시도 대상이 아니다");

@@ -48,15 +48,15 @@ class ProbeQuotaRecordingTest {
 
     private static ExternalApiProperties withKey() {
         return ExternalApiProperties.builder()
-                .dataGoKr(new ExternalApiProperties.DataGoKr(KEY))
-                .tmap(new ExternalApiProperties.Tmap(KEY))
+                .dataGoKr(ExternalApiProperties.DataGoKr.of(KEY))
+                .tmap(ExternalApiProperties.Tmap.of(KEY))
                 .build();
     }
 
     private static ExternalApiProperties withoutKey() {
         return ExternalApiProperties.builder()
-                .dataGoKr(new ExternalApiProperties.DataGoKr(null))
-                .tmap(new ExternalApiProperties.Tmap(null))
+                .dataGoKr(ExternalApiProperties.DataGoKr.of(null))
+                .tmap(ExternalApiProperties.Tmap.of(null))
                 .build();
     }
 
