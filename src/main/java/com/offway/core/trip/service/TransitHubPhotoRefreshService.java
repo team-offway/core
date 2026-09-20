@@ -3,6 +3,8 @@ package com.offway.core.trip.service;
 import com.offway.core.common.batch.domain.ManualBatch;
 import com.offway.core.common.batch.service.RunningBatches;
 import com.offway.core.common.batch.repository.BatchRunRepository;
+import com.offway.core.common.external.Caller;
+import com.offway.core.common.external.CallerContext;
 import com.offway.core.region.domain.Region;
 import com.offway.core.region.service.RegionQuery;
 import com.offway.core.transport.domain.BusTerminalKind;
@@ -56,6 +58,15 @@ public class TransitHubPhotoRefreshService implements ManualBatch {
 
     /** 관리자 화면이 마지막 실행 시각을 붙이는 키(#537). batch_run.name 과 같은 값이어야 한다. */
     static final String BATCH_NAME = "transit-hub-photo-refresh";
+
+    /**
+     * 이 배치가 태운 외부 호출에 붙는 이름(#285 · #594).
+     *
+     * <p><b>갤러리사진배치와 다른 이름을 준다.</b> 둘 다 관광사진갤러리를 치지만 대상이 다르다 —
+     * 저쪽은 장소 사진이고 이쪽은 역·터미널·항구다. 한 이름으로 합치면 한도가 찼을 때 어느 쪽을
+     * 줄여야 할지 알림만 보고는 못 고른다.
+     */
+    private static final Caller CALLER = Caller.of("교통거점사진배치");
 
     /** 매주 화요일 04:40 — 정각·다른 배치와 겹치지 않게 어긋냈다. */
     private static final String WEEKLY_AT_DAWN = "0 40 4 * * TUE";
@@ -302,6 +313,7 @@ public class TransitHubPhotoRefreshService implements ManualBatch {
     @Override
     public boolean runNow() {
         // 스케줄러도 이 메서드를 지난다 — 두 경로가 같은 표식을 잡아야 겹치지 않는다(#540).
-        return runningBatches.runExclusively(BATCH_NAME, this::refresh);
+        // 맥락도 여기서 심는다(#594) — 두 진입점이 만나는 자리라 한 번이면 양쪽에 붙는다.
+        return runningBatches.runExclusively(BATCH_NAME, () -> CallerContext.run(CALLER, this::refresh));
     }
 }
