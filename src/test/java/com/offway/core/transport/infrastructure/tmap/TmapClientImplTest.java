@@ -1,5 +1,6 @@
 package com.offway.core.transport.infrastructure.tmap;
 
+import com.offway.core.common.external.ExternalKeyState;
 import com.offway.core.common.external.FallbackKeyAlert;
 import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,7 +44,7 @@ class TmapClientImplTest {
     }
 
     private static TmapClient client(String body) {
-        return new TmapClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder(), SILENT);
+        return new TmapClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder(), SILENT, new ExternalKeyState());
     }
 
     @Test
@@ -70,7 +71,7 @@ class TmapClientImplTest {
 
         assertInstanceOf(
                 CarRouteResult.Unavailable.class,
-                new TmapClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder(), SILENT).carRoute(SEOUL, BUSAN));
+                new TmapClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder(), SILENT, new ExternalKeyState()).carRoute(SEOUL, BUSAN));
     }
 
     @Test
@@ -89,7 +90,7 @@ class TmapClientImplTest {
 
         assertInstanceOf(
                 CarRouteResult.Unavailable.class,
-                new TmapClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder(), SILENT).carRoute(SEOUL, BUSAN));
+                new TmapClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder(), SILENT, new ExternalKeyState()).carRoute(SEOUL, BUSAN));
     }
 
     // ── 좌표 탓인 거절을 가려낸다 (#335) ────────────────────────────────────
@@ -99,7 +100,7 @@ class TmapClientImplTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body(body)
                 .build();
-        return new TmapClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder(), SILENT).carRoute(SEOUL, BUSAN);
+        return new TmapClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder(), SILENT, new ExternalKeyState()).carRoute(SEOUL, BUSAN);
     }
 
     /**

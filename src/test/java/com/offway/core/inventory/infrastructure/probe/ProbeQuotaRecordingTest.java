@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
+import com.offway.core.common.external.ExternalKeyState;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -37,7 +38,7 @@ class ProbeQuotaRecordingTest {
         private final List<ExternalApi> recorded = new ArrayList<>();
 
         private CountingRecorder() {
-            super(null, null);
+            super(null, null, new ExternalKeyState());
         }
 
         @Override

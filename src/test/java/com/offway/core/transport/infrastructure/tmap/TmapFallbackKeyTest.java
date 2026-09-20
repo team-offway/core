@@ -1,12 +1,14 @@
 package com.offway.core.transport.infrastructure.tmap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
+import com.offway.core.common.external.ExternalKeyState;
 import com.offway.core.common.external.FallbackKeyAlert;
 import com.offway.core.common.geo.Coordinate;
 import com.offway.core.transport.infrastructure.tmap.dto.CarRouteResult;
@@ -72,7 +74,7 @@ class TmapFallbackKeyTest {
         private final List<ExternalApi> recorded = new ArrayList<>();
 
         private CountingRecorder() {
-            super(null, null);
+            super(null, null, new ExternalKeyState());
         }
 
         @Override
@@ -108,8 +110,13 @@ class TmapFallbackKeyTest {
 
     private static TmapClient client(Calls calls, ExternalApiProperties props,
             ExternalApiCallRecorder recorder, List<String> alerts) {
+        return client(calls, props, recorder, alerts, new ExternalKeyState());
+    }
+
+    private static TmapClient client(Calls calls, ExternalApiProperties props,
+            ExternalApiCallRecorder recorder, List<String> alerts, ExternalKeyState state) {
         return new TmapClientImpl(calls.webClient(), props, recorder,
-                new FallbackKeyAlert(alerts::add));
+                new FallbackKeyAlert(alerts::add), state);
     }
 
     private static List<Coordinate> fourPoints() {
@@ -125,7 +132,7 @@ class TmapFallbackKeyTest {
                 .optimizeCarOrder(fourPoints());
 
         assertEquals(List.of(PRIMARY, FALLBACK), calls.keys, "두 번째 호출이 보조 키로 나가야 한다");
-        assertTrue(alerts.stream().anyMatch(a -> a.contains("보조 키로 넘어갔습니다")),
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키 → 보조 키")),
                 "보조 키로 넘어간 사실을 알려야 한다: " + alerts);
     }
 
@@ -169,7 +176,7 @@ class TmapFallbackKeyTest {
 
         assertTrue(order.isEmpty(), "둘 다 실패하면 상위가 직선거리로 떨어진다");
         assertEquals(List.of(PRIMARY, FALLBACK), calls.keys);
-        assertTrue(alerts.stream().anyMatch(a -> a.contains("모두 실패")), alerts.toString());
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키·보조 키 모두 실패")), alerts.toString());
     }
 
     /**
@@ -213,5 +220,57 @@ class TmapFallbackKeyTest {
 
         assertEquals(List.of(PRIMARY), calls.keys);
         assertTrue(alerts.isEmpty());
+    }
+
+    /**
+     * <b>상태가 "보조 키" 면 그쪽을 먼저 쓴다.</b>
+     *
+     * <p>TMAP 자신은 이 표시를 달지 않는다 — 429 가 일일 한도인지 초당 유량 제한인지 못 가르기
+     * 때문이다(클래스 주석 참고). 표시가 붙는 경로는 data.go.kr 쪽이고, 여기서는 <b>붙었을 때
+     * 키 선택이 그것을 따르는지</b>만 본다.
+     */
+    @Test
+    void 상태가_보조_키면_그쪽을_먼저_쓴다() {
+        ExternalKeyState state = new ExternalKeyState();
+        state.markPrimaryExhausted(ExternalApi.TMAP_WAYPOINT);
+
+        Calls calls = new Calls(json("{\"properties\":{\"totalTime\":1}}"));
+        client(calls, keys(PRIMARY, FALLBACK), new CountingRecorder(), new ArrayList<>(), state)
+                .optimizeCarOrder(fourPoints());
+
+        assertEquals(List.of(FALLBACK), calls.keys);
+    }
+
+    /** 보조 키로 도는 날에는 <b>첫 호출도 보조 키</b>라 주 키 집계가 더 오르지 않아야 한다. */
+    @Test
+    void 보조_키로_도는_날에는_주_키_집계가_오르지_않는다() {
+        ExternalKeyState state = new ExternalKeyState();
+        state.markPrimaryExhausted(ExternalApi.TMAP_WAYPOINT);
+        CountingRecorder recorder = new CountingRecorder();
+
+        client(new Calls(json("{\"properties\":{\"totalTime\":1}}")),
+                keys(PRIMARY, FALLBACK), recorder, new ArrayList<>(), state)
+                .optimizeCarOrder(fourPoints());
+
+        assertTrue(recorder.recorded.isEmpty(), "보조 키 호출은 주 키 한도에 세지 않는다");
+    }
+
+    /**
+     * <b>TMAP 은 429 를 한도로 단정하지 않는다.</b>
+     *
+     * <p>429 가 일일 한도인지 초당 유량 제한인지 구분할 수 없다 — TourAPI 쪽은 같은 429 를 "잠시 뒤
+     * 재시도" 로 다룬다. 한도로 읽고 기억을 달면 일시적인 제한 한 번이 그날 내내 보조 키를 쓰게 만들고,
+     * 정작 진짜 마르는 순간에 보조 키가 닳아 있다.
+     */
+    @Test
+    void 사백이십구를_받아도_하루치_기억을_남기지_않는다() {
+        ExternalKeyState state = new ExternalKeyState();
+
+        client(new Calls(failure(), json("{\"properties\":{\"totalTime\":1}}")),
+                keys(PRIMARY, FALLBACK), new CountingRecorder(), new ArrayList<>(), state)
+                .optimizeCarOrder(fourPoints());
+
+        assertFalse(state.usingFallback(ExternalApi.TMAP_WAYPOINT),
+                "429 로 하루를 고정하면 일시적 제한 한 번에 보조 키를 다 태운다");
     }
 }

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
+import com.offway.core.common.external.ExternalKeyState;
 import com.offway.core.common.external.FallbackKeyAlert;
 import java.util.ArrayList;
 import java.util.List;
@@ -77,7 +78,7 @@ class TourApiFallbackKeyTest {
         private final List<ExternalApi> recorded = new ArrayList<>();
 
         private CountingRecorder() {
-            super(null, null);
+            super(null, null, new ExternalKeyState());
         }
 
         @Override
@@ -101,7 +102,7 @@ class TourApiFallbackKeyTest {
 
     private static TourApiClient client(Calls calls, ExternalApiProperties props,
             ExternalApiCallRecorder recorder, List<String> alerts) {
-        return new TourApiClientImpl(calls.webClient(), props, recorder, new FallbackKeyAlert(alerts::add));
+        return new TourApiClientImpl(calls.webClient(), props, recorder, new FallbackKeyAlert(alerts::add), new ExternalKeyState());
     }
 
     @Test
@@ -113,7 +114,7 @@ class TourApiFallbackKeyTest {
                 .findByArea(34, 1, null, 10);
 
         assertEquals(List.of(PRIMARY, FALLBACK), calls.keys, "두 번째 호출이 보조 키로 나가야 한다");
-        assertTrue(alerts.stream().anyMatch(a -> a.contains("보조 키로 넘어갔습니다")), alerts.toString());
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키 → 보조 키")), alerts.toString());
     }
 
     @Test
@@ -154,7 +155,7 @@ class TourApiFallbackKeyTest {
         }
 
         assertEquals(List.of(PRIMARY, FALLBACK), calls.keys);
-        assertTrue(alerts.stream().anyMatch(a -> a.contains("모두 실패")), alerts.toString());
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키·보조 키 모두 실패")), alerts.toString());
     }
 
     @Test
