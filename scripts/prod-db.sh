@@ -23,7 +23,9 @@
 # 아니라 그쪽 문제다(pem 이 틀리면 `Permission denied`, 서버가 죽었으면 `Connection refused`).
 set -euo pipefail
 
-HOST=${OFFWAY_DB_HOST:-18.181.168.227}
+# IP 가 아니라 도메인을 기본값으로 둔다 — 박아 둔 IP 가 낡아 스크립트가 안 붙은 적이 있다
+# (prod-logs.sh 의 같은 자리 참고). 도메인은 EIP 가 바뀌어도 그대로다.
+HOST=${OFFWAY_DB_HOST:-api.offway.cloud}
 LOGIN=${OFFWAY_DB_USER:-ubuntu}
 KEY=${OFFWAY_DB_KEY:-$HOME/Downloads/offway-tokyo.pem}
 CONTAINER=${OFFWAY_DB_CONTAINER:-offway-mysql}
