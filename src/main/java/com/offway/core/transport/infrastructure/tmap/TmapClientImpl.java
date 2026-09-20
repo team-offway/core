@@ -22,6 +22,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
+import com.offway.core.common.external.ExternalKeyState;
 import com.offway.core.common.external.FallbackKeyAlert;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -50,14 +51,36 @@ class TmapClientImpl implements TmapClient {
     private final ExternalApiProperties props;
     private final ExternalApiCallRecorder callRecorder;
     private final FallbackKeyAlert fallbackKeyAlert;
+    private final ExternalKeyState keyState;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     TmapClientImpl(WebClient externalWebClient, ExternalApiProperties props,
-            ExternalApiCallRecorder callRecorder, FallbackKeyAlert fallbackKeyAlert) {
+            ExternalApiCallRecorder callRecorder, FallbackKeyAlert fallbackKeyAlert,
+            ExternalKeyState keyState) {
         this.webClient = externalWebClient;
         this.props = props;
         this.callRecorder = callRecorder;
         this.fallbackKeyAlert = fallbackKeyAlert;
+        this.keyState = keyState;
+    }
+
+    /**
+     * 오늘 먼저 쓸 키 — 주 키가 마른 것이 <b>확인된</b> 날이면 보조 키부터 간다(#596).
+     *
+     * <p>이 선택이 없으면 마른 뒤에도 요청마다 죽은 키를 한 번씩 두드린다. 호출도 지연도 두 배가 되고,
+     * 주 키 집계는 100% 를 넘어 계속 오른다 — 이미 아는 사실을 매번 다시 확인하는 셈이다.
+     */
+    private String firstKey(ExternalApi api) {
+        return keyState.usingFallback(api) && props.tmap().hasFallback()
+                ? props.tmap().fallbackKey()
+                : props.tmap().appKey();
+    }
+
+    /** 먼저 쓴 키가 실패했을 때 넘어갈 쪽 — 주/보조를 서로 맞바꾼다. */
+    private String otherKey(ExternalApi api) {
+        return keyState.usingFallback(api) && props.tmap().hasFallback()
+                ? props.tmap().appKey()
+                : props.tmap().fallbackKey();
     }
 
     /**
@@ -65,6 +88,18 @@ class TmapClientImpl implements TmapClient {
      *
      * @param appKey 주 키이거나 보조 키
      */
+    /**
+     * 주 키로 나가는 호출만 센다(#596).
+     *
+     * <p>보조 키로 도는 날에는 <b>첫 호출도 보조 키다.</b> 그것까지 세면 주 키 사용량이 실제보다
+     * 커지고, 정작 그 숫자는 그날 더 움직이지 않아야 맞다.
+     */
+    private void recordIfPrimary(ExternalApi api) {
+        if (!keyState.usingFallback(api)) {
+            callRecorder.record(api);
+        }
+    }
+
     private String post(String url, String body, String appKey) {
         return webClient.post()
                 .uri(url)
@@ -83,9 +118,19 @@ class TmapClientImpl implements TmapClient {
      *
      * <h2>사유를 가리지 않는다</h2>
      *
-     * <p>한도 소진인지 일시 오류인지 판정하려면 게이트웨이 응답 모양을 믿어야 하는데, 그 판정이 틀리면
-     * <b>멀쩡한 키를 버리거나 마른 키를 붙든다.</b> 실패했다는 사실만 보고 한 번 더 간다 — 정상일 때는
-     * 이 경로를 안 타므로 호출이 늘지 않는다.
+     * <p>한도인지 일시 오류인지 판정해서 결정하면, 그 판정이 틀렸을 때 <b>멀쩡한 키를 버리거나 마른 키를
+     * 붙든다.</b> 실패했다는 사실만 보고 한 번 더 간다 — 정상일 때는 이 경로를 안 타므로 호출이 늘지 않는다.
+     *
+     * <h2>TMAP 은 "오늘은 보조 키" 를 기억하지 않는다</h2>
+     *
+     * <p><b>한도 소진을 단정할 신호가 없다.</b> 429 가 오지만 그건 일일 한도일 수도, 초당 유량 제한일
+     * 수도 있다 — TourAPI 쪽은 같은 429 를 "잠시 뒤 재시도" 로 다룬다. 그걸 한도로 읽고 기억을 달면
+     * <b>일시적인 제한 한 번이 그날 내내 보조 키를 쓰게 만들고</b>, 정작 진짜로 마르는 순간에 보조 키
+     * 한도가 이미 닳아 있다.
+     *
+     * <p>그래서 TMAP 은 매번 주 키부터 간다. 마른 날에는 요청마다 실패한 호출이 하나 더 나가지만,
+     * 그 대가가 잘못 붙든 기억보다 싸다. 신호를 확인하면 그때 {@code keyState} 에 기억을 붙인다
+     * (data.go.kr 은 {@code reasonCode=22} 로 단정할 수 있어 이미 그렇게 한다).
      *
      * <h2>보조 키 호출은 한도 집계에 넣지 않는다</h2>
      *
@@ -96,12 +141,13 @@ class TmapClientImpl implements TmapClient {
      */
     private Optional<String> retryWithFallback(String url, String body, ExternalApi api, Exception primaryFailure) {
         String cause = RootCause.label(primaryFailure);
-        if (!props.tmap().hasFallback()) {
+        String next = otherKey(api);
+        if (next == null || next.isBlank()) {
             fallbackKeyAlert.noFallbackConfigured(api, cause);
             return Optional.empty();
         }
         try {
-            String response = post(url, body, props.tmap().fallbackKey());
+            String response = post(url, body, next);
             fallbackKeyAlert.switchedToFallback(api, cause);
             return Optional.ofNullable(response);
         } catch (Exception e) {
@@ -125,8 +171,8 @@ class TmapClientImpl implements TmapClient {
         }
         try {
             // 경로 탐색과 경유지 최적화는 한도가 다르다(1,000 vs 50). 같은 클라이언트지만 따로 센다.
-            callRecorder.record(ExternalApi.TMAP_ROUTE);
-            return parse(post(ROUTES_URL, body, props.tmap().appKey()))
+            recordIfPrimary(ExternalApi.TMAP_ROUTE);
+            return parse(post(ROUTES_URL, body, firstKey(ExternalApi.TMAP_ROUTE)))
                     .<CarRouteResult>map(CarRouteResult.Found::new)
                     .orElseGet(CarRouteResult.Unavailable::instance);
         } catch (Exception e) {
@@ -231,8 +277,8 @@ class TmapClientImpl implements TmapClient {
         }
         try {
             // 우리가 가진 것 중 가장 빡빡한 한도(50/일). #110 에서 80% 소진 알림을 실제로 받았다.
-            callRecorder.record(ExternalApi.TMAP_WAYPOINT);
-            return parseOrder(post(OPTIMIZE_URL, body, props.tmap().appKey()), points.size());
+            recordIfPrimary(ExternalApi.TMAP_WAYPOINT);
+            return parseOrder(post(OPTIMIZE_URL, body, firstKey(ExternalApi.TMAP_WAYPOINT)), points.size());
         } catch (Exception e) {
             // **여기가 보조 키를 만든 이유다**(#596). 한도 50 이라 자차 코스 17건이면 마르는데, 마르면
             // 위 호출이 실패하고 상위가 직선거리 정렬로 떨어진다 — 그런데 응답은 200 이라 순서가 틀린 줄

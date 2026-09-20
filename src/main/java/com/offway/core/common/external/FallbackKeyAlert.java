@@ -53,7 +53,7 @@ public class FallbackKeyAlert {
      */
     public void switchedToFallback(ExternalApi api, String cause) {
         send(api, "보조키전환",
-                "🔁 %s — 주 키가 실패해 **보조 키로 넘어갔습니다**. 화면은 정상입니다.\n사유 `%s`"
+                "🔁 %s — **주 키 → 보조 키**로 넘어갔습니다. 화면은 정상입니다.\n사유 `%s`"
                         .formatted(api.label(), cause));
     }
 
@@ -65,7 +65,7 @@ public class FallbackKeyAlert {
      */
     public void bothFailed(ExternalApi api, String cause) {
         send(api, "둘다실패",
-                "🔴 %s — 주 키와 보조 키가 **모두 실패**했습니다. 이 기능은 지금 폴백으로 돕니다.\n사유 `%s`"
+                "🔴 %s — **주 키·보조 키 모두 실패**했습니다. 이 기능은 지금 폴백으로 돕니다.\n사유 `%s`"
                         .formatted(api.label(), cause));
     }
 

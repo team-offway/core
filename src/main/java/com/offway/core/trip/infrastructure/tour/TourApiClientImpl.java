@@ -27,6 +27,7 @@ import org.springframework.stereotype.Component;
 import com.offway.core.common.external.DataGoKrError;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
+import com.offway.core.common.external.ExternalKeyState;
 import com.offway.core.common.external.FallbackKeyAlert;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -133,14 +134,17 @@ class TourApiClientImpl implements TourApiClient {
     private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
     private final FallbackKeyAlert fallbackKeyAlert;
+    private final ExternalKeyState keyState;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     TourApiClientImpl(WebClient externalWebClient, ExternalApiProperties props,
-            ExternalApiCallRecorder callRecorder, FallbackKeyAlert fallbackKeyAlert) {
+            ExternalApiCallRecorder callRecorder, FallbackKeyAlert fallbackKeyAlert,
+            ExternalKeyState keyState) {
         this.webClient = externalWebClient;
         this.props = props;
         this.callRecorder = callRecorder;
         this.fallbackKeyAlert = fallbackKeyAlert;
+        this.keyState = keyState;
     }
 
     @Override
@@ -340,23 +344,35 @@ class TourApiClientImpl implements TourApiClient {
      * 그 숫자가 틀린다 — #402 심사 자료가 그 집계를 쓴다.
      */
     private String call(UriComponentsBuilder builder) {
-        String body = fetch(builder.build(true).toUri(), true);
+        boolean onFallback = keyState.usingFallback(ExternalApi.TOUR_API) && props.dataGoKr().hasFallback();
+        String firstKey = onFallback ? props.dataGoKr().fallbackKey() : props.dataGoKr().serviceKey();
+        // 주 키로 나가는 호출만 센다 — 보조 키로 도는 날 첫 호출까지 세면 그 숫자가 실제와 어긋난다.
+        String body = fetch(withKey(builder, firstKey), !onFallback);
         if (!DataGoKrError.isQuotaExceeded(body)) {
             return body;
         }
-        if (!props.dataGoKr().hasFallback()) {
+        // 게이트웨이가 한도라고 말했다 — 오늘은 이쪽을 먼저 안 쓴다.
+        if (!onFallback) {
+            keyState.markPrimaryExhausted(ExternalApi.TOUR_API);
+        }
+        String otherKey = onFallback ? props.dataGoKr().serviceKey() : props.dataGoKr().fallbackKey();
+        if (otherKey == null || otherKey.isBlank()) {
             fallbackKeyAlert.noFallbackConfigured(ExternalApi.TOUR_API, "한도 소진");
             return body; // 그대로 올려보낸다 — 파싱이 실패로 판정하고 502 로 나간다
         }
-        log.warn("TourAPI 주 키 한도가 말라 보조 키로 넘어갑니다");
-        String retried = fetch(builder.replaceQueryParam("serviceKey", props.dataGoKr().fallbackKey())
-                .build(true).toUri(), false);
+        log.warn("TourAPI 한도가 말라 다른 키로 넘어갑니다");
+        String retried = fetch(withKey(builder, otherKey), onFallback);
         if (DataGoKrError.isQuotaExceeded(retried)) {
             fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, "한도 소진");
             return retried;
         }
         fallbackKeyAlert.switchedToFallback(ExternalApi.TOUR_API, "한도 소진");
         return retried;
+    }
+
+    /** serviceKey 만 갈아 끼운다 — 이미 인코딩된 값이라 다시 인코딩하지 않는다(build(true)). */
+    private static URI withKey(UriComponentsBuilder builder, String serviceKey) {
+        return builder.replaceQueryParam("serviceKey", serviceKey).build(true).toUri();
     }
 
     /**
