@@ -1,7 +1,10 @@
 package com.offway.core.inventory.infrastructure.probe;
 
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import java.net.URI;
+import java.util.Optional;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -13,8 +16,14 @@ class HolidayProbe extends AbstractDataGoKrProbe {
     private static final String BASE =
             "https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo";
 
-    HolidayProbe(WebClient externalWebClient, ExternalApiProperties props) {
-        super(externalWebClient, props);
+    HolidayProbe(WebClient externalWebClient, ExternalApiProperties props, ExternalApiCallRecorder callRecorder) {
+        super(externalWebClient, props, callRecorder);
+    }
+
+    /** 특일정보 조회와 같은 서비스다 — 연차 계산이 쓰는 그 한도를 깎는다. */
+    @Override
+    public Optional<ExternalApi> quota() {
+        return Optional.of(ExternalApi.HOLIDAY);
     }
 
     @Override

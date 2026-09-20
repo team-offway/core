@@ -1,5 +1,7 @@
 package com.offway.core.inventory.service;
 
+import com.offway.core.common.external.Caller;
+import com.offway.core.common.external.CallerContext;
 import com.offway.core.common.external.ExternalApiHealth;
 import com.offway.core.inventory.infrastructure.probe.ExternalApiProbe;
 import com.offway.core.inventory.infrastructure.probe.ProbeResult;
@@ -38,6 +40,12 @@ import org.springframework.stereotype.Component;
  *
  * <p>이 계산이 주기를 30분으로 정한 근거고, 더 촘촘하게 하려면 두 숫자를 다시 재야 한다.
  *
+ * <p><b>그 계산이 집계에는 없었다</b>(#594). 프로브는 {@code externalWebClient} 를 바로 써서
+ * {@code ExternalApiCallRecorder} 를 안 지났고, 그래서 여기 적힌 48 회가 {@code external_api_call} 에
+ * 한 줄도 안 남았다. 위 문단은 "얼마나 쓰는지 알고 있다" 고 말하는데 실제로는 <b>앱이 모르고 있었다</b> —
+ * 한도가 남았다고 판단해 배치를 발사하는, CLAUDE.md 가 경계한 그 상태다. 이제 프로브가 자기 한도를
+ * 들고({@code ExternalApiProbe.quota()}) 호출 직전에 센다.
+ *
  * <h2>기본은 꺼져 있다</h2>
  *
  * <p>운영에서만 켠다. 로컬·테스트에서 켜지면 통합 테스트가 실제 외부를 때린다 — 프로브는 port 를 거치지
@@ -56,6 +64,15 @@ public class ExternalProbeScheduler {
     /** 실패했을 때 그 자리에서 더 물어보는 횟수. 장애 확정선(연속 3회)에 한 주기 안에 닿게 한다. */
     private static final int CONFIRMATIONS = 2;
 
+    /**
+     * 이 스케줄러가 태운 호출에 붙는 이름(#285 · #594).
+     *
+     * <p><b>어드민 화면이 같은 프로브를 돌릴 때는 이 이름이 안 붙는다.</b> 그쪽은 HTTP 요청이라
+     * {@code CallerAttributionInterceptor} 가 엔드포인트 이름을 심는다 — 그게 맞다. 관리자가 새로고침을
+     * 눌러 태운 콜과 새벽에 스케줄러가 태운 콜은 줄일 방법이 다르다.
+     */
+    private static final Caller CALLER = Caller.of("외부프로브");
+
     private final List<ExternalApiProbe> probes;
     private final ExternalApiHealth health;
 
@@ -66,9 +83,13 @@ public class ExternalProbeScheduler {
 
     @Scheduled(fixedDelay = INTERVAL_MS, initialDelay = INITIAL_DELAY_MS)
     public void probeAll() {
-        for (ExternalApiProbe probe : probes) {
-            confirm(probe);
-        }
+        // 확인 호출까지 한 맥락 안에 둔다 — 장애가 이어질 때 세 배로 뛰는 것이 이 스케줄러 몫임을
+        // 알림에서 바로 읽으려면, 첫 호출과 확인 호출이 같은 이름으로 세어져야 한다.
+        CallerContext.run(CALLER, () -> {
+            for (ExternalApiProbe probe : probes) {
+                confirm(probe);
+            }
+        });
     }
 
     private void confirm(ExternalApiProbe probe) {

@@ -1,7 +1,10 @@
 package com.offway.core.inventory.infrastructure.probe;
 
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import java.net.URI;
+import java.util.Optional;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -13,8 +16,14 @@ class TagoProbe extends AbstractDataGoKrProbe {
     private static final String BASE =
             "https://apis.data.go.kr/1613000/ArvlInfoInqireService/getCtyCodeList";
 
-    TagoProbe(WebClient externalWebClient, ExternalApiProperties props) {
-        super(externalWebClient, props);
+    TagoProbe(WebClient externalWebClient, ExternalApiProperties props, ExternalApiCallRecorder callRecorder) {
+        super(externalWebClient, props, callRecorder);
+    }
+
+    /** 도착정보 서비스의 시군코드 조회를 친다 — TAGO 도착정보 한도다. */
+    @Override
+    public Optional<ExternalApi> quota() {
+        return Optional.of(ExternalApi.BUS_ARRIVAL);
     }
 
     @Override

@@ -1,7 +1,10 @@
 package com.offway.core.inventory.infrastructure.probe;
 
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import java.net.URI;
+import java.util.Optional;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -13,8 +16,14 @@ class TourApiProbe extends AbstractDataGoKrProbe {
     private static final String BASE =
             "https://apis.data.go.kr/B551011/KorService2/areaBasedList2";
 
-    TourApiProbe(WebClient externalWebClient, ExternalApiProperties props) {
-        super(externalWebClient, props);
+    TourApiProbe(WebClient externalWebClient, ExternalApiProperties props, ExternalApiCallRecorder callRecorder) {
+        super(externalWebClient, props, callRecorder);
+    }
+
+    /** 국문관광정보다. 한도가 1,000 이라 프로브 48 콜이 5% 를 차지한다. */
+    @Override
+    public Optional<ExternalApi> quota() {
+        return Optional.of(ExternalApi.TOUR_API);
     }
 
     @Override
