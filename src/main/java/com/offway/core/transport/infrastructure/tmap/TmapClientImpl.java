@@ -22,6 +22,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
+import com.offway.core.common.external.FallbackKeyAlert;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
@@ -48,13 +49,66 @@ class TmapClientImpl implements TmapClient {
     private final WebClient webClient;
     private final ExternalApiProperties props;
     private final ExternalApiCallRecorder callRecorder;
+    private final FallbackKeyAlert fallbackKeyAlert;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     TmapClientImpl(WebClient externalWebClient, ExternalApiProperties props,
-            ExternalApiCallRecorder callRecorder) {
+            ExternalApiCallRecorder callRecorder, FallbackKeyAlert fallbackKeyAlert) {
         this.webClient = externalWebClient;
         this.props = props;
         this.callRecorder = callRecorder;
+        this.fallbackKeyAlert = fallbackKeyAlert;
+    }
+
+    /**
+     * TMAP 에 한 번 던진다 — 키는 <b>헤더</b>로 간다(URL 에 안 실린다).
+     *
+     * @param appKey 주 키이거나 보조 키
+     */
+    private String post(String url, String body, String appKey) {
+        return webClient.post()
+                .uri(url)
+                .header("appKey", appKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(TIMEOUT)
+                .block();
+    }
+
+    /**
+     * 주 키가 실패했을 때 <b>보조 키로 한 번만</b> 더 간다(#596).
+     *
+     * <h2>사유를 가리지 않는다</h2>
+     *
+     * <p>한도 소진인지 일시 오류인지 판정하려면 게이트웨이 응답 모양을 믿어야 하는데, 그 판정이 틀리면
+     * <b>멀쩡한 키를 버리거나 마른 키를 붙든다.</b> 실패했다는 사실만 보고 한 번 더 간다 — 정상일 때는
+     * 이 경로를 안 타므로 호출이 늘지 않는다.
+     *
+     * <h2>보조 키 호출은 한도 집계에 넣지 않는다</h2>
+     *
+     * <p>넣으면 주 키 사용량이 부풀어 보인다. 그 집계는 "우리가 이 API 를 얼마나 쓰나" 를 말하는
+     * 자료이고 #402 심사 자료로도 나가므로, 다른 키로 나간 호출을 거기 섞지 않는다. 대신 알림으로 남긴다.
+     *
+     * @return 보조 키가 받아 준 응답. 보조 키가 없거나 그것도 실패하면 빈 값
+     */
+    private Optional<String> retryWithFallback(String url, String body, ExternalApi api, Exception primaryFailure) {
+        String cause = RootCause.label(primaryFailure);
+        if (!props.tmap().hasFallback()) {
+            fallbackKeyAlert.noFallbackConfigured(api, cause);
+            return Optional.empty();
+        }
+        try {
+            String response = post(url, body, props.tmap().fallbackKey());
+            fallbackKeyAlert.switchedToFallback(api, cause);
+            return Optional.ofNullable(response);
+        } catch (Exception e) {
+            fallbackKeyAlert.bothFailed(api, RootCause.label(e));
+            log.warn("TMAP 보조 키도 실패했습니다 api={} cause={}", api, RootCause.of(e));
+            return Optional.empty();
+        }
     }
 
     @Override
@@ -62,31 +116,45 @@ class TmapClientImpl implements TmapClient {
         if (!props.tmap().hasKey()) {
             return CarRouteResult.Unavailable.instance();
         }
+        String body;
         try {
-            String body = requestBody(origin, destination);
+            body = requestBody(origin, destination);
+        } catch (Exception e) {
+            log.warn("TMAP 경로 요청 본문을 만들지 못했습니다 cause={}", RootCause.of(e));
+            return CarRouteResult.Unavailable.instance();
+        }
+        try {
             // 경로 탐색과 경유지 최적화는 한도가 다르다(1,000 vs 50). 같은 클라이언트지만 따로 센다.
             callRecorder.record(ExternalApi.TMAP_ROUTE);
-            String response = webClient.post()
-                    .uri(ROUTES_URL)
-                    .header("appKey", props.tmap().appKey())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .timeout(TIMEOUT)
-                    .block();
-            return parse(response)
+            return parse(post(ROUTES_URL, body, props.tmap().appKey()))
                     .<CarRouteResult>map(CarRouteResult.Found::new)
                     .orElseGet(CarRouteResult.Unavailable::instance);
         } catch (Exception e) {
             // 실패는 폴백으로 흡수하되 **사유는 남긴다**. TMAP 은 거절 이유를 응답 본문의 code 로 주는데
             // (1100 도로 링크 없음 · 1009 한반도 범위 초과) 예외 클래스명은 둘 다 BadRequest 라 못 가른다.
             // 그 한 줄이 없어 원인을 찾는 데 실호출 210건이 들었다(#334). RootCause 가 키·URL 은 가린다.
-            log.warn("TMAP 경로 조회 실패 — 직선거리로 폴백 cause={}", RootCause.of(e));
+            log.warn("TMAP 경로 조회 실패 cause={}", RootCause.of(e));
             // 그 code 를 로그로만 흘리지 않고 판정에 쓴다(#335). 좌표 탓이면 상위가 기억해 다음 코스에서 뺀다.
-            return rejectionOf(e)
-                    .<CarRouteResult>map(CarRouteResult.Rejected::new)
+            Optional<UnroutableReason> rejected = rejectionOf(e);
+            if (rejected.isPresent()) {
+                // **좌표 탓이면 보조 키로 다시 묻지 않는다**(#596). 도로 링크가 없는 지점은 어느 키로
+                // 물어도 없다 — 재시도해 봐야 보조 키 한도만 태우고 답은 같다.
+                return new CarRouteResult.Rejected(rejected.get());
+            }
+            return retryWithFallback(ROUTES_URL, body, ExternalApi.TMAP_ROUTE, e)
+                    .flatMap(this::parseQuietly)
+                    .<CarRouteResult>map(CarRouteResult.Found::new)
                     .orElseGet(CarRouteResult.Unavailable::instance);
+        }
+    }
+
+    /** 보조 키 응답 파싱 — 여기서 또 던지면 폴백을 넣은 의미가 없다. */
+    private Optional<TmapRoute> parseQuietly(String body) {
+        try {
+            return parse(body);
+        } catch (Exception e) {
+            log.warn("TMAP 보조 키 응답을 해석하지 못했습니다 cause={}", RootCause.of(e));
+            return Optional.empty();
         }
     }
 
@@ -154,22 +222,33 @@ class TmapClientImpl implements TmapClient {
         if (!props.tmap().hasKey() || points.size() < MIN_OPTIMIZE_POINTS || points.size() > MAX_OPTIMIZE_POINTS) {
             return Optional.empty();
         }
+        String body;
+        try {
+            body = optimizeBody(points);
+        } catch (Exception e) {
+            log.warn("TMAP 경유지 요청 본문을 만들지 못했습니다 cause={}", RootCause.of(e));
+            return Optional.empty();
+        }
         try {
             // 우리가 가진 것 중 가장 빡빡한 한도(50/일). #110 에서 80% 소진 알림을 실제로 받았다.
             callRecorder.record(ExternalApi.TMAP_WAYPOINT);
-            String response = webClient.post()
-                    .uri(OPTIMIZE_URL)
-                    .header("appKey", props.tmap().appKey())
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .accept(MediaType.APPLICATION_JSON)
-                    .bodyValue(optimizeBody(points))
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .timeout(TIMEOUT)
-                    .block();
-            return parseOrder(response, points.size());
+            return parseOrder(post(OPTIMIZE_URL, body, props.tmap().appKey()), points.size());
         } catch (Exception e) {
-            log.warn("TMAP 경유지 최적화 실패 — 직선거리 정렬로 폴백 cause={}", RootCause.of(e));
+            // **여기가 보조 키를 만든 이유다**(#596). 한도 50 이라 자차 코스 17건이면 마르는데, 마르면
+            // 위 호출이 실패하고 상위가 직선거리 정렬로 떨어진다 — 그런데 응답은 200 이라 순서가 틀린 줄
+            // 화면에서 알 수 없다. 심사처럼 다시 할 수 없는 자리에서는 그 조용함이 곧 결과가 된다.
+            log.warn("TMAP 경유지 최적화 실패 cause={}", RootCause.of(e));
+            return retryWithFallback(OPTIMIZE_URL, body, ExternalApi.TMAP_WAYPOINT, e)
+                    .flatMap(response -> parseOrderQuietly(response, points.size()));
+        }
+    }
+
+    /** 보조 키 응답 파싱 — 여기서 또 던지면 폴백을 넣은 의미가 없다. */
+    private Optional<List<Integer>> parseOrderQuietly(String response, int size) {
+        try {
+            return parseOrder(response, size);
+        } catch (Exception e) {
+            log.warn("TMAP 보조 키 경유지 응답을 해석하지 못했습니다 cause={}", RootCause.of(e));
             return Optional.empty();
         }
     }

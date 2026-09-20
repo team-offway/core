@@ -24,8 +24,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import com.offway.core.common.external.DataGoKrError;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
+import com.offway.core.common.external.FallbackKeyAlert;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -130,13 +132,15 @@ class TourApiClientImpl implements TourApiClient {
     private final WebClient webClient;
     private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
+    private final FallbackKeyAlert fallbackKeyAlert;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     TourApiClientImpl(WebClient externalWebClient, ExternalApiProperties props,
-            ExternalApiCallRecorder callRecorder) {
+            ExternalApiCallRecorder callRecorder, FallbackKeyAlert fallbackKeyAlert) {
         this.webClient = externalWebClient;
         this.props = props;
         this.callRecorder = callRecorder;
+        this.fallbackKeyAlert = fallbackKeyAlert;
     }
 
     @Override
@@ -323,10 +327,47 @@ class TourApiClientImpl implements TourApiClient {
         }
     }
 
+    /**
+     * 조회 한 번 — 주 키가 <b>한도로 막히면 보조 키로 한 번만</b> 더 간다(#596).
+     *
+     * <h2>한도 소진은 예외로 오지 않는다</h2>
+     *
+     * <p>게이트웨이가 <b>HTTP 200</b> 에 거절 envelope 을 실어 준다. 그래서 아래 fetch 는 성공으로
+     * 끝나고, 실패는 한참 뒤 파싱 자리에서 난다 — 그 자리에서는 "한도" 인지 "응답 모양이 바뀐 것" 인지
+     * 못 가른다. 본문을 받은 <b>바로 여기서</b> 판정한다.
+     *
+     * <p><b>보조 키 호출은 한도 집계에 넣지 않는다.</b> 다른 키로 나간 것을 주 키 사용량에 섞으면
+     * 그 숫자가 틀린다 — #402 심사 자료가 그 집계를 쓴다.
+     */
     private String call(UriComponentsBuilder builder) {
-        URI uri = builder.build(true).toUri();
+        String body = fetch(builder.build(true).toUri(), true);
+        if (!DataGoKrError.isQuotaExceeded(body)) {
+            return body;
+        }
+        if (!props.dataGoKr().hasFallback()) {
+            fallbackKeyAlert.noFallbackConfigured(ExternalApi.TOUR_API, "한도 소진");
+            return body; // 그대로 올려보낸다 — 파싱이 실패로 판정하고 502 로 나간다
+        }
+        log.warn("TourAPI 주 키 한도가 말라 보조 키로 넘어갑니다");
+        String retried = fetch(builder.replaceQueryParam("serviceKey", props.dataGoKr().fallbackKey())
+                .build(true).toUri(), false);
+        if (DataGoKrError.isQuotaExceeded(retried)) {
+            fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, "한도 소진");
+            return retried;
+        }
+        fallbackKeyAlert.switchedToFallback(ExternalApi.TOUR_API, "한도 소진");
+        return retried;
+    }
+
+    /**
+     * @param count 한도 집계에 넣을 것인가. 보조 키로 나가는 호출은 <b>넣지 않는다</b> — 주 키 사용량이
+     *     부풀어 보이면 "얼마나 쓰나" 를 말하는 그 숫자가 틀린다
+     */
+    private String fetch(URI uri, boolean count) {
         // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
-        callRecorder.record(ExternalApi.TOUR_API);
+        if (count) {
+            callRecorder.record(ExternalApi.TOUR_API);
+        }
         AtomicInteger attempts = new AtomicInteger();
         try {
             return webClient.get()
@@ -344,8 +385,10 @@ class TourApiClientImpl implements TourApiClient {
                     .timeout(RETRY_TOTAL_TIMEOUT)
                     .block();
         } finally {
-            // 실패로 끝나도 센다 — 나간 호출은 이미 한도를 깎았다.
-            recordRetries(attempts.get());
+            // 실패로 끝나도 센다 — 나간 호출은 이미 한도를 깎았다. 보조 키로 나간 것은 세지 않는다(#596).
+            if (count) {
+                recordRetries(attempts.get());
+            }
         }
     }
 
