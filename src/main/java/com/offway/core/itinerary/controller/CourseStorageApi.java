@@ -301,7 +301,8 @@ public interface CourseStorageApi {
     @ApiResponse(
             responseCode = "400",
             description = "outcome 누락·잘못된 값 · 여행 날짜 없이 저장된 코스"
-                    + " · 별점이 1~5 밖이거나 한 줄이 200자 초과(ITINERARY-011)"
+                    + " · 별점이 1~5 밖(COMMON-400 — Bean Validation 이 먼저 잡는다)"
+                    + " · 한 줄이 공백을 접은 뒤 200자 초과(ITINERARY-011)"
                     + " · 안 갔다면서 평가를 함께 보냄(ITINERARY-012)")
     @ApiResponse(responseCode = "401", description = "인증 필요")
     @ApiResponse(responseCode = "403", description = "역할 없는 자격증명(Basic) — 소유자를 정할 수 없어 거절")

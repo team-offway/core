@@ -6,7 +6,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 
 /**
  * 홈 모달 "다녀오셨나요?" 의 답(#116) — 여행지 평가까지 함께 받는다(#592).
@@ -37,16 +36,31 @@ public record TripOutcomeRequest(
                         nullable = true)
                 @Min(TripFeedback.MIN_RATING) @Max(TripFeedback.MAX_RATING) Integer rating,
         @Schema(
-                        description = "남기고 싶은 말 (선택). 앞뒤 공백을 걷어내고, 공백뿐이면 없는 것으로 본다.",
+                        description = """
+                                남기고 싶은 말 (선택). **200자**까지.
+
+                                이어진 공백은 한 칸으로 접히고(줄바꿈·탭 포함), 앞뒤 공백을 걷어낸 뒤 비면
+                                없는 것으로 본다. 길이는 **접은 뒤**에 잰다.
+
+                                상한을 넘으면 400(ITINERARY-011)이다.""",
                         example = "버스 배차가 아쉬웠어요",
                         nullable = true)
-                @Size(max = TripFeedback.MAX_COMMENT_LENGTH) String comment) {
+                String comment) {
 
     /**
      * 평가를 값객체로 옮긴다 — 공백 접기와 범위 검증은 그쪽이 소유한다.
      *
-     * <p>Bean Validation 이 이미 범위를 보지만 값객체가 다시 본다. <b>검증은 입력 경계와 도메인 양쪽에
-     * 둔다</b>(exception-and-response) — 도메인은 누가 만들든 스스로 유효함을 보장하는 최후의 보루다.
+     * <h2>별점은 양쪽에서 보고, 한 줄은 도메인만 본다</h2>
+     *
+     * 별점에는 정규화가 없어 {@code @Min}·{@code @Max} 와 값객체의 판단이 <b>같다</b> — 그래서 양쪽에
+     * 둔다(exception-and-response: 검증은 입력 경계와 도메인 양쪽에).
+     *
+     * <p>한 줄은 다르다. {@code @Size} 는 <b>원문</b> 길이를 보고 값객체는 <b>공백을 접은 뒤</b> 길이를
+     * 보므로, 앞뒤 공백 4자 + 본문 200자 같은 값이 경계에서는 막히고 도메인에서는 통과한다. 같은 규칙을
+     * 두 곳에 다르게 적는 것은 defense in depth 가 아니라 <b>모순</b>이라, 도메인 하나로 모았다.
+     *
+     * <p>그래서 응답 코드가 갈린다 — 별점 범위는 {@code COMMON-400}(Bean Validation), 한 줄 길이는
+     * {@code ITINERARY-011}(도메인). {@code *Api} 에 그대로 적었다.
      */
     public TripFeedback toFeedback() {
         return TripFeedback.of(rating, comment);

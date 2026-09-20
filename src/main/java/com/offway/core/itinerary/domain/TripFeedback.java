@@ -1,6 +1,7 @@
 package com.offway.core.itinerary.domain;
 
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * 여행 후 모달에서 받은 여행지 평가 — 별점과 한 줄(#592).
@@ -51,22 +52,39 @@ public record TripFeedback(Integer rating, String comment) {
     }
 
     /**
+     * 이어진 공백 — 줄바꿈·탭을 포함한다.
+     *
+     * <p><b>왜 거절이 아니라 접나.</b> 모달의 입력창은 한 줄이라 줄바꿈이 타이핑되지 않는다. 그래도
+     * 들어온다면 붙여넣기이거나 클라이언트 쪽 사정인데, 그때 <b>거절하면 그 의견을 통째로 잃는다</b> —
+     * 선택 항목이라 사용자가 다시 쓰지 않을 값이다. 공백으로 접으면 뜻이 그대로 남는다.
+     *
+     * <p>지자체에 넘길 때도 값어치가 있다. 줄바꿈이 섞인 값은 표·CSV 로 뽑을 때 한 칸을 여러 줄로
+     * 쪼개, 받는 쪽이 파일을 열었을 때 행이 어긋난다.
+     */
+    private static final Pattern WHITESPACE_RUN = Pattern.compile("\\s+");
+
+    /**
      * 요청 값에서 만든다 — 공백뿐인 한 줄은 없는 것으로 접는다.
      *
      * <p><b>왜 접나.</b> 사용자가 입력창을 눌렀다 지우면 빈 문자열이 온다. 그것을 그대로 저장하면
      * "코멘트가 있는 행" 으로 세어져, 지역별 집계가 실제보다 많은 의견이 있는 것처럼 보인다.
      *
+     * <p><b>안쪽 공백도 한 칸으로 접는다.</b> {@code trim()} 은 앞뒤만 걷어내므로 줄바꿈이 섞인 값이
+     * 그대로 통과했다 — 한 줄 계약과 어긋난다({@link #WHITESPACE_RUN} 참고).
+     *
      * <p>길이 검증은 <b>다듬은 뒤</b>에 한다 — 앞뒤 공백까지 세어 거절하면 사용자는 왜 막혔는지 모른다.
+     * 그래서 요청 DTO 에 {@code @Size} 를 두지 않는다: Bean Validation 은 원문을 보므로 같은 값이
+     * 경계에서는 막히고 도메인에서는 통과하는 어긋남이 생긴다.
      */
     public static TripFeedback of(Integer rating, String comment) {
-        String trimmed = comment == null ? null : comment.trim();
-        if (trimmed != null && trimmed.isEmpty()) {
-            trimmed = null;
+        String normalized = comment == null ? null : WHITESPACE_RUN.matcher(comment).replaceAll(" ").trim();
+        if (normalized != null && normalized.isEmpty()) {
+            normalized = null;
         }
-        if (rating == null && trimmed == null) {
+        if (rating == null && normalized == null) {
             return NONE;
         }
-        return new TripFeedback(rating, trimmed);
+        return new TripFeedback(rating, normalized);
     }
 
     /** 무언가라도 남겼는가 — 저장·집계가 이 값을 본다. */
