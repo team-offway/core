@@ -75,6 +75,7 @@ on:
           - all       # prepare → data → app → verify
           - caddy     # **DNS 를 넘긴 뒤에만.** 아래 주석 참고
           - oneclick  # 인스턴스 생성 → all → IP 전환 → caddy. 시크릿을 새로 안 넣는다
+          - retire    # **이사가 끝난 뒤에만.** 옛 계정의 인스턴스·EIP 를 치운다
       confirm:
         description: 'NEW_EC2_HOST 를 손으로 다시 친다. oneclick 은 MIGRATE 라고 친다'
         required: true
@@ -163,13 +164,17 @@ jobs:
 
           # create 는 oneclick 만 켠다 — 인스턴스를 만드는 유일한 자리다.
           case "$STAGE" in
-            prepare)  on create false; on prepare true;  on data false; on app false; on verify false; on switch false; on caddy false ;;
-            data)     on create false; on prepare false; on data true;  on app false; on verify false; on switch false; on caddy false ;;
-            app)      on create false; on prepare false; on data false; on app true;  on verify false; on switch false; on caddy false ;;
-            verify)   on create false; on prepare false; on data false; on app false; on verify true;  on switch false; on caddy false ;;
-            all)      on create false; on prepare true;  on data true;  on app true;  on verify true;  on switch false; on caddy false ;;
-            caddy)    on create false; on prepare false; on data false; on app false; on verify false; on switch false; on caddy true  ;;
-            oneclick) on create true;  on prepare true;  on data true;  on app true;  on verify true;  on switch "$SWITCHABLE"; on caddy false ;;
+            prepare)  on create false; on prepare true;  on data false; on app false; on verify false; on switch false; on caddy false; on retire false ;;
+            data)     on create false; on prepare false; on data true;  on app false; on verify false; on switch false; on caddy false; on retire false ;;
+            app)      on create false; on prepare false; on data false; on app true;  on verify false; on switch false; on caddy false; on retire false ;;
+            verify)   on create false; on prepare false; on data false; on app false; on verify true;  on switch false; on caddy false; on retire false ;;
+            all)      on create false; on prepare true;  on data true;  on app true;  on verify true;  on switch false; on caddy false; on retire false ;;
+            caddy)    on create false; on prepare false; on data false; on app false; on verify false; on switch false; on caddy true;  on retire false ;;
+            oneclick) on create true;  on prepare true;  on data true;  on app true;  on verify true;  on switch "$SWITCHABLE"; on caddy false; on retire false ;;
+            # **retire 는 혼자 돈다.** 다른 단계와 묶지 않는 이유는 순서 때문이다 — 이사가 끝나고
+            # DNS 가 넘어간 것을 사람이 확인한 뒤에야 옛 서버를 치울 수 있다. oneclick 끝에 붙이면
+            # 그 시점엔 트래픽이 아직 옛 서버로 가므로, 지우는 순간 서비스가 끊긴다.
+            retire)   on create false; on prepare false; on data false; on app false; on verify false; on switch false; on caddy false; on retire true ;;
             *) echo "::error::알 수 없는 stage: $STAGE"; exit 1 ;;
           esac
           on cleanup "$CLEANUP"
@@ -185,7 +190,7 @@ jobs:
           # 예전에는 여기서 조건을 다시 계산했는데, 판단이 두 곳에 생기면 한쪽만 고치는 날 번호와
           # 실제로 도는 단계가 어긋난다 — 실제로 caddy 규칙을 바꾸면서 그렇게 될 자리였다.
           ORDER=""
-          for s in create prepare data app verify switch caddy cleanup; do
+          for s in create prepare data app verify switch caddy retire cleanup; do
             v=$(grep -m1 "^$s=" "$GITHUB_OUTPUT" | cut -d= -f2)
             [ "$v" = "true" ] && ORDER="$ORDER $s"
           done
@@ -234,6 +239,24 @@ jobs:
               exit 1
             fi
             echo "확인 완료 — 인스턴스를 새로 만들어 이사합니다"
+            exit 0
+          fi
+
+          # **`stage=retire` 는 옛 호스트를 손으로 치게 한다.**
+          #
+          # 다른 단계의 확인 문구는 "새 서버가 맞나" 를 묻지만, 여기서는 **지울 대상**을 묻는다.
+          # 고정 문구(RETIRE 같은)로 두면 손이 먼저 움직여 무엇을 지우는지 안 보고 누르게 된다 —
+          # 이 단계가 유일하게 **운영 서버를 없애는** 자리라 그 한 번을 의식하게 만든다.
+          if [ "${{ steps.plan.outputs.retire }}" = "true" ]; then
+            if [ -z "${OLD_HOST:-}" ]; then
+              echo "::error::EC2_HOST 시크릿이 없습니다 — 무엇을 지울지 알 수 없어 중단합니다"
+              exit 1
+            fi
+            if [ "$(trim "$CONFIRM")" != "$(trim "$OLD_HOST")" ]; then
+              echo "::error::confirm 에 지울 옛 서버 주소($OLD_HOST)를 그대로 쳐야 합니다 — 중단합니다"
+              exit 1
+            fi
+            echo "확인 완료 — 옛 서버 $OLD_HOST 를 치웁니다 (아래에서 DNS 전환을 한 번 더 확인합니다)"
             exit 0
           fi
 
@@ -633,7 +656,11 @@ jobs:
       #
       # 별칭은 `~/.ssh/config` 가 든다. 사용자·키·호스트가 거기 한 번만 적히므로, oneclick 은
       # 방금 만든 인스턴스의 IP 를 여기 넣기만 하면 나머지가 따라온다.
+      # **retire 는 SSH 를 쓰지 않는다.** AWS API 로 인스턴스를 종료할 뿐이라 접속 좌표가 필요 없고,
+      # oneclick 으로 이사한 뒤에는 `NEW_EC2_HOST` 시크릿이 비어 있어(워크플로가 만든 주소라
+      # 시크릿에 없다) 이 스텝이 "좌표가 없습니다" 로 죽는다.
       - name: SSH 접속 좌표 준비
+        if: steps.plan.outputs.retire != 'true'
         env:
           NEW_HOST_KEY_FP: ${{ secrets.NEW_EC2_HOST_KEY_FP }}
           OLD_HOST_KEY_FP: ${{ secrets.EC2_HOST_KEY_FP }}
@@ -1540,6 +1567,134 @@ jobs:
           bash scripts/migrate/notify.sh step \
             "${{ steps.plan.outputs.no_caddy }}" "인증서" "완료" \
             "api.offway.cloud 인증서 확인"
+
+      # ── ⑦ retire — 옛 계정을 치운다 ────────────────────────────────────────
+      #
+      # **이 워크플로에서 두 번째로 되돌릴 수 없는 일이다**(첫째는 복원). 그래서 지우기 전에
+      # <b>트래픽이 실제로 새 서버로 가고 있는지</b>를 우리가 직접 확인한다 — 사람의 "넘겼어요" 를
+      # 믿지 않는다. DNS 전파가 덜 됐거나 A 레코드를 잘못 넣었어도 사람은 넘겼다고 말한다.
+      #
+      # 확인은 셋이다. 하나라도 어긋나면 아무것도 지우지 않는다.
+      #   ① 도메인이 가리키는 주소가 **옛 서버가 아니다**
+      #   ② 그 주소로 붙은 HTTPS 가 **200 을 준다** — 새 서버가 실제로 서비스 중이다
+      #   ③ 지울 인스턴스가 **정확히 하나**로 특정된다
+      - name: 알림 · 단계 시작 (옛 계정 정리)
+        if: steps.plan.outputs.retire == 'true'
+        run: |
+          bash scripts/migrate/notify.sh begin "${{ steps.plan.outputs.no_retire }}" "옛 계정 정리"
+
+      - name: retire · 트래픽이 새 서버로 갔는지 확인
+        id: retire-check
+        if: steps.plan.outputs.retire == 'true'
+        env:
+          OLD_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          set -uo pipefail
+          NO="${{ steps.plan.outputs.no_retire }}"
+          say() { bash scripts/migrate/notify.sh sub "$NO" "$1"; }
+          DOMAIN=api.offway.cloud
+
+          RESOLVED=$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1)
+          if [ -z "$RESOLVED" ]; then
+            echo "::error::$DOMAIN 를 풀지 못했습니다 — 지우지 않고 멈춥니다"
+            exit 1
+          fi
+          echo "$DOMAIN → $RESOLVED (옛 서버: $OLD_HOST)"
+
+          # ① 아직 옛 서버를 가리키면 지우는 순간 서비스가 끊긴다.
+          if [ "$RESOLVED" = "$(printf '%s' "$OLD_HOST" | tr -d '\r\n ')" ]; then
+            echo "::error::$DOMAIN 가 아직 옛 서버($OLD_HOST)를 가리킵니다 — 가비아 A 레코드를 먼저 바꾸세요"
+            say "중단 — DNS 가 아직 옛 서버를 가리킵니다"
+            exit 1
+          fi
+
+          # ② 새 주소가 실제로 서비스 중인지 본다. 도메인으로 붙는다 — 사용자가 실제로 닿는
+          #    경로가 살아 있는지를 묻는 것이다.
+          #
+          #    **401 을 정상으로 본다.** 이 API 는 Basic 인증 뒤에 있어 인증 없이 부르면 401 이
+          #    온다. 그 401 자체가 "Caddy 가 붙어 있고 앱이 살아서 인증을 요구한다" 는 신호다 —
+          #    죽었으면 502·503 이거나 아예 응답이 없다(000). 여기서 200 만 받겠다고 하면 이
+          #    단계는 영영 통과하지 못한다.
+          #
+          #    인증을 붙여 200 을 받는 방법도 있지만, 사용자명이 서버 파일에만 있어 SSH 를 열어야
+          #    한다. retire 는 AWS API 만 쓰는 단계라 그 비용을 살 이유가 없다 — ① 가드가 이미
+          #    "새 서버를 가리킨다" 를 보장하므로, 여기서는 살아 있는지만 확인하면 된다.
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "https://$DOMAIN/actuator/health" || echo 000)
+          case "$CODE" in
+            200|401) ;;
+            *)
+              echo "::error::https://$DOMAIN 응답이 $CODE 입니다 — 새 서버가 서비스 중이 아니라 옛 서버를 남깁니다"
+              say "중단 — 새 서버 응답이 $CODE 입니다"
+              exit 1
+              ;;
+          esac
+          echo "새 서버가 $DOMAIN 으로 응답합니다(HTTP $CODE) — 옛 서버를 치워도 됩니다"
+          say "DNS $RESOLVED · 응답 $CODE 확인"
+
+      - name: retire · 옛 인스턴스·EIP 정리
+        if: success() && steps.plan.outputs.retire == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ap-northeast-1
+          OLD_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          set -uo pipefail
+          NO="${{ steps.plan.outputs.no_retire }}"
+          say() { bash scripts/migrate/notify.sh sub "$NO" "$1"; }
+
+          # ③ 주소로 인스턴스를 찾는다. **정확히 하나**여야 지운다 — 옛 계정에 같은 주소가 둘일
+          #    수는 없지만, 조회가 비거나 여럿이면 그 자체가 "내가 아는 상태가 아니다" 는 뜻이다.
+          TARGET=$(aws ec2 describe-instances \
+            --filters "Name=ip-address,Values=$OLD_HOST" \
+                      "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+            --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null) || TARGET=""
+          COUNT=$(printf '%s\n' $TARGET | grep -c . || echo 0)
+          if [ "$COUNT" != "1" ]; then
+            echo "::error::옛 인스턴스를 하나로 특정하지 못했습니다(찾은 것='$TARGET') — 콘솔에서 확인하세요"
+            say "중단 — 옛 인스턴스를 특정하지 못했습니다"
+            exit 1
+          fi
+          echo "옛 인스턴스 $TARGET 를 종료합니다"
+
+          # **EIP 를 먼저 푼다.** 인스턴스를 먼저 지우면 EIP 가 어디에도 안 붙은 채 남아 시간당
+          # 과금되고, 그 사실을 아무도 안 본다. 옛 계정 것이라 새 계정에서는 보이지도 않는다.
+          ALLOC=$(aws ec2 describe-addresses --filters "Name=instance-id,Values=$TARGET" \
+            --query 'Addresses[0].AllocationId' --output text 2>/dev/null) || ALLOC=""
+          if [ -n "$ALLOC" ] && [ "$ALLOC" != "None" ]; then
+            aws ec2 disassociate-address --association-id \
+              "$(aws ec2 describe-addresses --allocation-ids "$ALLOC" \
+                 --query 'Addresses[0].AssociationId' --output text 2>/dev/null)" >/dev/null 2>&1 || true
+            if aws ec2 release-address --allocation-id "$ALLOC" >/dev/null 2>&1; then
+              echo "옛 EIP 해제 ($ALLOC)"
+              say "옛 EIP 해제 — 과금이 멈춥니다"
+            else
+              echo "::warning::옛 EIP($ALLOC)를 해제하지 못했습니다 — 콘솔에서 해제하세요"
+              say "EIP 해제 실패 — 콘솔에서 직접 해제하세요"
+            fi
+          else
+            echo "옛 서버에 붙은 EIP 가 없습니다"
+          fi
+
+          if aws ec2 terminate-instances --instance-ids "$TARGET" >/dev/null 2>&1; then
+            echo "옛 인스턴스 $TARGET 종료 요청"
+            say "옛 인스턴스 $TARGET 종료"
+          else
+            echo "::error::인스턴스를 종료하지 못했습니다 — 콘솔에서 $TARGET 를 지우세요"
+            say "종료 실패 — $TARGET 를 직접 지워야 합니다"
+            exit 1
+          fi
+
+          # **보안그룹·키페어는 남긴다.** 무료이고, 인스턴스가 완전히 사라지기 전에는 보안그룹이
+          # 지워지지도 않는다. 계정을 아예 닫을 때 사람이 함께 정리한다.
+          bash scripts/migrate/notify.sh step "$NO" "옛 계정 정리" "완료" \
+            "옛 인스턴스를 종료하고 EIP 를 해제했습니다"
+          {
+            echo "### 옛 계정 정리 완료"
+            echo "- 인스턴스 \`$TARGET\` 종료 · EIP 해제 — 옛 계정에 남는 과금이 없습니다"
+            echo "- 보안그룹·키페어는 남겼습니다 (무료이고 인스턴스가 사라진 뒤에야 지워집니다)"
+            echo "- **되돌릴 수 없습니다.** 문제가 생기면 새 서버에서 고쳐야 합니다"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # ── 정리 ──────────────────────────────────────────────────────────────
       #
