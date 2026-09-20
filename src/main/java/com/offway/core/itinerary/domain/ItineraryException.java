@@ -58,4 +58,14 @@ public final class ItineraryException extends BaseException {
     public static ItineraryException shareCourseDeleted() {
         return new ItineraryException(ItineraryErrorCode.SHARE_COURSE_DELETED);
     }
+
+    /** 여행지 평가 값이 범위를 벗어남 — 별점이 1~5 밖이거나 한 줄이 상한을 넘었다. */
+    public static ItineraryException invalidTripFeedback() {
+        return new ItineraryException(ItineraryErrorCode.INVALID_TRIP_FEEDBACK);
+    }
+
+    /** 안 갔다고 답하면서 평가를 함께 보냄 — 안 간 여행지는 평가가 성립하지 않는다. */
+    public static ItineraryException feedbackOnUnvisitedTrip() {
+        return new ItineraryException(ItineraryErrorCode.FEEDBACK_ON_UNVISITED_TRIP);
+    }
 }

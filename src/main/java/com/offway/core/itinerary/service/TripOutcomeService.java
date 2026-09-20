@@ -3,7 +3,7 @@ package com.offway.core.itinerary.service;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.CourseScope;
 import com.offway.core.itinerary.domain.ItineraryException;
-import com.offway.core.itinerary.domain.TripOutcome;
+import com.offway.core.itinerary.domain.TripFeedback;
 import com.offway.core.itinerary.domain.VisitOutcome;
 import com.offway.core.itinerary.repository.CourseRepository;
 import com.offway.core.itinerary.repository.TripOutcomeRepository;
@@ -48,6 +48,7 @@ public class TripOutcomeService {
     private final CourseStorageService courseStorageService;
     private final CourseLeaveDeductionService leaveDeductionService;
     private final TripOutcomeRepository tripOutcomeRepository;
+    private final TripOutcomePersistenceService tripOutcomePersistenceService;
     private final RegionQuery regionQuery;
     private final LeaveService leaveService;
     private final MyLeaveService myLeaveService;
@@ -130,9 +131,14 @@ public class TripOutcomeService {
      * <p><b>차감을 먼저 하고 답을 기록한다.</b> 순서가 반대면, 기록은 됐는데 차감이 실패했을 때 다시 묻지 않으므로
      * 연차가 영영 안 깎인다. 이 순서면 기록이 실패해도 다음에 다시 묻고, 차감은 멱등이라 두 번 깎이지 않는다.
      *
+     * <p><b>평가는 답과 같은 행에 들어간다</b>(#592). 모달에서 한 번에 오고, 알맹이가 같다. 안 간
+     * 여행에 평가가 왔으면 {@link TripOutcome} 생성자가 막는다 — 서비스에서만 막으면 다른 호출부가
+     * 생길 때 그 규칙이 빠진다.
+     *
+     * @param feedback 여행지 평가. 건너뛰었으면 {@link TripFeedback#none()}
      * @return 답한 뒤의 내 연차 — 모달이 상단 "남은 연차" 를 바로 고쳐 그린다
      */
-    public MyLeave answer(UUID userId, long courseId, VisitOutcome outcome) {
+    public MyLeave answer(UUID userId, long courseId, VisitOutcome outcome, TripFeedback feedback) {
         Course course = findOwned(userId, courseId);
         course.requireTravelDate();
         requireAnswerable(userId, course);
@@ -143,16 +149,33 @@ public class TripOutcomeService {
             leaveDeductionService.deduct(userId, courseId, course.startDayLeave());
         }
 
+        // **안 간 여행에는 평가가 성립하지 않는다.** 모달은 안 갔다고 누르면 평가 화면을 띄우지
+        // 않으므로 정상 흐름으로는 닿지 않는다 — 닿았다면 클라이언트가 어긋난 것이라 알려 준다.
+        // 조용히 버리면 사용자는 남겼다고 여기는데 데이터가 없다.
+        if (!outcome.deductsLeave() && feedback.isPresent()) {
+            throw ItineraryException.feedbackOnUnvisitedTrip();
+        }
+
         try {
-            tripOutcomeRepository.save(
-                    TripOutcome.of(userId, courseId, outcome, LocalDate.now(CourseStorageService.SERVICE_ZONE)));
+            // 두 표를 한 트랜잭션에 쓴다 — 따로 커밋되면 답 없이 평가만 쌓여 모달이 다시 묻고,
+            // 그 평가가 또 쌓인다(집계가 조용히 부풀어 오른다). 자세한 사정은 그 빈에 적었다.
+            tripOutcomePersistenceService.record(
+                    userId,
+                    courseId,
+                    course.getRegionId(),
+                    outcome,
+                    LocalDate.now(CourseStorageService.SERVICE_ZONE),
+                    feedback);
         } catch (DataIntegrityViolationException e) {
             // 모달을 두 번 눌렀다 — 유니크 제약이 두 번째를 막았다. 앞선 답이 이미 남아 있으므로 409 가 맞다.
             log.info("여행 결과 동시 제출 — 먼저 기록된 답을 그대로 둡니다 courseId={}", courseId);
             throw ItineraryException.tripAlreadyAnswered();
         }
 
-        log.info("여행 결과 기록 courseId={} outcome={}", courseId, outcome);
+        // **코멘트 원본을 남기지 않는다.** 사용자가 친 그대로이고 지자체로 전달되는 값이다
+        // (CLAUDE.md §로깅). 남겼는지 여부와 별점만 적어 "평가가 실제로 쌓이는가" 를 볼 수 있게 한다.
+        log.info("여행 결과 기록 courseId={} outcome={} rating={} comment={}",
+                courseId, outcome, feedback.rating(), feedback.commentValue().isPresent() ? "있음" : "없음");
         return myLeaveService.myLeave(userId);
     }
 
