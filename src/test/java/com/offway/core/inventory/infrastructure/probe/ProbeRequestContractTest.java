@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.external.ExternalHealthFilter;
+import com.offway.core.common.external.NoOpCallRecorder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
@@ -55,14 +56,18 @@ class ProbeRequestContractTest {
                 .build();
     }
 
+    /**
+     * 이 테스트가 재는 것은 <b>요청의 모양</b>이지 사용량이 아니다 — 세는 동작은
+     * {@code ProbeQuotaRecordingTest} 가 따로 잠근다.
+     */
     private static List<BiFunction<WebClient, ExternalApiProperties, ExternalApiProbe>> factories() {
         return List.of(
-                TourApiProbe::new,
-                TourDataLabProbe::new,
-                HolidayProbe::new,
-                TagoProbe::new,
-                KorailProbe::new,
-                TmapProbe::new);
+                (client, props) -> new TourApiProbe(client, props, new NoOpCallRecorder()),
+                (client, props) -> new TourDataLabProbe(client, props, new NoOpCallRecorder()),
+                (client, props) -> new HolidayProbe(client, props, new NoOpCallRecorder()),
+                (client, props) -> new TagoProbe(client, props, new NoOpCallRecorder()),
+                (client, props) -> new KorailProbe(client, props, new NoOpCallRecorder()),
+                (client, props) -> new TmapProbe(client, props, new NoOpCallRecorder()));
     }
 
     /**
