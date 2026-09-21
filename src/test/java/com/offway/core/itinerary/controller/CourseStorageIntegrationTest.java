@@ -37,6 +37,7 @@ import com.offway.core.weather.infrastructure.kma.KmaWeatherClient;
 import com.offway.core.weather.infrastructure.kma.StubKmaWeatherClient;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -68,6 +69,30 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 class CourseStorageIntegrationTest {
 
     private static final String URL = "/api/v1/courses";
+
+    /**
+     * 날짜를 <b>옮길 목적지</b> — 늘 앞날이어야 한다(#601).
+     *
+     * <p>{@code Course} 는 지난 날짜로의 변경을 막는다({@code TRAVEL_DATE_IN_PAST}, 400). 그 판단은
+     * 맞다(#170) — 여행 날짜를 고치는 것은 앞으로의 계획을 손보는 일이다.
+     *
+     * <p>그런데 여기서 목적지를 <b>날짜 리터럴로 적어 두면</b> 그날이 지나는 순간 200 을 기대하던
+     * 단언이 400 을 받는다. 실제로 {@code 2026-09-20} 이 박혀 있다가 <b>하루 지나 네 건이 한꺼번에
+     * 깨졌고</b>, 머지 게이트가 CI 라 그날 올라온 PR 이 전부 막혔다.
+     *
+     * <p>저장할 때 쓰는 {@code 2026-09-11} 은 그대로 둔다 — 지난 날짜로 <b>저장</b>하는 것은 막히지
+     * 않고, 그 값은 고정돼 있어야 슬롯·요일 단언이 흔들리지 않는다. 앞날이어야 하는 것은 목적지뿐이다.
+     */
+    private static final LocalDate MOVE_TO = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(30);
+
+    /** 옮긴 날짜 <b>당일</b> 오전 도착 — 첫날 일정이 그대로 서는 경우. */
+    private static final LocalDateTime ARRIVES_SAME_MORNING = MOVE_TO.atTime(8, 30);
+
+    /** 옮긴 날짜의 막차 — <b>자정을 넘겨</b> 이튿날 새벽에 닿는 경우. */
+    private static final LocalDateTime ARRIVES_AFTER_MIDNIGHT = MOVE_TO.plusDays(1).atTime(2, 0);
+
+    /** {@code {"travelDate": "…"}} — 목적지로 옮기는 요청 본문. */
+    private static final String MOVE_BODY = "{\"travelDate\": \"" + MOVE_TO + "\"}";
 
     /** {@code SecurityConfig} · {@code JwtAuthenticationFilter} 가 쓰는 권한 이름 — 같은 값이어야 한다. */
     private static final String USER_AUTHORITY = "ROLE_USER";
@@ -726,14 +751,14 @@ class CourseStorageIntegrationTest {
         long courseId = save(transitTwoDayBody("2026-09-11"));
         jdbcTemplate.update("UPDATE course SET start_day_leave = NULL WHERE id = ?", courseId);
 
-        trainArrivesAt(LocalDateTime.of(2026, 9, 20, 8, 30));
+        trainArrivesAt(ARRIVES_SAME_MORNING);
 
         mockMvc.perform(patch(URL + "/{id}", courseId)
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"travelDate\": \"2026-09-20\"}"))
+                        .contentType(MediaType.APPLICATION_JSON).content(MOVE_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.code").value("OK"))
-                .andExpect(jsonPath("$.data.travelDate").value("2026-09-20"));
+                .andExpect(jsonPath("$.data.travelDate").value(MOVE_TO.toString()));
     }
 
     /**
@@ -1074,10 +1099,10 @@ class CourseStorageIntegrationTest {
         trainArrivesAt(LocalDateTime.of(2026, 9, 11, 8, 30)); // 당일 오전 도착 — 첫날 일정 정상
         long courseId = save(transitTwoDayBody("2026-09-11"));
 
-        trainArrivesAt(LocalDateTime.of(2026, 9, 21, 2, 0)); // 옮긴 날짜의 막차 — 자정을 넘겨 닿는다
+        trainArrivesAt(ARRIVES_AFTER_MIDNIGHT); // 옮긴 날짜의 막차 — 자정을 넘겨 닿는다
 
         mockMvc.perform(patch(URL + "/{id}", courseId)
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"travelDate\": \"2026-09-20\"}"))
+                        .contentType(MediaType.APPLICATION_JSON).content(MOVE_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.firstDayChange").value("TRIMMED"))
                 // 첫날이 통째로 빠져 하루만 남고, 표시 번호는 1부터 다시 붙는다
@@ -1093,9 +1118,9 @@ class CourseStorageIntegrationTest {
         trainArrivesAt(LocalDateTime.of(2026, 9, 11, 8, 30));
         long courseId = save(transitTwoDayBody("2026-09-11"));
 
-        trainArrivesAt(LocalDateTime.of(2026, 9, 21, 2, 0));
+        trainArrivesAt(ARRIVES_AFTER_MIDNIGHT);
         mockMvc.perform(patch(URL + "/{id}", courseId)
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"travelDate\": \"2026-09-20\"}"))
+                        .contentType(MediaType.APPLICATION_JSON).content(MOVE_BODY))
                 .andExpect(status().isOk());
 
         mockMvc.perform(get(URL + "/{id}", courseId))
@@ -1110,10 +1135,10 @@ class CourseStorageIntegrationTest {
         trainArrivesAt(LocalDateTime.of(2026, 9, 11, 8, 30));
         long courseId = save(transitTwoDayBody("2026-09-11"));
 
-        trainArrivesAt(LocalDateTime.of(2026, 9, 20, 8, 30)); // 옮긴 날짜에도 오전 도착
+        trainArrivesAt(ARRIVES_SAME_MORNING); // 옮긴 날짜에도 오전 도착
 
         mockMvc.perform(patch(URL + "/{id}", courseId)
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"travelDate\": \"2026-09-20\"}"))
+                        .contentType(MediaType.APPLICATION_JSON).content(MOVE_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.firstDayChange").doesNotExist())
                 .andExpect(jsonPath("$.data.days.length()").value(2));
