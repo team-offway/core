@@ -239,47 +239,129 @@ OffWay는 여행자의 남은 연차에 맞춰 89개 지역의 최적 이동 코
 
 ## 도메인 구성
 
-`package-by-feature` 로 나눕니다.
+`package-by-feature` 로 나눕니다. `controller` 진입, `service` 조율, `domain` 규칙, `repository` port + adapter, `infrastructure` 외부 어댑터입니다. DTO 는 두 겹으로, `controller/dto` 가 API 계약이고 `service/dto` 가 내부 command 와 result 입니다.
 
-모든 도메인이 같은 층을 갖습니다.
+**외부 API 는 소유 도메인의 `infrastructure` 에만 둡니다.** TMAP 은 `transport`, TourAPI 는 `trip`, 기상청은 `weather` 입니다.
 
-아래는 가장 두꺼운 `trip` 만 끝까지 펼친 모습입니다.
+다른 도메인은 소유 도메인의 `service` port 로만 닿습니다. `itinerary` 는 TMAP 을 모르고 `RouteTimeProvider` 만 압니다. 다른 도메인의 `infrastructure` 를 직접 import 한 곳은 **0건**입니다.
+
+`event` 는 도메인끼리 서로를 직접 부르지 않으려고 둔 층이라, 필요한 다섯 곳에만 있습니다.
 
 ```
 📦 com.offway.core
  ┃
  ┣ 📂 trip ─────────────── 인구감소지역 · 장소 풀 · 관광지 추천
- ┃  ┣ 📂 controller ────── HTTP 진입
- ┃  ┃  ┗ 📂 dto ────────── API 계약
- ┃  ┣ 📂 service ───────── 유스케이스 조율 · 트랜잭션 경계
- ┃  ┃  ┗ 📂 dto ────────── 내부 command · result
- ┃  ┣ 📂 domain ────────── 엔티티 · 값객체 · enum · 예외
- ┃  ┣ 📂 repository ────── port + adapter
- ┃  ┗ 📂 infrastructure ── 외부 API 어댑터
- ┃     ┣ 📂 tour ───────── TourAPI
- ┃     ┣ 📂 datalab ────── 관광빅데이터
- ┃     ┣ 📂 localdata ──── 지방행정인허가
+ ┃  ┣ 📂 controller
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┣ 📂 repository
+ ┃  ┗ 📂 infrastructure
  ┃     ┣ 📂 camping ────── 고캠핑
+ ┃     ┣ 📂 crowd ──────── 관광지 집중률
+ ┃     ┣ 📂 datalab ────── 관광빅데이터
  ┃     ┣ 📂 festival ───── 축제표준데이터
  ┃     ┣ 📂 gallery ────── 관광사진갤러리
- ┃     ┣ 📂 crowd ──────── 관광지 집중률
- ┃     ┗ 📂 pet ────────── 반려동물 동반여행
- ┃
- ┣ 📂 leave ────────────── 연차 · 가용시간 · 샌드위치 연휴
+ ┃     ┣ 📂 localdata ──── 지방행정인허가
+ ┃     ┣ 📂 pet ────────── 반려동물 동반여행
+ ┃     ┗ 📂 tour ───────── TourAPI
  ┣ 📂 transport ────────── 교통 · 동선 · 출발지 검색
+ ┃  ┣ 📂 controller
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┣ 📂 repository
+ ┃  ┗ 📂 infrastructure
+ ┃     ┣ 📂 kakao ──────── 카카오 로컬 검색
+ ┃     ┣ 📂 tago ───────── TAGO
+ ┃     ┗ 📂 tmap ───────── TMAP
+ ┣ 📂 leave ────────────── 연차 · 가용시간 · 샌드위치 연휴
+ ┃  ┣ 📂 controller
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┣ 📂 event
+ ┃  ┣ 📂 repository
+ ┃  ┗ 📂 infrastructure
+ ┃     ┗ 📂 holiday ────── 특일정보
  ┣ 📂 itinerary ────────── 코스 생성
+ ┃  ┣ 📂 controller
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┣ 📂 event
+ ┃  ┗ 📂 repository
  ┣ 📂 region ───────────── 인구감소지역 89곳 마스터 · 태그
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┗ 📂 repository
  ┣ 📂 weather ──────────── 날씨 · 관광기후지수
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┗ 📂 infrastructure
+ ┃     ┗ 📂 kma ────────── 기상청
  ┣ 📂 policy ───────────── 여행 혜택 매칭
+ ┃  ┣ 📂 controller
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┗ 📂 repository
  ┣ 📂 curation ─────────── 지역 큐레이션 링크
+ ┃  ┣ 📂 controller
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┣ 📂 repository
+ ┃  ┗ 📂 infrastructure
+ ┃     ┗ 📂 storage ────── S3 업로드
  ┣ 📂 inventory ────────── 장소 재고 · 적재
+ ┃  ┣ 📂 controller
+ ┃  ┣ 📂 service
+ ┃  ┗ 📂 infrastructure
+ ┃     ┗ 📂 probe ──────── 적재 점검
  ┃
  ┣ 📂 user ─────────────── 사용자 · 소셜 로그인
+ ┃  ┣ 📂 controller
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┣ 📂 event
+ ┃  ┣ 📂 repository
+ ┃  ┣ 📂 infrastructure
+ ┃  ┃  ┣ 📂 apple ──────── Apple 로그인
+ ┃  ┃  ┣ 📂 kakao ──────── 카카오 로그인
+ ┃  ┃  ┣ 📂 oidc ───────── OIDC 검증
+ ┃  ┃  ┗ 📂 social ─────── 소셜 공통
+ ┃  ┗ 📂 config
  ┣ 📂 device ───────────── 디바이스 토큰
+ ┃  ┣ 📂 controller
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┗ 📂 repository
  ┣ 📂 notification ─────── 푸시 알림
+ ┃  ┣ 📂 controller
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┣ 📂 event
+ ┃  ┣ 📂 repository
+ ┃  ┗ 📂 infrastructure
+ ┃     ┗ 📂 push ───────── FCM
  ┣ 📂 liveactivity ─────── 잠금화면 실시간 카드
+ ┃  ┣ 📂 controller
+ ┃  ┣ 📂 service
+ ┃  ┣ 📂 domain
+ ┃  ┣ 📂 event
+ ┃  ┣ 📂 repository
+ ┃  ┗ 📂 infrastructure
+ ┃     ┗ 📂 apns ───────── APNs
  ┃
  ┗ 📂 common ───────────── 응답 래퍼 · 예외 · 캐시 · 설정
+    ┣ 📂 config ────────── 보안 · OpenAPI 설정
+    ┣ 📂 batch ─────────── 수동 실행 배치
+    ┃  ┣ 📂 domain
+    ┃  ┣ 📂 repository
+    ┃  ┗ 📂 service
+    ┣ 📂 cache ─────────── ExternalDataCache
+    ┣ 📂 exception ─────── 전역 예외 처리
+    ┣ 📂 external ──────── 외부 호출 집계 · 한도
+    ┃  ┗ 📂 controller
+    ┣ 📂 geo ───────────── 좌표 · 행정구역
+    ┣ 📂 logging ───────── traceId · 마스킹
+    ┣ 📂 notification ──── 디스코드 웹훅
+    ┗ 📂 response ──────── ApiResponseBody
 ```
 
 의존 방향은 `controller → service → domain` 입니다.
