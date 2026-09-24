@@ -9,6 +9,7 @@ import com.offway.core.common.external.ExternalApiCallRecorder;
 import com.offway.core.common.geo.Coordinate;
 import com.offway.core.common.logging.RootCause;
 import com.offway.core.transport.infrastructure.kakao.dto.FoundPlace;
+import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -76,6 +77,20 @@ class KakaoOriginPlaceSearchClient implements OriginPlaceSearchClient {
      * 만료가 가까운 것부터 버려진다. 값이 작아도 손해가 아니다 — 캐시를 놓치면 외부를 한 번 더 부를 뿐이다.
      */
     private static final int MAX_CACHE_ENTRIES = 2_000;
+
+    /**
+     * 카카오가 받는 {@code size} 의 상한(#599).
+     *
+     * <p><b>키워드 검색은 15 를 넘기면 400 이다.</b> 우리가 넘기는 값은 "허브로 채우고 남은 자리"
+     * ({@code OriginHubCatalog.MAX_SUGGESTIONS} 가 상한이라 최대 20)라, <b>허브가 5건 미만 걸리는
+     * 검색어에서 늘 한도를 넘었다</b> — 하필 그게 주소가 가장 필요한 검색어들이다("역삼"·"판교").
+     *
+     * <p>주소 검색은 상한이 더 커서 400 이 안 났고, 그래서 <b>둘 중 하나만 조용히 죽어 있었다.</b>
+     *
+     * <p>넘치면 거절하지 않고 <b>자른다</b>. 자리가 20 인데 15 만 채우는 것은 화면에 손해가 아니고,
+     * 여기서 예외를 던지면 검색 한 번이 통째로 빈다.
+     */
+    private static final int MAX_KAKAO_SIZE = 15;
 
     /** 주소·지명은 몇 년 단위로 바뀐다. 하루면 충분히 짧고, 하루면 충분히 길다. */
     private static final Duration SUCCESS_TTL = Duration.ofHours(24);
@@ -157,16 +172,45 @@ class KakaoOriginPlaceSearchClient implements OriginPlaceSearchClient {
         }
     }
 
-    /** 한 오퍼레이션을 부르고 파싱한다 — 콜 수를 세는 자리도 여기 하나뿐이다. */
+    /**
+     * 한 오퍼레이션을 부르고 파싱한다 — 콜 수를 세는 자리도 여기 하나뿐이다.
+     *
+     * <h2>URI 는 {@code String} 이 아니라 {@link URI} 로 넘긴다</h2>
+     *
+     * <p><b>여기서 한글 검색이 통째로 죽어 있었다</b>(#599). {@code toUriString()} 으로 만든
+     * <b>이미 인코딩된 문자열</b>을 {@code uri(String)} 에 주면, WebClient 가 그것을 URI
+     * <b>템플릿</b>으로 보고 <b>한 번 더 인코딩</b>한다 — {@code %EC} 가 {@code %25EC} 가 된다.
+     *
+     * <pre>
+     *   만든 것 : ?query=%EC%84%9C%EC%9A%B8
+     *   나간 것 : ?query=%25EC%2584%259C%25EC%259A%25B8
+     * </pre>
+     *
+     * <p>카카오는 {@code 서울} 이 아니라 <b>{@code "%EC%84%9C%EC%9A%B8"} 이라는 글자</b>를 검색어로
+     * 받는다. 그래서 주소·키워드 둘 다 아무것도 못 찾았다. ASCII 검색어는 {@code %} 가 없어 멀쩡히
+     * 나가므로 <b>한글에서만</b> 터졌고, 응답은 200 + 빈 배열이라 아무 흔적도 안 남았다.
+     *
+     * <p>고친 것은 <b>마지막 한 단계뿐</b>이다 — {@code toUriString()} 대신 {@code toUri()} 로 받아
+     * {@link URI} 를 넘긴다. {@code URI} 를 받는 오버로드는 <b>템플릿 확장을 거치지 않아</b> 두 번째
+     * 인코딩이 일어나지 않는다. TourAPI 어댑터도 {@code URI} 로 넘긴다.
+     *
+     * <p><b>{@code encode()} 와 {@code build(true)} 를 같이 쓰지 않는다.</b> 앞엣것은 "네가 인코딩해
+     * 달라", 뒤엣것은 "이미 인코딩돼 있다" 라 서로 어긋나고, 실제로 한글에서 {@code Invalid character}
+     * 로 터진다(고치는 중에 밟았다).
+     *
+     * <h2>{@code size} 는 카카오 상한으로 자른다</h2>
+     *
+     * <p>{@link #MAX_KAKAO_SIZE} 참고. 넘기면 400 이고, 그 400 도 빈 목록으로 삼켜졌다.
+     */
     private List<FoundPlace> fetch(String url, String query, int size)
             throws com.fasterxml.jackson.core.JsonProcessingException {
         callRecorder.record(ExternalApi.KAKAO_LOCAL);
-        String uri = UriComponentsBuilder.fromUriString(url)
+        URI uri = UriComponentsBuilder.fromUriString(url)
                 .queryParam("query", query)
-                .queryParam("size", size)
+                .queryParam("size", Math.min(size, MAX_KAKAO_SIZE))
                 .build()
                 .encode()
-                .toUriString();
+                .toUri();
         String body = webClient.get()
                 .uri(uri)
                 .header(AUTH_HEADER, AUTH_SCHEME + props.kakao().restApiKey())
