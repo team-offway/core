@@ -27,4 +27,9 @@ public class UserRepositoryImpl implements UserRepository {
     public void deleteById(UUID id) {
         userJpaRepository.deleteById(id);
     }
+
+    @Override
+    public long count() {
+        return userJpaRepository.count();
+    }
 }
