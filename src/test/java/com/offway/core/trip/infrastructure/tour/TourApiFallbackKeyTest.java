@@ -246,4 +246,23 @@ class TourApiFallbackKeyTest {
         assertEquals(List.of(FALLBACK), calls.keys);
         assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키·보조 키 모두 실패")), alerts.toString());
     }
+
+    /**
+     * <b>게이트웨이 거절이 아닌 실패 응답도 "받아 줬다" 가 아니다.</b>
+     *
+     * <p>{@code resultCode} 가 성공이 아니면 뒤의 파서가 502 로 끝낸다. 그런데 전환 판정이 게이트웨이 거절만 보면
+     * 그 사이에 "화면은 정상입니다" 가 먼저 나간다 — 판정 기준을 파서와 같게 맞췄는지를 잠근다.
+     */
+    @Test
+    void 보조_키_응답의_결과코드가_실패면_전환이_아니라_실패로_알린다() {
+        Calls calls = new Calls(json(QUOTA_EXCEEDED),
+                json("{\"response\":{\"header\":{\"resultCode\":\"99\",\"resultMsg\":\"ERROR\"}}}"));
+        List<String> alerts = new ArrayList<>();
+
+        assertThrows(RuntimeException.class, () -> client(calls, keys(PRIMARY, FALLBACK), new CountingRecorder(), alerts)
+                .findByArea(34, 1, null, 10));
+
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키·보조 키 모두 실패")), alerts.toString());
+        assertTrue(alerts.stream().noneMatch(a -> a.contains("주 키 → 보조 키")), "실패 응답에 정상 알림을 냈다: " + alerts);
+    }
 }

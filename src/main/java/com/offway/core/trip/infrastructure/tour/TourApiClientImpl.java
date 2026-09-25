@@ -112,6 +112,8 @@ class TourApiClientImpl implements TourApiClient {
     private static final String MOBILE_OS = "ETC";
     private static final String MOBILE_APP = "offway";
     private static final Set<String> SUCCESS_CODES = Set.of("0000", "00");
+    /** 보조 키가 응답은 줬는데 성공 응답이 아닐 때의 알림 사유 — 응답 원문은 싣지 않는다. */
+    private static final String FALLBACK_NOT_SUCCESS = "보조 키 응답이 성공이 아님";
 
     // 콘텐츠 타입마다 다른 이용시간/휴무일 필드명 후보 (관광지·문화시설·레포츠·음식점).
     private static final String[] USE_TIME_FIELDS = {"usetime", "usetimeculture", "usetimeleports", "opentimefood"};
@@ -377,14 +379,25 @@ class TourApiClientImpl implements TourApiClient {
             fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, "한도 소진");
             return retried;
         }
-        // 한도가 아니어도 게이트웨이가 거절했으면(미등록 키·만료 등) 받아 준 것이 아니다. 여기서
-        // "보조 키로 넘어갔습니다. 화면은 정상입니다" 를 보내면 알림이 거짓말을 한다.
-        if (DataGoKrError.isGatewayRejection(retried)) {
-            fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, "보조 키 거절");
+        // 한도가 아니어도 성공 응답이 아니면(미등록 키·만료·resultCode 실패) 받아 준 것이 아니다. 여기서
+        // "보조 키로 넘어갔습니다. 화면은 정상입니다" 를 보내면, 뒤의 파서가 502 로 끝내는데 알림은 정상이라고
+        // 남는다. 판정 기준은 파서들이 쓰는 requireSuccess 와 같다 — 둘이 다르면 그 틈으로 거짓 알림이 샌다.
+        if (!isSuccessResponse(retried)) {
+            fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, FALLBACK_NOT_SUCCESS);
             return retried;
         }
         fallbackKeyAlert.switchedToFallback(ExternalApi.TOUR_API, "한도 소진");
         return retried;
+    }
+
+    /** 파서의 {@link #requireSuccess} 와 같은 기준으로 본다 — 게이트웨이 거절 envelope 은 {@code response} 가 없어 여기서 걸린다. */
+    private boolean isSuccessResponse(String body) {
+        try {
+            String resultCode = objectMapper.readTree(body).path("response").path("header").path("resultCode").asText();
+            return SUCCESS_CODES.contains(resultCode);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** 다른 키로 나간 호출이 예외로 끝나면 알리고 그대로 던진다 — 삼키면 502 가 알림 없이 이어진다. */
