@@ -1156,7 +1156,7 @@ jobs:
           # 이 넷은 각자 바깥에 닿아 값을 치른다.
           #
           #   data.go.kr · TMAP  — 같은 키를 둘이 태운다. 배치 건너뛰기는 자기 DB 안에서만 막는다(#254)
-          #   FCM               — **리허설 서버가 진짜 사용자에게 푸시를 보낸다.** 한도보다 나쁘다
+          #   FCM · APNs        — **리허설 서버가 진짜 사용자에게 푸시를 보낸다.** 한도보다 나쁘다
           #   디스코드           — 팀 채널에 리허설 알림이 울린다
           #
           # 비워 두면 앱은 그대로 뜨고(키 없이 부팅되는 것이 이 레포의 불변식이다) 그 호출만 죽는다.
@@ -1168,6 +1168,10 @@ jobs:
           TMAP_APP_KEY=${{ secrets.TMAP_APP_KEY }}
           DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}
           FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}
+          APNS_TEAM_ID=${{ secrets.APNS_TEAM_ID }}
+          APNS_KEY_ID=${{ secrets.APNS_KEY_ID }}
+          APNS_PRIVATE_KEY_BASE64=${{ secrets.APNS_PRIVATE_KEY_BASE64 }}
+          APNS_TOPIC=${{ secrets.APNS_TOPIC }}
           LIVEEOF
           else
             echo "리허설 모드 — 외부 API 키를 비웁니다 (한도 소비 0, 푸시 발송 없음)"
@@ -1176,8 +1180,33 @@ jobs:
           TMAP_APP_KEY=
           DISCORD_WEBHOOK_URL=
           FIREBASE_SERVICE_ACCOUNT_BASE64=
+          APNS_TEAM_ID=
+          APNS_KEY_ID=
+          APNS_PRIVATE_KEY_BASE64=
+          APNS_TOPIC=
           STUBEOF
           fi
+
+          # **deploy.yml 이 넣는 키를 하나도 빠뜨리지 않는다.** 두 파일이 목록을 따로 들고 있어서,
+          # deploy.yml 에 키가 늘 때 여기를 안 고치면 새 서버만 그 기능이 조용히 꺼진다. 실제로
+          # APNs 네 개가 그렇게 빠져 있었다 — 이사한 날부터 라이브 액티비티 푸시가 DISABLED 로 돌 뻔했다.
+          # 키 이름만 견준다(값은 읽지 않는다). 리허설은 빈 값으로라도 키를 적으므로 여기서 걸리지 않는다.
+          want=$(awk '/cat > env.prod <<.ENVEOF./{f=1;next} /^ *ENVEOF$/{f=0} f' .github/workflows/deploy.yml \
+            | grep -oE '^ *[A-Z][A-Z0-9_]*=' | tr -d ' =' | sort -u)
+          have=$(grep -oE '^ *[A-Z][A-Z0-9_]*=' env.prod | tr -d ' =' | sort -u)
+          if [ -z "$want" ]; then
+            echo "::error::deploy.yml 에서 env.prod 키 목록을 읽지 못했습니다 — 대조 없이 넘어가지 않습니다"
+            rm -f env.prod
+            exit 1
+          fi
+          missing=$(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$have"))
+          if [ -n "$missing" ]; then
+            echo "::error::deploy.yml 에는 있는데 이사 서버 env.prod 에 없는 키: $(tr '\n' ' ' <<<"$missing")"
+            echo "::error::migrate.yml 의 env.prod 목록에 같은 키를 더하세요"
+            rm -f env.prod
+            exit 1
+          fi
+          echo "env.prod 키 $(printf '%s\n' "$have" | wc -l | tr -d ' ')개 — deploy.yml 과 일치"
 
           scp env.prod \
             newsrv:~/offway/env.prod
