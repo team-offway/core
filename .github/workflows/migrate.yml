@@ -1476,12 +1476,31 @@ jobs:
             [ -n "$KEYS" ] && break
             sleep 3
           done
+          # **다시 스캔한 키를 그대로 믿지 않는다.** EIP 는 방금 확인한 그 인스턴스에 붙었으므로 같은
+          # 호스트 키를 내야 한다. 앞에서 `$NEW_HOST` 이름으로 신뢰 목록에 넣은 키(지문 시크릿이 있으면
+          # 그 지문으로 확인한 것)와 **지문이 같은 줄만** EIP 이름으로 등록한다. 따로 스캔한 결과를 통째로
+          # 넣으면, 그 스캔 경로를 잡은 쪽의 키가 확인 없이 신뢰된다.
+          TRUSTED=$(ssh-keygen -F "$NEW_HOST" -f ~/.ssh/known_hosts 2>/dev/null | grep -v '^#' \
+            | ssh-keygen -lf - 2>/dev/null | awk '{print $2}' | sort -u)
+          MATCHED=""
+          if [ -n "$KEYS" ] && [ -n "$TRUSTED" ]; then
+            while IFS= read -r line; do
+              [ -n "$line" ] || continue
+              fp=$(printf '%s\n' "$line" | ssh-keygen -lf - 2>/dev/null | awk '{print $2}')
+              if printf '%s\n' "$TRUSTED" | grep -qxF "$fp"; then
+                MATCHED="$MATCHED$line"$'\n'
+              fi
+            done <<< "$KEYS"
+          fi
           if [ -z "$KEYS" ]; then
             echo "::warning::EIP($EIP)의 호스트 키를 받지 못했습니다 — caddy 단계에서 다시 시도됩니다"
+          elif [ -z "$MATCHED" ]; then
+            echo "::error::EIP($EIP)가 내민 호스트 키가 방금 확인한 새 서버의 키와 다릅니다 — 등록하지 않고 멈춥니다"
+            exit 1
           else
             ssh-keygen -R "$EIP" >/dev/null 2>&1 || true
-            printf '%s\n' "$KEYS" >> ~/.ssh/known_hosts
-            echo "EIP 이름으로 호스트 키 등록"
+            printf '%s' "$MATCHED" >> ~/.ssh/known_hosts
+            echo "EIP 이름으로 호스트 키 등록 (새 서버 키와 지문 일치)"
           fi
 
           # **트래픽은 아직 안 넘어갔다.** 이 줄이 그 사실을 말한다 — `switched=false` 로 둔 이유다.
