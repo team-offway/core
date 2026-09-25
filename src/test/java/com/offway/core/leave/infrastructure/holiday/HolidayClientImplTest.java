@@ -26,9 +26,9 @@ import reactor.core.publisher.Mono;
 class HolidayClientImplTest {
 
     private static final ExternalApiProperties WITH_KEY =
-            new ExternalApiProperties(new ExternalApiProperties.DataGoKr("test-key"), null);
+            ExternalApiProperties.ofDataGoKr("test-key");
     private static final ExternalApiProperties NO_KEY =
-            new ExternalApiProperties(new ExternalApiProperties.DataGoKr(null), null);
+            ExternalApiProperties.ofDataGoKr(null);
 
     /** 주어진 응답을 그대로 돌려주는 WebClient 를 만든다. */
     private static WebClient stubbing(ClientResponse response) {

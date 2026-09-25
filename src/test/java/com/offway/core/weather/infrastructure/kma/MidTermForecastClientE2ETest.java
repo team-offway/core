@@ -32,8 +32,7 @@ class MidTermForecastClientE2ETest {
     private static final ZoneId KMA_ZONE = ZoneId.of("Asia/Seoul");
 
     private static MidTermForecastClient client() {
-        ExternalApiProperties props = new ExternalApiProperties(
-                new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
+        ExternalApiProperties props = ExternalApiProperties.ofDataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY"));
         return new MidTermForecastClientImpl(WebClient.builder().build(), props, new NoOpCallRecorder());
     }
 

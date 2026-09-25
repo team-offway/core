@@ -27,7 +27,7 @@ import reactor.core.publisher.Mono;
 class PetTourClientImplTest {
 
     private static final ExternalApiProperties WITH_KEY =
-            new ExternalApiProperties(new ExternalApiProperties.DataGoKr("test-key"), null);
+            ExternalApiProperties.ofDataGoKr("test-key");
 
     private static final String ASKED = "127311";
     private static final Duration WAIT = Duration.ofSeconds(5);

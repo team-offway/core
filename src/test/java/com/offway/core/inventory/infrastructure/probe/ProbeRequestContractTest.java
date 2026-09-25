@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.external.ExternalHealthFilter;
+import com.offway.core.common.external.NoOpCallRecorder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
@@ -39,9 +40,10 @@ class ProbeRequestContractTest {
     private static final String ENCODED_KEY = "Ab3dXy9%2Bz1w%2Fq7%3D%3D";
 
     private static ExternalApiProperties withKey() {
-        return new ExternalApiProperties(
-                new ExternalApiProperties.DataGoKr(SECRET_KEY),
-                new ExternalApiProperties.Tmap(SECRET_KEY));
+        return ExternalApiProperties.builder()
+                .dataGoKr(new ExternalApiProperties.DataGoKr(SECRET_KEY))
+                .tmap(new ExternalApiProperties.Tmap(SECRET_KEY))
+                .build();
     }
 
     /** 프로브가 실제로 낸 요청을 붙잡는 WebClient. 응답은 호출자가 정한다. */
@@ -54,14 +56,18 @@ class ProbeRequestContractTest {
                 .build();
     }
 
+    /**
+     * 이 테스트가 재는 것은 <b>요청의 모양</b>이지 사용량이 아니다 — 세는 동작은
+     * {@code ProbeQuotaRecordingTest} 가 따로 잠근다.
+     */
     private static List<BiFunction<WebClient, ExternalApiProperties, ExternalApiProbe>> factories() {
         return List.of(
-                TourApiProbe::new,
-                TourDataLabProbe::new,
-                HolidayProbe::new,
-                TagoProbe::new,
-                KorailProbe::new,
-                TmapProbe::new);
+                (client, props) -> new TourApiProbe(client, props, new NoOpCallRecorder()),
+                (client, props) -> new TourDataLabProbe(client, props, new NoOpCallRecorder()),
+                (client, props) -> new HolidayProbe(client, props, new NoOpCallRecorder()),
+                (client, props) -> new TagoProbe(client, props, new NoOpCallRecorder()),
+                (client, props) -> new KorailProbe(client, props, new NoOpCallRecorder()),
+                (client, props) -> new TmapProbe(client, props, new NoOpCallRecorder()));
     }
 
     /**
@@ -131,9 +137,10 @@ class ProbeRequestContractTest {
      */
     @Test
     void 모든_프로브가_인증키를_다시_인코딩하지_않는다() {
-        ExternalApiProperties props = new ExternalApiProperties(
-                new ExternalApiProperties.DataGoKr(ENCODED_KEY),
-                new ExternalApiProperties.Tmap(ENCODED_KEY));
+        ExternalApiProperties props = ExternalApiProperties.builder()
+                .dataGoKr(new ExternalApiProperties.DataGoKr(ENCODED_KEY))
+                .tmap(new ExternalApiProperties.Tmap(ENCODED_KEY))
+                .build();
 
         for (BiFunction<WebClient, ExternalApiProperties, ExternalApiProbe> factory : factories()) {
             List<ClientRequest> captured = new ArrayList<>();

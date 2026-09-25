@@ -56,8 +56,7 @@ class PetTourClientE2ETest {
     private static final int MIN_EXPECTED = 5_000;
 
     private static PetTourClientImpl client() {
-        ExternalApiProperties props = new ExternalApiProperties(
-                new DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), new Tmap(null));
+        ExternalApiProperties props = ExternalApiProperties.ofDataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY"));
         return new PetTourClientImpl(WebClient.builder().build(), props, new NoOpCallRecorder());
     }
 

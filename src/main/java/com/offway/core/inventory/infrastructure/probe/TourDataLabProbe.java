@@ -1,7 +1,10 @@
 package com.offway.core.inventory.infrastructure.probe;
 
 import com.offway.core.common.config.ExternalApiProperties;
+import com.offway.core.common.external.ExternalApi;
+import com.offway.core.common.external.ExternalApiCallRecorder;
 import java.net.URI;
+import java.util.Optional;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -13,8 +16,14 @@ class TourDataLabProbe extends AbstractDataGoKrProbe {
     private static final String BASE =
             "https://apis.data.go.kr/B551011/DataLabService/metcoRegnVisitrDDList";
 
-    TourDataLabProbe(WebClient externalWebClient, ExternalApiProperties props) {
-        super(externalWebClient, props);
+    TourDataLabProbe(WebClient externalWebClient, ExternalApiProperties props, ExternalApiCallRecorder callRecorder) {
+        super(externalWebClient, props, callRecorder);
+    }
+
+    /** 관광빅데이터 방문자수다. 역시 한도 1,000 이라 비중이 크다. */
+    @Override
+    public Optional<ExternalApi> quota() {
+        return Optional.of(ExternalApi.TOUR_VISITOR);
     }
 
     @Override

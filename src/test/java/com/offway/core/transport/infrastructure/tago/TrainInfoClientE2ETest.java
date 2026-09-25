@@ -24,8 +24,7 @@ class TrainInfoClientE2ETest {
 
     @Test
     void 서울에서_부산_가장_빠른_열차를_실제로_조회한다() {
-        ExternalApiProperties props = new ExternalApiProperties(
-                new ExternalApiProperties.DataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY")), null);
+        ExternalApiProperties props = ExternalApiProperties.ofDataGoKr(System.getenv("DATA_GO_KR_SERVICE_KEY"));
         TrainInfoClient client = new TrainInfoClientImpl(WebClient.builder().build(), props, new NoOpCallRecorder());
 
         TrainAvailability result = client.fastestTrain(SEOUL, BUSAN, LocalDate.now().plusDays(1));

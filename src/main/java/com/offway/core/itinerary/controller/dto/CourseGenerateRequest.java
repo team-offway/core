@@ -3,6 +3,8 @@ package com.offway.core.itinerary.controller.dto;
 import com.offway.core.itinerary.domain.Course;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.itinerary.service.dto.GenerateCourse;
+import com.offway.core.transport.domain.OriginCode;
+import com.offway.core.transport.service.dto.ResolvedOrigin;
 import com.offway.core.leave.domain.StartDayLeave;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.domain.TransportMode;
@@ -13,6 +15,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 
 /**
@@ -22,8 +25,10 @@ import java.time.LocalDate;
  * @param travelDays 여행 일수(1~3, 최대 2박3일)
  * @param density 일정 밀도(PACKED 빡빡 / RELAXED 널널)
  * @param transport 이동수단(CAR·TRANSIT)
- * @param originLat 출발지 위도(동선 정렬 기준)
- * @param originLng 출발지 경도
+ * @param originCode 출발지 코드(#590) — `GET /api/v1/origins` 가 준 값. 있으면 좌표보다 우선한다
+ * @param originName 출발지 이름 — 주소·장소를 골랐을 때만. 역·터미널은 서버가 안다
+ * @param originLat 출발지 위도(동선 정렬 기준). <b>구버전 앱용</b> — originCode 가 없을 때만 쓴다
+ * @param originLng 출발지 경도. originLat 와 짝
  * @param travelDate 가는 날(정책 운영기간 매칭)
  * @param startDayLeave 첫날에 쓴 연차 (선택, 기본 FULL_DAY). 출발 시각이 여기서 도출돼 첫날 일정을 자른다(#138)
  */
@@ -33,10 +38,31 @@ public record CourseGenerateRequest(
                 @NotNull @Min(1) @Max(Course.MAX_TRAVEL_DAYS) Integer travelDays,
         @Schema(example = "PACKED", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull Density density,
         @Schema(example = "CAR", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull TransportMode transport,
-        @Schema(example = "37.49", requiredMode = Schema.RequiredMode.REQUIRED)
-                @NotNull @DecimalMin("-90") @DecimalMax("90") Double originLat,
-        @Schema(example = "127.02", requiredMode = Schema.RequiredMode.REQUIRED)
-                @NotNull @DecimalMin("-180") @DecimalMax("180") Double originLng,
+        @Schema(
+                        description = """
+                                출발지 코드 — `GET /api/v1/origins` 가 준 `code` 를 그대로 넣는다(#590).
+
+                                앱이 GPS 수집을 그만두면서 사용자가 출발지를 직접 고른다. 이 값이 있으면
+                                `originLat`·`originLng` 는 무시된다.
+
+                                **못 풀면 400(TRANSPORT-001)이다** — 조용히 기본 출발지로 바꾸면 고른 곳과
+                                다른 데서 출발하는 코스가 나오고, 틀렸다는 사실이 아무 흔적도 남지 않는다.""",
+                        example = "TRAIN:NAT010000",
+                        nullable = true)
+                @Size(max = OriginCode.MAX_LENGTH) String originCode,
+        @Schema(
+                        description = """
+                                출발지 이름 — `kind` 가 `ADDRESS` 인 제안을 골랐을 때만 보낸다.
+
+                                역·터미널은 서버가 이름을 알고 있어 무시된다. 주소·장소는 우리 이름이 없어,
+                                카드의 "어디에서 출발" 을 그릴 값이 여기서 온다.""",
+                        example = "분당구청",
+                        nullable = true)
+                @Size(max = 64) String originName,
+        @Schema(example = "37.49", nullable = true)
+                @DecimalMin("-90") @DecimalMax("90") Double originLat,
+        @Schema(example = "127.02", nullable = true)
+                @DecimalMin("-180") @DecimalMax("180") Double originLng,
         @Schema(example = "2026-05-01", requiredMode = Schema.RequiredMode.REQUIRED) @NotNull LocalDate travelDate,
         @Schema(description = """
                 이 수단으로 코스를 짠다(#453). 카드에서 수단 칩을 눌렀을 때만 보낸다.
@@ -55,7 +81,7 @@ public record CourseGenerateRequest(
                         nullable = true)
                 StartDayLeave startDayLeave) {
 
-    public GenerateCourse toCommand() {
+    public GenerateCourse toCommand(ResolvedOrigin origin) {
         // 씨앗과 제외 목록을 안 적으면 그대로 첫 생성이다 — seed 는 FIRST_SEED(0), 제외는 빈 집합.
         return GenerateCourse.builder()
                 .regionId(regionId)
@@ -63,8 +89,10 @@ public record CourseGenerateRequest(
                 .density(density)
                 .transport(transport)
                 .transitMode(transitMode)
-                .originLat(originLat)
-                .originLng(originLng)
+                // 출발지는 **컨트롤러가 이미 풀어 준 값**을 쓴다. originCode·좌표·기본값 중 어느
+                // 것이었는지는 여기서 알 필요가 없다 — 우선순위는 OriginSuggestService 가 소유한다.
+                .originLat(origin.coordinate().lat())
+                .originLng(origin.coordinate().lng())
                 .travelDate(travelDate)
                 .startDayLeave(startDayLeave)
                 .build();
