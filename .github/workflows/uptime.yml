@@ -87,10 +87,6 @@ jobs:
           WAS: ${{ steps.previous.outputs.was }}
         run: |
           set -uo pipefail
-          if [ -z "${WEBHOOK:-}" ]; then
-            echo "DISCORD_WEBHOOK_URL 이 없어 알림을 건너뜁니다."
-            exit 0
-          fi
           # 죽었는데 직전에도 죽어 있었으면(failure) 다시 안 알린다. 살아났는데 직전에도 살아 있었으면
           # 역시 안 알린다. 첫 실행(unknown)은 살아 있으면 조용히 넘어간다.
           message=""
@@ -101,6 +97,13 @@ jobs:
           fi
           if [ -z "$message" ]; then
             echo "상태 그대로($STATE) — 알리지 않습니다."
+            exit 0
+          fi
+          # **웹훅이 없는 것도 "전달 못 함" 이다.** 여기서 그냥 끝내면 결론이 새 상태로 남아, 나중에 웹훅을
+          # 넣어도 그 전환은 다시 안 알려진다. 전달 실패와 같이 다뤄 다음 실행이 다시 시도하게 한다.
+          if [ -z "${WEBHOOK:-}" ]; then
+            echo "::warning::DISCORD_WEBHOOK_URL 이 없어 알리지 못했습니다 — 설정되면 다음 실행이 보냅니다"
+            echo "delivered=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # 웹훅 주소는 절대 출력하지 않는다. jq -n 으로 본문을 만들어 따옴표·줄바꿈을 안전하게 싣는다.
