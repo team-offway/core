@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -46,6 +47,8 @@ class TmapClientImpl implements TmapClient {
     private static final int MIN_OPTIMIZE_POINTS = 3;
     private static final int MAX_OPTIMIZE_POINTS = 12;
     private static final DateTimeFormatter START_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
+    /** 보조 키가 응답은 줬는데 쓸 수 없을 때의 알림 사유 — 응답 원문은 싣지 않는다. */
+    private static final String FALLBACK_UNUSABLE = "보조 키 응답 해석 실패";
 
     private final WebClient webClient;
     private final ExternalApiProperties props;
@@ -137,24 +140,38 @@ class TmapClientImpl implements TmapClient {
      * <p>넣으면 주 키 사용량이 부풀어 보인다. 그 집계는 "우리가 이 API 를 얼마나 쓰나" 를 말하는
      * 자료이고 #402 심사 자료로도 나가므로, 다른 키로 나간 호출을 거기 섞지 않는다. 대신 알림으로 남긴다.
      *
-     * @return 보조 키가 받아 준 응답. 보조 키가 없거나 그것도 실패하면 빈 값
+     * <h2>해석까지 끝나야 "받아 줬다" 로 본다</h2>
+     *
+     * <p>응답이 왔다는 것만으로 전환 알림("화면은 정상입니다")을 보내면, 그 응답을 못 쓰는 경우에
+     * 알림이 거짓말을 한다 — 사용자는 폴백 결과를 보는데 운영 채널에는 정상이라고 남는다. 그래서 파서를
+     * 받아 <b>쓸 수 있는 결과가 나온 뒤에</b> 알린다.
+     *
+     * @param parser 보조 키 응답 해석. 던지지 않고 빈 값으로 실패를 알린다
+     * @return 보조 키 응답을 해석한 결과. 보조 키가 없거나, 실패하거나, 해석이 안 되면 빈 값
      */
-    private Optional<String> retryWithFallback(String url, String body, ExternalApi api, Exception primaryFailure) {
+    private <T> Optional<T> retryWithFallback(String url, String body, ExternalApi api, Exception primaryFailure,
+            Function<String, Optional<T>> parser) {
         String cause = RootCause.label(primaryFailure);
         String next = otherKey(api);
         if (next == null || next.isBlank()) {
             fallbackKeyAlert.noFallbackConfigured(api, cause);
             return Optional.empty();
         }
+        String response;
         try {
-            String response = post(url, body, next);
-            fallbackKeyAlert.switchedToFallback(api, cause);
-            return Optional.ofNullable(response);
+            response = post(url, body, next);
         } catch (Exception e) {
             fallbackKeyAlert.bothFailed(api, RootCause.label(e));
             log.warn("TMAP 보조 키도 실패했습니다 api={} cause={}", api, RootCause.of(e));
             return Optional.empty();
         }
+        Optional<T> parsed = response == null ? Optional.empty() : parser.apply(response);
+        if (parsed.isEmpty()) {
+            fallbackKeyAlert.bothFailed(api, FALLBACK_UNUSABLE);
+            return Optional.empty();
+        }
+        fallbackKeyAlert.switchedToFallback(api, cause);
+        return parsed;
     }
 
     @Override
@@ -187,8 +204,7 @@ class TmapClientImpl implements TmapClient {
                 // 물어도 없다 — 재시도해 봐야 보조 키 한도만 태우고 답은 같다.
                 return new CarRouteResult.Rejected(rejected.get());
             }
-            return retryWithFallback(ROUTES_URL, body, ExternalApi.TMAP_ROUTE, e)
-                    .flatMap(this::parseQuietly)
+            return retryWithFallback(ROUTES_URL, body, ExternalApi.TMAP_ROUTE, e, this::parseQuietly)
                     .<CarRouteResult>map(CarRouteResult.Found::new)
                     .orElseGet(CarRouteResult.Unavailable::instance);
         }
@@ -284,8 +300,13 @@ class TmapClientImpl implements TmapClient {
             // 위 호출이 실패하고 상위가 직선거리 정렬로 떨어진다 — 그런데 응답은 200 이라 순서가 틀린 줄
             // 화면에서 알 수 없다. 심사처럼 다시 할 수 없는 자리에서는 그 조용함이 곧 결과가 된다.
             log.warn("TMAP 경유지 최적화 실패 cause={}", RootCause.of(e));
-            return retryWithFallback(OPTIMIZE_URL, body, ExternalApi.TMAP_WAYPOINT, e)
-                    .flatMap(response -> parseOrderQuietly(response, points.size()));
+            // **좌표 탓이면 보조 키로 다시 묻지 않는다** — carRoute 와 같은 규칙이다. 어느 키로 물어도 답이
+            // 같고, 이쪽은 한도가 50 이라 한 번이 더 비싸다. 상위가 직선거리 정렬로 떨어진다.
+            if (rejectionOf(e).isPresent()) {
+                return Optional.empty();
+            }
+            return retryWithFallback(OPTIMIZE_URL, body, ExternalApi.TMAP_WAYPOINT, e,
+                    response -> parseOrderQuietly(response, points.size()));
         }
     }
 

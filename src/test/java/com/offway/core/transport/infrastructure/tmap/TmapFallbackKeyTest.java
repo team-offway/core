@@ -47,6 +47,19 @@ class TmapFallbackKeyTest {
               {"type":"Feature","properties":{"totalDistance":12000,"totalTime":1500}}
             ]}""";
 
+    /**
+     * 경유지 최적화가 받아 준 모양 — 점 넷(출발·경유 둘·도착)이면 경유지 둘이 {@code B1}·{@code B2} 로 온다.
+     *
+     * <p>예전 픽스처({@code {"properties":{"totalTime":1}}})는 <b>파서를 통과하지 못하는 모양</b>이었다.
+     * 그런데도 "보조 키로 넘어갔습니다" 를 기대하고 있었다 — 쓸 수 없는 응답에 정상 알림을 내던 버그를
+     * 테스트가 그대로 굳히고 있던 셈이다.
+     */
+    private static final String OPTIMIZE_OK = """
+            {"type":"FeatureCollection","features":[
+              {"type":"Feature","geometry":{"type":"Point"},"properties":{"pointType":"B1","viaPointId":"2"}},
+              {"type":"Feature","geometry":{"type":"Point"},"properties":{"pointType":"B2","viaPointId":"1"}}
+            ]}""";
+
     /** 나간 요청의 appKey 를 순서대로 붙잡고, 준비된 응답을 차례로 돌려준다. */
     private static final class Calls {
 
@@ -125,7 +138,7 @@ class TmapFallbackKeyTest {
 
     @Test
     void 경유지_최적화가_실패하면_보조_키로_다시_묻는다() {
-        Calls calls = new Calls(failure(), json("{\"properties\":{\"totalTime\":1}}"));
+        Calls calls = new Calls(failure(), json(OPTIMIZE_OK));
         List<String> alerts = new ArrayList<>();
 
         client(calls, keys(PRIMARY, FALLBACK), new CountingRecorder(), alerts)
@@ -143,7 +156,7 @@ class TmapFallbackKeyTest {
      */
     @Test
     void 보조_키_호출은_한도_집계에_넣지_않는다() {
-        Calls calls = new Calls(failure(), json("{\"properties\":{\"totalTime\":1}}"));
+        Calls calls = new Calls(failure(), json(OPTIMIZE_OK));
         CountingRecorder recorder = new CountingRecorder();
 
         client(calls, keys(PRIMARY, FALLBACK), recorder, new ArrayList<>())
@@ -234,7 +247,7 @@ class TmapFallbackKeyTest {
         ExternalKeyState state = new ExternalKeyState();
         state.markPrimaryExhausted(ExternalApi.TMAP_WAYPOINT);
 
-        Calls calls = new Calls(json("{\"properties\":{\"totalTime\":1}}"));
+        Calls calls = new Calls(json(OPTIMIZE_OK));
         client(calls, keys(PRIMARY, FALLBACK), new CountingRecorder(), new ArrayList<>(), state)
                 .optimizeCarOrder(fourPoints());
 
@@ -248,7 +261,7 @@ class TmapFallbackKeyTest {
         state.markPrimaryExhausted(ExternalApi.TMAP_WAYPOINT);
         CountingRecorder recorder = new CountingRecorder();
 
-        client(new Calls(json("{\"properties\":{\"totalTime\":1}}")),
+        client(new Calls(json(OPTIMIZE_OK)),
                 keys(PRIMARY, FALLBACK), recorder, new ArrayList<>(), state)
                 .optimizeCarOrder(fourPoints());
 
@@ -266,11 +279,56 @@ class TmapFallbackKeyTest {
     void 사백이십구를_받아도_하루치_기억을_남기지_않는다() {
         ExternalKeyState state = new ExternalKeyState();
 
-        client(new Calls(failure(), json("{\"properties\":{\"totalTime\":1}}")),
+        client(new Calls(failure(), json(OPTIMIZE_OK)),
                 keys(PRIMARY, FALLBACK), new CountingRecorder(), new ArrayList<>(), state)
                 .optimizeCarOrder(fourPoints());
 
         assertFalse(state.usingFallback(ExternalApi.TMAP_WAYPOINT),
                 "429 로 하루를 고정하면 일시적 제한 한 번에 보조 키를 다 태운다");
+    }
+
+    /**
+     * <b>보조 키 응답을 쓸 수 없으면 "전환" 이 아니라 "둘 다 실패" 로 알린다.</b>
+     *
+     * <p>응답이 왔다는 것만 보고 "화면은 정상입니다" 를 보내면, 사용자는 직선거리 정렬을 보는데 운영 채널에는
+     * 정상이라고 남는다 — 알림이 가장 믿기 어려운 순간에 거짓말을 한다.
+     */
+    @Test
+    void 보조_키_응답을_해석하지_못하면_전환이_아니라_실패로_알린다() {
+        Calls calls = new Calls(failure(), json("{\"unexpected\":true}"));
+        List<String> alerts = new ArrayList<>();
+
+        Optional<List<Integer>> order = client(calls, keys(PRIMARY, FALLBACK), new CountingRecorder(), alerts)
+                .optimizeCarOrder(fourPoints());
+
+        assertTrue(order.isEmpty());
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키·보조 키 모두 실패")), alerts.toString());
+        assertTrue(alerts.stream().noneMatch(a -> a.contains("주 키 → 보조 키")), "쓸 수 없는 응답에 정상 알림을 냈다: " + alerts);
+    }
+
+    @Test
+    void 보조_키가_받아_주면_순서를_돌려주고_전환을_알린다() {
+        Calls calls = new Calls(failure(), json(OPTIMIZE_OK));
+        List<String> alerts = new ArrayList<>();
+
+        Optional<List<Integer>> order = client(calls, keys(PRIMARY, FALLBACK), new CountingRecorder(), alerts)
+                .optimizeCarOrder(fourPoints());
+
+        assertEquals(Optional.of(List.of(0, 2, 1, 3)), order);
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키 → 보조 키")), alerts.toString());
+    }
+
+    /** 경유지 최적화도 경로 탐색과 같은 규칙이다 — 한도 50 짜리라 한 번이 더 비싸다. */
+    @Test
+    void 경유지_최적화도_좌표_거절이면_보조_키를_태우지_않는다() {
+        Calls calls = new Calls(rejected());
+        List<String> alerts = new ArrayList<>();
+
+        Optional<List<Integer>> order = client(calls, keys(PRIMARY, FALLBACK), new CountingRecorder(), alerts)
+                .optimizeCarOrder(fourPoints());
+
+        assertTrue(order.isEmpty(), "상위가 직선거리 정렬로 떨어진다");
+        assertEquals(List.of(PRIMARY), calls.keys, "좌표 거절에는 보조 키를 쓰지 않는다");
+        assertTrue(alerts.isEmpty(), "알릴 일이 아니다 — 한도 문제가 아니라 그 지점의 문제다");
     }
 }
