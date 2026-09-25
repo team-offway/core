@@ -10,6 +10,7 @@ import com.offway.core.common.notification.Notifier;
 import com.offway.core.user.domain.AuthProvider;
 import com.offway.core.user.infrastructure.kakao.StubKakaoProfileClient;
 import com.offway.core.user.infrastructure.social.StubSocialIdentityVerifier;
+import com.offway.core.user.repository.UserRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -93,6 +94,9 @@ class SignupAlertIntegrationTest {
     @Autowired
     private CapturingNotifier notifier;
 
+    @Autowired
+    private UserRepository userRepository;
+
     private static String uniqueProviderUserId() {
         return "sub-" + UUID.randomUUID();
     }
@@ -163,14 +167,20 @@ class SignupAlertIntegrationTest {
         assertFalse(message.contains("@"), "이메일 흔적이 남았다: " + message);
     }
 
-    /** 현재 인원을 함께 싣는다 — "몇 명째인가" 가 이 한 줄의 값어치를 만든다. */
+    /**
+     * 현재 인원을 함께 싣는다 — "몇 명째인가" 가 이 한 줄의 값어치를 만든다.
+     *
+     * <p><b>숫자까지 맞는지 본다.</b> "현재 N명" 모양만 보면 {@code 현재 0명} 이나 가입 전 인원을 세는
+     * 회귀가 그대로 통과한다. 커밋 뒤에 세므로 방금 가입한 사람까지 들어가야 한다.
+     */
     @Test
-    void 알림에_현재_인원이_실린다() throws Exception {
+    void 알림에_가입한_사람까지_센_인원이_실린다() throws Exception {
         notifier.drain();
+        long before = userRepository.count();
 
         login(AuthProvider.APPLE, uniqueProviderUserId(), "세빈", null);
 
         String message = notifier.drain().get(0);
-        assertTrue(message.matches(".*현재 \\d+명.*"), "현재 인원이 없다: " + message);
+        assertTrue(message.contains("현재 " + (before + 1) + "명"), "인원이 가입 전 수 + 1 이 아니다: " + message);
     }
 }
