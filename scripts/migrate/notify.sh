@@ -115,7 +115,19 @@ esac
 TMP=$(mktemp)
 jq -n --arg content "$TEXT" '{content: $content}' > "$TMP"
 
-code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+# **HTTPS 로만 보낸다.** 웹훅 주소는 그 자체가 게시 권한이라, http 로 나가면 경로 위의 누구든 주소를
+# 주워 우리 채널에 아무 글이나 올릴 수 있다. 시크릿을 잘못 넣은 경우를 여기서 거른다 — 알림 실패가
+# 이관을 멈추지 않는 규칙은 그대로다.
+case "$WEBHOOK" in
+  https://*) ;;
+  *)
+    rm -f "$TMP"
+    echo "::warning title=이관 알림 실패::웹훅 주소가 https 가 아니어서 보내지 않았습니다"
+    exit 0
+    ;;
+esac
+
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --proto '=https' \
   -H 'Content-Type: application/json' \
   -d "@$TMP" "$WEBHOOK" || echo "000")
 rm -f "$TMP"
