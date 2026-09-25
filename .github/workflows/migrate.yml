@@ -15,7 +15,12 @@ name: Migrate
 #
 # 새 서버 정보는 전부 `NEW_` 접두어로 따로 넣는다. 그래야 `deploy.yml` 이 **이사 내내 옛 서버를
 # 가리킨 채** 살아 있다 — 운영은 그대로 돌고, 이사는 옆에서 몇 번이고 돌려 본다. 시크릿 교체는
-# DNS 를 넘기기로 정한 뒤 마지막에 한 번만 한다.
+# **DNS 가 새 서버로 넘어온 것을 확인한 뒤** `stage=caddy` 끝에서 한 번만 한다(promote).
+#
+# 교체에는 `MIGRATE_PAT` 이 필요하다 — 기본 토큰은 시크릿을 쓸 수 없다. **이관 기간에만** 둔다:
+#   이 저장소 한정 fine-grained 토큰, 권한은 Secrets 읽기·쓰기 하나, 만료 7일.
+#   옛 값은 `OLD_*` 로 백업해 두고, retire 가 옛 서버를 지운 뒤 `OLD_*` 와 이 시크릿을 함께 지운다.
+#   토큰 자체는 사람이 GitHub 설정에서 폐기한다.
 #
 #   NEW_EC2_HOST · NEW_EC2_USER · NEW_EC2_SSH_KEY · NEW_EC2_SECURITY_GROUP_ID
 #   NEW_AWS_ACCESS_KEY_ID · NEW_AWS_SECRET_ACCESS_KEY · NEW_AWS_REGION(선택)
@@ -53,12 +58,11 @@ name: Migrate
 #
 # 정직하게 적어 둔다. 여기까지가 "딸깍" 이다.
 #
-#   EC2 인스턴스 생성 — 별개 판단이다(Terraform 도입은 이 이슈 범위 밖)
-#   GitHub Secrets 교체 — 워크플로가 자기 시크릿을 바꾸는 것은 위험하고 되돌리기 어렵다
 #   DNS 전환      — 되돌릴 자리를 사람이 쥐고 있어야 한다. 유일한 비가역 지점이다
 #
 # 그래서 이사 날 사람 몫은 넷이다:
-#   ① 인스턴스 만들기 → ② prepare·data·app·verify 돌리기 → ③ DNS 넘기기 → ④ caddy 돌리기
+#   ① MIGRATE_PAT 넣기 → ② oneclick(live_keys·freeze 켜고) → ③ 가비아 A 레코드 넘기기
+#   → ④ caddy 돌리기(인증서 + CD 시크릿 교체). 안정되면 retire, 그리고 토큰 폐기.
 on:
   workflow_dispatch:
     inputs:
@@ -73,7 +77,7 @@ on:
           - app       # env.prod·이미지 빌드·기동·8080 스모크
           - verify    # 스모크 + 배치가 발사됐는지 확인
           - all       # prepare → data → app → verify
-          - caddy     # **DNS 를 넘긴 뒤에만.** 아래 주석 참고
+          - caddy     # **DNS 를 넘긴 뒤에만.** 인증서 + CD 시크릿 교체(MIGRATE_PAT 필요)
           - oneclick  # 인스턴스 생성 → all → IP 전환 → caddy. 시크릿을 새로 안 넣는다
           - retire    # **이사가 끝난 뒤에만.** 옛 계정의 인스턴스·EIP 를 치운다
       confirm:
@@ -225,7 +229,7 @@ jobs:
         env:
           CONFIRM: ${{ inputs.confirm }}
           NEW_HOST: ${{ secrets.NEW_EC2_HOST }}
-          OLD_HOST: ${{ secrets.EC2_HOST }}
+          OLD_HOST: ${{ secrets.OLD_EC2_HOST || secrets.EC2_HOST }}
         run: |
           set -uo pipefail
           trim() { printf '%s' "$1" | tr -d '\r\n '; }
@@ -380,10 +384,10 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.NEW_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NEW_AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.NEW_AWS_REGION || 'ap-northeast-1' }}
-          OLD_AK: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          OLD_SK: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          OLD_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-          OLD_USER: ${{ secrets.EC2_USER }}
+          OLD_AK: ${{ secrets.OLD_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+          OLD_SK: ${{ secrets.OLD_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+          OLD_SSH_KEY: ${{ secrets.OLD_EC2_SSH_KEY || secrets.EC2_SSH_KEY }}
+          OLD_USER: ${{ secrets.OLD_EC2_USER || secrets.EC2_USER }}
           # 운영과 같은 타입이 기본이다. 바꿀 일이 생기면 레포 변수로 덮는다 — 시크릿이 아니다
           # (비밀이 아닌 값을 시크릿에 넣으면 무엇이 비밀인지가 흐려진다).
           INSTANCE_TYPE: ${{ vars.NEW_INSTANCE_TYPE || 't4g.small' }}
@@ -615,12 +619,12 @@ jobs:
         id: open-old
         if: steps.plan.outputs.prepare == 'true' || steps.plan.outputs.data == 'true'
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.OLD_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OLD_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ap-northeast-1
         run: |
           aws ec2 authorize-security-group-ingress \
-            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --group-id "${{ secrets.OLD_EC2_SECURITY_GROUP_ID || secrets.EC2_SECURITY_GROUP_ID }}" \
             --protocol tcp --port 22 --cidr "${{ steps.ip.outputs.runner_ip }}/32"
 
       # **oneclick 에서도 돈다.** 예전에는 건너뛰었는데, 그때는 새 인스턴스가 옛 것과 **같은 계정의
@@ -663,12 +667,12 @@ jobs:
         if: steps.plan.outputs.retire != 'true'
         env:
           NEW_HOST_KEY_FP: ${{ secrets.NEW_EC2_HOST_KEY_FP }}
-          OLD_HOST_KEY_FP: ${{ secrets.EC2_HOST_KEY_FP }}
+          OLD_HOST_KEY_FP: ${{ secrets.OLD_EC2_HOST_KEY_FP || secrets.EC2_HOST_KEY_FP }}
           # oneclick 은 방금 만든 인스턴스를, 그 밖에는 시크릿을 쓴다. 빈 값이면 아래에서 멈춘다.
           NEW_HOST: ${{ steps.create.outputs.host || steps.find.outputs.host || secrets.NEW_EC2_HOST }}
           NEW_USER: ${{ steps.create.outputs.user || steps.find.outputs.user || secrets.NEW_EC2_USER }}
-          OLD_HOST: ${{ secrets.EC2_HOST }}
-          OLD_USER: ${{ secrets.EC2_USER }}
+          OLD_HOST: ${{ secrets.OLD_EC2_HOST || secrets.EC2_HOST }}
+          OLD_USER: ${{ secrets.OLD_EC2_USER || secrets.EC2_USER }}
         run: |
           set -uo pipefail
           mkdir -p ~/.ssh
@@ -742,7 +746,7 @@ jobs:
           echo "newsrv → $NEW_USER@$NEW_HOST"
 
           if [ "${{ steps.plan.outputs.prepare }}" = "true" ] || [ "${{ steps.plan.outputs.data }}" = "true" ]; then
-            echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/old_key
+            echo "${{ secrets.OLD_EC2_SSH_KEY || secrets.EC2_SSH_KEY }}" > ~/.ssh/old_key
             chmod 600 ~/.ssh/old_key
             trust_host "$OLD_HOST" "$OLD_HOST_KEY_FP" || exit 1
             alias_for oldsrv "$OLD_HOST" "$OLD_USER" ~/.ssh/old_key
@@ -1411,7 +1415,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.NEW_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NEW_AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.NEW_AWS_REGION || 'ap-northeast-1' }}
-          OLD_HOST: ${{ secrets.EC2_HOST }}
+          OLD_HOST: ${{ secrets.OLD_EC2_HOST || secrets.EC2_HOST }}
           NEW_ID: ${{ steps.create.outputs.id }}
           NEW_HOST: ${{ steps.create.outputs.host }}
         run: |
@@ -1590,6 +1594,123 @@ jobs:
               "DNS 가 아직 새 서버를 안 가리킵니다 — 인증서는 준비됐지만 트래픽은 넘어오지 않았습니다"
           fi
 
+      # ── ⑥ promote — CD 가 새 서버를 가리키게 시크릿을 바꾼다 ──────────────────────
+      #
+      # 이사가 끝나도 `deploy.yml` 은 여전히 `EC2_HOST`·`AWS_*` 를 읽는다. 이걸 안 바꾸면 **다음 배포가
+      # 옛 서버로 간다** — 트래픽은 새 서버에 있는데 코드는 옛 서버에 깔리는, 가장 늦게 알아채는 고장이다.
+      #
+      # 워크플로의 기본 토큰은 시크릿을 쓸 수 없어서 **이관 기간에만 `MIGRATE_PAT`** 을 둔다
+      # (이 저장소 한정 fine-grained, Secrets 읽기·쓰기). retire 가 끝나면 이 시크릿을 지우고,
+      # 토큰 자체는 사람이 GitHub 설정에서 폐기한다.
+      #
+      # **세 가지를 먼저 확인한다. 하나라도 아니면 아무것도 바꾸지 않는다.**
+      #   ① 새 서버 443 에서 인증서를 읽었다 — 바로 앞 스텝이 성공했다
+      #   ② 도메인이 새 서버를 가리킨다 — 트래픽이 넘어오기 전에 CD 를 옮기면 배포가 사용자에게 안 닿는다
+      #   ③ deploy.yml 의 리전(ap-northeast-1)과 새 계정 리전이 같다 — 다르면 CD 의 보안그룹 조작이 실패한다
+      #
+      # **옛 값은 `OLD_*` 로 먼저 백업한다.** 시크릿은 쓰고 나면 다시 읽을 수 없어서, 백업 없이 덮으면
+      # 되돌릴 방법이 없다. retire·재실행은 `OLD_*` 를 먼저 읽으므로 교체 뒤에도 옛 서버를 정확히 가리킨다.
+      # **백업은 한 번만 한다.** 이 단계를 다시 누르면 그땐 `EC2_HOST` 가 이미 새 값이라, 또 백업하면
+      # 옛 값이 새 값으로 덮여 되돌릴 자리가 사라진다.
+      - name: promote · CD 시크릿을 새 서버로 바꾼다
+        id: promote
+        if: success() && steps.plan.outputs.caddy == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MIGRATE_PAT }}
+          NEW_HOST: ${{ steps.switch.outputs.eip || steps.create.outputs.host || steps.find.outputs.host || secrets.NEW_EC2_HOST }}
+          NEW_SG: ${{ steps.create.outputs.sg || steps.find.outputs.sg || secrets.NEW_EC2_SECURITY_GROUP_ID }}
+          NEW_USER: ${{ steps.create.outputs.user || steps.find.outputs.user || secrets.NEW_EC2_USER || 'ubuntu' }}
+          NEW_SSH_KEY: ${{ secrets.NEW_EC2_SSH_KEY }}
+          NEW_AK: ${{ secrets.NEW_AWS_ACCESS_KEY_ID }}
+          NEW_SK: ${{ secrets.NEW_AWS_SECRET_ACCESS_KEY }}
+          NEW_REGION: ${{ secrets.NEW_AWS_REGION || 'ap-northeast-1' }}
+          NEW_DB_PASSWORD: ${{ secrets.NEW_DB_PASSWORD }}
+          NEW_DB_URL: ${{ secrets.NEW_DB_URL }}
+          CUR_HOST: ${{ secrets.EC2_HOST }}
+          CUR_USER: ${{ secrets.EC2_USER }}
+          CUR_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          CUR_SG: ${{ secrets.EC2_SECURITY_GROUP_ID }}
+          CUR_AK: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          CUR_SK: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          CUR_DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          CUR_DB_URL: ${{ secrets.DB_URL }}
+        run: |
+          set -uo pipefail
+          NO="${{ steps.plan.outputs.no_caddy }}"
+          say() { bash scripts/migrate/notify.sh sub "$NO" "$1"; }
+          trim() { printf '%s' "$1" | tr -d '\r\n '; }
+          DOMAIN=api.offway.cloud
+          CD_REGION=ap-northeast-1
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::MIGRATE_PAT 이 없어 CD 시크릿을 바꾸지 않았습니다 — 넣고 stage=caddy 를 다시 누르세요"
+            say "CD 시크릿 교체 건너뜀 — MIGRATE_PAT 없음. **다음 배포는 아직 옛 서버로 갑니다**"
+            echo "promoted=skipped" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ② 트래픽이 넘어오기 전이면 바꾸지 않는다. 실패가 아니라 "아직" 이다 — DNS 반영 뒤 다시 누른다.
+          RESOLVED=$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1)
+          if [ "$RESOLVED" != "$(trim "$NEW_HOST")" ]; then
+            echo "::warning::DNS 가 아직 $RESOLVED 입니다 — 새 서버($NEW_HOST)로 넘어온 뒤 stage=caddy 를 다시 누르세요"
+            say "CD 시크릿 교체 보류 — DNS 가 아직 새 서버를 안 가리킵니다"
+            echo "promoted=waiting" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ③ CD 는 리전을 고정해 두고 보안그룹을 연다. 새 계정 리전이 다르면 교체 직후 첫 배포가 깨진다.
+          if [ "$NEW_REGION" != "$CD_REGION" ]; then
+            echo "::error::새 계정 리전($NEW_REGION)이 deploy.yml 의 리전($CD_REGION)과 다릅니다 — deploy.yml 부터 고치세요"
+            exit 1
+          fi
+          if [ -z "$NEW_AK" ] || [ -z "$NEW_SK" ] || [ -z "$NEW_SG" ]; then
+            echo "::error::새 계정 자격(NEW_AWS_*) 또는 보안그룹을 몰라 CD 시크릿을 바꿀 수 없습니다"
+            exit 1
+          fi
+
+          put() { printf '%s' "$2" | gh secret set "$1" --repo "$GITHUB_REPOSITORY" >/dev/null; }
+
+          # 이미 새 서버를 가리키면 끝난 회차다 — 백업을 다시 뜨면 옛 값이 사라진다.
+          if [ "$(trim "$CUR_HOST")" = "$(trim "$NEW_HOST")" ]; then
+            echo "CD 시크릿이 이미 새 서버를 가리킵니다 — 건너뜁니다"
+            echo "promoted=already" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 권한부터 확인한다. 토큰이 틀렸는데 백업 몇 개만 쓰고 멈추면 반쯤 바뀐 상태가 남는다.
+          EXISTING=$(gh secret list --repo "$GITHUB_REPOSITORY" --json name --jq '.[].name' 2>&1) \
+            || { echo "::error::MIGRATE_PAT 으로 시크릿 목록을 못 읽었습니다 — 권한(Secrets 읽기·쓰기)을 확인하세요"; exit 1; }
+
+          if printf '%s\n' "$EXISTING" | grep -qx OLD_EC2_HOST; then
+            echo "OLD_* 백업이 이미 있습니다 — 다시 뜨지 않습니다"
+          else
+            put OLD_EC2_HOST "$CUR_HOST"
+            put OLD_EC2_USER "$CUR_USER"
+            put OLD_EC2_SSH_KEY "$CUR_SSH_KEY"
+            put OLD_EC2_SECURITY_GROUP_ID "$CUR_SG"
+            put OLD_AWS_ACCESS_KEY_ID "$CUR_AK"
+            put OLD_AWS_SECRET_ACCESS_KEY "$CUR_SK"
+            put OLD_DB_PASSWORD "$CUR_DB_PASSWORD"
+            put OLD_DB_URL "$CUR_DB_URL"
+            echo "옛 값 8개를 OLD_* 로 백업했습니다"
+          fi
+
+          # 바뀌는 것만 바꾼다. SSH 키는 oneclick 이 옛 키페어를 그대로 가져가므로 대개 그대로다.
+          # DB 비밀번호도 NEW_ 를 넣지 않았으면 옛 mysql.env 를 복사했으므로 같다.
+          CHANGED="EC2_HOST EC2_SECURITY_GROUP_ID AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY EC2_USER"
+          put EC2_HOST "$(trim "$NEW_HOST")"
+          put EC2_SECURITY_GROUP_ID "$NEW_SG"
+          put AWS_ACCESS_KEY_ID "$NEW_AK"
+          put AWS_SECRET_ACCESS_KEY "$NEW_SK"
+          put EC2_USER "$NEW_USER"
+          if [ -n "$NEW_SSH_KEY" ]; then put EC2_SSH_KEY "$NEW_SSH_KEY"; CHANGED="$CHANGED EC2_SSH_KEY"; fi
+          if [ -n "$NEW_DB_PASSWORD" ]; then put DB_PASSWORD "$NEW_DB_PASSWORD"; CHANGED="$CHANGED DB_PASSWORD"; fi
+          if [ -n "$NEW_DB_URL" ]; then put DB_URL "$NEW_DB_URL"; CHANGED="$CHANGED DB_URL"; fi
+
+          echo "CD 시크릿을 새 서버로 바꿨습니다: $CHANGED"
+          say "CD 시크릿 교체 완료 — $(wc -w <<<"$CHANGED" | tr -d ' ')개. 다음 배포부터 새 서버로 갑니다"
+          echo "promoted=done" >> "$GITHUB_OUTPUT"
+
       - name: 알림 · 인증서
         if: success() && steps.plan.outputs.caddy == 'true'
         run: |
@@ -1616,12 +1737,22 @@ jobs:
         id: retire-check
         if: steps.plan.outputs.retire == 'true'
         env:
-          OLD_HOST: ${{ secrets.EC2_HOST }}
+          OLD_HOST: ${{ secrets.OLD_EC2_HOST || secrets.EC2_HOST }}
+          CD_HOST: ${{ secrets.EC2_HOST }}
         run: |
           set -uo pipefail
           NO="${{ steps.plan.outputs.no_retire }}"
           say() { bash scripts/migrate/notify.sh sub "$NO" "$1"; }
           DOMAIN=api.offway.cloud
+
+          # ⓪ **CD 가 아직 옛 서버를 가리키면 지우지 않는다.** 지우는 순간 다음 배포가 사라진 서버에
+          #    붙으려다 깨진다. promote(stage=caddy 끝)가 `EC2_HOST` 를 바꾸고 옛 값을 `OLD_EC2_HOST`
+          #    로 옮겨 두므로, 둘이 같다는 것은 교체가 아직 안 됐다는 뜻이다.
+          if [ "$(printf '%s' "$CD_HOST" | tr -d '\r\n ')" = "$(printf '%s' "$OLD_HOST" | tr -d '\r\n ')" ]; then
+            echo "::error::CD(EC2_HOST)가 아직 옛 서버를 가리킵니다 — MIGRATE_PAT 을 넣고 stage=caddy 로 시크릿부터 바꾸세요"
+            say "중단 — CD 가 아직 옛 서버를 가리킵니다"
+            exit 1
+          fi
 
           RESOLVED=$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1)
           if [ -z "$RESOLVED" ]; then
@@ -1663,10 +1794,10 @@ jobs:
       - name: retire · 옛 인스턴스·EIP 정리
         if: success() && steps.plan.outputs.retire == 'true'
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.OLD_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OLD_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ap-northeast-1
-          OLD_HOST: ${{ secrets.EC2_HOST }}
+          OLD_HOST: ${{ secrets.OLD_EC2_HOST || secrets.EC2_HOST }}
         run: |
           set -uo pipefail
           NO="${{ steps.plan.outputs.no_retire }}"
@@ -1725,6 +1856,34 @@ jobs:
             echo "- **되돌릴 수 없습니다.** 문제가 생기면 새 서버에서 고쳐야 합니다"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # 옛 서버가 사라졌으니 **되돌릴 자리(`OLD_*`)도 의미가 없다.** 남겨 두면 옛 계정 자격이
+      # 저장소에 계속 살아 있다. 그리고 이관용 토큰도 여기서 끝이다 — 시크릿에서 지우고, 토큰 자체는
+      # 사람이 GitHub 설정에서 폐기한다(토큰은 자기 자신을 폐기할 수 없다).
+      - name: retire · 이관용 시크릿 정리
+        if: success() && steps.plan.outputs.retire == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MIGRATE_PAT }}
+        run: |
+          set -uo pipefail
+          NO="${{ steps.plan.outputs.no_retire }}"
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::MIGRATE_PAT 이 없어 OLD_* 백업을 못 지웠습니다 — Settings › Secrets 에서 직접 지우세요"
+            exit 0
+          fi
+          GONE=""
+          for n in OLD_EC2_HOST OLD_EC2_USER OLD_EC2_SSH_KEY OLD_EC2_SECURITY_GROUP_ID \
+                   OLD_AWS_ACCESS_KEY_ID OLD_AWS_SECRET_ACCESS_KEY OLD_DB_PASSWORD OLD_DB_URL MIGRATE_PAT; do
+            gh secret delete "$n" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && GONE="$GONE $n"
+          done
+          echo "지운 시크릿:${GONE:- 없음}"
+          bash scripts/migrate/notify.sh sub "$NO" \
+            "이관용 시크릿 정리 — **MIGRATE_PAT 토큰은 GitHub 설정에서 직접 폐기하세요**"
+          {
+            echo "### 이관용 시크릿 정리"
+            echo "- 지운 것:${GONE:- 없음}"
+            echo "- **남은 일: GitHub › Settings › Developer settings › Personal access tokens 에서 이 토큰을 폐기하세요**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # ── 정리 ──────────────────────────────────────────────────────────────
       #
       # 실패해도 규칙은 반드시 회수한다 — 남으면 22번이 조금씩 영구 개방된다.
@@ -1744,12 +1903,12 @@ jobs:
       - name: 옛 서버 SSH 회수
         if: always() && steps.open-old.outcome == 'success'
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.OLD_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.OLD_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ap-northeast-1
         run: |
           aws ec2 revoke-security-group-ingress \
-            --group-id "${{ secrets.EC2_SECURITY_GROUP_ID }}" \
+            --group-id "${{ secrets.OLD_EC2_SECURITY_GROUP_ID || secrets.EC2_SECURITY_GROUP_ID }}" \
             --protocol tcp --port 22 --cidr "${{ steps.ip.outputs.runner_ip }}/32"
 
       - name: 새 서버 SSH 회수
