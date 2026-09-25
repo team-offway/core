@@ -79,6 +79,7 @@ jobs:
           echo "was=${prev:-unknown}" >> "$GITHUB_OUTPUT"
 
       - name: 상태가 바뀌었으면 알린다
+        id: notify
         env:
           # 앱이 쓰는 채널과 같은 곳으로 보낸다 — "서버가 죽었다" 는 다른 앱 알림과 같은 자리에서 읽혀야 한다.
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
@@ -107,11 +108,38 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
             -H 'Content-Type: application/json' -d @payload.json "$WEBHOOK" || echo 000)
           echo "디스코드 응답 $code"
+          # **2xx 만 전달로 본다.** 연결 실패(000)·429·5xx 를 그냥 넘기면 이 전환은 영영 안 알려진다 —
+          # 다음 실행은 결론만 보고 "이미 알렸다" 로 읽기 때문이다. 아래 마지막 스텝이 이 값을 받아
+          # 결론을 뒤집어, 다음 실행이 같은 알림을 다시 보내게 한다.
+          case "$code" in
+            2??) echo "delivered=true" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::warning::디스코드 전달 실패(HTTP $code) — 다음 실행이 다시 보냅니다"
+              echo "delivered=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
 
-      - name: 죽었으면 이 실행을 실패로 끝낸다
-        if: steps.probe.outputs.state == 'down'
-        # 다음 실행이 "직전에 죽어 있었나" 를 이 결론으로 읽는다. 알림 중복을 막는 상태 저장소가
-        # 따로 없어도 되는 이유다.
+      # 다음 실행이 "직전에 죽어 있었나" 를 이 결론으로 읽는다. 알림 중복을 막는 상태 저장소가
+      # 따로 없어도 되는 이유다.
+      #
+      # **다만 결론은 "알린 상태" 여야 한다.** 전환을 알리지 못했는데 결론만 새 상태로 남기면, 다음
+      # 실행이 "이미 알렸다" 로 읽어 그 전환이 조용히 사라진다. 그래서 전달이 실패하면 결론을 **직전
+      # 상태 그대로** 남긴다 — 죽었는데 못 알렸으면 성공으로, 살아났는데 못 알렸으면 실패로. 그러면 다음
+      # 실행이 같은 전환을 다시 보고 다시 보낸다. 전달될 때까지 5분마다 반복된다.
+      - name: 결론을 남긴다 (다음 실행이 직전 상태로 읽는다)
+        env:
+          STATE: ${{ steps.probe.outputs.state }}
+          DELIVERED: ${{ steps.notify.outputs.delivered }}
         run: |
-          echo "api.offway.cloud 가 응답하지 않습니다."
-          exit 1
+          if [ "$DELIVERED" = "false" ]; then
+            if [ "$STATE" = "down" ]; then
+              echo "api.offway.cloud 가 응답하지 않는데 알림이 안 갔습니다 — 성공으로 끝내 다음 실행이 다시 알리게 합니다."
+              exit 0
+            fi
+            echo "api.offway.cloud 가 살아났는데 알림이 안 갔습니다 — 실패로 끝내 다음 실행이 다시 알리게 합니다."
+            exit 1
+          fi
+          if [ "$STATE" = "down" ]; then
+            echo "api.offway.cloud 가 응답하지 않습니다."
+            exit 1
+          fi
