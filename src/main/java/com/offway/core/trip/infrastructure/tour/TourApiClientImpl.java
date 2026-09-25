@@ -21,6 +21,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -342,12 +343,20 @@ class TourApiClientImpl implements TourApiClient {
      *
      * <p><b>보조 키 호출은 한도 집계에 넣지 않는다.</b> 다른 키로 나간 것을 주 키 사용량에 섞으면
      * 그 숫자가 틀린다 — #402 심사 자료가 그 집계를 쓴다.
+     *
+     * <h2>다른 키로 넘어간 호출은 조용히 끝나면 안 된다</h2>
+     *
+     * <p>주 키를 "오늘은 마름" 으로 기억한 뒤라, 보조 키 쪽 실패를 알리지 않으면 <b>그날 남은 요청이
+     * 전부 알림 없이 502</b> 가 된다 — 이 폴백이 막으려던 조용한 실패 그대로다. 그래서 예외로 끝나도,
+     * 게이트웨이가 다른 사유(미등록 키 등)로 거절해도 "둘 다 실패" 로 알린다.
      */
     private String call(UriComponentsBuilder builder) {
         boolean onFallback = keyState.usingFallback(ExternalApi.TOUR_API) && props.dataGoKr().hasFallback();
         String firstKey = onFallback ? props.dataGoKr().fallbackKey() : props.dataGoKr().serviceKey();
         // 주 키로 나가는 호출만 센다 — 보조 키로 도는 날 첫 호출까지 세면 그 숫자가 실제와 어긋난다.
-        String body = fetch(withKey(builder, firstKey), !onFallback);
+        String body = onFallback
+                ? alertingFailure(() -> fetch(withKey(builder, firstKey), false, true))
+                : fetch(withKey(builder, firstKey), true, true);
         if (!DataGoKrError.isQuotaExceeded(body)) {
             return body;
         }
@@ -361,13 +370,31 @@ class TourApiClientImpl implements TourApiClient {
             return body; // 그대로 올려보낸다 — 파싱이 실패로 판정하고 502 로 나간다
         }
         log.warn("TourAPI 한도가 말라 다른 키로 넘어갑니다");
-        String retried = fetch(withKey(builder, otherKey), onFallback);
+        // **다른 키로는 한 번만 간다** — 429 재시도를 끈다. 켜 두면 보조 키로 최대 세 번이 나가
+        // "한 번만 더" 라는 약속이 깨지고, 그만큼 보조 키 한도를 태운다.
+        String retried = alertingFailure(() -> fetch(withKey(builder, otherKey), onFallback, false));
         if (DataGoKrError.isQuotaExceeded(retried)) {
             fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, "한도 소진");
             return retried;
         }
+        // 한도가 아니어도 게이트웨이가 거절했으면(미등록 키·만료 등) 받아 준 것이 아니다. 여기서
+        // "보조 키로 넘어갔습니다. 화면은 정상입니다" 를 보내면 알림이 거짓말을 한다.
+        if (DataGoKrError.isGatewayRejection(retried)) {
+            fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, "보조 키 거절");
+            return retried;
+        }
         fallbackKeyAlert.switchedToFallback(ExternalApi.TOUR_API, "한도 소진");
         return retried;
+    }
+
+    /** 다른 키로 나간 호출이 예외로 끝나면 알리고 그대로 던진다 — 삼키면 502 가 알림 없이 이어진다. */
+    private String alertingFailure(Supplier<String> fetch) {
+        try {
+            return fetch.get();
+        } catch (RuntimeException e) {
+            fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, RootCause.label(e));
+            throw e;
+        }
     }
 
     /** serviceKey 만 갈아 끼운다 — 이미 인코딩된 값이라 다시 인코딩하지 않는다(build(true)). */
@@ -378,8 +405,10 @@ class TourApiClientImpl implements TourApiClient {
     /**
      * @param count 한도 집계에 넣을 것인가. 보조 키로 나가는 호출은 <b>넣지 않는다</b> — 주 키 사용량이
      *     부풀어 보이면 "얼마나 쓰나" 를 말하는 그 숫자가 틀린다
+     * @param retryRateLimited 429 를 재시도할 것인가. 주 키가 마른 뒤 <b>다른 키로 한 번 더</b> 가는 호출은
+     *     끈다 — 그 호출은 한 번이라는 것이 계약이다
      */
-    private String fetch(URI uri, boolean count) {
+    private String fetch(URI uri, boolean count, boolean retryRateLimited) {
         // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
         if (count) {
             callRecorder.record(ExternalApi.TOUR_API);
@@ -394,7 +423,7 @@ class TourApiClientImpl implements TourApiClient {
                     .doOnSubscribe(subscription -> attempts.incrementAndGet())
                     // timeout 을 retryWhen 앞에 둔다 — 재시도마다 다시 구독되므로 이 상한은 시도 하나에 걸린다.
                     .timeout(TIMEOUT)
-                    .retryWhen(Retry.backoff(RATE_LIMIT_RETRIES, RATE_LIMIT_BACKOFF)
+                    .retryWhen(Retry.backoff(retryRateLimited ? RATE_LIMIT_RETRIES : 0, RATE_LIMIT_BACKOFF)
                             .jitter(RATE_LIMIT_JITTER)
                             .filter(TourApiClientImpl::isRateLimited))
                     // 재시도 바깥의 상한 — 시도별 timeout 만으로는 전체가 곱해진다.

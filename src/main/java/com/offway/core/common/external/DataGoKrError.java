@@ -75,4 +75,16 @@ public final class DataGoKrError {
     public static boolean isQuotaExceeded(String body) {
         return body != null && body.contains(QUOTA_EXCEEDED);
     }
+
+    /**
+     * 게이트웨이가 거절한 응답인가 — 사유를 가리지 않는다(한도·미등록 키·만료 전부).
+     *
+     * <p>보조 키가 받아 줬는지 판정할 때 쓴다. 한도만 보면 <b>보조 키가 이 서비스에 등록되지 않은</b>
+     * 경우를 "받아 줬다" 로 읽는다 — 활용신청은 서비스마다 따로라 실제로 일어날 수 있는 일이다.
+     *
+     * @param body 응답 본문 원본. {@code null} 이면 거짓
+     */
+    public static boolean isGatewayRejection(String body) {
+        return body != null && body.contains(ENVELOPE);
+    }
 }

@@ -1,6 +1,7 @@
 package com.offway.core.trip.infrastructure.tour;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
@@ -37,6 +38,13 @@ class TourApiFallbackKeyTest {
                "errMsg":"LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR",
                "returnAuthMsg":"서비스 요청제한횟수 초과",
                "returnReasonCode":"22"}}}""";
+
+    /** 보조 키가 이 서비스에 활용신청되지 않았을 때 — 한도가 아닌 다른 거절이다. */
+    private static final String NOT_REGISTERED = """
+            {"OpenAPI_ServiceResponse":{"cmmMsgHeader":{
+               "errMsg":"SERVICE_KEY_IS_NOT_REGISTERED_ERROR",
+               "returnAuthMsg":"등록되지 않은 서비스키",
+               "returnReasonCode":"30"}}}""";
 
     private static final String OK = """
             {"response":{"header":{"resultCode":"0000"},
@@ -94,6 +102,10 @@ class TourApiFallbackKeyTest {
                 .build();
     }
 
+    private static ClientResponse status(HttpStatus status) {
+        return ClientResponse.create(status).body("").build();
+    }
+
     private static ExternalApiProperties keys(String primary, String fallback) {
         return ExternalApiProperties.builder()
                 .dataGoKr(new ExternalApiProperties.DataGoKr(primary, fallback))
@@ -102,7 +114,12 @@ class TourApiFallbackKeyTest {
 
     private static TourApiClient client(Calls calls, ExternalApiProperties props,
             ExternalApiCallRecorder recorder, List<String> alerts) {
-        return new TourApiClientImpl(calls.webClient(), props, recorder, new FallbackKeyAlert(alerts::add), new ExternalKeyState());
+        return client(calls, props, recorder, alerts, new ExternalKeyState());
+    }
+
+    private static TourApiClient client(Calls calls, ExternalApiProperties props,
+            ExternalApiCallRecorder recorder, List<String> alerts, ExternalKeyState state) {
+        return new TourApiClientImpl(calls.webClient(), props, recorder, new FallbackKeyAlert(alerts::add), state);
     }
 
     @Test
@@ -172,5 +189,61 @@ class TourApiFallbackKeyTest {
 
         assertEquals(List.of(PRIMARY), calls.keys, "보조 키가 없으면 호출이 한 번뿐이어야 한다");
         assertTrue(alerts.stream().anyMatch(a -> a.contains("보조 키가 설정돼 있지 않습니다")), alerts.toString());
+    }
+
+    /**
+     * <b>보조 키로는 한 번만 간다</b> — 429 가 와도 재시도하지 않는다.
+     *
+     * <p>주 키 호출은 429 에 두 번 더 재시도한다. 그 재시도를 보조 키 호출에도 그대로 두면 "한 번만 더" 가
+     * 최대 세 번이 되고, 그만큼 보조 키 한도를 태운다.
+     */
+    @Test
+    void 보조_키가_사백이십구를_받아도_다시_묻지_않는다() {
+        Calls calls = new Calls(json(QUOTA_EXCEEDED), status(HttpStatus.TOO_MANY_REQUESTS));
+        List<String> alerts = new ArrayList<>();
+
+        assertThrows(RuntimeException.class, () -> client(calls, keys(PRIMARY, FALLBACK), new CountingRecorder(), alerts)
+                .findByArea(34, 1, null, 10));
+
+        assertEquals(List.of(PRIMARY, FALLBACK), calls.keys, "보조 키 호출이 한 번이어야 한다");
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키·보조 키 모두 실패")), alerts.toString());
+    }
+
+    /**
+     * <b>한도가 아닌 거절도 "받아 줬다" 가 아니다.</b>
+     *
+     * <p>활용신청은 서비스마다 따로라, 보조 키가 이 서비스에 등록되지 않은 경우가 실제로 있을 수 있다.
+     * 그때 "화면은 정상입니다" 를 보내면 알림이 거짓말을 한다.
+     */
+    @Test
+    void 보조_키가_미등록으로_거절되면_전환이_아니라_실패로_알린다() {
+        Calls calls = new Calls(json(QUOTA_EXCEEDED), json(NOT_REGISTERED));
+        List<String> alerts = new ArrayList<>();
+
+        assertThrows(RuntimeException.class, () -> client(calls, keys(PRIMARY, FALLBACK), new CountingRecorder(), alerts)
+                .findByArea(34, 1, null, 10));
+
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키·보조 키 모두 실패")), alerts.toString());
+        assertTrue(alerts.stream().noneMatch(a -> a.contains("주 키 → 보조 키")), "거절에 정상 알림을 냈다: " + alerts);
+    }
+
+    /**
+     * <b>보조 키로 도는 날, 그 호출이 예외로 끝나도 알린다.</b>
+     *
+     * <p>주 키를 "오늘은 마름" 으로 기억한 뒤라 그날 남은 요청은 전부 보조 키로 먼저 간다. 거기서 예외를
+     * 알리지 않으면 <b>그날 내내 알림 없이 502</b> 다 — 이 폴백이 막으려던 조용한 실패 그대로다.
+     */
+    @Test
+    void 보조_키로_도는_날_호출이_예외로_끝나도_알린다() {
+        ExternalKeyState state = new ExternalKeyState();
+        state.markPrimaryExhausted(ExternalApi.TOUR_API);
+        Calls calls = new Calls(status(HttpStatus.INTERNAL_SERVER_ERROR));
+        List<String> alerts = new ArrayList<>();
+
+        assertThrows(RuntimeException.class, () -> client(calls, keys(PRIMARY, FALLBACK), new CountingRecorder(), alerts, state)
+                .findByArea(34, 1, null, 10));
+
+        assertEquals(List.of(FALLBACK), calls.keys);
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키·보조 키 모두 실패")), alerts.toString());
     }
 }
