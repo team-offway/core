@@ -360,6 +360,11 @@ class TourApiClientImpl implements TourApiClient {
                 ? alertingFailure(() -> fetch(withKey(builder, firstKey), false, true))
                 : fetch(withKey(builder, firstKey), true, true);
         if (!DataGoKrError.isQuotaExceeded(body)) {
+            // 보조 키로 도는 날에는 첫 호출도 "다른 키로 나간 호출" 이다. 성공이 아닌 응답(미등록 키·resultCode
+            // 실패)을 그대로 돌려보내면 파서가 502 로 끝내는데 알림은 없다 — 그날 내내 조용히 실패한다.
+            if (onFallback && !isSuccessResponse(body)) {
+                fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, FALLBACK_NOT_SUCCESS);
+            }
             return body;
         }
         // 게이트웨이가 한도라고 말했다 — 오늘은 이쪽을 먼저 안 쓴다.

@@ -265,4 +265,19 @@ class TourApiFallbackKeyTest {
         assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키·보조 키 모두 실패")), alerts.toString());
         assertTrue(alerts.stream().noneMatch(a -> a.contains("주 키 → 보조 키")), "실패 응답에 정상 알림을 냈다: " + alerts);
     }
+
+    /** 보조 키로 도는 날 첫 호출이 <b>200 으로 실패</b>해도 알린다 — 예외가 아니라 조용히 지나가는 경로다. */
+    @Test
+    void 보조_키로_도는_날_첫_호출이_실패_응답이어도_알린다() {
+        ExternalKeyState state = new ExternalKeyState();
+        state.markPrimaryExhausted(ExternalApi.TOUR_API);
+        Calls calls = new Calls(json(NOT_REGISTERED));
+        List<String> alerts = new ArrayList<>();
+
+        assertThrows(RuntimeException.class, () -> client(calls, keys(PRIMARY, FALLBACK), new CountingRecorder(), alerts, state)
+                .findByArea(34, 1, null, 10));
+
+        assertEquals(List.of(FALLBACK), calls.keys);
+        assertTrue(alerts.stream().anyMatch(a -> a.contains("주 키·보조 키 모두 실패")), alerts.toString());
+    }
 }
