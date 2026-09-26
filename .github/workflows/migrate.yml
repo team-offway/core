@@ -1159,7 +1159,8 @@ jobs:
           # **바깥으로 나가는 것만 따로 뗐다.** 리허설에서는 옛 서버와 새 서버가 동시에 떠 있는데,
           # 이 넷은 각자 바깥에 닿아 값을 치른다.
           #
-          #   data.go.kr · TMAP  — 같은 키를 둘이 태운다. 배치 건너뛰기는 자기 DB 안에서만 막는다(#254)
+          #   data.go.kr · TMAP  — 같은 키를 둘이 태운다. 배치 건너뛰기는 자기 DB 안에서만 막는다(#254).
+          #                        보조 키(#597)도 같다 — 한도가 따로 있을 뿐 역시 태운다
           #   FCM · APNs        — **리허설 서버가 진짜 사용자에게 푸시를 보낸다.** 한도보다 나쁘다
           #   디스코드           — 팀 채널에 리허설 알림이 울린다
           #
@@ -1170,6 +1171,8 @@ jobs:
             cat >> env.prod <<'LIVEEOF'
           DATA_GO_KR_SERVICE_KEY=${{ secrets.DATA_GO_KR_SERVICE_KEY }}
           TMAP_APP_KEY=${{ secrets.TMAP_APP_KEY }}
+          DATA_GO_KR_SERVICE_KEY_FALLBACK=${{ secrets.DATA_GO_KR_SERVICE_KEY_FALLBACK }}
+          TMAP_APP_KEY_FALLBACK=${{ secrets.TMAP_APP_KEY_FALLBACK }}
           DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}
           FIREBASE_SERVICE_ACCOUNT_BASE64=${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}
           APNS_TEAM_ID=${{ secrets.APNS_TEAM_ID }}
@@ -1182,6 +1185,8 @@ jobs:
             cat >> env.prod <<'STUBEOF'
           DATA_GO_KR_SERVICE_KEY=
           TMAP_APP_KEY=
+          DATA_GO_KR_SERVICE_KEY_FALLBACK=
+          TMAP_APP_KEY_FALLBACK=
           DISCORD_WEBHOOK_URL=
           FIREBASE_SERVICE_ACCOUNT_BASE64=
           APNS_TEAM_ID=
