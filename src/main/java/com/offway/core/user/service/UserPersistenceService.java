@@ -2,6 +2,7 @@ package com.offway.core.user.service;
 
 import com.offway.core.user.domain.AuthProvider;
 import com.offway.core.user.domain.SocialIdentity;
+import com.offway.core.user.event.UserRegistered;
 import com.offway.core.user.domain.RefreshToken;
 import com.offway.core.user.domain.RevokedReason;
 import com.offway.core.user.domain.User;
@@ -16,6 +17,7 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +38,14 @@ public class UserPersistenceService {
     private final ProviderTokenCipher providerTokenCipher;
 
     /**
+     * 가입 사실을 알리는 통로(#610) — <b>이 서비스가 알림을 직접 보내지 않는다.</b>
+     *
+     * <p>여기서 {@code Notifier} 를 들면 영속화 서비스가 통보 책임을 떠안고, 알림이 트랜잭션 안에서
+     * 나가게 된다. 이벤트로 던지면 리스너가 <b>커밋 뒤에</b> 받는다.
+     */
+    private final ApplicationEventPublisher eventPublisher;
+
+    /**
      * 검증된 provider 신원으로 사용자를 찾거나 만든다. 최초 로그인이 곧 가입이다.
      *
      * <p>가입이었는지를 {@link AuthenticatedUser#newUser()} 로 함께 돌려준다 — 앱이 온보딩과 홈을 가르는 값이라,
@@ -49,7 +59,13 @@ public class UserPersistenceService {
                     refreshProfileImage(found.getUserId(), identity);
                     return new AuthenticatedUser(found.getUserId(), false);
                 })
-                .orElseGet(() -> new AuthenticatedUser(register(identity, requestedNickname, requestedEmail), true));
+                .orElseGet(() -> {
+                    UUID userId = register(identity, requestedNickname, requestedEmail);
+                    // **가입만 알린다.** 재로그인마다 울리면 알림이 무의미해진다 — 이 분기가 곧 가입이다.
+                    // 리스너가 AFTER_COMMIT 이라, 아래에서 롤백되면 알림도 안 나간다.
+                    eventPublisher.publishEvent(new UserRegistered(identity.provider().name()));
+                    return new AuthenticatedUser(userId, true);
+                });
     }
 
     /**
