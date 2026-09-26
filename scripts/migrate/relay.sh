@@ -32,7 +32,9 @@ set -uo pipefail
 NO=${1:-}
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-while IFS= read -r line; do
+# **줄바꿈 없이 끝난 마지막 줄도 흘린다.** read 는 그 줄을 채우고도 실패를 돌려줘 루프가 그냥 끝난다 —
+# 실패 직전의 마지막 출력이 가장 필요한 줄인데 그게 사라진다.
+while IFS= read -r line || [ -n "$line" ]; do
   printf '%s\n' "$line"
   case "$line" in
     # notify.sh 의 출력을 버리지 않는다 — 웹훅 실패 경고가 여기서 사라지면 "알림이 안 왔다" 를

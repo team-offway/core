@@ -36,7 +36,8 @@ KIND=${1:?kind 가 필요합니다}
 WEBHOOK=${MIGRATE_WEBHOOK:-}
 
 if [ -z "$WEBHOOK" ]; then
-  echo "이관 알림 웹훅이 없어 건너뜁니다 (DISCORD_DEPLOY_WEBHOOK_URL 을 확인하세요)"
+  # 일반 로그로만 남기면 실행 요약에 안 보여, 알림이 한 줄도 안 온 이유를 모른 채 20~30분을 기다린다.
+  echo "::warning title=이관 알림 없음::이관 알림 웹훅이 없어 건너뜁니다 (DISCORD_MIGRATE_WEBHOOK_URL·DISCORD_DEPLOY_WEBHOOK_URL 을 확인하세요)"
   exit 0
 fi
 
