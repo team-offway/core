@@ -21,11 +21,15 @@ import java.time.format.DateTimeFormatter;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import com.offway.core.common.external.DataGoKrError;
 import com.offway.core.common.external.ExternalApi;
 import com.offway.core.common.external.ExternalApiCallRecorder;
+import com.offway.core.common.external.ExternalKeyState;
+import com.offway.core.common.external.FallbackKeyAlert;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -108,6 +112,8 @@ class TourApiClientImpl implements TourApiClient {
     private static final String MOBILE_OS = "ETC";
     private static final String MOBILE_APP = "offway";
     private static final Set<String> SUCCESS_CODES = Set.of("0000", "00");
+    /** 보조 키가 응답은 줬는데 성공 응답이 아닐 때의 알림 사유 — 응답 원문은 싣지 않는다. */
+    private static final String FALLBACK_NOT_SUCCESS = "보조 키 응답이 성공이 아님";
 
     // 콘텐츠 타입마다 다른 이용시간/휴무일 필드명 후보 (관광지·문화시설·레포츠·음식점).
     private static final String[] USE_TIME_FIELDS = {"usetime", "usetimeculture", "usetimeleports", "opentimefood"};
@@ -130,13 +136,18 @@ class TourApiClientImpl implements TourApiClient {
     private final WebClient webClient;
     private final ExternalApiCallRecorder callRecorder;
     private final ExternalApiProperties props;
+    private final FallbackKeyAlert fallbackKeyAlert;
+    private final ExternalKeyState keyState;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     TourApiClientImpl(WebClient externalWebClient, ExternalApiProperties props,
-            ExternalApiCallRecorder callRecorder) {
+            ExternalApiCallRecorder callRecorder, FallbackKeyAlert fallbackKeyAlert,
+            ExternalKeyState keyState) {
         this.webClient = externalWebClient;
         this.props = props;
         this.callRecorder = callRecorder;
+        this.fallbackKeyAlert = fallbackKeyAlert;
+        this.keyState = keyState;
     }
 
     @Override
@@ -323,10 +334,103 @@ class TourApiClientImpl implements TourApiClient {
         }
     }
 
+    /**
+     * 조회 한 번 — 주 키가 <b>한도로 막히면 보조 키로 한 번만</b> 더 간다(#596).
+     *
+     * <h2>한도 소진은 예외로 오지 않는다</h2>
+     *
+     * <p>게이트웨이가 <b>HTTP 200</b> 에 거절 envelope 을 실어 준다. 그래서 아래 fetch 는 성공으로
+     * 끝나고, 실패는 한참 뒤 파싱 자리에서 난다 — 그 자리에서는 "한도" 인지 "응답 모양이 바뀐 것" 인지
+     * 못 가른다. 본문을 받은 <b>바로 여기서</b> 판정한다.
+     *
+     * <p><b>보조 키 호출은 한도 집계에 넣지 않는다.</b> 다른 키로 나간 것을 주 키 사용량에 섞으면
+     * 그 숫자가 틀린다 — #402 심사 자료가 그 집계를 쓴다.
+     *
+     * <h2>다른 키로 넘어간 호출은 조용히 끝나면 안 된다</h2>
+     *
+     * <p>주 키를 "오늘은 마름" 으로 기억한 뒤라, 보조 키 쪽 실패를 알리지 않으면 <b>그날 남은 요청이
+     * 전부 알림 없이 502</b> 가 된다 — 이 폴백이 막으려던 조용한 실패 그대로다. 그래서 예외로 끝나도,
+     * 게이트웨이가 다른 사유(미등록 키 등)로 거절해도 "둘 다 실패" 로 알린다.
+     */
     private String call(UriComponentsBuilder builder) {
-        URI uri = builder.build(true).toUri();
+        boolean onFallback = keyState.usingFallback(ExternalApi.TOUR_API) && props.dataGoKr().hasFallback();
+        String firstKey = onFallback ? props.dataGoKr().fallbackKey() : props.dataGoKr().serviceKey();
+        // 주 키로 나가는 호출만 센다 — 보조 키로 도는 날 첫 호출까지 세면 그 숫자가 실제와 어긋난다.
+        String body = onFallback
+                ? alertingFailure(() -> fetch(withKey(builder, firstKey), false, true))
+                : fetch(withKey(builder, firstKey), true, true);
+        if (!DataGoKrError.isQuotaExceeded(body)) {
+            // 보조 키로 도는 날에는 첫 호출도 "다른 키로 나간 호출" 이다. 성공이 아닌 응답(미등록 키·resultCode
+            // 실패)을 그대로 돌려보내면 파서가 502 로 끝내는데 알림은 없다 — 그날 내내 조용히 실패한다.
+            if (onFallback && !isSuccessResponse(body)) {
+                fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, FALLBACK_NOT_SUCCESS);
+            }
+            return body;
+        }
+        // 게이트웨이가 한도라고 말했다 — 오늘은 이쪽을 먼저 안 쓴다.
+        if (!onFallback) {
+            keyState.markPrimaryExhausted(ExternalApi.TOUR_API);
+        }
+        String otherKey = onFallback ? props.dataGoKr().serviceKey() : props.dataGoKr().fallbackKey();
+        if (otherKey == null || otherKey.isBlank()) {
+            fallbackKeyAlert.noFallbackConfigured(ExternalApi.TOUR_API, "한도 소진");
+            return body; // 그대로 올려보낸다 — 파싱이 실패로 판정하고 502 로 나간다
+        }
+        log.warn("TourAPI 한도가 말라 다른 키로 넘어갑니다");
+        // **다른 키로는 한 번만 간다** — 429 재시도를 끈다. 켜 두면 보조 키로 최대 세 번이 나가
+        // "한 번만 더" 라는 약속이 깨지고, 그만큼 보조 키 한도를 태운다.
+        String retried = alertingFailure(() -> fetch(withKey(builder, otherKey), onFallback, false));
+        if (DataGoKrError.isQuotaExceeded(retried)) {
+            fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, "한도 소진");
+            return retried;
+        }
+        // 한도가 아니어도 성공 응답이 아니면(미등록 키·만료·resultCode 실패) 받아 준 것이 아니다. 여기서
+        // "보조 키로 넘어갔습니다. 화면은 정상입니다" 를 보내면, 뒤의 파서가 502 로 끝내는데 알림은 정상이라고
+        // 남는다. 판정 기준은 파서들이 쓰는 requireSuccess 와 같다 — 둘이 다르면 그 틈으로 거짓 알림이 샌다.
+        if (!isSuccessResponse(retried)) {
+            fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, FALLBACK_NOT_SUCCESS);
+            return retried;
+        }
+        fallbackKeyAlert.switchedToFallback(ExternalApi.TOUR_API, "한도 소진");
+        return retried;
+    }
+
+    /** 파서의 {@link #requireSuccess} 와 같은 기준으로 본다 — 게이트웨이 거절 envelope 은 {@code response} 가 없어 여기서 걸린다. */
+    private boolean isSuccessResponse(String body) {
+        try {
+            String resultCode = objectMapper.readTree(body).path("response").path("header").path("resultCode").asText();
+            return SUCCESS_CODES.contains(resultCode);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 다른 키로 나간 호출이 예외로 끝나면 알리고 그대로 던진다 — 삼키면 502 가 알림 없이 이어진다. */
+    private String alertingFailure(Supplier<String> fetch) {
+        try {
+            return fetch.get();
+        } catch (RuntimeException e) {
+            fallbackKeyAlert.bothFailed(ExternalApi.TOUR_API, RootCause.label(e));
+            throw e;
+        }
+    }
+
+    /** serviceKey 만 갈아 끼운다 — 이미 인코딩된 값이라 다시 인코딩하지 않는다(build(true)). */
+    private static URI withKey(UriComponentsBuilder builder, String serviceKey) {
+        return builder.replaceQueryParam("serviceKey", serviceKey).build(true).toUri();
+    }
+
+    /**
+     * @param count 한도 집계에 넣을 것인가. 보조 키로 나가는 호출은 <b>넣지 않는다</b> — 주 키 사용량이
+     *     부풀어 보이면 "얼마나 쓰나" 를 말하는 그 숫자가 틀린다
+     * @param retryRateLimited 429 를 재시도할 것인가. 주 키가 마른 뒤 <b>다른 키로 한 번 더</b> 가는 호출은
+     *     끈다 — 그 호출은 한 번이라는 것이 계약이다
+     */
+    private String fetch(URI uri, boolean count, boolean retryRateLimited) {
         // 실호출 직전에 센다. 응답이 실패해도 한도는 이미 깎였다(#123).
-        callRecorder.record(ExternalApi.TOUR_API);
+        if (count) {
+            callRecorder.record(ExternalApi.TOUR_API);
+        }
         AtomicInteger attempts = new AtomicInteger();
         try {
             return webClient.get()
@@ -337,15 +441,17 @@ class TourApiClientImpl implements TourApiClient {
                     .doOnSubscribe(subscription -> attempts.incrementAndGet())
                     // timeout 을 retryWhen 앞에 둔다 — 재시도마다 다시 구독되므로 이 상한은 시도 하나에 걸린다.
                     .timeout(TIMEOUT)
-                    .retryWhen(Retry.backoff(RATE_LIMIT_RETRIES, RATE_LIMIT_BACKOFF)
+                    .retryWhen(Retry.backoff(retryRateLimited ? RATE_LIMIT_RETRIES : 0, RATE_LIMIT_BACKOFF)
                             .jitter(RATE_LIMIT_JITTER)
                             .filter(TourApiClientImpl::isRateLimited))
                     // 재시도 바깥의 상한 — 시도별 timeout 만으로는 전체가 곱해진다.
                     .timeout(RETRY_TOTAL_TIMEOUT)
                     .block();
         } finally {
-            // 실패로 끝나도 센다 — 나간 호출은 이미 한도를 깎았다.
-            recordRetries(attempts.get());
+            // 실패로 끝나도 센다 — 나간 호출은 이미 한도를 깎았다. 보조 키로 나간 것은 세지 않는다(#596).
+            if (count) {
+                recordRetries(attempts.get());
+            }
         }
     }
 

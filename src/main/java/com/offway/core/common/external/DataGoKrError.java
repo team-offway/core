@@ -53,4 +53,26 @@ public final class DataGoKrError {
                 .formatted(header.path("errMsg").asText(UNKNOWN),
                         header.path("returnReasonCode").asText(UNKNOWN));
     }
+
+    /** 한도 소진일 때 게이트웨이가 {@code errMsg} 에 싣는 값. */
+    private static final String QUOTA_EXCEEDED = "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR";
+
+    /**
+     * 한도가 말라서 거절된 응답인가(#596).
+     *
+     * <h2>왜 예외가 아니라 본문을 보나</h2>
+     *
+     * <p>한도 소진은 <b>HTTP 200 으로 온다.</b> 게이트웨이가 정상 응답 자리에 위 envelope 을 실어 주므로
+     * 예외가 안 나고, 그래서 지금까지 파싱 실패로만 보였다 — "키가 막혔나 한도가 말랐나" 를 못 갈랐다.
+     *
+     * <h2>왜 문자열로 찾나</h2>
+     *
+     * <p>JSON 으로도 XML 로도 오고, 어느 쪽이든 이 이름이 그대로 실린다. 파싱한 뒤에 보면 <b>파싱이
+     * 먼저 깨지는 응답</b>에서 판정할 수 없다 — 정작 그때가 이 판정이 필요한 순간이다.
+     *
+     * @param body 응답 본문 원본. {@code null} 이면 거짓
+     */
+    public static boolean isQuotaExceeded(String body) {
+        return body != null && body.contains(QUOTA_EXCEEDED);
+    }
 }

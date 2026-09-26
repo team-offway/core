@@ -236,6 +236,8 @@ jobs:
           OFFWAY_BASIC_PASSWORD=${{ secrets.OFFWAY_BASIC_PASSWORD }}
           DATA_GO_KR_SERVICE_KEY=${{ secrets.DATA_GO_KR_SERVICE_KEY }}
           TMAP_APP_KEY=${{ secrets.TMAP_APP_KEY }}
+          DATA_GO_KR_SERVICE_KEY_FALLBACK=${{ secrets.DATA_GO_KR_SERVICE_KEY_FALLBACK }}
+          TMAP_APP_KEY_FALLBACK=${{ secrets.TMAP_APP_KEY_FALLBACK }}
           DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           KAKAO_REST_API_KEY=${{ secrets.KAKAO_REST_API_KEY }}
