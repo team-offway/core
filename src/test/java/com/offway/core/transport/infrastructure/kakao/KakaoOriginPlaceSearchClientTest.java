@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.config.ExternalApiProperties;
 import com.offway.core.common.external.ExternalApiCallRecorder;
+import com.offway.core.common.external.ExternalKeyState;
 import com.offway.core.transport.infrastructure.kakao.dto.FoundPlace;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -51,7 +52,7 @@ class KakaoOriginPlaceSearchClientTest {
         return new KakaoOriginPlaceSearchClient(
                 webClient,
                 ExternalApiProperties.ofKakao(restApiKey),
-                new ExternalApiCallRecorder(null, message -> { }));
+                new ExternalApiCallRecorder(null, message -> { }, new ExternalKeyState()));
     }
 
     /**

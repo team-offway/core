@@ -36,6 +36,14 @@ public class ExternalApiCallRecorder {
     private final Notifier notifier;
 
     /**
+     * 지금 어느 키로 도는가(#596) — 알림에 함께 싣는다.
+     *
+     * <p>이 한 줄이 없으면 {@code 9000/10000 (90%)} 를 보고 무엇을 할지 정할 수 없다. 주 키로 도는
+     * 중이면 곧 마른다는 뜻이고, 이미 보조 키로 넘어갔으면 <b>그 숫자는 멈춘 값</b>이라 더 안 오른다.
+     */
+    private final ExternalKeyState keyState;
+
+    /**
      * 한 건 기록한다. <b>실호출 직전</b>에 클라이언트가 명시적으로 부른다.
      *
      * <p>WebClient 필터로 URL 을 파싱해 어느 API 인지 추측하지 않는다 — 경로가 바뀌면 조용히 안 세게 되고,
@@ -135,7 +143,8 @@ public class ExternalApiCallRecorder {
      * 일이 없었다 — 배치가 태웠는지 코스 생성이 태웠는지 몰라 다음 행동이 안 정해졌다.
      */
     private String usageMessage(ExternalApi api, LocalDate date, long used, int step) {
-        String usage = "%s %d/%d (%d%%)".formatted(api.label(), used, api.dailyLimit(), ExternalApi.percentOf(step));
+        String usage = "%s %d/%d (%d%%) · %s"
+                .formatted(api.label(), used, api.dailyLimit(), ExternalApi.percentOf(step), keyState.label(api));
         String headline = used >= api.dailyLimit()
                 ? "🔴 " + usage + " — 한도 소진. 이후 호출은 실패합니다"
                 : "⚠️ " + usage;

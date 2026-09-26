@@ -84,7 +84,11 @@ class ExternalApiQuotaAlertIntegrationTest {
 
         // 경계를 넘는 그 한 건에서만 울린다.
         recorder.record(TIGHT_API);
-        assertEquals(1, notifier.drain().size());
+        List<String> fired = notifier.drain();
+        assertEquals(1, fired.size());
+        // 어느 키로 도는지 함께 말해야 한다(#596) — 같은 숫자라도 주 키면 "곧 마른다", 보조 키면
+        // "그 숫자는 멈춘 값" 이라 대응이 정반대다.
+        assertTrue(fired.get(0).contains("주 키"), "알림에 어느 키인지 없다: " + fired.get(0));
 
         // 같은 단계 안에서는 몇 번을 더 불러도 조용하다.
         recorder.record(TIGHT_API);

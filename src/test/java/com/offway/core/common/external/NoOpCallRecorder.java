@@ -11,7 +11,7 @@ package com.offway.core.common.external;
 public final class NoOpCallRecorder extends ExternalApiCallRecorder {
 
     public NoOpCallRecorder() {
-        super(null, null);
+        super(null, null, new ExternalKeyState());
     }
 
     @Override

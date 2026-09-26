@@ -126,7 +126,7 @@ class ExternalApiCallerAttributionIntegrationTest {
     @Test
     void 내역_기록이_실패해도_예외를_올리지_않는다() {
         ExternalApiCallRecorder broken = new ExternalApiCallRecorder(null, message -> {
-        });
+        }, new ExternalKeyState());
 
         CallerContext.run(Caller.of("코스생성"), () -> broken.record(ExternalApi.TOUR_API));
 
@@ -159,7 +159,7 @@ class ExternalApiCallerAttributionIntegrationTest {
             }
         };
         ExternalApiCallRecorder recorder = new ExternalApiCallRecorder(callerBroken, message -> {
-        });
+        }, new ExternalKeyState());
 
         // TMAP 경유지최적화는 한도 50 이라 5 콜이면 10% 단계에 닿는다.
         for (int i = 0; i < 5; i++) {

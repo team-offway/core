@@ -1,5 +1,7 @@
 package com.offway.core.transport.infrastructure.tmap;
 
+import com.offway.core.common.external.ExternalKeyState;
+import com.offway.core.common.external.FallbackKeyAlert;
 import com.offway.core.common.external.NoOpCallRecorder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -24,6 +26,9 @@ class TmapClientImplTest {
     private static final ExternalApiProperties WITH_KEY = ExternalApiProperties.ofTmap("test-key");
     private static final ExternalApiProperties NO_KEY = ExternalApiProperties.ofTmap(null);
 
+    /** 알림은 이 테스트의 관심사가 아니다 — 폴백 동작은 TmapFallbackKeyTest 가 따로 본다. */
+    private static final FallbackKeyAlert SILENT = new FallbackKeyAlert(message -> {});
+
     private static final Coordinate SEOUL = new Coordinate(37.5665, 126.9780);
     private static final Coordinate BUSAN = new Coordinate(35.1796, 129.0756);
 
@@ -39,7 +44,7 @@ class TmapClientImplTest {
     }
 
     private static TmapClient client(String body) {
-        return new TmapClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder());
+        return new TmapClientImpl(stubbing(json(body)), WITH_KEY, new NoOpCallRecorder(), SILENT, new ExternalKeyState());
     }
 
     @Test
@@ -66,7 +71,7 @@ class TmapClientImplTest {
 
         assertInstanceOf(
                 CarRouteResult.Unavailable.class,
-                new TmapClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder()).carRoute(SEOUL, BUSAN));
+                new TmapClientImpl(neverCalled, NO_KEY, new NoOpCallRecorder(), SILENT, new ExternalKeyState()).carRoute(SEOUL, BUSAN));
     }
 
     @Test
@@ -85,7 +90,7 @@ class TmapClientImplTest {
 
         assertInstanceOf(
                 CarRouteResult.Unavailable.class,
-                new TmapClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder()).carRoute(SEOUL, BUSAN));
+                new TmapClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder(), SILENT, new ExternalKeyState()).carRoute(SEOUL, BUSAN));
     }
 
     // ── 좌표 탓인 거절을 가려낸다 (#335) ────────────────────────────────────
@@ -95,7 +100,7 @@ class TmapClientImplTest {
                 .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .body(body)
                 .build();
-        return new TmapClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder()).carRoute(SEOUL, BUSAN);
+        return new TmapClientImpl(stubbing(error), WITH_KEY, new NoOpCallRecorder(), SILENT, new ExternalKeyState()).carRoute(SEOUL, BUSAN);
     }
 
     /**

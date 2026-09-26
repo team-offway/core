@@ -19,10 +19,10 @@ public record ExternalApiProperties(DataGoKr dataGoKr, Tmap tmap, Kakao kakao) {
 
     public ExternalApiProperties {
         if (dataGoKr == null) {
-            dataGoKr = new DataGoKr(null);
+            dataGoKr = DataGoKr.of(null);
         }
         if (tmap == null) {
-            tmap = new Tmap(null);
+            tmap = Tmap.of(null);
         }
         if (kakao == null) {
             kakao = new Kakao(null);
@@ -40,12 +40,12 @@ public record ExternalApiProperties(DataGoKr dataGoKr, Tmap tmap, Kakao kakao) {
      * 늘어도 이 파일만 고친다.
      */
     public static ExternalApiProperties ofDataGoKr(String serviceKey) {
-        return new ExternalApiProperties(new DataGoKr(serviceKey), null, null);
+        return new ExternalApiProperties(DataGoKr.of(serviceKey), null, null);
     }
 
     /** TMAP 키만 쓰는 호출부용. */
     public static ExternalApiProperties ofTmap(String appKey) {
-        return new ExternalApiProperties(null, new Tmap(appKey), null);
+        return new ExternalApiProperties(null, Tmap.of(appKey), null);
     }
 
     /** 카카오 REST 키만 쓰는 호출부용(#590). */
@@ -53,15 +53,63 @@ public record ExternalApiProperties(DataGoKr dataGoKr, Tmap tmap, Kakao kakao) {
         return new ExternalApiProperties(null, null, new Kakao(restApiKey));
     }
 
-    public record DataGoKr(String serviceKey) {
+    /**
+     * data.go.kr 인증키 — 주 키와 <b>보조 키</b>(#596).
+     *
+     * <h2>왜 보조 키를 두나</h2>
+     *
+     * <p>주 키의 한도가 마르면 그 뒤로는 실패다. 심사처럼 <b>다시 할 수 없는 자리</b>에서는 그
+     * 실패가 그대로 결과가 된다. 보조 키는 <b>별도 한도</b>를 가지므로 주 키가 마른 뒤에도 산다.
+     *
+     * <p><b>키를 늘려 한도를 두 배로 쓰자는 것이 아니다.</b> 평소에는 주 키만 쓰고, 주 키가
+     * 실패했을 때만 한 번 더 간다. 정상일 때 호출 수는 그대로다.
+     *
+     * @param serviceKey 주 인증키
+     * @param fallbackKey 보조 인증키. 없으면 {@code null} — 폴백을 안 쓴다는 뜻이지 오류가 아니다
+     */
+    public record DataGoKr(String serviceKey, String fallbackKey) {
+
+        /**
+         * 주 키만 쓰는 호출부용.
+         *
+         * <p><b>nested record 에도 팩토리를 둔다.</b> 컴포넌트를 더하면 위치 인수 생성자를 쓰는
+         * 호출부가 전부 깨진다 — 바깥 record 에서 이미 세 번 겪은 함정이다(#317). 여기서 같은 일이
+         * 또 일어나지 않게 지금 막아 둔다.
+         */
+        public static DataGoKr of(String serviceKey) {
+            return new DataGoKr(serviceKey, null);
+        }
+
         public boolean hasKey() {
             return serviceKey != null && !serviceKey.isBlank();
         }
+
+        /** 보조 키가 있나 — 없으면 주 키가 실패해도 더 해볼 것이 없다. */
+        public boolean hasFallback() {
+            return fallbackKey != null && !fallbackKey.isBlank();
+        }
     }
 
-    public record Tmap(String appKey) {
+    /**
+     * TMAP 키 — 주 키와 보조 키(#596).
+     *
+     * <p><b>여기가 가장 급했다.</b> 경유지 최적화는 일일 한도가 50 으로 우리가 가진 것 중 가장
+     * 빡빡하고, 자차 코스 하나가 날짜 수만큼 부르므로 2박3일이면 17건에 마른다. 마르면 직선거리로
+     * 떨어지는데 <b>응답이 200</b> 이라 순서가 틀린 줄 화면에서 알 수 없다.
+     */
+    public record Tmap(String appKey, String fallbackKey) {
+
+        /** 주 키만 쓰는 호출부용 — {@link DataGoKr#of} 와 같은 이유로 둔다. */
+        public static Tmap of(String appKey) {
+            return new Tmap(appKey, null);
+        }
+
         public boolean hasKey() {
             return appKey != null && !appKey.isBlank();
+        }
+
+        public boolean hasFallback() {
+            return fallbackKey != null && !fallbackKey.isBlank();
         }
     }
 
