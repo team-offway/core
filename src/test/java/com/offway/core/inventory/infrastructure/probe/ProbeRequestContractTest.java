@@ -41,8 +41,8 @@ class ProbeRequestContractTest {
 
     private static ExternalApiProperties withKey() {
         return ExternalApiProperties.builder()
-                .dataGoKr(new ExternalApiProperties.DataGoKr(SECRET_KEY))
-                .tmap(new ExternalApiProperties.Tmap(SECRET_KEY))
+                .dataGoKr(ExternalApiProperties.DataGoKr.of(SECRET_KEY))
+                .tmap(ExternalApiProperties.Tmap.of(SECRET_KEY))
                 .build();
     }
 
@@ -138,8 +138,8 @@ class ProbeRequestContractTest {
     @Test
     void 모든_프로브가_인증키를_다시_인코딩하지_않는다() {
         ExternalApiProperties props = ExternalApiProperties.builder()
-                .dataGoKr(new ExternalApiProperties.DataGoKr(ENCODED_KEY))
-                .tmap(new ExternalApiProperties.Tmap(ENCODED_KEY))
+                .dataGoKr(ExternalApiProperties.DataGoKr.of(ENCODED_KEY))
+                .tmap(ExternalApiProperties.Tmap.of(ENCODED_KEY))
                 .build();
 
         for (BiFunction<WebClient, ExternalApiProperties, ExternalApiProbe> factory : factories()) {

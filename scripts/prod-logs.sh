@@ -20,7 +20,10 @@
 # 그쪽 문제다(pem 이 틀리면 `Permission denied`, 서버가 죽었으면 `Connection refused`).
 set -euo pipefail
 
-HOST=${OFFWAY_LOG_HOST:-18.181.168.227}
+# **IP 가 아니라 도메인을 기본값으로 둔다.** 예전에는 IP 를 박아 뒀는데 그 값이 낡아(18.181.168.227)
+# 스크립트가 안 붙었다 — 장애가 터진 순간에 붙으려고 만든 도구가 하필 그때 안 되는 모양이다.
+# 도메인은 EIP 가 바뀌어도 그대로다(DNS 는 가비아에서 관리).
+HOST=${OFFWAY_LOG_HOST:-api.offway.cloud}
 LOGIN=${OFFWAY_LOG_USER:-ubuntu}
 KEY=${OFFWAY_LOG_KEY:-$HOME/Downloads/offway-tokyo.pem}
 CONTAINER=${OFFWAY_LOG_CONTAINER:-offway-core}

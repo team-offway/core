@@ -87,7 +87,7 @@ class ExternalApiQuotaIntegrationTest {
     @Test
     void 기록이_실패해도_예외를_올리지_않는다() {
         // 사용량 집계는 관측이지 기능이 아니다. 여기서 던지면 외부 호출 자체가 막힌다.
-        ExternalApiCallRecorder broken = new ExternalApiCallRecorder(null, message -> {});
+        ExternalApiCallRecorder broken = new ExternalApiCallRecorder(null, message -> {}, new ExternalKeyState());
 
         broken.record(ExternalApi.TOUR_API);
 
