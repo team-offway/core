@@ -19,9 +19,13 @@
 --
 -- ## 왜 id 가 아니라 type 으로 찾나
 --
--- 시드가 id 를 명시(2)하지만 여기서는 `policy_type` 으로 고른다. 숙박세일페스타는 **분류당 한 건**이고,
--- id 는 시드 순서라는 우연에 기대는 값이다. 나중에 백오포스에서 다시 만들어 id 가 달라져도 같은 행을
+-- 시드가 id 를 명시(2)하지만 여기서는 분류 컬럼으로 고른다. 숙박세일페스타는 **분류당 한 건**이고,
+-- id 는 시드 순서라는 우연에 기대는 값이다. 나중에 백오피스에서 다시 만들어 id 가 달라져도 같은 행을
 -- 가리키게 하려는 것이다.
+--
+-- **컬럼 이름은 `type` 이다.** 엔티티 필드가 `PolicyType type` 이고 `@Column` 으로 이름을 바꾸지 않아
+-- DDL 도 `type` 이다(`V20260723220827__create_policy.sql`). `policy_type` 으로 적었다가 CI 의 마이그레이션
+-- 검증이 1054(Unknown column)로 잡았다 — 이 검증이 있는 이유가 그것이다.
 --
 -- ## checked_on 을 같이 올린다
 --
@@ -34,4 +38,4 @@ SET period_start = '2026-09-22',
     period_note  = '매일 오전 10시 선착순 발급 · 가을분(여름분은 8/31 종료)',
     verified     = TRUE,
     checked_on   = '2026-09-28'
-WHERE policy_type = 'STAY_FESTA';
+WHERE type = 'STAY_FESTA';
