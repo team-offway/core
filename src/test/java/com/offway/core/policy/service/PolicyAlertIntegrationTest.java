@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.offway.core.common.notification.Notifier;
+import com.offway.core.policy.domain.Policy;
+import com.offway.core.policy.domain.PolicyType;
+import com.offway.core.policy.repository.PolicyRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -33,6 +36,9 @@ class PolicyAlertIntegrationTest {
 
     @Autowired
     private StubNotifier notifier;
+
+    @Autowired
+    private PolicyRepository policyRepository;
 
     /**
      * 지금 시드된 정책은 셋 다 기간이 2026-11-30 · 2026-08-31 처럼 정해진 날이라, 오늘이 예고일과
@@ -66,20 +72,35 @@ class PolicyAlertIntegrationTest {
     }
 
     /**
-     * 시드에 미검증 정책(디지털관광주민증)이 있으므로 방치 요약에는 걸리는 것이 있어야 한다.
+     * 방치 정책이 있으면 한 통은 나간다 — <b>이 단언이 있어야 "아무것도 안 보내서 통과" 와 갈린다</b>
+     * (위 두 테스트는 0건도 허용한다).
      *
-     * <p>이 단언이 있어야 "아무것도 안 보내서 통과" 하는 상태와 갈린다 — 위 두 테스트는 0건도 허용한다.
+     * <p><b>방치 정책을 이 테스트가 직접 만든다.</b> 예전에는 시드에 걸리는 것이 있다는 데 기댔는데,
+     * 그것이 두 번 무너졌다 — 먼저 디지털관광주민증이 검증 완료로 올라갔고(#498), 이어서 기간이 지나
+     * 걸려 있던 숙박세일페스타가 가을분으로 옮겨졌다(#612). <b>남는 것이 0 이 되면 단언이 깨진다.</b>
+     *
+     * <p>시드는 고쳐야 할 대상이고, 테스트는 그 상태에 기대선 안 된다. 미검증 정책 하나를 만들어
+     * {@code UNVERIFIED} 를 확실히 하나 만든 뒤 본문에서 지운다 — 이 클래스는 {@code @Transactional}
+     * 이 아니라 롤백이 없다.
      */
     @Test
-    void 미검증_정책은_방치_요약에_실린다() {
-        notifier.clear();
+    void 방치_정책이_있으면_요약이_한_통_나간다() {
+        Policy neglected = policyRepository.save(Policy.builder()
+                .type(PolicyType.WORKER_VACATION)
+                .name("테스트용 미검증 정책")
+                .benefitDetail("이 테스트가 만들고 지운다")
+                .verified(false)
+                .build());
+        try {
+            notifier.clear();
 
-        policyAlertService.send(PolicyAlertService.AlertKind.NEGLECT);
+            policyAlertService.send(PolicyAlertService.AlertKind.NEGLECT);
 
-        assertEquals(1, notifier.sent().size(), "손봐야 할 정책이 있으면 한 통은 나가야 한다");
-        // 시드의 미검증 정책이 사라져도(#498) 이 알림은 살아 있어야 한다 — 종료된 정책도 방치다.
-        // 무엇이 걸렸는지는 시드 상태에 달렸으므로 "무언가 걸렸다" 까지만 단언한다.
-        assertTrue(notifier.sent().get(0).contains("손봐야 할 정책"), notifier.sent().get(0));
+            assertEquals(1, notifier.sent().size(), "손봐야 할 정책이 있으면 한 통은 나가야 한다");
+            assertTrue(notifier.sent().get(0).contains("손봐야 할 정책"), notifier.sent().get(0));
+        } finally {
+            policyRepository.deleteById(neglected.getId());
+        }
     }
 
     /** 외부(디스코드) 경계 stub — 무엇을 보냈는지 기억한다. */
