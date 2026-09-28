@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.offway.core.common.notification.Notifier;
 import com.offway.core.policy.domain.Policy;
 import com.offway.core.policy.domain.PolicyType;
-import com.offway.core.policy.repository.PolicyRepository;
+import com.offway.core.policy.repository.PolicyJpaRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -37,8 +37,13 @@ class PolicyAlertIntegrationTest {
     @Autowired
     private StubNotifier notifier;
 
+    /**
+     * Spring Data 쪽을 직접 쓴다 — port 의 {@code deleteById} 는 {@code @Modifying} 쿼리라
+     * 트랜잭션을 요구하고, 이 클래스는 {@code @Transactional} 이 아니다(붙이면 커밋이 없어
+     * 알림 경로가 헛돈다).
+     */
     @Autowired
-    private PolicyRepository policyRepository;
+    private PolicyJpaRepository policyJpaRepository;
 
     /**
      * 지금 시드된 정책은 셋 다 기간이 2026-11-30 · 2026-08-31 처럼 정해진 날이라, 오늘이 예고일과
@@ -85,7 +90,7 @@ class PolicyAlertIntegrationTest {
      */
     @Test
     void 방치_정책이_있으면_요약이_한_통_나간다() {
-        Policy neglected = policyRepository.save(Policy.builder()
+        Policy neglected = policyJpaRepository.save(Policy.builder()
                 .type(PolicyType.WORKER_VACATION)
                 .name("테스트용 미검증 정책")
                 .benefitDetail("이 테스트가 만들고 지운다")
@@ -99,7 +104,7 @@ class PolicyAlertIntegrationTest {
             assertEquals(1, notifier.sent().size(), "손봐야 할 정책이 있으면 한 통은 나가야 한다");
             assertTrue(notifier.sent().get(0).contains("손봐야 할 정책"), notifier.sent().get(0));
         } finally {
-            policyRepository.deleteById(neglected.getId());
+            policyJpaRepository.deleteById(neglected.getId());
         }
     }
 
