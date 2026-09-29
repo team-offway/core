@@ -2,6 +2,7 @@ package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.FestivalPlace;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
@@ -28,6 +29,28 @@ public interface FestivalPlaceJpaRepository extends JpaRepository<FestivalPlace,
             """)
     List<FestivalPlace> findOpenOn(
             @Param("regionId") long regionId, @Param("date") LocalDate date, Pageable pageable);
+
+    /**
+     * 그날 이후에 <b>열릴</b> 축제 — 아직 시작하지 않은 것만(#622).
+     *
+     * <p>{@code eventStart > date} 다. 그날 진행 중인 축제는 {@link #findOpenOn} 이 코스에 넣으므로
+     * 여기서 또 내보내면 같은 것을 두 번 말한다.
+     *
+     * <p>시작일 오름차순 — 가까운 것부터 권하는 것이 자연스럽고, 순서가 고정이라 같은 요청이 같은
+     * 제안을 낸다.
+     */
+    @Query("""
+            select festival from FestivalPlace festival
+            where festival.regionId = :regionId
+              and festival.eventStart > :date
+            order by festival.eventStart asc, festival.id asc
+            """)
+    List<FestivalPlace> findUpcomingAfter(
+            @Param("regionId") long regionId, @Param("date") LocalDate date, Pageable pageable);
+
+    /** 식별자 여럿을 한 번에 — 슬롯마다 읽으면 N+1 이다(#622). */
+    @Query("select festival from FestivalPlace festival where festival.id in :ids")
+    List<FestivalPlace> findAllByIdIn(@Param("ids") Collection<Long> ids);
 
     @Modifying
     @Query("delete from FestivalPlace festival where festival.fetchedAt < :fetchedAt")

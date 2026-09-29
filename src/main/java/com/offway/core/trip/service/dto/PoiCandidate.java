@@ -1,6 +1,8 @@
 package com.offway.core.trip.service.dto;
 
+import com.offway.core.trip.domain.FestivalPlace;
 import com.offway.core.trip.domain.FoodTaste;
+import com.offway.core.trip.domain.PoiContentType;
 
 import lombok.Builder;
 
@@ -71,4 +73,21 @@ public record PoiCandidate(
          * 상한에서 제외한다 — 모르는 것끼리 한 칸으로 묶으면 하루에 하나밖에 못 들어간다.
          */
         String sightKind) {
+
+    /**
+     * 축제인가 — <b>출처가 둘이라 타입 하나로는 못 가른다</b>(#622).
+     *
+     * <p>TourAPI 축제는 {@code contentTypeId} 가 15 다. 표준데이터 축제는 그 값이 0 이고 식별자가
+     * {@code FST-} 로 시작한다 — 89곳에서 코스에 실제로 실리는 쪽이 이것이다(#392).
+     *
+     * <p><b>이 판정을 후보 자신이 갖는 이유</b>는 쓰는 자리가 여럿이기 때문이다. 코스 생성이 "축제를
+     * 한 칸 예약" 할 때, 기간을 붙일 때, 제안에서 뺄 때 모두 같은 질문을 한다. 자리마다 따로 적으면
+     * 한 군데만 고쳐도 조용히 갈린다.
+     *
+     * <p>인허가({@code LIC-})·국가유산({@code HER-})도 타입이 0 인데, 접두어가 달라 여기 걸리지 않는다.
+     */
+    public boolean isFestival() {
+        return contentTypeId == PoiContentType.FESTIVAL.contentTypeId()
+                || FestivalPlace.parsePublicId(contentId).isPresent();
+    }
 }
