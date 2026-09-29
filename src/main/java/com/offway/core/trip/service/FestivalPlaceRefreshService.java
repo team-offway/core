@@ -68,6 +68,11 @@ public class FestivalPlaceRefreshService implements ManualBatch {
      * 3주 전에 등록됐으면 통째로 놓친다. 연차 기반으로 한 달 뒤를 계획하는 서비스라 그 구간이 정확히
      * 사각에 걸린다.
      *
+     * <p>주 1회로 올린 뒤의 노출 지연은 <b>최대 7일</b>이다 — cron 간격이 7일이라, 월요일 회차 직후
+     * 등록된 축제는 다음 월요일까지 기다린다. 아래 {@link #RUN_INTERVAL} 의 6일은 <b>지연 상한이
+     * 아니다</b>(그쪽 설명 참고). 6일을 보장하려면 주 2회로 올려야 하는데, 얻는 하루가 콜 두 배를
+     * 정당화하지 않는다.
+     *
      * <p>비용은 무의미한 수준이다 — 지역별이 아니라 <b>페이지 수만큼</b>이라 회차당 수십 콜이고, 한도는
      * 10,000/일이다. 월 14콜에서 월 56콜이 된다.
      *
@@ -98,6 +103,9 @@ public class FestivalPlaceRefreshService implements ManualBatch {
      *
      * <p><b>주 1회 cron 보다 하루 짧다.</b> 7일로 두면 스케줄러 지연 몇 분에 그 주 회차가 통째로
      * 건너뛰어진다 — 가드가 "아직 7일 안 됐다" 고 판정한다.
+     *
+     * <p><b>이 값은 노출 지연 상한이 아니다.</b> 실행 간격은 cron 이 정하고(7일), 이 값은 그 실행을
+     * 가드가 삼키지 않게 하는 여유일 뿐이다. 6일로 줄여도 축제가 6일 안에 보이지는 않는다.
      */
     private static final Duration RUN_INTERVAL = Duration.ofDays(6);
 
