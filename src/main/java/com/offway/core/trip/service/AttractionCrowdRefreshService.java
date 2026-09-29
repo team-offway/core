@@ -58,12 +58,23 @@ public class AttractionCrowdRefreshService implements ManualBatch {
     private static final ZoneId SERVICE_ZONE = ZoneId.of(SERVICE_ZONE_ID);
 
     /**
-     * 매일 새벽 5시 10분.
+     * 매일 <b>밤 8시 10분</b>.
      *
-     * <p>다른 배치와 시각을 벌렸다 — 지역 장소 풀이 매월 1일 04:00, 축제 기간이 화요일 04:20,
-     * 축제 풀이 매월 6일 04:50, 야영장이 매월 8일 04:40 이다. 겹치면 새벽에 외부 호출이 몰린다.
+     * <p>밤으로 옮긴 이유는 한도가 <b>KST 자정에 리셋</b>되기 때문이다(#617) — 새벽에 돌면 그날 몫을
+     * 사용자보다 먼저 가져간다.
+     *
+     * <p><b>외부 한도를 쓰는 배치 중 유일하게 매일 돈다</b>. 그래서 월·주 배치가 몰리는 21~23시를
+     * 비켜 20시대에 혼자 둔다. 같은 시각의 여행 전후 푸시(20:00)와는 겹쳐도 무해하다 — 그쪽은
+     * 외부 한도를 쓰지 않는다.
+     *
+     * <p>예보 창이 <b>오늘부터 30일</b>이라 하루 앞당겨 받아도 값이 바뀌지 않는다. 아래
+     * {@code toForecasts} 가 오늘보다 이른 날짜를 걸러내므로 자정을 넘긴 행이 남지도 않는다.
+     *
+     * <p>야간 슬롯(20~23시)을 배치끼리 나눠 쓴다. <b>전체 시간표는 여기 다시 열거하지 않는다</b> —
+     * {@code docs/external-api-inventory.md} 의 "배치 시간표" 가 정본이다. 파일마다 남의 시각을
+     * 적어 두면 하나만 옮겨도 나머지가 조용히 낡는다(#617 에서 실제로 그랬다).
      */
-    private static final String DAILY_AT_DAWN = "0 10 5 * * *";
+    private static final String DAILY_AT_NIGHT = "0 10 20 * * *";
 
     /**
      * 부팅 뒤 확인 — 배포가 잦아 cron 을 놓칠 수 있다.
@@ -113,7 +124,7 @@ public class AttractionCrowdRefreshService implements ManualBatch {
         return runningBatches.runExclusively(BATCH_NAME, this::refreshIfStale);
     }
 
-    @Scheduled(cron = DAILY_AT_DAWN, zone = SERVICE_ZONE_ID)
+    @Scheduled(cron = DAILY_AT_NIGHT, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void scheduled() {
         // **수동 실행과 같은 선점을 지난다**(#540). 예전에는 여기서 아래를 곧장 불러,

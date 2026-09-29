@@ -54,12 +54,16 @@ public class CampingPlaceRefreshService implements ManualBatch {
     private static final ZoneId SERVICE_ZONE = ZoneId.of(SERVICE_ZONE_ID);
 
     /**
-     * 매월 8일 새벽 4시 40분.
+     * 매월 8일 <b>밤 10시 40분</b>.
      *
-     * <p>다른 배치와 시각을 벌렸다 — 지역 장소 풀이 매월 1일 04:00, 축제 기간이 화요일 04:20,
-     * 축제 풀이 매월 6일 04:50 이다. 겹치면 새벽에 외부 호출이 한꺼번에 몰린다.
+     * <p>밤으로 옮긴 이유는 한도가 <b>KST 자정에 리셋</b>되기 때문이다(#617) — 새벽에 돌면 그날 몫을
+     * 사용자보다 먼저 가져간다.
+     *
+     * <p>야간 슬롯(20~23시)을 배치끼리 나눠 쓴다. <b>전체 시간표는 여기 다시 열거하지 않는다</b> —
+     * {@code docs/external-api-inventory.md} 의 "배치 시간표" 가 정본이다. 파일마다 남의 시각을
+     * 적어 두면 하나만 옮겨도 나머지가 조용히 낡는다(#617 에서 실제로 그랬다).
      */
-    private static final String MONTHLY_AT_DAWN = "0 40 4 8 * *";
+    private static final String MONTHLY_AT_NIGHT = "0 40 22 8 * *";
 
     /**
      * 부팅 뒤 확인 — 배포가 잦아 cron 을 놓칠 수 있다.
@@ -94,7 +98,7 @@ public class CampingPlaceRefreshService implements ManualBatch {
     /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
     private final ExternalApiBatchPolicy batchPolicy;
 
-    @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID)
+    @Scheduled(cron = MONTHLY_AT_NIGHT, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void scheduled() {
         // **수동 실행과 같은 선점을 지난다**(#540). 예전에는 여기서 아래를 곧장 불러,

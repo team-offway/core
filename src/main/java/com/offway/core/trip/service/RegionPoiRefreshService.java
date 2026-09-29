@@ -66,12 +66,17 @@ import org.springframework.stereotype.Service;
 public class RegionPoiRefreshService implements ManualBatch {
 
     /**
-     * 매달 1일 새벽 4시에 확인한다.
+     * 매달 1일 <b>밤 11시</b>에 확인한다 — 월배치 중 <b>가장 늦다</b>.
      *
-     * <p>사용자가 거의 없는 시각이라 267콜이 그날 사용자 몫을 밀어내지 않는다. 날짜를 1일로 둔 것은
-     * 기준월과 실행일을 맞추기 위해서다 — 월말에 돌면 다음 달 첫 조회가 이미 낡은 값을 본다.
+     * <p>밤으로 옮긴 이유는 한도가 <b>KST 자정에 리셋</b>되기 때문이다(#617) — 새벽에 돌면 그날 몫을
+     * 사용자보다 먼저 가져간다. 이 배치가 쓰는 {@code TOUR_API} 는 <b>코스 생성이 쓰는 그 한도</b>라
+     * (1,000/일) 사용자와 정면으로 겹친다 — 실측 2026-09-01 에 758콜(76%)까지 갔다. 그래서 가장 늦다.
+     *
+     * <p>회차당 <b>267콜</b>인데, 자정 직전이면 그날 한도는 이미 쓰일 만큼 쓰인 뒤다 — 같은 267콜이
+     * 사용자와 부딪히지 않는다. 날짜를 1일로 둔 것은 기준월과 실행일을 맞추기 위해서다 — 월말에
+     * 돌면 다음 달 첫 조회가 이미 낡은 값을 본다.
      */
-    private static final String MONTHLY_AT_DAWN = "0 0 4 1 * *";
+    private static final String MONTHLY_AT_NIGHT = "0 0 23 1 * *";
 
     /**
      * 부팅 후 첫 확인까지의 지연 — <b>cron 을 기다리다 화면이 비는 것을 막는다</b>(#314).
@@ -92,7 +97,7 @@ public class RegionPoiRefreshService implements ManualBatch {
     private static final String BOOT_CHECK_DELAY = "PT120S";
 
     /**
-     * 부팅 확인의 반복 간격. 실질적으로는 재발화하지 않는 값이다 — 주기 갱신은 {@link #MONTHLY_AT_DAWN} 이
+     * 부팅 확인의 반복 간격. 실질적으로는 재발화하지 않는 값이다 — 주기 갱신은 {@link #MONTHLY_AT_NIGHT} 이
      * 소유하고, 이 트리거는 "부팅했는데 비어 있으면 채운다" 만 맡는다.
      */
     private static final String BOOT_CHECK_INTERVAL = "P30D";
@@ -153,7 +158,7 @@ public class RegionPoiRefreshService implements ManualBatch {
     private final ExternalApiBatchPolicy batchPolicy;
 
     @Schedules({
-        @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID),
+        @Scheduled(cron = MONTHLY_AT_NIGHT, zone = SERVICE_ZONE_ID),
         @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     })
     public void scheduled() {

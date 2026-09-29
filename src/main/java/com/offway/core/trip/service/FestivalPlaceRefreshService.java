@@ -59,12 +59,30 @@ public class FestivalPlaceRefreshService implements ManualBatch {
     private static final ZoneId SERVICE_ZONE = ZoneId.of(SERVICE_ZONE_ID);
 
     /**
-     * 매월 6일 새벽 4시 50분.
+     * <b>매주 월요일 밤 10시 50분</b>(#617).
      *
-     * <p>원본이 <b>매월 초</b> 병합되므로 며칠 지난 시점에 받는다. 다른 배치와 시각을 벌렸다 —
-     * 지역 장소 풀이 매월 1일 04:00, 축제 기간이 화요일 04:20 이다.
+     * <h2>왜 월 1회에서 주 1회로 올렸나</h2>
+     *
+     * <p>우리가 다루는 후보 중 <b>축제만 유통기한이 며칠짜리</b>다. 관광지는 늘 있지만 축제는 그 주에만
+     * 열린다. 월 1회 + 25일 가드로는 <b>새로 등록된 축제가 최대 25일간 안 보였다</b> — 3일 열리는 축제가
+     * 3주 전에 등록됐으면 통째로 놓친다. 연차 기반으로 한 달 뒤를 계획하는 서비스라 그 구간이 정확히
+     * 사각에 걸린다.
+     *
+     * <p>비용은 무의미한 수준이다 — 지역별이 아니라 <b>페이지 수만큼</b>이라 회차당 수십 콜이고, 한도는
+     * 10,000/일이다. 월 14콜에서 월 56콜이 된다.
+     *
+     * <p><b>가드도 함께 내렸다.</b> {@link #RUN_INTERVAL} 이 25일로 남아 있으면 cron 을 주 1회로 바꿔도
+     * 조용히 무시된다 — 아래 {@code hasRunSince} 가 건너뛴다. 주기를 바꿀 때 가드를 같이 안 보는 것이
+     * #226·#231 의 그 함정이다.
+     *
+     * <p>밤으로 옮긴 이유는 한도가 <b>KST 자정에 리셋</b>되기 때문이다 — 새벽에 돌면 그날 몫을
+     * 사용자보다 먼저 가져간다.
+     *
+     * <p>야간 슬롯(20~23시)을 배치끼리 나눠 쓴다. <b>전체 시간표는 여기 다시 열거하지 않는다</b> —
+     * {@code docs/external-api-inventory.md} 의 "배치 시간표" 가 정본이다. 파일마다 남의 시각을
+     * 적어 두면 하나만 옮겨도 나머지가 조용히 낡는다(#617 에서 실제로 그랬다).
      */
-    private static final String MONTHLY_AT_DAWN = "0 50 4 6 * *";
+    private static final String WEEKLY_AT_NIGHT = "0 50 22 * * MON";
 
     /**
      * 부팅 뒤 확인 — 배포가 잦아 cron 을 놓칠 수 있다.
@@ -75,8 +93,13 @@ public class FestivalPlaceRefreshService implements ManualBatch {
 
     private static final String BOOT_CHECK_INTERVAL = "P7D";
 
-    /** 이 주기 안에 이미 돌았으면 건너뛴다 — 재배포가 한도를 다시 태우지 않게. */
-    private static final Duration RUN_INTERVAL = Duration.ofDays(25);
+    /**
+     * 이 주기 안에 이미 돌았으면 건너뛴다 — 재배포가 한도를 다시 태우지 않게.
+     *
+     * <p><b>주 1회 cron 보다 하루 짧다.</b> 7일로 두면 스케줄러 지연 몇 분에 그 주 회차가 통째로
+     * 건너뛰어진다 — 가드가 "아직 7일 안 됐다" 고 판정한다.
+     */
+    private static final Duration RUN_INTERVAL = Duration.ofDays(6);
 
     private static final String BATCH_NAME = "festival-place-refresh";
 
@@ -99,7 +122,7 @@ public class FestivalPlaceRefreshService implements ManualBatch {
     /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
     private final ExternalApiBatchPolicy batchPolicy;
 
-    @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID)
+    @Scheduled(cron = WEEKLY_AT_NIGHT, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void scheduled() {
         // **수동 실행과 같은 선점을 지난다**(#540). 예전에는 여기서 아래를 곧장 불러,
@@ -121,7 +144,7 @@ public class FestivalPlaceRefreshService implements ManualBatch {
             }
             // **온전히 받은 회차만 기록한다.** 저장 건수만 보면 안 된다 — 둘째 페이지가 깨져도 첫
             // 페이지 것은 저장되므로 건수가 양수이고, 그걸로 마커를 남기면 반쪽짜리 목록을 들고
-            // 25일을 버틴다. 부르기 전에 적으면 첫 페이지가 깨진 날에도 같은 일이 생긴다.
+            // 다음 회차까지 버틴다. 부르기 전에 적으면 첫 페이지가 깨진 날에도 같은 일이 생긴다.
             RefreshOutcome outcome = refresh();
             if (outcome.complete() && outcome.saved() > 0) {
                 batchRunRepository.markStarted(BATCH_NAME, now);
@@ -133,7 +156,7 @@ public class FestivalPlaceRefreshService implements ManualBatch {
      * 한 회차의 결과.
      *
      * <p><b>저장 건수와 회차 완결성은 다른 값이다.</b> 둘째 페이지가 깨져도 첫 페이지 것은 저장되므로
-     * 건수만 보고 "다 됐다" 고 판정하면, 마커가 남아 다음 갱신이 25일 막힌다 — 반쪽짜리 축제 목록을
+     * 건수만 보고 "다 됐다" 고 판정하면, 마커가 남아 다음 갱신이 그 주 내내 막힌다 — 반쪽짜리 축제 목록을
      * 그동안 그대로 쓰게 된다.
      *
      * @param saved 저장한 건수
@@ -166,7 +189,7 @@ public class FestivalPlaceRefreshService implements ManualBatch {
      *
      * <p><b>시각이 인자인 이유</b>는 그것이 곧 "이번 회차" 의 표식이기 때문이다. 이 값으로 저장하고
      * 이 값보다 오래된 행을 지우므로, 두 회차가 같은 초에 돌면 뒤 회차가 앞 회차를 못 걷어낸다.
-     * 운영은 25일 간격이라 닿지 않는 경계지만, 테스트가 시계에 기대지 않으려면 열려 있어야 한다.
+     * 운영은 6일 간격이라 닿지 않는 경계지만, 테스트가 시계에 기대지 않으려면 열려 있어야 한다.
      */
     public RefreshOutcome refresh(LocalDateTime fetchedAt) {
         List<Region> regions = regionQuery.all();
