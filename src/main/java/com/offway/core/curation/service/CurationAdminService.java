@@ -2,12 +2,14 @@ package com.offway.core.curation.service;
 
 import com.offway.core.curation.domain.CuratedLink;
 import com.offway.core.curation.domain.CurationException;
+import com.offway.core.curation.event.CuratedLinkAdded;
 import com.offway.core.curation.repository.CuratedLinkRepository;
 import com.offway.core.curation.service.dto.CuratedLinkCommand;
 import com.offway.core.user.service.AdminAccountService;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -36,6 +38,14 @@ public class CurationAdminService {
     private final CuratedLinkRepository curatedLinkRepository;
     private final AdminAccountService adminAccountService;
 
+    /**
+     * 추가 사실을 알리는 통로(#613) — <b>이 서비스가 알림을 직접 보내지 않는다.</b>
+     *
+     * <p>여기서 {@code Notifier} 를 들면 어드민 서비스가 통보 책임을 떠안고, 알림이 트랜잭션 안에서
+     * 나간다. 이벤트로 던지면 리스너가 <b>커밋 뒤에</b> 받는다 — 가입 알림(#610)과 같은 방식이다.
+     */
+    private final ApplicationEventPublisher eventPublisher;
+
     @Transactional(readOnly = true)
     public Page<CuratedLink> list(Pageable pageable) {
         return curatedLinkRepository.findAll(pageable);
@@ -57,6 +67,10 @@ public class CurationAdminService {
         String label = labelOf(adminUserId);
         CuratedLink saved = curatedLinkRepository.save(command.toCuratedLink(label));
         log.info("큐레이션 링크 생성 id={} 게시={} by={}", saved.getId(), saved.isPublished(), label);
+        // **생성만 알린다.** 켜고 끄는 것은 이미 검토의 결과라, 알리면 정작 봐야 할 줄이 묻힌다.
+        // 리스너가 AFTER_COMMIT 이라 아래에서 롤백되면 알림도 안 나간다.
+        eventPublisher.publishEvent(new CuratedLinkAdded(
+                saved.getTitle(), saved.getChipText(), saved.getSurfaces(), saved.isPublished()));
         return saved;
     }
 
