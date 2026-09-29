@@ -59,26 +59,43 @@ public class FestivalPlaceRefreshService implements ManualBatch {
     private static final ZoneId SERVICE_ZONE = ZoneId.of(SERVICE_ZONE_ID);
 
     /**
-     * <b>매주 월요일 밤 10시 50분</b>(#617).
+     * <b>매주 월·목요일 밤 10시 50분</b>(#617).
      *
-     * <h2>왜 월 1회에서 주 1회로 올렸나</h2>
+     * <h2>왜 월 1회에서 주 2회로 올렸나</h2>
      *
      * <p>우리가 다루는 후보 중 <b>축제만 유통기한이 며칠짜리</b>다. 관광지는 늘 있지만 축제는 그 주에만
      * 열린다. 월 1회 + 25일 가드로는 <b>새로 등록된 축제가 최대 25일간 안 보였다</b> — 3일 열리는 축제가
      * 3주 전에 등록됐으면 통째로 놓친다. 연차 기반으로 한 달 뒤를 계획하는 서비스라 그 구간이 정확히
      * 사각에 걸린다.
      *
-     * <p>주 1회로 올린 뒤의 노출 지연은 <b>최대 7일</b>이다 — cron 간격이 7일이라, 월요일 회차 직후
-     * 등록된 축제는 다음 월요일까지 기다린다. 아래 {@link #RUN_INTERVAL} 의 6일은 <b>지연 상한이
-     * 아니다</b>(그쪽 설명 참고). 6일을 보장하려면 주 2회로 올려야 하는데, 얻는 하루가 콜 두 배를
-     * 정당화하지 않는다.
+     * <p>실제로 그랬다. 운영 실측(2026-09-29)에서 이 배치의 마지막 회차가 <b>2026-09-08, 21일 전</b>
+     * 이었다 — 25일 가드가 10월 3일까지 막고 있었다.
      *
-     * <p>비용은 무의미한 수준이다 — 지역별이 아니라 <b>페이지 수만큼</b>이라 회차당 수십 콜이고, 한도는
-     * 10,000/일이다. 월 14콜에서 월 56콜이 된다.
+     * <h2>주기가 바꾸는 것과 바꾸지 못하는 것</h2>
      *
-     * <p><b>가드도 함께 내렸다.</b> {@link #RUN_INTERVAL} 이 25일로 남아 있으면 cron 을 주 1회로 바꿔도
+     * <p><b>주기를 올려도 "원본에 이미 있는 미래 축제" 가 더 오지는 않는다.</b> 이 배치는 전량을 받아
+     * 덮으므로({@code upsertAll} + {@code deleteFetchedBefore}) 한 회차가 원본이 아는 미래 축제를 다
+     * 가져온다 — 9/08 회차가 미래 축제 77건을 가져왔고 그중 58건이 아직 유효하다.
+     *
+     * <p>주기가 줄이는 것은 <b>원본에 새로 등록된 축제를 보기까지의 지연</b>뿐이다. 그래서 며칠짜리
+     * 축제에는 그 며칠이 값어치가 있다.
+     *
+     * <table border="1">
+     * <caption>노출 지연 상한</caption>
+     * <tr><th>주기</th><th>최대 지연</th><th>월 콜 수</th></tr>
+     * <tr><td>월 1회 + 25일 가드</td><td>25일</td><td>14</td></tr>
+     * <tr><td>주 1회 (월)</td><td>7일</td><td>56</td></tr>
+     * <tr><td><b>주 2회 (월·목)</b></td><td><b>4일</b></td><td><b>122</b></td></tr>
+     * </table>
+     *
+     * <p>월→목이 3일, 목→월이 4일이라 상한은 4일이다. 비용은 무의미한 수준이다 — 지역별이 아니라
+     * <b>페이지 수만큼</b>이라 회차당 14콜이고, 한도가 10,000/일이라 월 122콜은 <b>0.04%</b> 다.
+     * 여기서 주기를 더 올리는 것보다, <b>TourAPI 축제 242건을 후보로 쓰는 쪽</b>(#621)이 효과가 크다 —
+     * 10월 시작 기준으로 그쪽이 151건, 이쪽이 45건이다.
+     *
+     * <p><b>가드도 함께 내렸다.</b> {@link #RUN_INTERVAL} 이 25일로 남아 있으면 cron 을 아무리 조여도
      * 조용히 무시된다 — 아래 {@code hasRunSince} 가 건너뛴다. 주기를 바꿀 때 가드를 같이 안 보는 것이
-     * #226·#231 의 그 함정이다.
+     * #226·#231 의 그 함정이고, 이 배치가 21일 동안 안 돈 것이 정확히 그 결과다.
      *
      * <p>밤으로 옮긴 이유는 한도가 <b>KST 자정에 리셋</b>되기 때문이다 — 새벽에 돌면 그날 몫을
      * 사용자보다 먼저 가져간다.
@@ -87,7 +104,7 @@ public class FestivalPlaceRefreshService implements ManualBatch {
      * {@code docs/external-api-inventory.md} 의 "배치 시간표" 가 정본이다. 파일마다 남의 시각을
      * 적어 두면 하나만 옮겨도 나머지가 조용히 낡는다(#617 에서 실제로 그랬다).
      */
-    private static final String WEEKLY_AT_NIGHT = "0 50 22 * * MON";
+    private static final String TWICE_WEEKLY_AT_NIGHT = "0 50 22 * * MON,THU";
 
     /**
      * 부팅 뒤 확인 — 배포가 잦아 cron 을 놓칠 수 있다.
@@ -101,13 +118,17 @@ public class FestivalPlaceRefreshService implements ManualBatch {
     /**
      * 이 주기 안에 이미 돌았으면 건너뛴다 — 재배포가 한도를 다시 태우지 않게.
      *
-     * <p><b>주 1회 cron 보다 하루 짧다.</b> 7일로 두면 스케줄러 지연 몇 분에 그 주 회차가 통째로
-     * 건너뛰어진다 — 가드가 "아직 7일 안 됐다" 고 판정한다.
+     * <p><b>cron 의 가장 짧은 간격보다 짧아야 한다.</b> 월·목이라 최단 간격이 3일(월→목)이다. 3일로
+     * 맞추면 스케줄러 지연 몇 분에 목요일 회차가 통째로 건너뛰어진다 — 가드가 "아직 3일 안 됐다" 고
+     * 판정한다. 그래서 <b>2일</b>이다.
      *
-     * <p><b>이 값은 노출 지연 상한이 아니다.</b> 실행 간격은 cron 이 정하고(7일), 이 값은 그 실행을
-     * 가드가 삼키지 않게 하는 여유일 뿐이다. 6일로 줄여도 축제가 6일 안에 보이지는 않는다.
+     * <p><b>이 값은 노출 지연 상한이 아니다.</b> 실행 간격은 cron 이 정하고(3~4일), 이 값은 그 실행을
+     * 가드가 삼키지 않게 하는 여유일 뿐이다. 2일로 줄여도 축제가 2일 안에 보이지는 않는다.
+     *
+     * <p>재배포가 이틀에 한 번을 넘으면 그만큼 다시 도는데, 회차당 14콜이고 한도가 10,000/일이라
+     * 무해하다. 가드의 본래 목적은 한도 보호이고, 이 배치는 애초에 한도를 거의 안 쓴다.
      */
-    private static final Duration RUN_INTERVAL = Duration.ofDays(6);
+    private static final Duration RUN_INTERVAL = Duration.ofDays(2);
 
     private static final String BATCH_NAME = "festival-place-refresh";
 
@@ -130,7 +151,7 @@ public class FestivalPlaceRefreshService implements ManualBatch {
     /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
     private final ExternalApiBatchPolicy batchPolicy;
 
-    @Scheduled(cron = WEEKLY_AT_NIGHT, zone = SERVICE_ZONE_ID)
+    @Scheduled(cron = TWICE_WEEKLY_AT_NIGHT, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void scheduled() {
         // **수동 실행과 같은 선점을 지난다**(#540). 예전에는 여기서 아래를 곧장 불러,
@@ -197,7 +218,7 @@ public class FestivalPlaceRefreshService implements ManualBatch {
      *
      * <p><b>시각이 인자인 이유</b>는 그것이 곧 "이번 회차" 의 표식이기 때문이다. 이 값으로 저장하고
      * 이 값보다 오래된 행을 지우므로, 두 회차가 같은 초에 돌면 뒤 회차가 앞 회차를 못 걷어낸다.
-     * 운영은 6일 간격이라 닿지 않는 경계지만, 테스트가 시계에 기대지 않으려면 열려 있어야 한다.
+     * 운영은 3~4일 간격이라 닿지 않는 경계지만, 테스트가 시계에 기대지 않으려면 열려 있어야 한다.
      */
     public RefreshOutcome refresh(LocalDateTime fetchedAt) {
         List<Region> regions = regionQuery.all();
