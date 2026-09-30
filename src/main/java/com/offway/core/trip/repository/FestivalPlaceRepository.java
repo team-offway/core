@@ -1,10 +1,12 @@
 package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.FestivalPlace;
+import com.offway.core.trip.domain.TravelWindow;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** 축제 저장소 port(#433). 도메인·서비스는 이 인터페이스에만 의존한다. */
@@ -20,6 +22,30 @@ public interface FestivalPlaceRepository {
      * 언제 여는지 모르는 축제는 코스에 못 올린다.
      */
     List<FestivalPlace> findOpenOn(long regionId, LocalDate date, int limit);
+
+    /**
+     * 여행 구간과 <b>하루라도 겹치는</b> 축제(#616).
+     *
+     * <p>{@link #findOpenOn} 의 자리를 대신한다. 하루만 보면 2박3일의 둘째·셋째 날 축제가 사라진다 —
+     * 여행 내내 열려야 하는 것이 아니고 하루라도 겹치면 갈 수 있다.
+     */
+    List<FestivalPlace> findOverlapping(long regionId, TravelWindow window, int limit);
+
+    /**
+     * 그날 이후에 열릴 축제 — <b>아직 시작하지 않은 것만</b>(#622).
+     *
+     * <p>날짜를 정하기 전에 "이 축제 기간에 가보는 건 어떠냐" 를 말하기 위한 자리다. 그날 진행 중인
+     * 축제는 {@link #findOpenOn} 이 코스에 넣으므로 여기서 빠진다.
+     */
+    List<FestivalPlace> findUpcomingAfter(long regionId, LocalDate date, int limit);
+
+    /**
+     * 식별자 여럿을 한 번에 — 기간을 슬롯에 붙일 때 쓴다(#622).
+     *
+     * <p><b>코스당 한 번</b>을 지키려고 여럿을 받는다. 슬롯마다 {@link #findById} 를 부르면 N+1 이고,
+     * 그 곱셈이 그대로 사용자 대기가 된다.
+     */
+    Map<Long, FestivalPlace> findByIds(Collection<Long> ids);
 
     Optional<FestivalPlace> findById(long id);
 

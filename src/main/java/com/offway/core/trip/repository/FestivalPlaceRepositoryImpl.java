@@ -1,13 +1,16 @@
 package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.FestivalPlace;
+import com.offway.core.trip.domain.TravelWindow;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -50,6 +53,29 @@ public class FestivalPlaceRepositoryImpl implements FestivalPlaceRepository {
     @Transactional(readOnly = true)
     public List<FestivalPlace> findOpenOn(long regionId, LocalDate date, int limit) {
         return festivalPlaceJpaRepository.findOpenOn(regionId, date, PageRequest.ofSize(limit));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<FestivalPlace> findOverlapping(long regionId, TravelWindow window, int limit) {
+        return festivalPlaceJpaRepository.findOverlapping(
+                regionId, window.start(), window.end(), PageRequest.ofSize(limit));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<FestivalPlace> findUpcomingAfter(long regionId, LocalDate date, int limit) {
+        return festivalPlaceJpaRepository.findUpcomingAfter(regionId, date, PageRequest.ofSize(limit));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, FestivalPlace> findByIds(Collection<Long> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return festivalPlaceJpaRepository.findAllByIdIn(ids).stream()
+                .collect(Collectors.toUnmodifiableMap(FestivalPlace::getId, festival -> festival));
     }
 
     @Override

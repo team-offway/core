@@ -1,6 +1,7 @@
 package com.offway.core.trip.service.dto;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -138,5 +139,51 @@ class RegionPoisTest {
         assertTrue(new RegionPois(List.of(), List.of(), List.of(), List.of()).needsSupplement());
         assertTrue(new RegionPois(pois("s", 30), pois("f", 20), List.of(), pois("t", 1)).needsSupplement());
         assertEquals(false, new RegionPois(pois("s", 30), pois("f", 20), List.of(), pois("t", 10)).needsSupplement());
+    }
+
+    /**
+     * <b>풀을 더하는 메서드는 다른 칸을 잃지 않는다</b>(#619).
+     *
+     * <p>이 불변식이 깨졌던 적이 있다. 축제를 볼거리에 더하는 자리가 {@code RegionPois.builder()} 로
+     * 네 칸을 다시 나열하면서 카페를 빠뜨렸다 — 네 칸이 전부 {@code List<PoiCandidate>} 라 컴파일러가
+     * 잡지 못하고, 받는 쪽도 카페만 null 을 관대하게 받아 <b>예외 없이 빈 리스트가 됐다</b>.
+     *
+     * <p>그래서 조립을 도메인 메서드로 옮겼고, 이 테스트가 그 계약을 지킨다 — 한 칸을 건드리는 조립은
+     * 나머지 셋을 <b>건드리지 않는다</b>. 네 메서드를 한자리에서 보는 이유는 같은 실수가 어느 쪽에서
+     * 나도 여기서 걸리게 하려는 것이다.
+     */
+    @Test
+    void 풀을_더해도_건드리지_않은_칸은_그대로다() {
+        RegionPois pois = new RegionPois(pois("s", 30), pois("f", 20), pois("c", 7), pois("t", 10));
+
+        RegionPois 축제붙임 = pois.withPrioritySights(pois("축제", 2));
+        assertEquals(32, 축제붙임.sights().size(), "볼거리가 안 늘었다");
+        assertEquals(7, 축제붙임.cafes().size(), "축제를 더하자 카페가 사라졌다");
+        assertEquals(20, 축제붙임.foods().size(), "축제를 더하자 맛집이 사라졌다");
+        assertEquals(10, 축제붙임.stays().size(), "축제를 더하자 숙박이 사라졌다");
+
+        RegionPois 야영장붙임 = pois.withMoreStays(pois("야영장", 2));
+        assertEquals(12, 야영장붙임.stays().size(), "숙박이 안 늘었다");
+        assertEquals(7, 야영장붙임.cafes().size(), "야영장을 더하자 카페가 사라졌다");
+        assertEquals(30, 야영장붙임.sights().size(), "야영장을 더하자 볼거리가 사라졌다");
+        assertEquals(20, 야영장붙임.foods().size(), "야영장을 더하자 맛집이 사라졌다");
+    }
+
+    /** 축제는 <b>앞</b>에 온다 — 뒤에 붙이면 볼거리 아흔 개 끝에 놓여 사실상 안 뽑힌다. */
+    @Test
+    void 우선_볼거리는_풀의_앞에_온다() {
+        RegionPois pois = new RegionPois(pois("s", 5), pois("f", 20), pois("c", 3), pois("t", 10));
+
+        RegionPois result = pois.withPrioritySights(List.of(poi("그날열리는축제")));
+
+        assertEquals("그날열리는축제", result.sights().get(0).title(), "축제가 앞이 아니다");
+    }
+
+    /** 더할 것이 없으면 그대로다 — 새 객체를 만들 이유가 없다. */
+    @Test
+    void 더할_우선_볼거리가_없으면_그대로다() {
+        RegionPois pois = new RegionPois(pois("s", 5), pois("f", 20), pois("c", 3), pois("t", 10));
+
+        assertSame(pois, pois.withPrioritySights(List.of()));
     }
 }

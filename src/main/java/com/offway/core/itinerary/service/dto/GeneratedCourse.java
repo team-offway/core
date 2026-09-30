@@ -10,6 +10,7 @@ import com.offway.core.trip.service.dto.RegionBenefit;
 import com.offway.core.weather.domain.DailyWeather;
 import java.util.List;
 import com.offway.core.trip.domain.FestivalPeriod;
+import com.offway.core.trip.domain.FestivalPlace;
 import java.util.Map;
 import lombok.Builder;
 
@@ -66,7 +67,16 @@ public record GeneratedCourse(
          * <p>슬롯마다 조회하면 코스 하나에 질의가 슬롯 수만큼 나간다. 지역과 날짜가 코스 단위로
          * 정해지므로 한 번 읽어 이름으로 꺼내 쓴다.
          */
-        CourseCrowd courseCrowd) {
+        CourseCrowd courseCrowd,
+        /**
+         * 앞으로 이 지역에서 열릴 축제 — <b>"그 기간에 가보는 건 어떠냐"</b>(#622).
+         *
+         * <p>코스에 실린 축제와 다른 자리다. 저쪽은 "이번에 가는 것" 이고 이쪽은 "다음에 갈 이유" 다 —
+         * 코스를 먼저 보고 날짜를 정하는 사용자에게 날짜를 권하는 근거가 된다.
+         *
+         * <p>이미 코스에 실린 축제는 빠진다. 건수 상한이 있어 코스 길이와 무관하게 고정이다.
+         */
+        List<FestivalPlace> festivalSuggestions) {
 
     public GeneratedCourse {
         benefits = List.copyOf(benefits);
@@ -76,6 +86,8 @@ public record GeneratedCourse(
         hubPhotoUrlByName = hubPhotoUrlByName == null ? Map.of() : Map.copyOf(hubPhotoUrlByName);
         festivalPeriodByContentId =
                 festivalPeriodByContentId == null ? Map.of() : Map.copyOf(festivalPeriodByContentId);
+        // 축제 제안(#622) — 없는 것이 정상이다(그 지역에 앞으로 축제가 없을 수 있다).
+        festivalSuggestions = festivalSuggestions == null ? List.of() : List.copyOf(festivalSuggestions);
         // 반려동반(#566) — 대부분의 슬롯이 해당 없음이라 null 을 빈 맵으로 접는다.
         petAccompanyByContentId =
                 petAccompanyByContentId == null ? Map.of() : Map.copyOf(petAccompanyByContentId);
