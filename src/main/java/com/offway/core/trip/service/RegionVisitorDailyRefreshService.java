@@ -56,8 +56,14 @@ public class RegionVisitorDailyRefreshService implements ManualBatch {
     private static final String SERVICE_ZONE_ID = "Asia/Seoul";
     private static final ZoneId SERVICE_ZONE = ZoneId.of(SERVICE_ZONE_ID);
 
-    /** 매월 5일 새벽 — 지난달이 발행되고도 며칠 지난 시점이라 미발행으로 헛돌 일이 적다. */
-    private static final String MONTHLY_AT_DAWN = "0 40 4 5 * *";
+    /**
+     * 매월 5일 <b>밤 11시 40분</b> — 지난달이 발행되고도 며칠 지난 시점이라 미발행으로 헛돌 일이 적다.
+     *
+     * <p>밤으로 옮긴 이유는 한도가 <b>KST 자정에 리셋</b>되기 때문이다(#617) — 새벽에 돌면 그날 몫을
+     * 사용자보다 먼저 가져간다. 이 배치가 쓰는 {@code TOUR_VISITOR} 도 <b>혼잡도·랭킹이 쓰는 한도</b>라
+     * 사용자와 겹친다 — 그래서 {@code RegionPoiRefreshService} 와 함께 가장 늦은 23시대에 둔다.
+     */
+    private static final String MONTHLY_AT_NIGHT = "0 40 23 5 * *";
 
     /**
      * 부팅 뒤 확인 — 배포가 잦아 cron 을 놓칠 수 있다.
@@ -128,7 +134,7 @@ public class RegionVisitorDailyRefreshService implements ManualBatch {
      *
      * <p>선점은 곧 기록이라, 관리자 화면의 마지막 실행 시각도 여기서 함께 채워진다.
      */
-    @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID)
+    @Scheduled(cron = MONTHLY_AT_NIGHT, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void scheduled() {
         // **수동 실행과 같은 선점을 지난다**(#540). 예전에는 여기서 아래를 곧장 불러,

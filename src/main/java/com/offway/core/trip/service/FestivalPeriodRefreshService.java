@@ -52,14 +52,22 @@ public class FestivalPeriodRefreshService implements ManualBatch {
     private static final ZoneId SERVICE_ZONE = ZoneId.of(SERVICE_ZONE_ID);
 
     /**
-     * 매주 화요일 새벽 4시 20분.
+     * 매주 화요일 <b>밤 9시 20분</b>.
+     *
+     * <p>밤으로 옮긴 이유는 한도가 <b>KST 자정에 리셋</b>되기 때문이다(#617) — 새벽에 돌면 그날 몫을
+     * 사용자보다 먼저 가져간다.
      *
      * <p><b>주 1회면 충분하다.</b> 축제 일정은 하루 사이에 바뀌지 않는다. 매일 돌면 같은 값을 위해 한도를
      * 일곱 배로 쓴다.
      *
-     * <p>다른 배치와 겹치지 않게 시각을 벌렸다 — 지역 장소 풀이 매월 1일 04:00 이라 같은 시각을 피했다.
+     * <p>이 배치는 {@code TOUR_API} 를 쓴다 — <b>코스 생성이 쓰는 그 한도</b>(1,000/일)라 새벽에
+     * 돌면 사용자와 정면으로 겹쳤다.
+     *
+     * <p>야간 슬롯(20~23시)을 배치끼리 나눠 쓴다. <b>전체 시간표는 여기 다시 열거하지 않는다</b> —
+     * {@code docs/external-api-inventory.md} 의 "배치 시간표" 가 정본이다. 파일마다 남의 시각을
+     * 적어 두면 하나만 옮겨도 나머지가 조용히 낡는다(#617 에서 실제로 그랬다).
      */
-    private static final String WEEKLY_AT_DAWN = "0 20 4 * * TUE";
+    private static final String WEEKLY_AT_NIGHT = "0 20 21 * * TUE";
 
     /**
      * 부팅 뒤 확인 주기 — 배포가 잦아 cron 을 놓칠 수 있다.
@@ -117,7 +125,7 @@ public class FestivalPeriodRefreshService implements ManualBatch {
     /** 배치를 멈추거나 한도 상한을 거는 스위치(#403). */
     private final ExternalApiBatchPolicy batchPolicy;
 
-    @Scheduled(cron = WEEKLY_AT_DAWN, zone = SERVICE_ZONE_ID)
+    @Scheduled(cron = WEEKLY_AT_NIGHT, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void scheduled() {
         // **수동 실행과 같은 선점을 지난다**(#540). 예전에는 여기서 아래를 곧장 불러,

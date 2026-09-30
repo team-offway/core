@@ -94,7 +94,7 @@ class FestivalPoolIntegrationTest {
     /**
      * <b>실패한 회차를 완료로 기록하지 않는다.</b>
      *
-     * <p>완료로 남기면 배치 마커가 찍혀 다음 갱신이 25일 막힌다 — 그동안 축제 목록이 그대로다.
+     * <p>완료로 남기면 배치 마커가 찍혀 다음 갱신이 그 주 내내 막힌다 — 그동안 축제 목록이 그대로다.
      *
      * <p>파일 방식으로 옮기면서 "일부만 받은 회차" 가 사라졌다(#433). 전량 아니면 전무라, 실패한
      * 회차는 저장 건수도 0이다.
@@ -109,7 +109,7 @@ class FestivalPoolIntegrationTest {
         FestivalPlaceRefreshService.RefreshOutcome outcome = refreshService.refresh(FIRST_RUN);
 
         assertEquals(0, outcome.saved(), "못 받았으면 저장한 것도 없다");
-        assertFalse(outcome.complete(), "실패한 회차를 완료로 기록하면 다음 갱신이 25일 막힌다");
+        assertFalse(outcome.complete(), "실패한 회차를 완료로 기록하면 다음 갱신이 그 주 내내 막힌다");
     }
 
     /** 온전히 받은 회차는 완료다 — 한쪽만 보면 "항상 미완료" 가 초록이 된다. */
