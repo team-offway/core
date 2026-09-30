@@ -48,6 +48,25 @@ public interface FestivalPlaceJpaRepository extends JpaRepository<FestivalPlace,
     List<FestivalPlace> findUpcomingAfter(
             @Param("regionId") long regionId, @Param("date") LocalDate date, Pageable pageable);
 
+    /**
+     * 여행 구간과 <b>하루라도 겹치는</b> 축제(#616).
+     *
+     * <p>{@link #findOpenOn} 은 하루만 본다. 2박3일이면 둘째·셋째 날에 열리는 축제가 통째로 빠졌다 —
+     * 여행 내내 열려야 하는 것이 아니라 <b>하루라도 겹치면</b> 갈 수 있는 축제다.
+     *
+     * <p>겹침 조건은 {@code start <= 여행끝 AND end >= 여행시작} 이다. 시작·종료 당일을 포함한다.
+     */
+    @Query("""
+            select festival from FestivalPlace festival
+            where festival.regionId = :regionId
+              and festival.eventStart <= :to
+              and festival.eventEnd >= :from
+            order by festival.eventStart asc, festival.id asc
+            """)
+    List<FestivalPlace> findOverlapping(
+            @Param("regionId") long regionId, @Param("from") LocalDate from,
+            @Param("to") LocalDate to, Pageable pageable);
+
     /** 식별자 여럿을 한 번에 — 슬롯마다 읽으면 N+1 이다(#622). */
     @Query("select festival from FestivalPlace festival where festival.id in :ids")
     List<FestivalPlace> findAllByIdIn(@Param("ids") Collection<Long> ids);

@@ -35,6 +35,7 @@ import com.offway.core.transport.service.TravelTimeProvider;
 import com.offway.core.transport.service.dto.RegionAccess;
 import com.offway.core.trip.domain.FoodTaste;
 import com.offway.core.trip.domain.RegionVisitMetrics;
+import com.offway.core.trip.domain.TravelWindow;
 import com.offway.core.trip.service.AttractionCrowdService;
 import com.offway.core.trip.service.dto.CourseCrowd;
 import com.offway.core.trip.service.RegionVisitMetricsService;
@@ -130,7 +131,7 @@ public class CourseGenerationService {
     public GeneratedCourse generate(GenerateCourse command) {
         return recentCourses.get(command, () ->
                 // ① POI 수집 (trip)
-                generate(command, regionPoiService.collect(command.regionId(), command.travelDate())));
+                generate(command, regionPoiService.collect(command.regionId(), command.travelWindow())));
     }
 
     /**
@@ -211,7 +212,7 @@ public class CourseGenerationService {
         // 대중교통이면 첫 칸·끝 칸에 내린 지점(역·터미널·항구)을 세운다(#415).
         List<DaySchedule> days = buildDays(
                 command, firstDayStart(command, regionAccess), orderedSights, foods, cafes, stays,
-                transitHub(command, regionAccess));
+                transitHub(command, regionAccess), command.travelWindow());
         // 기간은 days.size() 가 아니라 **요청한 일수**다. 일정이 없는 날은 코스에서 빠지므로(#159) 둘이 갈린다 —
         // 첫날이 이동뿐이어도 그날은 여행 중이고, 연차도 그만큼 나간다(#164).
         Course course = Course.of(
@@ -461,12 +462,18 @@ public class CourseGenerationService {
      */
     private List<DaySchedule> buildDays(GenerateCourse command, DayStart firstDayStart,
             List<PoiCandidate> sights, List<PoiCandidate> foods, CafeChoices cafes,
-            List<PoiCandidate> stays, TransitHub hub) {
+            List<PoiCandidate> stays, TransitHub hub, TravelWindow window) {
         int perDaySights = command.density().sightsPerDay();
         List<DaySchedule> days = new ArrayList<>();
+        // **축제는 열리는 날에만 놓는다**(#616). 날짜 제약이 있는 유일한 후보라, 동선 순서에 맡기면
+        // 첫날만 하는 축제가 셋째 날 칸에 들어간다 — 사용자가 문 닫힌 곳에 간다.
+        PinnedFestival pinned =
+                PinnedFestival.of(sights, window, firstDayStart.sightCapacity(perDaySights));
         // **상한은 날짜 배정에서 건다**(#522). 고를 때 걸면 그 뒤 동선 정렬이 순서를 바꿔 하루 단위가
         // 어긋난다 — 실제로 그렇게 만들었더니 해수욕장이 통째로 이튿날로 밀렸다.
         List<PoiCandidate> remaining = new ArrayList<>(sights);
+        // 못 박은 축제는 일반 후보 줄에서 뺀다 — 안 빼면 엉뚱한 날이 먼저 집어 간다.
+        pinned.removeFrom(remaining);
         // **끼니·숙소도 그날 동선에 맞춘다**(#533). 예전에는 배열 순서대로 꽂아서, 2일차가 북쪽인데
         // 남쪽 밥집을 받는 일이 생겼다 — 카페만 고쳐 두고 나머지는 그대로였다.
         List<PoiCandidate> remainingFoods = new ArrayList<>(foods);
@@ -477,7 +484,10 @@ public class CourseGenerationService {
         PoiCandidate previousMeal = null;
         for (int day = 1; day <= command.travelDays(); day++) {
             DayStart start = day == 1 ? firstDayStart : DayStart.fullDay();
-            List<PoiCandidate> daySights = takeVaried(remaining, start.sightCapacity(perDaySights));
+            // 축제를 놓는 날이면 한 칸을 축제에 주고 남은 칸만 채운다.
+            List<PoiCandidate> daySights =
+                    pinned.fill(day, remaining, start.sightCapacity(perDaySights),
+                            CourseGenerationService::takeVaried);
             if (command.transport() == TransportMode.CAR) {
                 // 하루 볼거리 순서를 실도로 기준 최적화(자차). TMAP 은 실도로라 우리 추정보다 낫다.
                 daySights = reorder(daySights, routeOptimizer.optimalOrder(coords(daySights)));

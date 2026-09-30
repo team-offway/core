@@ -1833,4 +1833,145 @@ class CourseGenerateIntegrationTest {
                 response, "$.data.days[*].items[?(@.kind == 'CAFE')].title");
         assertFalse(cafes.isEmpty(), "축제가 붙자 카페 풀이 통째로 사라졌다");
     }
+
+    /** 3일 여행 요청 — 날짜는 transitBody 와 같은 2026-05-01 이다. */
+    private static String 사흘짜리() {
+        return """
+                { "regionId": 1, "travelDays": 3, "density": "PACKED", "transport": "CAR",
+                  "originLat": %s, "originLng": %s, "travelDate": "2026-05-01" }"""
+                .formatted(SEOUL_LAT, SEOUL_LNG);
+    }
+
+    /** 기간을 정해 축제를 만든다. */
+    private FestivalPlace 축제를(String 이름, LocalDate 시작, LocalDate 종료) {
+        festivalPlaceRepository.upsertAll(List.of(FestivalPlace.builder()
+                .regionId(REGION)
+                .name(이름)
+                .address("부산광역시 동구 축제로 1")
+                .lat(35.105).lng(129.033)
+                .eventStart(시작).eventEnd(종료)
+                .fetchedAt(LocalDateTime.of(2026, 4, 1, 0, 0))
+                .build()));
+        return festivalPlaceRepository.findOverlapping(
+                        REGION, com.offway.core.trip.domain.TravelWindow.of(시작, 1), 10).stream()
+                .filter(festival -> 이름.equals(festival.getName()))
+                .findFirst().orElseThrow();
+    }
+
+    /** 사흘을 채울 만큼 후보를 준다. */
+    private void 사흘치_후보들() {
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 20; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.005, 129.03 + i * 0.005));
+            }
+            for (int i = 0; i < 8; i++) {
+                items.add(poi("f" + i, 39, 35.12 + i * 0.005, 129.04 + i * 0.005));
+            }
+            for (int i = 0; i < 4; i++) {
+                items.add(poi("st" + i, 32, 35.11 + i * 0.005, 129.03 + i * 0.005));
+            }
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+    }
+
+    /**
+     * 그 축제가 들어간 일차(응답의 {@code day}). 없으면 0.
+     *
+     * <p>날을 하나씩 훑는다 — 중첩 필터 JsonPath 보다 읽기 쉽고, 이 테스트 클래스가 이미 쓰는 방식이다.
+     * <b>일정이 없는 날은 코스에서 빠지므로</b>(#159) 배열 위치와 일차가 같지 않다. 그래서 위치가 아니라
+     * 그 날의 {@code day} 값을 돌려준다.
+     */
+    private static int 축제가_들어간_날(String response, String 축제명) {
+        List<Integer> dayNumbers = com.jayway.jsonpath.JsonPath.read(response, "$.data.days[*].day");
+        for (int i = 0; i < dayNumbers.size(); i++) {
+            List<String> titles = com.jayway.jsonpath.JsonPath.read(
+                    response, "$.data.days[" + i + "].items[*].title");
+            if (titles.contains(축제명)) {
+                return dayNumbers.get(i);
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * <b>셋째 날만 하는 축제가 3일 여행에서 사라지지 않는다</b>(#616).
+     *
+     * <p>예전에는 후보를 <b>첫날 하루</b>로만 걸렀다({@code collect(regionId, travelDate)}). 그래서
+     * 2·3일차에만 열리는 축제가 통째로 빠졌다 — 갈 수 있는 축제인데 보이지도 않았다.
+     */
+    @Test
+    @Transactional
+    void 셋째날만_하는_축제도_사흘_여행에_들어간다() throws Exception {
+        LocalDate 셋째날 = LocalDate.of(2026, 5, 3);
+        FestivalPlace 축제 = 축제를("셋째날만하는축제", 셋째날, 셋째날);
+        사흘치_후보들();
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(사흘짜리()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> sights = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'SIGHT')].title");
+        assertTrue(sights.contains(축제.getName()),
+                "2·3일차 축제가 첫날 필터에 걸려 사라졌다: " + sights);
+    }
+
+    /**
+     * <b>축제는 열리는 날에 놓인다</b>(#616).
+     *
+     * <p>후보로 올리는 것만으로는 부족하다. 날 배정은 동선 순서가 정하므로, 그대로 두면 셋째 날만 하는
+     * 축제가 1일차 칸에 들어간다 — 사용자가 문 닫힌 곳에 간다.
+     */
+    @Test
+    @Transactional
+    void 셋째날만_하는_축제는_셋째_날에_놓인다() throws Exception {
+        LocalDate 셋째날 = LocalDate.of(2026, 5, 3);
+        FestivalPlace 축제 = 축제를("셋째날축제", 셋째날, 셋째날);
+        사흘치_후보들();
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(사흘짜리()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals(3, 축제가_들어간_날(response, 축제.getName()),
+                "셋째 날만 하는 축제가 다른 날에 놓였다 — 문 닫힌 곳에 보내는 것이다");
+    }
+
+    /** 반대쪽 — 첫날만 하는 축제가 2·3일차로 밀리지 않는다. */
+    @Test
+    @Transactional
+    void 첫날만_하는_축제는_첫_날에_놓인다() throws Exception {
+        FestivalPlace 축제 = 축제를("첫날축제", LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 1));
+        사흘치_후보들();
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(사흘짜리()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals(1, 축제가_들어간_날(response, 축제.getName()),
+                "첫날만 하는 축제가 뒤로 밀렸다");
+    }
+
+    /** 여행이 끝난 뒤에 열리는 축제는 후보도 아니다 — 구간을 넓힌 것이 과하지 않은지 본다. */
+    @Test
+    @Transactional
+    void 여행_뒤에_열리는_축제는_코스에_안_들어간다() throws Exception {
+        FestivalPlace 축제 = 축제를("여행뒤축제", LocalDate.of(2026, 5, 4), LocalDate.of(2026, 5, 6));
+        사흘치_후보들();
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(사흘짜리()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> sights = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'SIGHT')].title");
+        assertFalse(sights.contains(축제.getName()),
+                "여행이 끝난 뒤 열리는 축제가 코스에 들어갔다 — 구간 계산이 하루 길다");
+    }
 }

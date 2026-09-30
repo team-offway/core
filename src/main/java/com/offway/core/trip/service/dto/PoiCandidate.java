@@ -3,6 +3,7 @@ package com.offway.core.trip.service.dto;
 import com.offway.core.trip.domain.FestivalPlace;
 import com.offway.core.trip.domain.FoodTaste;
 import com.offway.core.trip.domain.PoiContentType;
+import java.time.LocalDate;
 
 import lombok.Builder;
 
@@ -23,7 +24,9 @@ import lombok.Builder;
  * 위치 생성자로는 두 칸을 맞바꿔도 컴파일이 통과한다 — 주소 자리에 캐치프레이즈가 들어가도 화면이
  * 이상해질 때까지 아무도 모른다.
  */
-@Builder
+// toBuilder 를 켠다(#616) — 한 칸만 바꿔 새 후보를 만들 때 나머지를 손으로 옮기지 않게.
+// 손으로 옮기면 칸이 늘 때마다 그 자리가 조용히 낡는다(#619 에서 카페 풀이 그렇게 사라졌다).
+@Builder(toBuilder = true)
 public record PoiCandidate(
         String contentId, int contentTypeId, String title, double lat, double lng,
         String imageUrl, String address, String catchphrase, String tel,
@@ -72,7 +75,41 @@ public record PoiCandidate(
          * <p>없으면 null 이다. 우리 DB 출처(인허가·국가유산)가 그렇고, 그때는 종류를 모르는 것으로 보아
          * 상한에서 제외한다 — 모르는 것끼리 한 칸으로 묶으면 하루에 하나밖에 못 들어간다.
          */
-        String sightKind) {
+        String sightKind,
+        /**
+         * 축제 시작일 — <b>축제만</b> 값이 있다(#616).
+         *
+         * <p>후보를 거른 뒤에도 기간이 필요하다. 여행 구간과 겹치는 축제를 후보로 올렸어도, <b>어느 날에
+         * 놓을지</b>는 그 축제가 그날 열리는지를 봐야 정해진다 — 2박3일 중 첫날만 하는 축제를 셋째 날
+         * 칸에 넣으면 사용자가 문 닫힌 곳에 간다.
+         *
+         * <p>날짜를 다시 조회하지 않고 후보에 실어 나른다. 조회 시점에 이미 손에 있던 값이고, 배치할 때
+         * 다시 물으면 후보마다 질의가 나간다.
+         */
+        LocalDate eventStart,
+        /** 축제 종료일 — {@link #eventStart} 와 같은 이유로 함께 싣는다(#616). */
+        LocalDate eventEnd) {
+
+    /**
+     * 그날 이 축제가 열리나 — 시작일·종료일 <b>당일을 포함</b>한다(#616).
+     *
+     * <p><b>기간을 모르면 참이다.</b> TourAPI 축제 중 기간이 없는 것이 있는데, 그것을 거짓으로 두면
+     * "모른다" 가 "안 한다" 로 둔갑해 멀쩡한 축제가 어느 날에도 못 들어간다. 없는 것과 모르는 것은
+     * 다르다 — 이 판단은 {@code withoutClosedFestivals} 가 이미 같은 방향으로 하고 있다.
+     *
+     * <p>축제가 아닌 후보에도 참이다. 날짜 제약이 없는 장소라 아무 날에나 놓을 수 있다.
+     */
+    public boolean isOpenOn(LocalDate date) {
+        if (eventStart == null || eventEnd == null) {
+            return true;
+        }
+        return date != null && !date.isBefore(eventStart) && !date.isAfter(eventEnd);
+    }
+
+    /** 기간을 아는 축제인가 — 날에 못 박을 수 있는 것만 참이다(#616). */
+    public boolean hasKnownPeriod() {
+        return eventStart != null && eventEnd != null;
+    }
 
     /**
      * 축제인가 — <b>출처가 둘이라 타입 하나로는 못 가른다</b>(#622).
