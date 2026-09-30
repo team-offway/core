@@ -56,6 +56,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -80,6 +81,14 @@ public class CourseGenerationService {
     /** 상한을 몇 단계까지 푸나 — 한 곳도 못 고를 때만 쓰는 안전판이다. */
     private static final int VARIETY_MAX_RELAX = 3;
 
+    /**
+     * 코스 하나에 넣는 축제 수(#622).
+     *
+     * <p>1 이다. 3일 여행에 셋을 넣으면 "축제만 보고 오라" 가 된다 — 축제는 양념이고 그 지역을 보러
+     * 가는 것이 본체다. 여러 개를 허용하려면 하루 상한과 함께 다시 정해야 한다.
+     */
+    private static final int FESTIVAL_SLOTS = 1;
+
 
     private final RegionPoiService regionPoiService;
     private final TravelTimeProvider travelTimeProvider;
@@ -92,6 +101,7 @@ public class CourseGenerationService {
     private final OpeningHoursProvider openingHoursProvider;
     private final TransitHubPhotoProvider transitHubPhotoProvider;
     private final FestivalPeriodProvider festivalPeriodProvider;
+    private final FestivalSuggestionProvider festivalSuggestionProvider;
     private final PetAccompanyProvider petAccompanyProvider;
     private final RegionQuery regionQuery;
     private final RegionAccessService regionAccessService;
@@ -241,6 +251,9 @@ public class CourseGenerationService {
                 .hoursByContentId(openingHoursProvider.forCourse(course))
                 .hubPhotoUrlByName(transitHubPhotoProvider.photoUrls(transitHubNames(course)))
                 .festivalPeriodByContentId(festivalPeriodProvider.forCourse(course))
+                // 앞으로 열릴 축제(#622) — 코스에 실린 축제와 다른 자리다. 저쪽은 "이번에 가는 것",
+                // 이쪽은 "다음에 갈 이유" 다. DB 질의 한 번이고 외부 호출이 없다.
+                .festivalSuggestions(festivalSuggestionProvider.forCourse(course))
                 // 반려동반 표식(#566) — 적재해 둔 것만 읽는다. 생성·저장 양쪽에서 채워야 저장한 코스를
                 // 다시 열었을 때 칩이 사라지지 않는다(#169 와 같은 실수).
                 .petAccompanyByContentId(petAccompanyProvider.forCourse(course))
@@ -759,6 +772,85 @@ public class CourseGenerationService {
      * <p>하루 같은 분류 상한(#522)은 그대로다. 인기순은 <b>그 상한 안에서 무엇을 고를지</b>를 정한다.
      */
     private List<PoiCandidate> selectSights(List<PoiCandidate> pool, GenerateCourse command, int needed) {
+        if (needed <= 0) {
+            return List.of();
+        }
+        List<PoiCandidate> festivals = pool.stream().filter(PoiCandidate::isFestival).toList();
+        if (festivals.isEmpty()) {
+            return byEvidence(pool, command, needed);
+        }
+        return withOneFestival(festivals, pool, command, needed);
+    }
+
+    /**
+     * 그날 축제가 있으면 <b>반드시 한 칸</b>을 준다(#622).
+     *
+     * <h2>왜 예약이 필요한가</h2>
+     *
+     * <p>축제는 {@link #byEvidence} 의 어느 근거에도 안 걸린다 — 연관 순서는 인허가·연관 장소에 붙고,
+     * 인기순은 중심관광지 이름·좌표 매칭이라 축제가 없다. 그래서 마지막 좌표 군집에서 <b>볼거리 아흔
+     * 개와 경쟁</b>하고, 풀 맨 앞에 두는 것은 아무 뜻이 없다(군집은 순서를 안 본다).
+     *
+     * <p>실측이 그 결과다(2026-09-29) — 코스 76개 중 그날 열리는 축제가 후보에 있었던 경우가 9건인데
+     * 실제로 실린 것은 <b>1건</b>이다. 여덟 번은 올라갔다가 안 뽑혔다.
+     *
+     * <h2>왜 하나인가</h2>
+     *
+     * <p>{@link #FESTIVAL_SLOTS} 가 1 이다. 3일 여행에 축제 셋을 넣으면 "축제만 보고 오라" 가 된다 —
+     * 축제는 코스의 <b>양념</b>이고, 그 지역을 보러 가는 것이 본체다.
+     *
+     * <h2>어느 축제를 고르나</h2>
+     *
+     * <p><b>나머지를 먼저 고르고, 그 무게중심에 가장 가까운 축제를 붙인다.</b> 축제 하나 때문에 하루가
+     * 이동으로 차면 손해라서다. 순서를 뒤집어 축제를 먼저 고르면 그 축제가 동선의 중심을 끌고 가는데,
+     * 축제는 어디서 열릴지 우리가 못 고르는 값이다.
+     *
+     * <p>축제를 뺀 풀로 나머지를 고르는 것도 같은 이유다. 안 빼면 군집이 다른 축제를 더 집어 상한이
+     * 무너진다.
+     *
+     * @param festivals 후보에 오른 축제들 — 비어 있지 않다
+     * @param pool 볼거리 후보 전체
+     * @param needed 이 코스가 쓸 볼거리 칸 수 — 축제도 그 한 칸을 쓴다(덧붙지 않는다)
+     */
+    private List<PoiCandidate> withOneFestival(
+            List<PoiCandidate> festivals, List<PoiCandidate> pool, GenerateCourse command, int needed) {
+        int othersNeeded = needed - FESTIVAL_SLOTS;
+        if (othersNeeded <= 0) {
+            // 볼거리 한 칸짜리 코스다. 축제로 그 칸을 쓴다 — 기준점이 없어 첫 축제(시작일 순)를 쓴다.
+            return List.of(festivals.getFirst());
+        }
+        List<PoiCandidate> withoutFestivals = pool.stream()
+                .filter(candidate -> !candidate.isFestival())
+                .toList();
+        List<PoiCandidate> others = byEvidence(withoutFestivals, command, othersNeeded);
+        PoiCandidate festival = nearestTo(festivals, centerOf(others));
+        log.info("축제 한 칸을 예약했습니다 regionId={} 축제후보={}건 볼거리칸={}",
+                command.regionId(), festivals.size(), needed);
+        return Stream.concat(Stream.of(festival), others.stream()).toList();
+    }
+
+    /** 고른 볼거리들의 무게중심 — 비어 있으면 없다({@code null}). */
+    private static Coordinate centerOf(List<PoiCandidate> picked) {
+        List<Coordinate> points = coords(picked);
+        return points.isEmpty() ? null : GeoCluster.centroid(points);
+    }
+
+    /** 기준점에 가장 가까운 것 — 기준점이 없으면 첫 번째(시작일 순)를 쓴다. */
+    private static PoiCandidate nearestTo(List<PoiCandidate> candidates, Coordinate center) {
+        if (center == null) {
+            return candidates.getFirst();
+        }
+        return candidates.stream()
+                .min(Comparator.comparingDouble(
+                        candidate -> center.haversineKmTo(new Coordinate(candidate.lat(), candidate.lng()))))
+                .orElseThrow();
+    }
+
+    /** 근거가 있는 순서부터 — 연관 → 인기 → 좌표 군집. */
+    private List<PoiCandidate> byEvidence(List<PoiCandidate> pool, GenerateCourse command, int needed) {
+        if (needed <= 0 || pool.isEmpty()) {
+            return List.of();
+        }
         return byRelation(pool, command, needed)
                 .or(() -> byPopularity(pool, command, needed))
                 .orElseGet(() -> reorder(

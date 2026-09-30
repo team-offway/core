@@ -20,6 +20,7 @@ import com.offway.core.itinerary.service.dto.OwnedCourse;
 import lombok.Builder;
 import com.offway.core.itinerary.service.dto.SlotHours;
 import com.offway.core.trip.domain.FestivalPeriod;
+import com.offway.core.trip.domain.FestivalPlace;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.domain.Departure;
 import com.offway.core.transport.service.dto.RegionAccess;
@@ -131,7 +132,47 @@ public record CourseResponse(
                         description = "코스 지역의 한산한 요일·인기 추세(#394). 지역 상세와 같은 모양이라 "
                                 + "같은 컴포넌트로 그린다. 안의 두 값은 각각 null 일 수 있고, "
                                 + "그러면 그 줄을 지운다")
-                RegionVisitMetricsResponse visitMetrics) implements LogSummary, Attributed {
+                RegionVisitMetricsResponse visitMetrics,
+        @Schema(
+                        description = "앞으로 이 지역에서 열릴 축제(#622). 이 기간에 가보는 건 어떠냐 를 "
+                                + "말하는 자리다 — 코스에 실린 축제와 다르다. 저쪽은 이번에 가는 것이고 "
+                                + "이쪽은 다음에 갈 이유다. 코스에 실린 축제는 빠지고, 가까운 것부터 최대 "
+                                + "3건이다. 없으면 빈 배열이라 그 줄을 그리지 않는다")
+                List<FestivalSuggestionResponse> festivalSuggestions) implements LogSummary, Attributed {
+
+    /**
+     * 앞으로 열릴 축제 한 건(#622).
+     *
+     * <p>슬롯의 {@code festivalPeriod} 와 모양이 다른 이유는 쓰이는 자리가 달라서다. 저쪽은 이미 코스에
+     * 든 칸에 "며칠까지 하나" 를 덧붙이는 한 줄이고, 이쪽은 <b>그 자체가 제안</b>이라 이름과 날짜를
+     * 같이 들고 있어야 한다.
+     *
+     * <p>{@code period} 를 문자열로 함께 내리는 것은 화면이 그대로 쓰도록 하려는 것이다 — 클라이언트가
+     * 날짜 두 개를 받아 포맷을 맞추면 앱마다 다르게 보인다. 날짜 원본도 함께 주므로 정렬·계산이 필요한
+     * 쪽은 그것을 쓴다.
+     */
+    @Schema(description = "앞으로 열릴 축제 제안")
+    public record FestivalSuggestionResponse(
+            @Schema(description = "축제명", example = "안동국제탈춤페스티벌") String name,
+            @Schema(description = "행사 기간 — 화면에 그대로 쓰는 문구",
+                            example = "2026-10-02 ~ 2026-10-11") String period,
+            @Schema(description = "시작일", example = "2026-10-02") LocalDate startDate,
+            @Schema(description = "종료일", example = "2026-10-11") LocalDate endDate,
+            @Schema(description = "행사 장소 주소. 없을 수 있다", nullable = true) String address) {
+
+        static List<FestivalSuggestionResponse> from(List<FestivalPlace> festivals) {
+            return festivals.stream().map(FestivalSuggestionResponse::from).toList();
+        }
+
+        static FestivalSuggestionResponse from(FestivalPlace festival) {
+            return new FestivalSuggestionResponse(
+                    festival.getName(),
+                    festival.getEventStart() + " ~ " + festival.getEventEnd(),
+                    festival.getEventStart(),
+                    festival.getEventEnd(),
+                    festival.getAddress());
+        }
+    }
 
     /**
      * 코스에는 <b>여러 기관</b>이 섞인다(#399) — 슬롯의 장소, 날마다 붙는 날씨, 그리고 방문 지표다.
@@ -235,6 +276,8 @@ public record CourseResponse(
                 // 여기는 이미 만들어진 값 한 덩이를 옮겨 싣는 것이다. 지역 상세와 같은 모양이어야
                 // 클라이언트가 같은 컴포넌트로 그린다.
                 .visitMetrics(RegionVisitMetricsResponse.from(generated.visitMetrics()))
+                // 앞으로 열릴 축제(#622) — 날짜를 권하는 근거다. 없으면 빈 배열로 나간다.
+                .festivalSuggestions(FestivalSuggestionResponse.from(generated.festivalSuggestions()))
                 // 차감 정보는 소유자 조회에서만 뜻이 있다. 생성(아직 저장 전)·공개 공유는 이 경로로 오며,
                 // 그때는 값이 없다는 사실 자체가 정확한 답이다. 빌더라 적지 않으면 그대로 null 이다.
                 .build();
