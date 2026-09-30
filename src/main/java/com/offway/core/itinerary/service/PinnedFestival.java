@@ -37,6 +37,9 @@ record PinnedFestival(PoiCandidate festival, int dayNumber) {
     /** 못 박을 것이 없음 — 축제가 없거나, 기간을 모르거나, 여행일을 모르는 경우. */
     private static final PinnedFestival NONE = new PinnedFestival(null, 0);
 
+    /** 여행 첫날 — 볼거리 칸이 줄어들 수 있는 유일한 날이다(나머지는 {@code DayStart.fullDay()}). */
+    private static final int FIRST_DAY = 1;
+
     /**
      * 고른 볼거리 중 <b>기간을 아는 축제</b>를 찾아 놓을 날을 정한다.
      *
@@ -47,7 +50,7 @@ record PinnedFestival(PoiCandidate festival, int dayNumber) {
      * 상한이 늘었을 때 <b>조용히 두 개를 못 박는 것보다 하나만 박는 것이 안전</b>하기 때문이다 —
      * 나머지는 일반 후보로 남아 동선이 배치한다.
      */
-    static PinnedFestival of(List<PoiCandidate> sights, TravelWindow window) {
+    static PinnedFestival of(List<PoiCandidate> sights, TravelWindow window, int firstDayCapacity) {
         if (window == null) {
             return NONE;
         }
@@ -55,20 +58,35 @@ record PinnedFestival(PoiCandidate festival, int dayNumber) {
                 .filter(PoiCandidate::isFestival)
                 .filter(PoiCandidate::hasKnownPeriod)
                 .findFirst()
-                .map(festival -> new PinnedFestival(festival, firstOpenDay(festival, window)))
+                .map(festival ->
+                        new PinnedFestival(festival, firstOpenDay(festival, window, firstDayCapacity)))
                 .filter(PinnedFestival::exists)
                 .orElse(NONE);
     }
 
     /**
-     * 축제가 열리는 첫 여행일(1부터). 하루도 안 열리면 0.
+     * 축제가 열리는 첫 여행일(1부터). 놓을 날이 없으면 0.
      *
      * <p>0 이 나오는 것은 후보 필터와 어긋난 경우다 — 구간이 겹쳐 후보로 올라왔으면 열리는 날이 하나는
      * 있어야 한다. 그때는 못 박지 않고 일반 후보로 두어, 어긋남이 코스를 비우는 대신 조용히 동선에
      * 맡겨지게 한다.
+     *
+     * <h2>칸이 없는 첫날은 건너뛴다</h2>
+     *
+     * <p>늦게 도착하면 첫날 볼거리 칸이 <b>0</b> 이 될 수 있다({@code DayStart.sightCapacity} 가
+     * 오전·오후 몫의 합이라, 둘 다 지났으면 0 이다). 그 날에 축제를 못 박으면 <b>이미 지난 시간대에
+     * 슬롯</b>이 생긴다 — 갈 수 없는 시간에 일정을 받는 것이다.
+     *
+     * <p>그렇다고 축제를 버리지는 않는다. 축제가 이튿날에도 열린다면 그 날에 놓는다 — 첫날만 칸이
+     * 줄어들고 나머지 날은 {@code DayStart.fullDay()} 라 칸이 있다. 그래서 첫날만 확인하면 된다.
+     *
+     * @param firstDayCapacity 1일차 볼거리 칸 수. 0 이면 1일차를 건너뛴다
      */
-    private static int firstOpenDay(PoiCandidate festival, TravelWindow window) {
+    private static int firstOpenDay(PoiCandidate festival, TravelWindow window, int firstDayCapacity) {
         for (int day = 1; day <= window.days(); day++) {
+            if (day == FIRST_DAY && firstDayCapacity <= 0) {
+                continue;
+            }
             LocalDate date = window.dateOf(day);
             if (festival.isOpenOn(date)) {
                 return day;
@@ -107,7 +125,15 @@ record PinnedFestival(PoiCandidate festival, int dayNumber) {
         if (!exists() || dayNumber != this.dayNumber) {
             return take.apply(remaining, capacity);
         }
-        if (capacity <= 1) {
+        if (capacity <= 0) {
+            // **쓸 수 있는 시간대가 없는 날이다.** 억지로 넣으면 이미 지난 시간대에 슬롯이 생긴다 —
+            // 갈 수 없는 시간에 일정을 받는 것이다. 빈 날은 코스에서 통째로 빠지는 것이 정상이다.
+            //
+            // 여기 닿는 것은 위 firstOpenDay 가 칸 없는 첫날을 건너뛰지 못한 경우뿐이다(축제가 첫날에만
+            // 열리는 경우). 그때는 축제를 잃지만, 갈 수 없는 일정을 주는 것보다 낫다.
+            return take.apply(remaining, capacity);
+        }
+        if (capacity == 1) {
             // 칸이 하나뿐인 날이면 축제만 놓는다. 첫날이 늦게 시작하는 경우가 이렇다.
             return List.of(festival);
         }

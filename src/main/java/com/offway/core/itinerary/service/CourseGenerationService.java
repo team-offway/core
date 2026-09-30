@@ -467,7 +467,8 @@ public class CourseGenerationService {
         List<DaySchedule> days = new ArrayList<>();
         // **축제는 열리는 날에만 놓는다**(#616). 날짜 제약이 있는 유일한 후보라, 동선 순서에 맡기면
         // 첫날만 하는 축제가 셋째 날 칸에 들어간다 — 사용자가 문 닫힌 곳에 간다.
-        PinnedFestival pinned = PinnedFestival.of(sights, window);
+        PinnedFestival pinned =
+                PinnedFestival.of(sights, window, firstDayStart.sightCapacity(perDaySights));
         // **상한은 날짜 배정에서 건다**(#522). 고를 때 걸면 그 뒤 동선 정렬이 순서를 바꿔 하루 단위가
         // 어긋난다 — 실제로 그렇게 만들었더니 해수욕장이 통째로 이튿날로 밀렸다.
         List<PoiCandidate> remaining = new ArrayList<>(sights);
