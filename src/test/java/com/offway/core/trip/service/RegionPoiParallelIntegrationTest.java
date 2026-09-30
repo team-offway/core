@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.trip.domain.TravelWindow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -78,7 +79,7 @@ class RegionPoiParallelIntegrationTest {
         Region region = regionRepository.findAll().getFirst();
 
         long startedAt = System.nanoTime();
-        RegionPois pois = regionPoiService.collect(region.getId(), TRAVEL_DATE);
+        RegionPois pois = regionPoiService.collect(region.getId(), TravelWindow.of(TRAVEL_DATE, 1));
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
 
         assertEquals(3, calls.get(), "세 스코프를 각각 부른다 — 이건 순차일 때도 참이다");

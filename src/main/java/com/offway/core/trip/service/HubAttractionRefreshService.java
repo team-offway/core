@@ -53,15 +53,18 @@ import org.springframework.stereotype.Service;
 public class HubAttractionRefreshService implements ManualBatch {
 
     /**
-     * 매달 1일 새벽 4시에 확인한다 — <b>원본이 월 단위 발행이라 주기를 거기에 맞춘다</b>(#337).
+     * 매달 1일 <b>밤 9시</b>에 확인한다 — 원본이 월 단위 발행이라 주기를 거기에 맞춘다(#337).
+     *
+     * <p>밤으로 옮긴 이유는 한도가 <b>KST 자정에 리셋</b>되기 때문이다(#617) — 새벽에 돌면 그날 몫을
+     * 사용자보다 먼저 가져간다.
      *
      * <p>예전에는 {@code fixedDelay = P1D} 로 하루 한 번 돌았다. 그런데 월 단위로 바뀌는 값을 매일
      * 물으면 29일은 같은 답을 받아 같은 값으로 덮는다 — 운영에서 10일 연속 정확히 105콜이 나갔다.
      *
-     * <p>사용자가 거의 없는 시각이라 105콜이 그날 사용자 몫을 밀어내지 않는다. {@code RegionPoiRefreshService}
-     * 가 같은 이유로 같은 시각을 쓴다.
+     * <p>회차당 105콜인데, 자정 직전이면 그날 한도는 이미 쓰일 만큼 쓰인 뒤다 — 같은 105콜이 사용자와
+     * 부딪히지 않는다. 같은 1일에 도는 연관관광지(22:30)·지역 장소 풀(23:00)과는 시각을 벌려 뒀다.
      */
-    private static final String MONTHLY_AT_DAWN = "0 0 4 1 * *";
+    private static final String MONTHLY_AT_NIGHT = "0 0 21 1 * *";
 
     /**
      * 부팅 후 첫 확인까지 지연 — 기동·헬스체크를 방해하지 않게.
@@ -72,7 +75,7 @@ public class HubAttractionRefreshService implements ManualBatch {
     private static final String BOOT_CHECK_DELAY = "PT30S";
 
     /**
-     * 부팅 확인의 반복 간격. 실질적으로 재발화하지 않는 값이다 — 주기 갱신은 {@link #MONTHLY_AT_DAWN} 이
+     * 부팅 확인의 반복 간격. 실질적으로 재발화하지 않는 값이다 — 주기 갱신은 {@link #MONTHLY_AT_NIGHT} 이
      * 소유하고, 이 트리거는 "부팅했는데 아직 못 받은 곳이 있으면 채운다" 만 맡는다.
      */
     private static final String BOOT_CHECK_INTERVAL = "P30D";
@@ -138,7 +141,7 @@ public class HubAttractionRefreshService implements ManualBatch {
      * {@code HolidayRefreshService} 가 같은 판단으로 이미 돌고 있다(#193).
      */
     @Schedules({
-        @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID),
+        @Scheduled(cron = MONTHLY_AT_NIGHT, zone = SERVICE_ZONE_ID),
         @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     })
     public void scheduled() {

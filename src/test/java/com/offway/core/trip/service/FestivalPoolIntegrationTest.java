@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.trip.domain.TravelWindow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -93,7 +94,7 @@ class FestivalPoolIntegrationTest {
     /**
      * <b>실패한 회차를 완료로 기록하지 않는다.</b>
      *
-     * <p>완료로 남기면 배치 마커가 찍혀 다음 갱신이 25일 막힌다 — 그동안 축제 목록이 그대로다.
+     * <p>완료로 남기면 배치 마커가 찍혀 다음 갱신이 그 주 내내 막힌다 — 그동안 축제 목록이 그대로다.
      *
      * <p>파일 방식으로 옮기면서 "일부만 받은 회차" 가 사라졌다(#433). 전량 아니면 전무라, 실패한
      * 회차는 저장 건수도 0이다.
@@ -108,7 +109,7 @@ class FestivalPoolIntegrationTest {
         FestivalPlaceRefreshService.RefreshOutcome outcome = refreshService.refresh(FIRST_RUN);
 
         assertEquals(0, outcome.saved(), "못 받았으면 저장한 것도 없다");
-        assertFalse(outcome.complete(), "실패한 회차를 완료로 기록하면 다음 갱신이 25일 막힌다");
+        assertFalse(outcome.complete(), "실패한 회차를 완료로 기록하면 다음 갱신이 그 주 내내 막힌다");
     }
 
     /** 온전히 받은 회차는 완료다 — 한쪽만 보면 "항상 미완료" 가 초록이 된다. */
@@ -166,7 +167,7 @@ class FestivalPoolIntegrationTest {
         // TourAPI 가 볼거리 15개만 준다 — 보충 문턱(18)에 못 미친다.
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지(15), 15));
 
-        RegionPois pois = regionPoiService.collect(region.getId(), DURING);
+        RegionPois pois = regionPoiService.collect(region.getId(), TravelWindow.of(DURING, 1));
 
         List<String> ids = pois.sights().stream().map(PoiCandidate::contentId).toList();
         assertTrue(ids.stream().anyMatch(id -> id.startsWith("FST-")), "축제가 들어가야 한다: " + ids);
@@ -184,7 +185,7 @@ class FestivalPoolIntegrationTest {
         refreshService.refresh(FIRST_RUN);
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지(15), 15));
 
-        RegionPois pois = regionPoiService.collect(region.getId(), DURING);
+        RegionPois pois = regionPoiService.collect(region.getId(), TravelWindow.of(DURING, 1));
 
         assertTrue(pois.sights().get(0).contentId().startsWith("FST-"),
                 "축제가 맨 앞이 아니면 첫 생성에서 씨앗이 되지 못한다");
@@ -240,7 +241,7 @@ class FestivalPoolIntegrationTest {
                 36.52, 128.72, "http://img/f.jpg", null, null));
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(withFestival, withFestival.size()));
 
-        RegionPois pois = regionPoiService.collect(region.getId(), DURING);
+        RegionPois pois = regionPoiService.collect(region.getId(), TravelWindow.of(DURING, 1));
 
         assertTrue(pois.sights().stream().anyMatch(c -> "C-FESTIVAL".equals(c.contentId())),
                 "기간을 모르는 축제까지 빼면 후보가 근거 없이 준다");

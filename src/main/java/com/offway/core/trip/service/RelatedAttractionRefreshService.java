@@ -63,12 +63,19 @@ public class RelatedAttractionRefreshService implements ManualBatch {
     private static final ZoneId SERVICE_ZONE = ZoneId.of(SERVICE_ZONE_ID);
 
     /**
-     * 매월 1일 새벽 4시 30분.
+     * 매월 1일 <b>밤 10시 30분</b>.
      *
-     * <p>중심관광지(04:00)가 먼저 돌아야 이 값이 가리키는 중심이 자리를 잡는다. 30분이면 89곳 순차
-     * 조회가 끝난다.
+     * <p>밤으로 옮긴 이유는 한도가 <b>KST 자정에 리셋</b>되기 때문이다(#617) — 새벽에 돌면 그날 몫을
+     * 사용자보다 먼저 가져간다.
+     *
+     * <p>중심관광지(21:00)가 먼저 돌아야 이 값이 가리키는 중심이 자리를 잡는다. 90분이면 89곳 순차
+     * 조회가 넉넉히 끝난다.
+     *
+     * <p>야간 슬롯(20~23시)을 배치끼리 나눠 쓴다. <b>전체 시간표는 여기 다시 열거하지 않는다</b> —
+     * {@code docs/external-api-inventory.md} 의 "배치 시간표" 가 정본이다. 파일마다 남의 시각을
+     * 적어 두면 하나만 옮겨도 나머지가 조용히 낡는다(#617 에서 실제로 그랬다).
      */
-    private static final String MONTHLY_AT_DAWN = "0 30 4 1 * *";
+    private static final String MONTHLY_AT_NIGHT = "0 30 22 1 * *";
 
     /** 부팅 뒤 확인 — 배포가 잦아 cron 을 놓칠 수 있다. 지역별 마커가 중복 호출을 막는다. */
     private static final String BOOT_CHECK_DELAY = "PT360S";
@@ -125,7 +132,7 @@ public class RelatedAttractionRefreshService implements ManualBatch {
      * <p>대가는 있다. 그날 실패한 지역은 그날 안에 다시 시도하지 않는다. 이전 값이 남아 화면은 유지되고
      * 처음부터 빈 지역만 하루를 기다리는데, 한도를 태워 <b>모두</b>가 실패하는 것보다 낫다.
      */
-    @Scheduled(cron = MONTHLY_AT_DAWN, zone = SERVICE_ZONE_ID)
+    @Scheduled(cron = MONTHLY_AT_NIGHT, zone = SERVICE_ZONE_ID)
     @Scheduled(initialDelayString = BOOT_CHECK_DELAY, fixedDelayString = BOOT_CHECK_INTERVAL)
     public void scheduled() {
         // **수동 실행과 같은 선점을 지난다**(#540). 예전에는 여기서 아래를 곧장 불러,

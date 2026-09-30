@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.trip.domain.TravelWindow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -184,7 +185,7 @@ class CampingPoolIntegrationTest {
         // 숙박을 임계(2)보다 넉넉히 준다 — 보충 경로는 여기서 닫힌다.
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지와숙박(15, 5), 20));
 
-        RegionPois pois = regionPoiService.collect(region.getId(), TRAVEL_DATE);
+        RegionPois pois = regionPoiService.collect(region.getId(), TravelWindow.of(TRAVEL_DATE, 1));
 
         assertTrue(pois.stays().size() > 2, "이 시나리오는 숙박이 임계를 넘어야 성립한다");
         assertTrue(pois.stays().stream().anyMatch(c -> c.contentId().startsWith("CMP-")),
@@ -199,7 +200,7 @@ class CampingPoolIntegrationTest {
         refreshService.refresh(FIRST_RUN);
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지와숙박(15, 5), 20));
 
-        PoiCandidate camping = regionPoiService.collect(region.getId(), TRAVEL_DATE).stays().stream()
+        PoiCandidate camping = regionPoiService.collect(region.getId(), TravelWindow.of(TRAVEL_DATE, 1)).stays().stream()
                 .filter(c -> c.contentId().startsWith("CMP-"))
                 .findFirst()
                 .orElseThrow();
@@ -245,7 +246,7 @@ class CampingPoolIntegrationTest {
                 CAMP_LAT, CAMP_LNG, "http://img/dup.jpg", null, null));
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(pois, pois.size()));
 
-        List<PoiCandidate> stays = regionPoiService.collect(region.getId(), TRAVEL_DATE).stays();
+        List<PoiCandidate> stays = regionPoiService.collect(region.getId(), TravelWindow.of(TRAVEL_DATE, 1)).stays();
 
         assertEquals(1, stays.stream().filter(c -> "겹치는야영장".equals(c.title())).count(),
                 "같은 야영장이 두 번 올랐다 — 코스에 같은 곳이 두 번 뜬다");
@@ -385,7 +386,7 @@ class CampingPoolIntegrationTest {
                 36.40, 128.60, "http://img/hotel.jpg", null, "AC01", null));
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(pois, pois.size()));
 
-        List<PoiCandidate> stayPool = regionPoiService.collect(region.getId(), TRAVEL_DATE).stays();
+        List<PoiCandidate> stayPool = regionPoiService.collect(region.getId(), TravelWindow.of(TRAVEL_DATE, 1)).stays();
 
         assertEquals(2, stayPool.size(), "둘 다 잘 곳이라 대분류 AC 로는 이미 갈린다");
         PoiCandidate camping = stayPool.stream().filter(c -> "C-CAMP".equals(c.contentId())).findFirst().orElseThrow();
@@ -419,7 +420,7 @@ class CampingPoolIntegrationTest {
         stub().respond(GoCampsiteResult::empty);
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지와숙박(15, 1), 16));
 
-        List<PoiCandidate> stays = regionPoiService.collect(region.getId(), TRAVEL_DATE).stays();
+        List<PoiCandidate> stays = regionPoiService.collect(region.getId(), TravelWindow.of(TRAVEL_DATE, 1)).stays();
 
         assertTrue(stays.size() > 1, "이 시나리오는 인허가 보충이 돌아야 성립한다");
         assertTrue(stays.stream().anyMatch(c -> c.contentId().startsWith("LIC-") && c.camping()),

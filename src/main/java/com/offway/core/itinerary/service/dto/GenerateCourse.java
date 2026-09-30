@@ -1,5 +1,6 @@
 package com.offway.core.itinerary.service.dto;
 
+import com.offway.core.trip.domain.TravelWindow;
 import com.offway.core.itinerary.domain.Density;
 import com.offway.core.transport.domain.TransitMode;
 import com.offway.core.transport.domain.TransportMode;
@@ -62,5 +63,18 @@ public record GenerateCourse(
      */
     public GenerateCourse withSeed(long newSeed) {
         return toBuilder().seed(newSeed).build();
+    }
+
+    /**
+     * 이 요청이 걸친 날짜 구간(#616).
+     *
+     * <p>"시작일 + 며칠" 을 날짜 둘로 푸는 계산을 <b>커맨드 자신이 답한다</b>. 생성과 재생성이 각각
+     * 계산하면 한쪽만 틀려도 조용히 갈린다 — 후보를 거르는 구간과 날에 배치하는 구간이 어긋나면
+     * "후보엔 있는데 아무 날에도 못 들어가는 축제" 가 생긴다.
+     *
+     * @return 여행일을 모르면 {@code null} — 날짜로 거를 수 없다는 뜻이다
+     */
+    public TravelWindow travelWindow() {
+        return travelDate == null ? null : TravelWindow.of(travelDate, travelDays);
     }
 }

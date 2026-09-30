@@ -35,6 +35,8 @@ import com.offway.core.trip.domain.PlaceCategory;
 import com.offway.core.trip.domain.PlaceKind;
 import com.offway.core.trip.domain.RelatedAttraction;
 import com.offway.core.trip.repository.HubAttractionRepository;
+import com.offway.core.trip.domain.FestivalPlace;
+import com.offway.core.trip.repository.FestivalPlaceRepository;
 import com.offway.core.trip.repository.LicensedPlaceRepository;
 import com.offway.core.trip.repository.RelatedAttractionRepository;
 import java.time.LocalDate;
@@ -99,6 +101,9 @@ class CourseGenerateIntegrationTest {
 
     @Autowired
     private LicensedPlaceRepository licensedPlaceRepository;
+
+    @Autowired
+    private FestivalPlaceRepository festivalPlaceRepository;
 
     @TestConfiguration
     static class StubConfig {
@@ -1569,5 +1574,407 @@ class CourseGenerateIntegrationTest {
             boolean bothBeef = meals.get(i).contains("한우") && meals.get(i + 1).contains("한우");
             assertFalse(bothBeef, "한우가 연달아 나왔다 (" + i + "번째): " + meals);
         }
+    }
+
+    /** 여행일(2026-05-01)에 열리는 축제 하나. */
+    private FestivalPlace 여는축제(String 이름, double lat, double lng) {
+        festivalPlaceRepository.upsertAll(List.of(FestivalPlace.builder()
+                .regionId(REGION)
+                .name(이름)
+                .address("부산광역시 동구 축제로 1")
+                .lat(lat).lng(lng)
+                .eventStart(LocalDate.of(2026, 4, 28))
+                .eventEnd(LocalDate.of(2026, 5, 5))
+                .fetchedAt(LocalDateTime.of(2026, 4, 1, 0, 0))
+                .build()));
+        return festivalPlaceRepository.findOpenOn(REGION, LocalDate.of(2026, 5, 1), 10).stream()
+                .filter(festival -> 이름.equals(festival.getName()))
+                .findFirst().orElseThrow();
+    }
+
+    /** 여행일 뒤에 열릴 축제 하나 — 제안에만 오른다. */
+    private void 앞으로열릴축제(String 이름, LocalDate 시작, LocalDate 종료) {
+        festivalPlaceRepository.upsertAll(List.of(FestivalPlace.builder()
+                .regionId(REGION)
+                .name(이름)
+                .address("부산광역시 동구 축제로 2")
+                .lat(35.104).lng(129.032)
+                .eventStart(시작).eventEnd(종료)
+                .fetchedAt(LocalDateTime.of(2026, 4, 1, 0, 0))
+                .build()));
+    }
+
+    /** 볼거리 여섯 + 끼니 둘 + 숙소 하나. 축제 판정만 보려고 나머지는 평범하게 둔다. */
+    private void 평범한후보들() {
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.01, 129.03 + i * 0.01));
+            }
+            items.add(poi("f0", 39, 35.12, 129.04));
+            items.add(poi("f1", 39, 35.13, 129.05));
+            items.add(poi("st0", 32, 35.11, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+    }
+
+    private String 코스를_받는다() throws Exception {
+        return mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    private static List<String> 볼거리들(String response) {
+        return com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'SIGHT')].title");
+    }
+
+    /**
+     * <b>그날 축제가 있으면 반드시 하나 들어간다</b>(#622).
+     *
+     * <p>예전에는 후보 풀에만 올랐다. 축제는 연관 순서·인기순 어느 근거에도 안 걸려 마지막 좌표 군집에서
+     * 볼거리 아흔 개와 경쟁했고, 풀 맨 앞에 둬도 군집이 순서를 안 보니 아무 뜻이 없었다.
+     *
+     * <p>실측(2026-09-29)이 그 결과다 — 코스 76개 중 그날 열리는 축제가 후보에 있었던 경우가 9건인데
+     * 실제로 실린 것은 1건이다.
+     */
+    @Test
+    @Transactional
+    void 그날_축제가_있으면_코스에_반드시_하나_들어간다() throws Exception {
+        FestivalPlace 축제 = 여는축제("반드시들어가는축제", 35.105, 129.033);
+        평범한후보들();
+
+        List<String> sights = 볼거리들(코스를_받는다());
+
+        assertTrue(sights.contains(축제.getName()), "그날 열리는 축제가 코스에 안 들어갔다: " + sights);
+    }
+
+    /**
+     * <b>인기순이 걸리는 지역에서도 축제가 살아남는다</b>(#622).
+     *
+     * <p>이 경우가 더 위험하다. {@code byPopularity} 가 성공하면 순위가 붙은 후보로 칸이 먼저 차고,
+     * 축제는 순위가 없어 <b>남은 칸을 좌표로 다투는 처지</b>가 된다. 예약이 없으면 여기서 밀린다.
+     */
+    @Test
+    @Transactional
+    void 인기순이_있어도_축제는_한_칸을_지킨다() throws Exception {
+        FestivalPlace 축제 = 여는축제("인기순에도밀리지않는축제", 35.105, 129.033);
+        평범한후보들();
+        // 볼거리 여섯 중 넷에 순위를 준다 — 순위만으로 칸이 거의 찬다.
+        hubAttractionRepository.replaceRegion(REGION, List.of(
+                중심("장소s0", 1), 중심("장소s1", 2), 중심("장소s2", 3), 중심("장소s3", 4)));
+
+        List<String> sights = 볼거리들(코스를_받는다());
+
+        assertTrue(sights.contains(축제.getName()),
+                "인기순이 칸을 채우자 축제가 밀려났다: " + sights);
+    }
+
+    /**
+     * <b>축제가 여럿이어도 하나만 넣는다</b>(#622).
+     *
+     * <p>3일 여행에 축제 셋을 넣으면 "축제만 보고 오라" 가 된다. 축제는 코스의 양념이고 그 지역을 보러
+     * 가는 것이 본체다.
+     */
+    @Test
+    @Transactional
+    void 축제가_여럿이어도_하나만_들어간다() throws Exception {
+        여는축제("축제하나", 35.105, 129.033);
+        여는축제("축제둘", 35.106, 129.034);
+        여는축제("축제셋", 35.107, 129.035);
+        평범한후보들();
+
+        List<String> sights = 볼거리들(코스를_받는다());
+
+        long 실린축제 = sights.stream().filter(title -> title.startsWith("축제")).count();
+        assertEquals(1, 실린축제, "축제가 하나만 들어가야 한다: " + sights);
+    }
+
+    /**
+     * <b>표준데이터 축제도 기간이 나간다</b>(#622).
+     *
+     * <p>기간을 채우는 쪽이 TourAPI 축제만 봤다({@code contentTypeId == 15}). 정작 코스에 실리는 것은
+     * 표준데이터 축제인데 그것은 타입이 0 이라 필터에 안 걸렸고, 걸려도 기간 테이블이 TourAPI 키로
+     * 잡혀 있어 못 찾았다 — <b>기간 칸이 늘 비어 있었다</b>.
+     */
+    @Test
+    @Transactional
+    void 표준데이터_축제도_기간이_함께_나간다() throws Exception {
+        FestivalPlace 축제 = 여는축제("기간이보이는축제", 35.105, 129.033);
+        평범한후보들();
+
+        String response = 코스를_받는다();
+
+        List<String> periods = com.jayway.jsonpath.JsonPath.read(
+                response,
+                "$.data.days[*].items[?(@.title == '" + 축제.getName() + "')].festivalPeriod");
+        assertFalse(periods.isEmpty(), "축제가 코스에 없어 기간을 볼 수 없다");
+        assertEquals("2026-04-28 ~ 2026-05-05", periods.getFirst(),
+                "표준데이터 축제의 기간이 안 나갔다");
+    }
+
+    /**
+     * <b>앞으로 열릴 축제를 날짜와 함께 권한다</b>(#622).
+     *
+     * <p>코스를 먼저 보고 날짜를 정하는 사용자에게 "이 기간에 가보는 건 어떠냐" 를 말하는 자리다.
+     * 예전에는 여행일에 열리지 않는 축제를 그냥 버렸다.
+     */
+    @Test
+    @Transactional
+    void 앞으로_열릴_축제를_기간과_함께_제안한다() throws Exception {
+        앞으로열릴축제("가을에하는축제", LocalDate.of(2026, 10, 2), LocalDate.of(2026, 10, 11));
+        평범한후보들();
+
+        String response = 코스를_받는다();
+
+        List<String> names = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.festivalSuggestions[*].name");
+        List<String> periods = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.festivalSuggestions[*].period");
+        assertTrue(names.contains("가을에하는축제"), "앞으로 열릴 축제가 제안에 없다: " + names);
+        assertTrue(periods.contains("2026-10-02 ~ 2026-10-11"), "제안에 기간이 없다: " + periods);
+    }
+
+    /**
+     * <b>코스에 실린 축제는 제안에서 뺀다</b>(#622).
+     *
+     * <p>같은 것을 두 번 말하면 "지금 가는 중인 축제에 가보라" 가 된다.
+     */
+    @Test
+    @Transactional
+    void 코스에_실린_축제는_제안에서_빠진다() throws Exception {
+        FestivalPlace 코스에드는축제 = 여는축제("코스에드는축제", 35.105, 129.033);
+        앞으로열릴축제("나중에하는축제", LocalDate.of(2026, 10, 2), LocalDate.of(2026, 10, 11));
+        평범한후보들();
+
+        String response = 코스를_받는다();
+
+        List<String> sights = 볼거리들(response);
+        assertTrue(sights.contains(코스에드는축제.getName()), "전제가 깨졌다 — 축제가 코스에 없다");
+
+        List<String> suggested = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.festivalSuggestions[*].name");
+        assertFalse(suggested.contains(코스에드는축제.getName()),
+                "코스에 실린 축제가 제안에도 떴다: " + suggested);
+        assertTrue(suggested.contains("나중에하는축제"), "다른 축제 제안까지 사라졌다: " + suggested);
+    }
+
+    /** 축제가 없는 지역은 제안이 빈 배열이다 — 화면이 그 줄을 그리지 않는다. */
+    @Test
+    @Transactional
+    void 축제가_없으면_제안은_빈_배열이다() throws Exception {
+        평범한후보들();
+
+        List<String> suggested = com.jayway.jsonpath.JsonPath.read(
+                코스를_받는다(), "$.data.festivalSuggestions[*].name");
+
+        assertTrue(suggested.isEmpty(), "축제가 없는데 제안이 떴다: " + suggested);
+    }
+
+    /**
+     * <b>축제가 붙어도 카페는 그대로 있어야 한다</b>(#619).
+     *
+     * <p>축제를 볼거리 풀에 올리는 자리가 풀을 <b>다시 조립</b>했는데, 네 칸 중 카페를 빠뜨렸다. 네 칸이
+     * 전부 {@code List<PoiCandidate>} 라 컴파일이 통과하고, 받는 쪽도 카페만 null 을 관대하게 받아
+     * 빈 리스트가 됐다 — <b>예외 없이 조용히 사라졌다</b>.
+     *
+     * <h2>왜 이 테스트가 없었나</h2>
+     *
+     * <p>카페 테스트는 축제 없는 지역에서 돌고, 축제 테스트는 카페를 단언하지 않았다. 둘 다 초록인데
+     * <b>교차점이 비어 있었다.</b> 운영 실측(2026-09-29)에서 축제가 든 코스는 76개 중 1건이었고, 그
+     * 한 건의 카페가 0칸이었다.
+     *
+     * <p>그래서 이 테스트는 <b>둘을 한 시나리오에 둔다</b> — 축제가 실제로 코스에 올라갔음을 먼저
+     * 확인하고(안 올라갔으면 카페가 남은 것이 증거가 되지 않는다), 그 상태에서 카페를 단언한다.
+     */
+    @Test
+    @Transactional
+    void 축제가_코스에_올라가도_카페는_남는다() throws Exception {
+        // 여행일(2026-05-01)에 열리는 축제를 볼거리 한복판에 둔다.
+        String 축제명 = "그날열리는동네축제";
+        festivalPlaceRepository.upsertAll(List.of(FestivalPlace.builder()
+                .regionId(REGION)
+                .name(축제명)
+                .address("부산광역시 동구 축제로 1")
+                .lat(35.105).lng(129.033)
+                .eventStart(LocalDate.of(2026, 4, 28))
+                .eventEnd(LocalDate.of(2026, 5, 5))
+                .fetchedAt(LocalDateTime.of(2026, 4, 1, 0, 0))
+                .build()));
+
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.01, 129.03 + i * 0.01));
+            }
+            // 카페 후보는 TourAPI 쪽으로 준다 — 이 테스트가 보려는 것은 카페를 어떻게 고르냐가 아니라
+            // 축제가 붙은 뒤에도 카페 풀이 살아 있냐다.
+            items.add(cafePoi("c0", "살아있어야하는카페", 35.100, 129.030));
+            items.add(cafePoi("c1", "살아있어야하는카페2", 35.101, 129.031));
+            items.add(poi("f0", 39, 35.12, 129.04));
+            items.add(poi("f1", 39, 35.13, 129.05));
+            items.add(poi("st0", 32, 35.11, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // ① 축제가 실제로 올라갔나 — 이게 아니면 아래 단언이 아무것도 증명하지 않는다(negative control).
+        List<String> sights = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'SIGHT')].title");
+        assertTrue(sights.contains(축제명),
+                "축제가 코스에 안 올라가 이 테스트가 카페 회귀를 못 지킨다: " + sights);
+
+        // ② 그 상태에서 카페가 남아 있나 — 버그 재현 시 여기가 빈 리스트였다.
+        List<String> cafes = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'CAFE')].title");
+        assertFalse(cafes.isEmpty(), "축제가 붙자 카페 풀이 통째로 사라졌다");
+    }
+
+    /** 3일 여행 요청 — 날짜는 transitBody 와 같은 2026-05-01 이다. */
+    private static String 사흘짜리() {
+        return """
+                { "regionId": 1, "travelDays": 3, "density": "PACKED", "transport": "CAR",
+                  "originLat": %s, "originLng": %s, "travelDate": "2026-05-01" }"""
+                .formatted(SEOUL_LAT, SEOUL_LNG);
+    }
+
+    /** 기간을 정해 축제를 만든다. */
+    private FestivalPlace 축제를(String 이름, LocalDate 시작, LocalDate 종료) {
+        festivalPlaceRepository.upsertAll(List.of(FestivalPlace.builder()
+                .regionId(REGION)
+                .name(이름)
+                .address("부산광역시 동구 축제로 1")
+                .lat(35.105).lng(129.033)
+                .eventStart(시작).eventEnd(종료)
+                .fetchedAt(LocalDateTime.of(2026, 4, 1, 0, 0))
+                .build()));
+        return festivalPlaceRepository.findOverlapping(
+                        REGION, com.offway.core.trip.domain.TravelWindow.of(시작, 1), 10).stream()
+                .filter(festival -> 이름.equals(festival.getName()))
+                .findFirst().orElseThrow();
+    }
+
+    /** 사흘을 채울 만큼 후보를 준다. */
+    private void 사흘치_후보들() {
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 20; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.005, 129.03 + i * 0.005));
+            }
+            for (int i = 0; i < 8; i++) {
+                items.add(poi("f" + i, 39, 35.12 + i * 0.005, 129.04 + i * 0.005));
+            }
+            for (int i = 0; i < 4; i++) {
+                items.add(poi("st" + i, 32, 35.11 + i * 0.005, 129.03 + i * 0.005));
+            }
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+    }
+
+    /**
+     * 그 축제가 들어간 일차(응답의 {@code day}). 없으면 0.
+     *
+     * <p>날을 하나씩 훑는다 — 중첩 필터 JsonPath 보다 읽기 쉽고, 이 테스트 클래스가 이미 쓰는 방식이다.
+     * <b>일정이 없는 날은 코스에서 빠지므로</b>(#159) 배열 위치와 일차가 같지 않다. 그래서 위치가 아니라
+     * 그 날의 {@code day} 값을 돌려준다.
+     */
+    private static int 축제가_들어간_날(String response, String 축제명) {
+        List<Integer> dayNumbers = com.jayway.jsonpath.JsonPath.read(response, "$.data.days[*].day");
+        for (int i = 0; i < dayNumbers.size(); i++) {
+            List<String> titles = com.jayway.jsonpath.JsonPath.read(
+                    response, "$.data.days[" + i + "].items[*].title");
+            if (titles.contains(축제명)) {
+                return dayNumbers.get(i);
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * <b>셋째 날만 하는 축제가 3일 여행에서 사라지지 않는다</b>(#616).
+     *
+     * <p>예전에는 후보를 <b>첫날 하루</b>로만 걸렀다({@code collect(regionId, travelDate)}). 그래서
+     * 2·3일차에만 열리는 축제가 통째로 빠졌다 — 갈 수 있는 축제인데 보이지도 않았다.
+     */
+    @Test
+    @Transactional
+    void 셋째날만_하는_축제도_사흘_여행에_들어간다() throws Exception {
+        LocalDate 셋째날 = LocalDate.of(2026, 5, 3);
+        FestivalPlace 축제 = 축제를("셋째날만하는축제", 셋째날, 셋째날);
+        사흘치_후보들();
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(사흘짜리()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> sights = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'SIGHT')].title");
+        assertTrue(sights.contains(축제.getName()),
+                "2·3일차 축제가 첫날 필터에 걸려 사라졌다: " + sights);
+    }
+
+    /**
+     * <b>축제는 열리는 날에 놓인다</b>(#616).
+     *
+     * <p>후보로 올리는 것만으로는 부족하다. 날 배정은 동선 순서가 정하므로, 그대로 두면 셋째 날만 하는
+     * 축제가 1일차 칸에 들어간다 — 사용자가 문 닫힌 곳에 간다.
+     */
+    @Test
+    @Transactional
+    void 셋째날만_하는_축제는_셋째_날에_놓인다() throws Exception {
+        LocalDate 셋째날 = LocalDate.of(2026, 5, 3);
+        FestivalPlace 축제 = 축제를("셋째날축제", 셋째날, 셋째날);
+        사흘치_후보들();
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(사흘짜리()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals(3, 축제가_들어간_날(response, 축제.getName()),
+                "셋째 날만 하는 축제가 다른 날에 놓였다 — 문 닫힌 곳에 보내는 것이다");
+    }
+
+    /** 반대쪽 — 첫날만 하는 축제가 2·3일차로 밀리지 않는다. */
+    @Test
+    @Transactional
+    void 첫날만_하는_축제는_첫_날에_놓인다() throws Exception {
+        FestivalPlace 축제 = 축제를("첫날축제", LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 1));
+        사흘치_후보들();
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(사흘짜리()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals(1, 축제가_들어간_날(response, 축제.getName()),
+                "첫날만 하는 축제가 뒤로 밀렸다");
+    }
+
+    /** 여행이 끝난 뒤에 열리는 축제는 후보도 아니다 — 구간을 넓힌 것이 과하지 않은지 본다. */
+    @Test
+    @Transactional
+    void 여행_뒤에_열리는_축제는_코스에_안_들어간다() throws Exception {
+        FestivalPlace 축제 = 축제를("여행뒤축제", LocalDate.of(2026, 5, 4), LocalDate.of(2026, 5, 6));
+        사흘치_후보들();
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(사흘짜리()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> sights = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'SIGHT')].title");
+        assertFalse(sights.contains(축제.getName()),
+                "여행이 끝난 뒤 열리는 축제가 코스에 들어갔다 — 구간 계산이 하루 길다");
     }
 }
