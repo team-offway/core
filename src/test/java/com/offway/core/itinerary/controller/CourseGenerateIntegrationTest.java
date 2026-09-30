@@ -1832,6 +1832,8 @@ class CourseGenerateIntegrationTest {
         List<String> cafes = com.jayway.jsonpath.JsonPath.read(
                 response, "$.data.days[*].items[?(@.kind == 'CAFE')].title");
         assertFalse(cafes.isEmpty(), "축제가 붙자 카페 풀이 통째로 사라졌다");
+    }
+
     /** 3일 여행 요청 — 날짜는 transitBody 와 같은 2026-05-01 이다. */
     private static String 사흘짜리() {
         return """
