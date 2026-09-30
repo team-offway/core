@@ -49,12 +49,16 @@ class PolicyMatchIntegrationTest {
     private static final String METRO_SIGUNGU = "가평군";
 
     /**
-     * 두 정책 기간이 <b>겹치는</b> 날짜. 반값여행 4/1~11/30 과 숙박세일페스타 6/11~8/31 의 교집합이다.
+     * 두 정책 기간이 <b>겹치는</b> 날짜. 반값여행 4/7~11/30 과 숙박세일페스타 <b>가을분 9/22~11/8</b> 의
+     * 교집합이다(#612).
      *
      * <p>한쪽 기간만 보고 잡으면 다른 정책이 기간 밖이라 비어 나오고, 지역 판정이 검증되지 않은 채
      * "안 붙는다" 만 통과한다.
+     *
+     * <p>예전에는 여름분(6/11~8/31)과의 교집합인 7/15 였다. 그 기간이 끝나 가을분으로 옮기면서 교집합도
+     * 옮겨졌다 — <b>두 정책의 기간이 바뀔 때 함께 따라가야 하는 값</b>이다.
      */
-    private static final LocalDate WITHIN_PERIOD = LocalDate.of(2026, 7, 15);
+    private static final LocalDate WITHIN_PERIOD = LocalDate.of(2026, 10, 15);
 
     @Autowired
     private PolicyService policyService;

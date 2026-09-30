@@ -92,13 +92,24 @@ class PolicySeedTest {
         assertTrue(voucher.isActiveOn(LocalDate.of(2026, 4, 7)), "첫날도 유효하다");
     }
 
+    /**
+     * 숙박세일페스타는 <b>가을분 기간</b>에서만 유효하다(#612).
+     *
+     * <p>같은 해에 여름분·가을분이 따로 열린다. 시드는 여름분(6/11~8/31)으로 들어갔고 그것이 8/31 에
+     * 끝나자 <b>사업은 계속 도는데 뱃지가 안 붙었다</b> — 보정 마이그레이션이 가을분으로 옮긴다.
+     *
+     * <p>여름분 마지막 날을 <b>무효로</b> 단언해 둔다. 그 한 줄이 이 회귀의 표식이다 — 기간을 되돌리면
+     * 여기가 먼저 깨진다.
+     */
     @Test
-    void 숙박세일페스타는_발급기간_안에서만_유효하다() {
+    void 숙박세일페스타는_가을분_기간에서만_유효하다() {
         Policy festa = seeded(STAY_FESTA_ID, PolicyType.STAY_FESTA);
 
-        assertTrue(festa.isActiveOn(LocalDate.of(2026, 8, 31)), "마지막 날도 유효하다");
-        assertFalse(festa.isActiveOn(LocalDate.of(2026, 9, 1)));
-        assertFalse(festa.isActiveOn(LocalDate.of(2026, 6, 10)));
+        assertTrue(festa.isActiveOn(LocalDate.of(2026, 9, 22)), "가을분 첫날");
+        assertTrue(festa.isActiveOn(LocalDate.of(2026, 11, 8)), "마지막 날도 유효하다");
+        assertFalse(festa.isActiveOn(LocalDate.of(2026, 9, 21)), "하루 전");
+        assertFalse(festa.isActiveOn(LocalDate.of(2026, 11, 9)), "하루 뒤");
+        assertFalse(festa.isActiveOn(LocalDate.of(2026, 8, 31)), "여름분 기간은 이미 끝났다");
     }
 
     @Test
