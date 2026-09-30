@@ -1,6 +1,7 @@
 package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.FestivalPlace;
+import com.offway.core.trip.domain.TravelWindow;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -21,6 +22,14 @@ public interface FestivalPlaceRepository {
      * 언제 여는지 모르는 축제는 코스에 못 올린다.
      */
     List<FestivalPlace> findOpenOn(long regionId, LocalDate date, int limit);
+
+    /**
+     * 여행 구간과 <b>하루라도 겹치는</b> 축제(#616).
+     *
+     * <p>{@link #findOpenOn} 의 자리를 대신한다. 하루만 보면 2박3일의 둘째·셋째 날 축제가 사라진다 —
+     * 여행 내내 열려야 하는 것이 아니고 하루라도 겹치면 갈 수 있다.
+     */
+    List<FestivalPlace> findOverlapping(long regionId, TravelWindow window, int limit);
 
     /**
      * 그날 이후에 열릴 축제 — <b>아직 시작하지 않은 것만</b>(#622).

@@ -1,6 +1,7 @@
 package com.offway.core.trip.repository;
 
 import com.offway.core.trip.domain.FestivalPlace;
+import com.offway.core.trip.domain.TravelWindow;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.LocalDate;
@@ -52,6 +53,13 @@ public class FestivalPlaceRepositoryImpl implements FestivalPlaceRepository {
     @Transactional(readOnly = true)
     public List<FestivalPlace> findOpenOn(long regionId, LocalDate date, int limit) {
         return festivalPlaceJpaRepository.findOpenOn(regionId, date, PageRequest.ofSize(limit));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<FestivalPlace> findOverlapping(long regionId, TravelWindow window, int limit) {
+        return festivalPlaceJpaRepository.findOverlapping(
+                regionId, window.start(), window.end(), PageRequest.ofSize(limit));
     }
 
     @Override

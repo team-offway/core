@@ -1,5 +1,6 @@
 package com.offway.core.trip.service;
 
+import com.offway.core.trip.domain.TravelWindow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -166,7 +167,7 @@ class FestivalPoolIntegrationTest {
         // TourAPI 가 볼거리 15개만 준다 — 보충 문턱(18)에 못 미친다.
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지(15), 15));
 
-        RegionPois pois = regionPoiService.collect(region.getId(), DURING);
+        RegionPois pois = regionPoiService.collect(region.getId(), TravelWindow.of(DURING, 1));
 
         List<String> ids = pois.sights().stream().map(PoiCandidate::contentId).toList();
         assertTrue(ids.stream().anyMatch(id -> id.startsWith("FST-")), "축제가 들어가야 한다: " + ids);
@@ -184,7 +185,7 @@ class FestivalPoolIntegrationTest {
         refreshService.refresh(FIRST_RUN);
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(관광지(15), 15));
 
-        RegionPois pois = regionPoiService.collect(region.getId(), DURING);
+        RegionPois pois = regionPoiService.collect(region.getId(), TravelWindow.of(DURING, 1));
 
         assertTrue(pois.sights().get(0).contentId().startsWith("FST-"),
                 "축제가 맨 앞이 아니면 첫 생성에서 씨앗이 되지 못한다");
@@ -240,7 +241,7 @@ class FestivalPoolIntegrationTest {
                 36.52, 128.72, "http://img/f.jpg", null, null));
         ((StubTourApiClient) tourApiClient).respond(() -> new TourPoiResult(withFestival, withFestival.size()));
 
-        RegionPois pois = regionPoiService.collect(region.getId(), DURING);
+        RegionPois pois = regionPoiService.collect(region.getId(), TravelWindow.of(DURING, 1));
 
         assertTrue(pois.sights().stream().anyMatch(c -> "C-FESTIVAL".equals(c.contentId())),
                 "기간을 모르는 축제까지 빼면 후보가 근거 없이 준다");

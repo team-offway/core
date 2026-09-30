@@ -21,6 +21,7 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import com.offway.core.trip.domain.FestivalPeriod;
 import com.offway.core.trip.domain.PoiContentType;
+import com.offway.core.trip.domain.TravelWindow;
 import com.offway.core.trip.repository.FestivalPeriodRepository;
 import java.time.LocalDate;
 import com.offway.core.trip.service.dto.PoiCandidate;
@@ -174,7 +175,7 @@ public class RegionPoiService {
      * <p><b>여행일을 받는 이유</b>(#388) — 볼거리 풀에는 축제(타입 15)가 섞여 있는데, 그날 안 하는 축제는
      * 갈 수 없는 곳이다. 날짜를 인자로 둬서 <b>호출자가 "언제 가는 코스인가" 에 답하게</b> 한다.
      */
-    public RegionPois collect(long regionId, LocalDate travelDate) {
+    public RegionPois collect(long regionId, TravelWindow window) {
         Region region = regionQuery.byId(regionId).orElse(null);
         if (region == null) {
             log.debug("코스 POI 수집 — 없는 지역 regionId={}", regionId);
@@ -193,7 +194,7 @@ public class RegionPoiService {
         Map<Integer, List<PoiCandidate>> byScope = candidatesInParallel(region);
         List<PoiCandidate> allTypes = byScope.getOrDefault(ALL_TYPES_SCOPE, List.of());
         List<PoiCandidate> sights =
-                withoutClosedFestivals(allTypes.stream().filter(c -> isSight(c)).toList(), travelDate);
+                withoutClosedFestivals(allTypes.stream().filter(c -> isSight(c)).toList(), window);
         // **카페를 끼니에서 갈라낸다**(#522). 음식점 대분류(FD)에 카페(FD05)가 섞여 있어 그대로 두면
         // 카페가 점심 자리에 뽑힌다 — 실제로 태안 1일차 점심이 카페였다.
         List<PoiCandidate> allFood = merge(
@@ -224,7 +225,7 @@ public class RegionPoiService {
         // 부풀려 보충을 막는 것이 문제였고, 야영장은 그 반대로 **보충이 애초에 안 도는 것**이 문제다.
         // MIN_STAYS 가 2 라 지역당 평균 12건인 숙박 풀에서는 needsMoreStays() 가 거의 참이 아니고,
         // 인허가와 같은 자리에 넣으면 야영장이 한 건도 안 쓰인다.
-        return withOpenFestivals(withCampsites(filled, regionId), regionId, travelDate);
+        return withOpenFestivals(withCampsites(filled, regionId), regionId, window);
     }
 
     /**
@@ -384,7 +385,7 @@ public class RegionPoiService {
      * <p>후보마다 물으면 요청 경로에서 질의가 후보 수만큼 돈다. 축제인 후보의 id 를 모아 <b>한 번에</b>
      * 읽는다 — 축제가 하나도 없으면 질의 자체가 없다.
      */
-    private List<PoiCandidate> withoutClosedFestivals(List<PoiCandidate> sights, LocalDate travelDate) {
+    private List<PoiCandidate> withoutClosedFestivals(List<PoiCandidate> sights, TravelWindow window) {
         List<String> festivalIds = sights.stream()
                 .filter(candidate -> candidate.contentTypeId() == FESTIVAL_TYPE)
                 .map(PoiCandidate::contentId)
@@ -395,8 +396,11 @@ public class RegionPoiService {
         }
 
         Map<String, FestivalPeriod> periods = festivalPeriodRepository.findByContentIds(festivalIds);
+        // **기간을 후보에 실어 준다**(#616). 거르는 것만으로는 부족하다 — 어느 날에 놓을지 정할 때
+        // 그 축제가 그날 열리는지를 봐야 하고, 그때 다시 조회하면 후보마다 질의가 나간다.
         List<PoiCandidate> open = sights.stream()
-                .filter(candidate -> isOpenOrUnknown(candidate, periods, travelDate))
+                .filter(candidate -> overlapsOrUnknown(candidate, periods, window))
+                .map(candidate -> withPeriod(candidate, periods))
                 .toList();
 
         int dropped = sights.size() - open.size();
@@ -406,7 +410,7 @@ public class RegionPoiService {
             // **여행일은 안 남긴다.** 사용자가 보낸 값이고, 추적 id·사용자 식별자가 같은 줄에 찍히므로
             // 로그를 읽는 사람이 "이 사람이 언제 집을 비우는지" 를 알게 된다. 여기서 필요한 것은
             // 무엇이 줄었나이지 언제 가느냐가 아니다(로깅 규약).
-            log.info("그날 안 하는 축제를 뺐습니다 축제후보={} 제외={}건", festivalIds.size(), dropped);
+            log.info("여행 기간에 안 하는 축제를 뺐습니다 축제후보={} 제외={}건", festivalIds.size(), dropped);
         }
         return open;
     }
@@ -441,11 +445,13 @@ public class RegionPoiService {
      * <p>좌표까지 보지 않는다. 축제명은 고유성이 높고("안동국제탈춤페스티벌"), 좌표는 출처마다 정밀도가
      * 달라 같은 축제를 둘로 세기 쉽다.
      */
-    private RegionPois withOpenFestivals(RegionPois pois, long regionId, LocalDate travelDate) {
-        if (travelDate == null) {
+    private RegionPois withOpenFestivals(RegionPois pois, long regionId, TravelWindow window) {
+        if (window == null) {
             return pois;
         }
-        List<FestivalPlace> open = festivalPlaceRepository.findOpenOn(regionId, travelDate, OPEN_FESTIVAL_LIMIT);
+        // **하루가 아니라 구간으로 묻는다**(#616). 첫날로만 걸러 2·3일차 축제가 사라지고 있었다.
+        List<FestivalPlace> open =
+                festivalPlaceRepository.findOverlapping(regionId, window, OPEN_FESTIVAL_LIMIT);
         if (open.isEmpty()) {
             return pois;
         }
@@ -465,7 +471,7 @@ public class RegionPoiService {
 
         // 무엇이 늘었는지 남긴다 — 축제가 코스에 들어간 이유를 나중에 설명할 수 있어야 한다.
         // **여행일은 안 남긴다**(로깅 규약) — 사용자가 언제 집을 비우는지가 로그에 남는다.
-        log.info("그날 열리는 축제를 볼거리에 올렸습니다 regionId={} 축제={}건 볼거리={}→{}",
+        log.info("여행 기간에 열리는 축제를 볼거리에 올렸습니다 regionId={} 축제={}건 볼거리={}→{}",
                 regionId, added.size(), pois.sights().size(), pois.sights().size() + added.size());
         // **풀 조립은 도메인이 한다**(#619). 예전에는 여기서 빌더로 네 칸을 다시 나열했는데, cafes 를
         // 빠뜨려 축제가 붙는 코스마다 카페 풀이 통째로 비었다 — 네 칸이 같은 타입이라 컴파일이 통과한다.
@@ -556,30 +562,64 @@ public class RegionPoiService {
                 // 표준데이터는 사진을 주지 않는다. 캐치프레이즈·대분류도 TourAPI 콘텐츠 것이다.
                 .address(festival.getAddress())
                 .tel(festival.getTel())
+                // 기간을 함께 싣는다(#616) — 어느 날에 놓을지 정할 때 다시 조회하지 않게.
+                .eventStart(festival.getEventStart())
+                .eventEnd(festival.getEventEnd())
                 .build();
     }
 
     /**
-     * 축제가 아니거나, 기간을 모르거나, 그날 열리면 남긴다.
+     * 축제가 아니거나, 기간을 모르거나, <b>여행 기간과 하루라도 겹치면</b> 남긴다(#616).
      *
-     * <p><b>여행일을 모르면 축제를 뺀다.</b> 언제 가는지 모르면 그날 여는지도 가릴 수 없어, 남기면
-     * 끝난 축제를 코스에 올리게 된다 — #390 이 막으려던 그 일이다. 게다가 기간을 아는 축제는
-     * {@code isOpenOn(null)} 에서 터진다.
+     * <p>예전에는 첫날 하루만 봤다. 그래서 2박3일인데 둘째·셋째 날에만 열리는 축제가 통째로 빠졌다 —
+     * 여행 내내 열려야 하는 것이 아니고 하루라도 겹치면 갈 수 있는 축제다.
+     *
+     * <p><b>여행일을 모르면 축제를 뺀다.</b> 언제 가는지 모르면 여는지도 가릴 수 없어, 남기면 끝난
+     * 축제를 코스에 올리게 된다 — #390 이 막으려던 그 일이다.
      *
      * <p>지금은 요청 DTO 가 여행일을 {@code @NotNull} 로 받아 정상 요청으로는 여기에 null 이 안 온다.
      * 그래도 막아 두는 것은 표준데이터 축제 쪽({@code withOpenFestivals})이 같은 가드를 갖고 있어서다 —
      * 한쪽만 있으면 나중에 이 경로가 열렸을 때 두 출처가 다르게 동작한다.
      */
-    private static boolean isOpenOrUnknown(
-            PoiCandidate candidate, Map<String, FestivalPeriod> periods, LocalDate travelDate) {
+    private static boolean overlapsOrUnknown(
+            PoiCandidate candidate, Map<String, FestivalPeriod> periods, TravelWindow window) {
         if (candidate.contentTypeId() != FESTIVAL_TYPE) {
             return true;
         }
-        if (travelDate == null) {
+        if (window == null) {
             return false;
         }
         FestivalPeriod period = periods.get(candidate.contentId());
-        return period == null || period.isOpenOn(travelDate);
+        if (period == null) {
+            // 기간을 모르는 축제 — 없는 것과 모르는 것은 다르다. 남기되 날에 못 박지 않는다.
+            return true;
+        }
+        return window.overlaps(period.getEventStart(), period.getEventEnd());
+    }
+
+    /**
+     * TourAPI 축제 후보에 기간을 실어 준다(#616).
+     *
+     * <p>거르는 것만으로는 부족하다. 여행 구간과 겹치는 축제를 후보로 올렸어도 <b>어느 날에 놓을지</b>는
+     * 그 축제가 그날 열리는지를 봐야 정해진다 — 첫날만 하는 축제를 셋째 날 칸에 넣으면 사용자가 문 닫힌
+     * 곳에 간다.
+     *
+     * <p>조회 시점에 이미 손에 있는 값이라 옮겨 싣기만 한다. 배치할 때 다시 물으면 후보마다 질의가 나간다.
+     *
+     * <p>기간을 모르는 축제는 그대로 둔다 — 날짜 칸이 비어 있으면 {@code PoiCandidate.isOpenOn} 이
+     * 참을 돌려주어 아무 날에나 놓인다. 모르는 것을 못 가게 만들지는 않는다.
+     */
+    private static PoiCandidate withPeriod(PoiCandidate candidate, Map<String, FestivalPeriod> periods) {
+        FestivalPeriod period = periods.get(candidate.contentId());
+        if (period == null) {
+            return candidate;
+        }
+        // **toBuilder 로 바꾼다.** 칸을 손으로 옮기면 PoiCandidate 에 칸이 늘 때마다 여기가 조용히
+        // 낡는다 — #619 에서 카페 풀이 정확히 그렇게 사라졌다.
+        return candidate.toBuilder()
+                .eventStart(period.getEventStart())
+                .eventEnd(period.getEventEnd())
+                .build();
     }
 
     /**
