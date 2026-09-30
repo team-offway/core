@@ -372,6 +372,8 @@ jobs:
       - name: 기동 확인 · 스모크 · 실패 시 롤백
         id: smoke
         shell: bash
+        env:
+          SMOKE_PASSWORD: ${{ secrets.OFFWAY_SMOKE_PASSWORD }}
         run: |
           # **pipefail 을 반드시 켠다.** 아래에서 원격 출력을 tee 로 갈라 파일에도 남기는데, pipefail 이
           # 없으면 파이프라인 종료코드가 tee 의 0 이 되어 **배포 실패가 성공으로 둔갑한다.** Actions 의
@@ -385,11 +387,14 @@ jobs:
           # env.prod 에서 읽으면 그 줄만 잘라오므로 개행이 섞이지 않고, 서버가 실제로 쓰는 값과도 어긋나지 않는다.
           # 원격 출력을 파일로도 갈라 둔다 — 알림 스텝이 "왜 실패했나"(롤백됐는지, 서비스가 살아 있는지)를
           # 이 로그의 표식으로 가른다. 화면 출력은 tee 라 그대로 남는다.
-          ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
-            'bash -s' -- "${{ secrets.OFFWAY_SMOKE_PASSWORD }}" <<'REMOTE' 2>&1 | tee "$RUNNER_TEMP/deploy-remote.log"
+          #
+          # **비밀번호는 SSH 인자가 아니라 stdin 으로 보낸다.** 인자는 원격 셸이 한 번 더 해석해 공백·$·
+          # 따옴표가 든 값이 잘리고 — 멀쩡한 앱이 401 로 실패해 **거짓 롤백**이 난다 — 원격 `ps` 에도
+          # 보인다. 개행을 걷어낸 값을 printf %q 로 인용해 스크립트 첫 줄로 붙인다(#580 의 migrate 와 같다).
+          {
+            printf 'SMOKE_PASS=%q\n' "$(printf '%s' "$SMOKE_PASSWORD" | tr -d '\r\n')"
+            cat <<'REMOTE'
           set -uo pipefail
-          # 비밀번호도 같은 이유로 개행을 걷어낸다.
-          SMOKE_PASS=$(printf '%s' "$1" | tr -d '\r\n')
           cd ~/offway
           # tr 로 개행·캐리지리턴을 걷어낸다. 시크릿을 파일에 쓸 때 끝에 붙었을 수 있다.
           SMOKE_USER=$(grep '^OFFWAY_BASIC_USERNAME=' env.prod | cut -d= -f2- | tr -d '\r\n')
@@ -485,6 +490,8 @@ jobs:
 
           echo "배포 성공 — 기동·스모크 모두 통과"
           REMOTE
+          } | ssh -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" 'bash -s' 2>&1 \
+            | tee "$RUNNER_TEMP/deploy-remote.log"
 
       # 지금 서비스가 실제로 떠 있는지 한 번 찔러 둔다(#295).
       #
