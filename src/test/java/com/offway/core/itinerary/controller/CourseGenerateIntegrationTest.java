@@ -1769,4 +1769,68 @@ class CourseGenerateIntegrationTest {
 
         assertTrue(suggested.isEmpty(), "축제가 없는데 제안이 떴다: " + suggested);
     }
+
+    /**
+     * <b>축제가 붙어도 카페는 그대로 있어야 한다</b>(#619).
+     *
+     * <p>축제를 볼거리 풀에 올리는 자리가 풀을 <b>다시 조립</b>했는데, 네 칸 중 카페를 빠뜨렸다. 네 칸이
+     * 전부 {@code List<PoiCandidate>} 라 컴파일이 통과하고, 받는 쪽도 카페만 null 을 관대하게 받아
+     * 빈 리스트가 됐다 — <b>예외 없이 조용히 사라졌다</b>.
+     *
+     * <h2>왜 이 테스트가 없었나</h2>
+     *
+     * <p>카페 테스트는 축제 없는 지역에서 돌고, 축제 테스트는 카페를 단언하지 않았다. 둘 다 초록인데
+     * <b>교차점이 비어 있었다.</b> 운영 실측(2026-09-29)에서 축제가 든 코스는 76개 중 1건이었고, 그
+     * 한 건의 카페가 0칸이었다.
+     *
+     * <p>그래서 이 테스트는 <b>둘을 한 시나리오에 둔다</b> — 축제가 실제로 코스에 올라갔음을 먼저
+     * 확인하고(안 올라갔으면 카페가 남은 것이 증거가 되지 않는다), 그 상태에서 카페를 단언한다.
+     */
+    @Test
+    @Transactional
+    void 축제가_코스에_올라가도_카페는_남는다() throws Exception {
+        // 여행일(2026-05-01)에 열리는 축제를 볼거리 한복판에 둔다.
+        String 축제명 = "그날열리는동네축제";
+        festivalPlaceRepository.upsertAll(List.of(FestivalPlace.builder()
+                .regionId(REGION)
+                .name(축제명)
+                .address("부산광역시 동구 축제로 1")
+                .lat(35.105).lng(129.033)
+                .eventStart(LocalDate.of(2026, 4, 28))
+                .eventEnd(LocalDate.of(2026, 5, 5))
+                .fetchedAt(LocalDateTime.of(2026, 4, 1, 0, 0))
+                .build()));
+
+        tourApiClient.respond(() -> {
+            List<TourPoi> items = new ArrayList<>();
+            for (int i = 0; i < 6; i++) {
+                items.add(poi("s" + i, 12, 35.10 + i * 0.01, 129.03 + i * 0.01));
+            }
+            // 카페 후보는 TourAPI 쪽으로 준다 — 이 테스트가 보려는 것은 카페를 어떻게 고르냐가 아니라
+            // 축제가 붙은 뒤에도 카페 풀이 살아 있냐다.
+            items.add(cafePoi("c0", "살아있어야하는카페", 35.100, 129.030));
+            items.add(cafePoi("c1", "살아있어야하는카페2", 35.101, 129.031));
+            items.add(poi("f0", 39, 35.12, 129.04));
+            items.add(poi("f1", 39, 35.13, 129.05));
+            items.add(poi("st0", 32, 35.11, 129.03));
+            return new TourPoiResult(items, items.size());
+        });
+        trainArrives(arrivingAt(8, 30));
+
+        String response = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content(transitBody("CAR")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // ① 축제가 실제로 올라갔나 — 이게 아니면 아래 단언이 아무것도 증명하지 않는다(negative control).
+        List<String> sights = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'SIGHT')].title");
+        assertTrue(sights.contains(축제명),
+                "축제가 코스에 안 올라가 이 테스트가 카페 회귀를 못 지킨다: " + sights);
+
+        // ② 그 상태에서 카페가 남아 있나 — 버그 재현 시 여기가 빈 리스트였다.
+        List<String> cafes = com.jayway.jsonpath.JsonPath.read(
+                response, "$.data.days[*].items[?(@.kind == 'CAFE')].title");
+        assertFalse(cafes.isEmpty(), "축제가 붙자 카페 풀이 통째로 사라졌다");
+    }
 }

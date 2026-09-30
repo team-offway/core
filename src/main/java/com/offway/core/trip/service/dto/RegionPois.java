@@ -3,6 +3,7 @@ package com.offway.core.trip.service.dto;
 import com.offway.core.trip.domain.SamePlace;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 import lombok.Builder;
 
 /**
@@ -43,7 +44,7 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods,
     public RegionPois {
         sights = List.copyOf(distinct(sights));
         foods = List.copyOf(distinct(foods));
-        cafes = cafes == null ? List.of() : List.copyOf(distinct(cafes));
+        cafes = List.copyOf(distinct(cafes));
         stays = List.copyOf(distinct(stays));
     }
 
@@ -108,6 +109,39 @@ public record RegionPois(List<PoiCandidate> sights, List<PoiCandidate> foods,
             return this;
         }
         return RegionPois.builder().sights(sights).foods(foods).cafes(cafes).stays(dedupe(stays, extra)).build();
+    }
+
+    /**
+     * 볼거리 풀 <b>앞에</b> 후보를 더한다(#619) — 축제가 쓰는 자리.
+     *
+     * <h2>왜 뒤가 아니라 앞인가</h2>
+     *
+     * <p>{@link #withMoreStays} 와 방향이 반대다. 그쪽은 선택지를 넓히는 것이 목적이라 뒤에 붙이는데,
+     * 축제는 <b>그날 그 지역에서 실제로 벌어지는 일</b>이라 먼저 고려돼야 한다. 뒤에 붙이면 볼거리
+     * 아흔 개 끝에 놓여 사실상 안 뽑힌다.
+     *
+     * <h2>왜 이 메서드가 있어야 하나</h2>
+     *
+     * <p>호출부가 {@code RegionPois.builder()} 로 풀을 다시 조립하면 <b>칸을 빠뜨릴 수 있다.</b>
+     * 실제로 그랬다 — 축제를 붙이는 자리에서 {@code cafes} 를 안 넘겨, 축제가 붙는 코스마다 카페 풀이
+     * 통째로 비었다(#619). 네 칸이 전부 같은 타입이라 컴파일러가 잡아 주지 않는다.
+     *
+     * <p>그래서 조립 규칙을 이 클래스가 소유한다. 호출부는 "무엇을 더하는지" 만 말하고, 나머지 칸이
+     * 그대로 실려 가는 것은 여기가 보장한다. {@link #withMoreStays} 가 같은 이유로 이미 그 모양이었고,
+     * 축제만 그 선례를 벗어나 있었다.
+     *
+     * @param extra 앞에 둘 후보. 비어 있으면 그대로 돌려준다
+     */
+    public RegionPois withPrioritySights(List<PoiCandidate> extra) {
+        if (extra.isEmpty()) {
+            return this;
+        }
+        return RegionPois.builder()
+                .sights(Stream.concat(extra.stream(), sights.stream()).toList())
+                .foods(foods)
+                .cafes(cafes)
+                .stays(stays)
+                .build();
     }
 
     private static List<PoiCandidate> merge(List<PoiCandidate> base, List<PoiCandidate> extra, int minimum) {
