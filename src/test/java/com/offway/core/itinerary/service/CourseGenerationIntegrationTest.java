@@ -93,9 +93,12 @@ class CourseGenerationIntegrationTest {
      * 혜택이 실제로 매칭되는 고정 날짜 — 매칭 결과가 실행일에 흔들리지 않게.
      *
      * <p>이 코스의 지역은 부산 동구(시드 id 1)다. <b>반값여행 대상 16곳이 아니므로</b> 그 정책 기간을 고른다고
-     * 혜택이 붙지 않는다(#217). 동구는 비수도권이라 숙박세일페스타(6/11~8/31) 대상이고, 그 기간 안의 날짜를 쓴다.
+     * 혜택이 붙지 않는다(#217). 동구는 비수도권이라 숙박세일페스타 대상이고, 그 기간 안의 날짜를 쓴다.
+     *
+     * <p>기간이 <b>가을분(9/22~11/8)</b> 으로 옮겨져 이 날짜도 함께 옮겼다(#612). 같은 해에 여름분·가을분이
+     * 따로 열리는데 시드가 여름분에 굳어 있어, 사업이 도는데도 뱃지가 안 붙던 자리다.
      */
-    private static final LocalDate TRAVEL_DATE = LocalDate.of(2026, 7, 15);
+    private static final LocalDate TRAVEL_DATE = LocalDate.of(2026, 10, 15);
 
     private static GenerateCourse command(int travelDays, Density density) {
         return GenerateCourse.builder()

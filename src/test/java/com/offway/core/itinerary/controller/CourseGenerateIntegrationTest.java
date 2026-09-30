@@ -224,10 +224,13 @@ class CourseGenerateIntegrationTest {
         tourApiClient.respond(CourseGenerateIntegrationTest::richPois);
 
         // 부산 동구(시드 id 1)는 비수도권이라 숙박세일페스타 대상이지만 반값여행 16곳은 아니다.
-        // 날짜도 그 정책 기간(6/11~8/31) 안이어야 혜택이 붙는다 — 5/1 은 발급 시작 전이라 빈다(#217).
+        // 날짜도 그 정책 기간(가을분 9/22~11/8) 안이어야 혜택이 붙는다 — 5/1 은 발급 전이라 빈다(#217).
+        //
+        // 여름분(6/11~8/31)이 끝나 가을분으로 옮겼다(#612). 기간을 박아 둔 탓에 사업이 도는데도
+        // 뱃지가 안 붙던 자리라, 이 날짜도 함께 따라가야 한다.
         String body = """
                 { "regionId": 1, "travelDays": 2, "density": "PACKED", "transport": "CAR",
-                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-07-15" }""";
+                  "originLat": 35.10, "originLng": 129.03, "travelDate": "2026-10-15" }""";
 
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
