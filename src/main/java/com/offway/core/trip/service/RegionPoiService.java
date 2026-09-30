@@ -467,11 +467,9 @@ public class RegionPoiService {
         // **여행일은 안 남긴다**(로깅 규약) — 사용자가 언제 집을 비우는지가 로그에 남는다.
         log.info("그날 열리는 축제를 볼거리에 올렸습니다 regionId={} 축제={}건 볼거리={}→{}",
                 regionId, added.size(), pois.sights().size(), pois.sights().size() + added.size());
-        return RegionPois.builder()
-                .sights(Stream.concat(added.stream(), pois.sights().stream()).toList())
-                .foods(pois.foods())
-                .stays(pois.stays())
-                .build();
+        // **풀 조립은 도메인이 한다**(#619). 예전에는 여기서 빌더로 네 칸을 다시 나열했는데, cafes 를
+        // 빠뜨려 축제가 붙는 코스마다 카페 풀이 통째로 비었다 — 네 칸이 같은 타입이라 컴파일이 통과한다.
+        return pois.withPrioritySights(added);
     }
 
     /**
