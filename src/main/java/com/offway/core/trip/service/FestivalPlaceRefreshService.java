@@ -83,14 +83,18 @@ public class FestivalPlaceRefreshService implements ManualBatch {
      * <table border="1">
      * <caption>노출 지연 상한</caption>
      * <tr><th>주기</th><th>최대 지연</th><th>월 콜 수</th></tr>
-     * <tr><td>월 1회 + 25일 가드</td><td>25일</td><td>14</td></tr>
-     * <tr><td>주 1회 (월)</td><td>7일</td><td>56</td></tr>
-     * <tr><td><b>주 2회 (월·목)</b></td><td><b>4일</b></td><td><b>122</b></td></tr>
+     * <tr><td>월 1회 + 25일 가드</td><td>25일</td><td>1</td></tr>
+     * <tr><td>주 1회 (월)</td><td>7일</td><td>약 4</td></tr>
+     * <tr><td><b>주 2회 (월·목)</b></td><td><b>4일</b></td><td><b>약 9</b></td></tr>
      * </table>
      *
-     * <p>월→목이 3일, 목→월이 4일이라 상한은 4일이다. 비용은 무의미한 수준이다 — 지역별이 아니라
-     * <b>페이지 수만큼</b>이라 회차당 14콜이고, 한도가 10,000/일이라 월 122콜은 <b>0.04%</b> 다.
-     * 여기서 주기를 더 올리는 것보다, <b>TourAPI 축제 242건을 후보로 쓰는 쪽</b>(#621)이 효과가 크다 —
+     * <p>월→목이 3일, 목→월이 4일이라 상한은 4일이다.
+     *
+     * <p><b>회차당 1콜이다.</b> 지역별로 부르지 않고 {@code perPage=10,000} 으로 전국을 한 번에 받는다
+     * ({@code FestivalStandardClientImpl}) — 페이지네이션도 재시도도 없어 {@code ExternalApiCallRecorder}
+     * 가 한 번 센다. 한도가 10,000/일이라 월 9콜은 <b>0.003%</b> 다. 주기를 올리는 값이 사실상 공짜다.
+     *
+     * <p>여기서 주기를 더 올리는 것보다, <b>TourAPI 축제 242건을 후보로 쓰는 쪽</b>(#621)이 효과가 크다 —
      * 10월 시작 기준으로 그쪽이 151건, 이쪽이 45건이다.
      *
      * <p><b>가드도 함께 내렸다.</b> {@link #RUN_INTERVAL} 이 25일로 남아 있으면 cron 을 아무리 조여도
@@ -125,7 +129,7 @@ public class FestivalPlaceRefreshService implements ManualBatch {
      * <p><b>이 값은 노출 지연 상한이 아니다.</b> 실행 간격은 cron 이 정하고(3~4일), 이 값은 그 실행을
      * 가드가 삼키지 않게 하는 여유일 뿐이다. 2일로 줄여도 축제가 2일 안에 보이지는 않는다.
      *
-     * <p>재배포가 이틀에 한 번을 넘으면 그만큼 다시 도는데, 회차당 14콜이고 한도가 10,000/일이라
+     * <p>재배포가 이틀에 한 번을 넘으면 그만큼 다시 도는데, 회차당 1콜이고 한도가 10,000/일이라
      * 무해하다. 가드의 본래 목적은 한도 보호이고, 이 배치는 애초에 한도를 거의 안 쓴다.
      */
     private static final Duration RUN_INTERVAL = Duration.ofDays(2);
