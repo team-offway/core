@@ -21,6 +21,7 @@ import com.offway.core.trip.infrastructure.tour.dto.TourPoi;
 import com.offway.core.trip.infrastructure.tour.dto.TourPoiResult;
 import com.offway.core.trip.domain.FestivalPeriod;
 import com.offway.core.trip.domain.PoiContentType;
+import com.offway.core.trip.domain.SameFestivalEdition;
 import com.offway.core.trip.domain.TravelWindow;
 import com.offway.core.trip.repository.FestivalPeriodRepository;
 import java.time.LocalDate;
@@ -461,10 +462,10 @@ public class RegionPoiService {
                 .map(candidate -> normalizedName(candidate.title()))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        List<PoiCandidate> added = open.stream()
+        List<PoiCandidate> added = foldSameEdition(open.stream()
                 .filter(festival -> !existingNames.contains(normalizedName(festival.getName())))
                 .map(RegionPoiService::toCandidate)
-                .toList();
+                .toList());
         if (added.isEmpty()) {
             return pois;
         }
@@ -595,6 +596,78 @@ public class RegionPoiService {
             return true;
         }
         return window.overlaps(period.getEventStart(), period.getEventEnd());
+    }
+
+    /**
+     * 같은 회차가 두 번 실린 것을 접는다(#622 후속).
+     *
+     * <h2>무엇이 중복인가</h2>
+     *
+     * <p>지자체가 날짜를 고쳐 다시 올리면 두 행이 남는다. 자연키가 <b>(지역·이름·시작일)</b> 이라
+     * 시작일이 바뀌면 같은 회차가 다른 키가 된다.
+     *
+     * <p>실측(2026-09-29)에서 한 건 있었다 — 같은 지역·같은 이름(바이트 단위 동일)·같은 종료일인데
+     * 시작일만 하루 다른 두 행이다.
+     *
+     * <p><b>연도별 회차는 중복이 아니다.</b> 원본이 과거 회차(2023~2025)를 함께 싣는데, 그것들은 각각
+     * 다른 회차다. 그래서 이름만 보지 않고 <b>기간이 겹치는지</b>를 함께 본다 — 회차가 다르면 기간이
+     * 겹치지 않는다.
+     *
+     * <h2>후보 단계에서 접는 이유</h2>
+     *
+     * <p>적재 때 접으면 원본이 말한 것을 우리가 지우는 셈이다. 어느 시작일이 맞는지 우리는 모르므로,
+     * DB 에는 온 대로 두고 쓰는 자리에서 고른다 — {@code RegionPois.distinct()} 가 같은 층에서 같은
+     * 일을 한다.
+     *
+     * <p><b>{@code SamePlace} 가 이것을 못 접는다.</b> 규칙과 그 근거는 {@link SameFestivalEdition} 이
+     * 소유한다.
+     *
+     * <h2>어느 기간을 쓰나 — 교집합</h2>
+     *
+     * <p><b>늦은 시작일, 이른 종료일</b>을 쓴다. 두 행이 함께 인정하는 기간만 남기는 것이다.
+     *
+     * <p>어느 쪽이 맞는지 우리는 모른다. 넓은 쪽을 쓰면 한쪽만 주장하는 날에 사용자를 보낼 수 있고,
+     * 그건 #616 이 막으려던 바로 그 일이다 — 문 닫힌 곳에 보내는 것보다 하루를 덜 매칭하는 것이 낫다.
+     */
+    private static List<PoiCandidate> foldSameEdition(List<PoiCandidate> festivals) {
+        List<PoiCandidate> folded = new ArrayList<>(festivals.size());
+        for (PoiCandidate candidate : festivals) {
+            int existing = indexOfSameEdition(folded, candidate);
+            if (existing < 0) {
+                folded.add(candidate);
+                continue;
+            }
+            folded.set(existing, narrowedTo(folded.get(existing), candidate));
+        }
+        if (folded.size() < festivals.size()) {
+            log.info("같은 회차로 올라온 축제를 접었습니다 {}건 → {}건", festivals.size(), folded.size());
+        }
+        return List.copyOf(folded);
+    }
+
+    /** 이미 담은 것 중 같은 회차가 있나 — 이름이 같고 기간이 겹치면 같은 회차다. */
+    private static int indexOfSameEdition(List<PoiCandidate> folded, PoiCandidate candidate) {
+        for (int i = 0; i < folded.size(); i++) {
+            if (isSameEdition(folded.get(i), candidate)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** 판정은 {@link SameFestivalEdition} 이 소유한다 — {@code SamePlace} 와 같은 층의 같은 종류 규칙이다. */
+    private static boolean isSameEdition(PoiCandidate a, PoiCandidate b) {
+        return SameFestivalEdition.is(
+                a.title(), a.eventStart(), a.eventEnd(),
+                b.title(), b.eventStart(), b.eventEnd());
+    }
+
+    /** 두 행이 함께 인정하는 기간만 남긴다 — 늦은 시작, 이른 종료. */
+    private static PoiCandidate narrowedTo(PoiCandidate kept, PoiCandidate other) {
+        return kept.toBuilder()
+                .eventStart(SameFestivalEdition.laterStart(kept.eventStart(), other.eventStart()))
+                .eventEnd(SameFestivalEdition.earlierEnd(kept.eventEnd(), other.eventEnd()))
+                .build();
     }
 
     /**
